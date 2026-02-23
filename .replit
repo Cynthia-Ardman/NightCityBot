@@ -21,5 +21,12 @@ localPort = 5000
 externalPort = 80
 
 [deployment]
-deploymentTarget = "cloudrun"
+deploymentTarget = "gce"
 run = ["sh", "-c", "python -m NightCityBot.bot"]
+ignorePorts = true
+
+[nix]
+packages = ["lsof"]
+
+[agent]
+expertMode = true
