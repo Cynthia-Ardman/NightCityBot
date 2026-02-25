@@ -211,6 +211,9 @@ class Admin(commands.Cog):
             (
                 "🔫 Wholesaler / Store Tools",
                 "\n".join([
+                    "`!wh_list` – list current wholesaler lots.",
+                    "`!store_inv [shop_name]` – view your store inventory (admins can inspect a mapped shop alias).",
+                    "`!wh_buy <lot_id> <qty>` / `!sell @buyer <lot_id> <qty> <total_price> [character:\"Name\"]` – wholesale purchase and player sale flow.",
                     "`!wh_setshop <shop_name> @owner` – bind a shop alias (shop1/shop2/shop3) to a specific owner account.",
                     "`!wh_shops` – list all shop alias mappings.",
                     "`!wh_restock [seed]` – regenerate weekly wholesaler stock from the configured sheet source.",
