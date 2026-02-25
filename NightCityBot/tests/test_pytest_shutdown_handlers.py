@@ -2,7 +2,7 @@ import asyncio
 import signal
 from unittest.mock import patch
 
-from NightCityBot.bot import register_shutdown, NightCityBot
+from NightCityBot.bot import register_shutdown, NightCityBot, keep_alive, run_flask
 
 class DummyBot(NightCityBot):
     def __init__(self):
@@ -25,3 +25,46 @@ def test_register_shutdown():
         handler = sig_patch.call_args_list[0].args[1]
         handler(signal.SIGTERM, None)
         create_task.assert_called()
+
+
+def test_run_flask_uses_port_env(monkeypatch):
+    captured = {}
+
+    def fake_run(*, host, port, debug, use_reloader):
+        captured.update({
+            "host": host,
+            "port": port,
+            "debug": debug,
+            "use_reloader": use_reloader,
+        })
+
+    monkeypatch.setenv("PORT", "8080")
+    monkeypatch.setattr("NightCityBot.bot.app.run", fake_run)
+
+    run_flask()
+
+    assert captured == {
+        "host": "0.0.0.0",
+        "port": 8080,
+        "debug": False,
+        "use_reloader": False,
+    }
+
+
+def test_keep_alive_respects_disable_flag(monkeypatch):
+    monkeypatch.setenv("DISABLE_KEEP_ALIVE", "true")
+
+    started = {"value": False}
+
+    class _Thread:
+        def __init__(self, target, daemon):
+            self.target = target
+            self.daemon = daemon
+
+        def start(self):
+            started["value"] = True
+
+    monkeypatch.setattr("NightCityBot.bot.Thread", _Thread)
+
+    assert keep_alive() is False
+    assert started["value"] is False

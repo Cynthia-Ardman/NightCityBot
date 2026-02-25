@@ -44,6 +44,26 @@ class WholesalerCog(commands.Cog):
         "qty_min_H": 1,
         "qty_max_H": 2,
     }
+    WEAPON_TYPES = (
+        "revolver",
+        "submachine_gun",
+        "shotgun",
+        "assault_rifle",
+        "light_machine_gun",
+        "heavy_machine_gun",
+        "precision_rifle",
+        "sniper_rifle",
+    )
+    WEAPON_TYPE_PATTERNS = {
+        "revolver": ("revolver",),
+        "submachine_gun": ("submachine gun", "submachine-gun", "smg"),
+        "shotgun": ("shotgun",),
+        "assault_rifle": ("assault rifle", "assault-rifle", "ar "),
+        "light_machine_gun": ("light machine gun", "light-machine-gun", "lmg"),
+        "heavy_machine_gun": ("heavy machine gun", "heavy-machine-gun", "hmg"),
+        "precision_rifle": ("precision rifle", "precision-rifle", "dmr"),
+        "sniper_rifle": ("sniper rifle", "sniper-rifle", "sniper"),
+    }
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -95,6 +115,14 @@ class WholesalerCog(commands.Cog):
         for category in ("power", "tech", "smart"):
             if category in text:
                 return category.title()
+        return None
+
+    @classmethod
+    def _derive_weapon_type(cls, gun_name: str, effectiveness_raw: str) -> Optional[str]:
+        haystack = f"{gun_name or ''} {effectiveness_raw or ''}".lower()
+        for weapon_type, patterns in cls.WEAPON_TYPE_PATTERNS.items():
+            if any(pattern in haystack for pattern in patterns):
+                return weapon_type
         return None
 
     @staticmethod
@@ -249,6 +277,7 @@ class WholesalerCog(commands.Cog):
                     "cyberware_needed": cyberware_needed,
                     "gun_level": WholesalerCog._derive_level(effectiveness_raw),
                     "gun_category": WholesalerCog._derive_category(effectiveness_raw),
+                    "weapon_type": WholesalerCog._derive_weapon_type(gun_name, effectiveness_raw),
                 }
             )
 
@@ -367,6 +396,12 @@ class WholesalerCog(commands.Cog):
 
         data["total_lots"] = max(1, data["total_lots"])
 
+        explicit_type_lots = state.get("settings", {}).get("restock_type_lots", {})
+        for weapon_type in self.WEAPON_TYPES:
+            for lvl in ("L", "M", "H"):
+                key = f"{weapon_type}_{lvl}"
+                data[key] = self._sanitize_non_negative_int(explicit_type_lots.get(key), 0)
+
         return data
 
     def _generate_restock_lots(
@@ -389,29 +424,63 @@ class WholesalerCog(commands.Cog):
         lots: list[dict[str, Any]] = []
         level_totals = {"L": 0, "M": 0, "H": 0}
 
-        for requested_level in ("L", "M", "H"):
-            target = cfg[f"lots_{requested_level}"]
-            pool = by_level[requested_level] if by_level[requested_level] else weighted
-            if not pool or target <= 0:
-                continue
+        explicit_keys = [f"{weapon_type}_{lvl}" for weapon_type in self.WEAPON_TYPES for lvl in ("L", "M", "H")]
+        has_explicit_mix = any(cfg.get(k, 0) > 0 for k in explicit_keys)
 
-            for _ in range(target):
-                gun = rng.choice(pool)
-                actual_level = str(gun.get("gun_level", requested_level))
-                if actual_level not in {"L", "M", "H"}:
-                    actual_level = requested_level
-                qty = rng.randint(cfg[f"qty_min_{actual_level}"], cfg[f"qty_max_{actual_level}"])
-                lots.append(
-                    {
-                        "lot_id": f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
-                        "gun_name": gun["gun_name"],
-                        "gun_level": actual_level,
-                        "unit_cost": int(gun["price_new"]),
-                        "qty_available": qty,
-                        "created_at": self._now_iso(),
-                    }
-                )
-                level_totals[actual_level] += qty
+        if has_explicit_mix:
+            for weapon_type in self.WEAPON_TYPES:
+                for requested_level in ("L", "M", "H"):
+                    target = int(cfg.get(f"{weapon_type}_{requested_level}", 0))
+                    if target <= 0:
+                        continue
+                    pool = [
+                        g for g in guns
+                        if g.get("weapon_type") == weapon_type and g.get("gun_level") == requested_level
+                    ]
+                    if not pool:
+                        pool = [g for g in by_level[requested_level] if g.get("weapon_type") == weapon_type]
+                    if not pool:
+                        continue
+
+                    for _ in range(target):
+                        gun = rng.choice(pool)
+                        qty = rng.randint(cfg[f"qty_min_{requested_level}"], cfg[f"qty_max_{requested_level}"])
+                        lots.append(
+                            {
+                                "lot_id": f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
+                                "gun_name": gun["gun_name"],
+                                "gun_level": requested_level,
+                                "unit_cost": int(gun["price_new"]),
+                                "qty_available": qty,
+                                "created_at": self._now_iso(),
+                            }
+                        )
+                        level_totals[requested_level] += qty
+        else:
+
+            for requested_level in ("L", "M", "H"):
+                target = cfg[f"lots_{requested_level}"]
+                pool = by_level[requested_level] if by_level[requested_level] else weighted
+                if not pool or target <= 0:
+                    continue
+
+                for _ in range(target):
+                    gun = rng.choice(pool)
+                    actual_level = str(gun.get("gun_level", requested_level))
+                    if actual_level not in {"L", "M", "H"}:
+                        actual_level = requested_level
+                    qty = rng.randint(cfg[f"qty_min_{actual_level}"], cfg[f"qty_max_{actual_level}"])
+                    lots.append(
+                        {
+                            "lot_id": f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
+                            "gun_name": gun["gun_name"],
+                            "gun_level": actual_level,
+                            "unit_cost": int(gun["price_new"]),
+                            "qty_available": qty,
+                            "created_at": self._now_iso(),
+                        }
+                    )
+                    level_totals[actual_level] += qty
 
         if len(lots) > cfg["total_lots"]:
             lots = rng.sample(lots, cfg["total_lots"])
@@ -856,6 +925,7 @@ class WholesalerCog(commands.Cog):
         """View or update weekly restock settings.
 
         Example: !wh_restock_settings lots_L 12
+        Type mix example: !wh_restock_settings revolver_L 3
         """
         if not await self._system_enabled(ctx):
             return
@@ -871,17 +941,23 @@ class WholesalerCog(commands.Cog):
             cfg = self._resolve_restock_settings(state)
 
             if key and value is not None:
-                if key not in self.DEFAULT_RESTOCK_SETTINGS:
+                type_keys = {f"{weapon_type}_{lvl}" for weapon_type in self.WEAPON_TYPES for lvl in ("L", "M", "H")}
+                if key not in self.DEFAULT_RESTOCK_SETTINGS and key not in type_keys:
                     await ctx.send(
                         "❌ Invalid key. Use one of: "
-                        + ", ".join(sorted(self.DEFAULT_RESTOCK_SETTINGS.keys()))
+                        + ", ".join(sorted(list(self.DEFAULT_RESTOCK_SETTINGS.keys()) + list(type_keys)))
                     )
                     return
-                if key in {"lots_L", "lots_M", "lots_H"}:
+                if key in type_keys:
                     cfg[key] = max(0, int(value))
+                    restock_type_lots = state.setdefault("settings", {}).setdefault("restock_type_lots", {})
+                    restock_type_lots[key] = cfg[key]
+                elif key in {"lots_L", "lots_M", "lots_H"}:
+                    cfg[key] = max(0, int(value))
+                    state.setdefault("settings", {}).setdefault("restock", {})[key] = cfg[key]
                 else:
                     cfg[key] = max(1, int(value))
-                state.setdefault("settings", {}).setdefault("restock", {}).update(cfg)
+                    state.setdefault("settings", {}).setdefault("restock", {})[key] = cfg[key]
                 await self._save_state(state)
                 await ctx.send(f"✅ Updated {key} to {cfg[key]}.")
                 return
@@ -889,6 +965,15 @@ class WholesalerCog(commands.Cog):
         lines = ["**Wholesaler Restock Settings**"]
         for k in sorted(self.DEFAULT_RESTOCK_SETTINGS.keys()):
             lines.append(f"`{k}` = {cfg[k]}")
+        lines.append("\n**Type + Size Lot Targets**")
+        lines.append("(set any value > 0 to use explicit type mix during restock)")
+        for weapon_type in self.WEAPON_TYPES:
+            pretty = weapon_type.replace("_", " ").title()
+            lines.append(
+                f"`{weapon_type}_L`={cfg[f'{weapon_type}_L']} | "
+                f"`{weapon_type}_M`={cfg[f'{weapon_type}_M']} | "
+                f"`{weapon_type}_H`={cfg[f'{weapon_type}_H']}  ({pretty})"
+            )
         await ctx.send("\n".join(lines))
 
     @commands.command(name="wh_setsheet")

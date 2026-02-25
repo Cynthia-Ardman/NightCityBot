@@ -250,3 +250,72 @@ def test_shop_display_name_normalizes_requested_shop_name():
     state = {"shop_registry": {"nova-arms": 100}}
 
     assert cog._shop_display_name(state, 200, "Nova Arms") == "nova-arms"
+
+
+def test_derive_weapon_type_from_text():
+    assert WholesalerCog._derive_weapon_type("Crusher", "Power Revolver (L)") == "revolver"
+    assert WholesalerCog._derive_weapon_type("M221 Saratoga", "SMG (M)") == "submachine_gun"
+
+
+def test_resolve_restock_settings_includes_type_mix():
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.DEFAULT_RESTOCK_SETTINGS = WholesalerCog.DEFAULT_RESTOCK_SETTINGS
+    cog.WEAPON_TYPES = WholesalerCog.WEAPON_TYPES
+
+    cfg = cog._resolve_restock_settings({"settings": {"restock_type_lots": {"revolver_L": 4}}})
+
+    assert cfg["revolver_L"] == 4
+    assert cfg["revolver_M"] == 0
+
+
+def test_generate_restock_lots_uses_explicit_type_mix():
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.WEAPON_TYPES = WholesalerCog.WEAPON_TYPES
+    guns = [
+        {"gun_name": "Nova", "gun_level": "L", "price_new": 100, "weapon_type": "revolver"},
+        {"gun_name": "Ajax", "gun_level": "L", "price_new": 150, "weapon_type": "assault_rifle"},
+    ]
+    cfg = {
+        "total_lots": 5,
+        "lots_L": 5,
+        "lots_M": 0,
+        "lots_H": 0,
+        "qty_min_L": 1,
+        "qty_max_L": 1,
+        "qty_min_M": 1,
+        "qty_max_M": 1,
+        "qty_min_H": 1,
+        "qty_max_H": 1,
+        "revolver_L": 2,
+        "revolver_M": 0,
+        "revolver_H": 0,
+        "submachine_gun_L": 0,
+        "submachine_gun_M": 0,
+        "submachine_gun_H": 0,
+        "shotgun_L": 0,
+        "shotgun_M": 0,
+        "shotgun_H": 0,
+        "assault_rifle_L": 0,
+        "assault_rifle_M": 0,
+        "assault_rifle_H": 0,
+        "light_machine_gun_L": 0,
+        "light_machine_gun_M": 0,
+        "light_machine_gun_H": 0,
+        "heavy_machine_gun_L": 0,
+        "heavy_machine_gun_M": 0,
+        "heavy_machine_gun_H": 0,
+        "precision_rifle_L": 0,
+        "precision_rifle_M": 0,
+        "precision_rifle_H": 0,
+        "sniper_rifle_L": 0,
+        "sniper_rifle_M": 0,
+        "sniper_rifle_H": 0,
+    }
+
+    import random
+
+    lots, totals = cog._generate_restock_lots(guns, cfg, random.Random(9))
+
+    assert len(lots) == 2
+    assert {lot["gun_name"] for lot in lots} == {"Nova"}
+    assert totals["L"] == 2
