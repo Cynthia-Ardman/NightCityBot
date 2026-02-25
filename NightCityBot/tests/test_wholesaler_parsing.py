@@ -131,6 +131,24 @@ def test_normalize_google_sheet_url_preserves_gid_from_fragment():
     assert out == "https://docs.google.com/spreadsheets/d/abc123/export?format=xlsx&gid=456"
 
 
+def test_normalize_google_sheet_url_handles_u_path_variant():
+    url = "https://docs.google.com/spreadsheets/u/0/d/abc123/edit?usp=sharing"
+    out = WholesalerCog._normalize_sheet_source_url(url)
+    assert out == "https://docs.google.com/spreadsheets/d/abc123/export?format=xlsx"
+
+
+def test_normalize_google_sheet_url_strips_discord_angle_brackets():
+    url = "<https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing>"
+    out = WholesalerCog._normalize_sheet_source_url(url)
+    assert out == "https://docs.google.com/spreadsheets/d/abc123/export?format=xlsx"
+
+
+def test_normalize_google_sheet_url_parses_gid_with_extra_fragment_args():
+    url = "https://docs.google.com/spreadsheets/d/abc123/edit#gid=456&range=A1"
+    out = WholesalerCog._normalize_sheet_source_url(url)
+    assert out == "https://docs.google.com/spreadsheets/d/abc123/export?format=xlsx&gid=456"
+
+
 def test_is_admin_allows_discord_administrator_permission():
     cog = WholesalerCog.__new__(WholesalerCog)
 

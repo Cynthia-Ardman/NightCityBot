@@ -96,13 +96,13 @@ async def verify_config(bot: discord.Client) -> None:
     # Ensure required config values are populated
     for field in REQUIRED_FIELDS:
         val = getattr(config, field, None)
-        logger.info("Checking value %s: %s", field, val)
+        logger.debug("Checking value %s: %s", field, val)
         if val in (None, "", 0):
             logger.warning("\u26a0\ufe0f Missing value for %s", field)
             issues = True
     for field in ROLE_ID_FIELDS:
         role_id = getattr(config, field, 0)
-        logger.info("Checking role %s: %s", field, role_id)
+        logger.debug("Checking role %s: %s", field, role_id)
         if role_id and guild.get_role(role_id) is None:
             logger.warning("\u26a0\ufe0f Missing role for %s: %s", field, role_id)
             issues = True
@@ -110,7 +110,7 @@ async def verify_config(bot: discord.Client) -> None:
     # Check that configured channels exist
     for field in CHANNEL_ID_FIELDS:
         ch_id = getattr(config, field, 0)
-        logger.info("Checking channel %s: %s", field, ch_id)
+        logger.debug("Checking channel %s: %s", field, ch_id)
         if ch_id and guild.get_channel(ch_id) is None:
             logger.warning("\u26a0\ufe0f Missing channel for %s: %s", field, ch_id)
             issues = True
@@ -126,7 +126,7 @@ async def verify_config(bot: discord.Client) -> None:
     ]
     me = guild.me
     for perm in required_perms:
-        logger.info("Checking permission: %s", perm)
+        logger.debug("Checking permission: %s", perm)
         if not getattr(me.guild_permissions, perm, False):
             logger.warning("\u26a0\ufe0f Bot missing permission: %s", perm)
             issues = True
@@ -177,4 +177,3 @@ async def perform_startup_checks(bot: discord.Client) -> None:
     if admin:
         await admin.log_audit(bot.user, "✅ Bot successfully started.")
     logger.info("\u2705 Bot successfully started and ready.")
-
