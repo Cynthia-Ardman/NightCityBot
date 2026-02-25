@@ -7,6 +7,8 @@ from pathlib import Path
 import json
 import aiofiles
 import logging
+import os
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -48,14 +50,21 @@ async def load_json_file(file_path: Path | str, default=None):
     return default if default is not None else {}
 
 async def save_json_file(file_path: Path | str, data):
-    """Safely save data to a JSON file."""
+    """Safely save data to a JSON file using an atomic replace."""
     path = Path(file_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
-        async with aiofiles.open(path, 'w') as f:
+        async with aiofiles.open(temp_path, 'w') as f:
             await f.write(json.dumps(data, indent=2))
+        os.replace(temp_path, path)
         return True
     except Exception as e:
         logger.exception("Error saving %s: %s", path.name, e)
+        try:
+            temp_path.unlink(missing_ok=True)
+        except Exception:
+            logger.exception("Failed cleaning temp file for %s", path.name)
         return False
 
 async def append_json_file(file_path: Path | str, item) -> bool:

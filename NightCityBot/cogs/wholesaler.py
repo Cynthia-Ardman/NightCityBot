@@ -10,7 +10,7 @@ from urllib.parse import urlparse, parse_qs
 
 import aiohttp
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from openpyxl import load_workbook
 
 import config
@@ -74,9 +74,23 @@ class WholesalerCog(commands.Cog):
         self.state_file = self.data_dir / "state.json"
         self.tx_file = self.data_dir / "transactions.json"
         self.lock = asyncio.Lock()
+        self.weekly_sunday_restock.start()
 
     def cog_unload(self):
+        self.weekly_sunday_restock.cancel()
         self.bot.loop.create_task(self.unbelievaboat.close())
+
+    @tasks.loop(hours=1)
+    async def weekly_sunday_restock(self) -> None:
+        """Automatically refresh wholesaler stock every Sunday (UTC)."""
+        now = datetime.now(timezone.utc)
+        if now.weekday() != 6:
+            return
+        await self._auto_restock_if_due(now, trigger="SCHEDULED")
+
+    @weekly_sunday_restock.before_loop
+    async def before_weekly_sunday_restock(self) -> None:
+        await self.bot.wait_until_ready()
 
     @staticmethod
     def _now_iso() -> str:
@@ -622,6 +636,9 @@ class WholesalerCog(commands.Cog):
             await self._save_state(state)
 
         await ctx.send(f"✅ `{normalized}` is now mapped to {owner.mention}.")
+        await self._audit_send(
+            f"[WHOLESALE_SET_SHOP] by={member.mention} shop={normalized} owner={owner.mention}"
+        )
 
     @commands.command(name="wh_shops")
     async def wh_shops(self, ctx: commands.Context):
@@ -910,6 +927,10 @@ class WholesalerCog(commands.Cog):
 
     async def auto_refresh_weekly_after_cyberware(self) -> bool:
         """Auto-restock once per week, called by cyberware weekly process."""
+        return await self._auto_restock_if_due(datetime.now(timezone.utc), trigger="CYBERWARE")
+
+    async def _auto_restock_if_due(self, now: datetime, trigger: str) -> bool:
+        """Run one weekly restock if we have not yet refreshed this Sunday."""
         control = self.bot.get_cog("SystemControl")
         if control and not control.is_enabled("wholesaler"):
             return False
@@ -922,11 +943,19 @@ class WholesalerCog(commands.Cog):
         if not guns:
             return False
 
+        sunday_key = now.strftime("%Y-%m-%d")
         async with self.lock:
             state = await self._load_state()
-            week_key = datetime.now(timezone.utc).strftime("%Y-W%U")
-            last_key = str(state.get("settings", {}).get("last_auto_restock_week", ""))
-            if last_key == week_key:
+            settings = state.setdefault("settings", {})
+            last_key = str(settings.get("last_auto_restock_sunday", ""))
+            if last_key == sunday_key:
+                return True
+
+            # Legacy key fallback to avoid duplicate restock in the same week.
+            legacy_week_key = now.strftime("%Y-W%U")
+            if str(settings.get("last_auto_restock_week", "")) == legacy_week_key:
+                settings["last_auto_restock_sunday"] = sunday_key
+                await self._save_state(state)
                 return True
 
             cfg = self._resolve_restock_settings(state)
@@ -934,10 +963,13 @@ class WholesalerCog(commands.Cog):
             lots, _level_totals = self._generate_restock_lots(guns, cfg, rng)
 
             state["wholesale_lots"] = lots
-            state.setdefault("settings", {})["last_auto_restock_week"] = week_key
+            settings["last_auto_restock_sunday"] = sunday_key
+            settings["last_auto_restock_week"] = legacy_week_key
             await self._save_state(state)
 
-        await self._audit_send(f"[WHOLESALE_AUTO_RESTOCK] lots={len(lots)} week={week_key}")
+        await self._audit_send(
+            f"[WHOLESALE_AUTO_RESTOCK] trigger={trigger} lots={len(lots)} sunday={sunday_key}"
+        )
         return True
 
     @commands.command(name="wh_restock_settings")
@@ -985,6 +1017,9 @@ class WholesalerCog(commands.Cog):
                     state.setdefault("settings", {}).setdefault("restock", {})[key] = cfg[key]
                 await self._save_state(state)
                 await ctx.send(f"✅ Updated {key} to {cfg[key]}.")
+                await self._audit_send(
+                    f"[WHOLESALE_RESTOCK_SETTINGS] by={member.mention} key={key} value={cfg[key]}"
+                )
                 return
 
         lines = ["**Wholesaler Restock Settings**"]
@@ -1136,6 +1171,9 @@ class WholesalerCog(commands.Cog):
         )
         await self._append_tx(tx)
         await ctx.send(f"✅ Added lot `{lot['lot_id']}`.")
+        await self._audit_send(
+            f"[WHOLESALE_ADMIN_ADD] by={member.mention} gun={gun_name} level={level} qty={qty} unit_cost={unit_cost} lot={lot['lot_id']}"
+        )
 
     @commands.command(name="store_add")
     async def store_add(
@@ -1192,6 +1230,9 @@ class WholesalerCog(commands.Cog):
         )
         await self._append_tx(tx)
         await ctx.send(f"✅ Added `{gun_name}` to {store_owner.mention} inventory (lot `{lot_id}`).")
+        await self._audit_send(
+            f"[STORE_ADMIN_ADD] by={member.mention} owner={store_owner.mention} gun={gun_name} level={level} qty={qty} unit_cost={unit_cost} lot={lot_id}"
+        )
 
     @commands.command(name="wh_tx")
     async def wh_tx(self, ctx: commands.Context, tx_id: str):
