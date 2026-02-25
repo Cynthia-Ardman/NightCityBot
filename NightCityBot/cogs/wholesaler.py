@@ -625,10 +625,10 @@ class WholesalerCog(commands.Cog):
         default_data_dir = Path(getattr(self, "data_dir", Path(self.state_file).parent))
         store_inventory_dir = Path(getattr(self, "store_inventory_dir", default_data_dir / "inventory" / "stores"))
 
+        # Keep a compatibility snapshot in the main state file so deployments
+        # that only persist `state.json` (and not the split inventory files)
+        # still retain stock across restarts.
         state_main = dict(state)
-        state_main.pop("stores", None)
-        state_main.pop("shop_registry", None)
-        state_main.pop("wholesale_lots", None)
 
         wholesale_payload = {
             "wholesale_lots": state.get("wholesale_lots", []),
@@ -676,12 +676,42 @@ class WholesalerCog(commands.Cog):
     async def _append_tx(self, tx: dict[str, Any]) -> bool:
         return await helpers.append_json_file(self.tx_file, tx)
 
+    @staticmethod
+    def _coerce_role_ids(value: Any) -> set[int]:
+        """Normalize role-id config values from int/list/CSV formats."""
+        if value is None:
+            return set()
+        if isinstance(value, (int, float)):
+            return {int(value)}
+        if isinstance(value, str):
+            parts = [part.strip() for part in value.split(",")]
+            return {
+                int(part)
+                for part in parts
+                if part and part.lstrip("-").isdigit()
+            }
+
+        role_ids: set[int] = set()
+        try:
+            iterator = iter(value)
+        except TypeError:
+            return set()
+
+        for item in iterator:
+            if isinstance(item, (int, float)):
+                role_ids.add(int(item))
+                continue
+            text = str(item).strip()
+            if text and text.lstrip("-").isdigit():
+                role_ids.add(int(text))
+        return role_ids
+
     def _is_admin(self, member: discord.Member) -> bool:
-        admin_role_ids = set(getattr(config, "WHOLESALER_ADMIN_ROLE_IDS", []))
+        admin_role_ids = self._coerce_role_ids(getattr(config, "WHOLESALER_ADMIN_ROLE_IDS", []))
         return bool(member.guild_permissions.administrator) or any(r.id in admin_role_ids for r in member.roles)
 
     def _is_store_owner(self, member: discord.Member) -> bool:
-        store_role_ids = set(getattr(config, "WHOLESALER_STORE_ROLE_IDS", []))
+        store_role_ids = self._coerce_role_ids(getattr(config, "WHOLESALER_STORE_ROLE_IDS", []))
         return any(r.id in store_role_ids for r in member.roles)
 
     async def _audit_send(self, text: str) -> None:

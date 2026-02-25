@@ -165,6 +165,40 @@ def test_is_admin_allows_discord_administrator_permission():
     assert cog._is_admin(_Member()) is True
 
 
+def test_store_owner_role_check_accepts_single_int_config(monkeypatch):
+    cog = WholesalerCog.__new__(WholesalerCog)
+
+    class _Perms:
+        administrator = False
+
+    class _Role:
+        id = 123
+
+    class _Member:
+        guild_permissions = _Perms()
+        roles = [_Role()]
+
+    monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 123)
+    assert cog._is_store_owner(_Member()) is True
+
+
+def test_store_owner_role_check_accepts_csv_string_config(monkeypatch):
+    cog = WholesalerCog.__new__(WholesalerCog)
+
+    class _Perms:
+        administrator = False
+
+    class _Role:
+        id = 456
+
+    class _Member:
+        guild_permissions = _Perms()
+        roles = [_Role()]
+
+    monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", "1, 456, 999")
+    assert cog._is_store_owner(_Member()) is True
+
+
 def test_resolve_sheet_path_accepts_url_in_legacy_xlsx_path(monkeypatch):
     import asyncio
 
@@ -414,9 +448,9 @@ def test_save_state_writes_wholesale_and_store_inventory_files(tmp_path: Path):
     wholesale = json.loads(wholesale_path.read_text(encoding="utf-8"))
     store_inventory = json.loads((store_dir / "g-1-123.json").read_text(encoding="utf-8"))
 
-    assert "stores" not in main
-    assert "shop_registry" not in main
-    assert "wholesale_lots" not in main
+    assert main["wholesale_lots"][0]["lot_id"] == "lot-1"
+    assert main["stores"]["g-1:123"]["lots"][0]["lot_id"] == "store-1"
+    assert main["shop_registry"]["test-shop"] == 123
     assert stores_index["shop_registry"]["test-shop"] == 123
     assert wholesale["wholesale_lots"][0]["lot_id"] == "lot-1"
     assert store_inventory["store_id"] == "g-1:123"
