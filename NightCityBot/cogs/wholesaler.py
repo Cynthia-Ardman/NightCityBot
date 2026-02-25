@@ -104,9 +104,17 @@ class WholesalerCog(commands.Cog):
 
 
     @staticmethod
+    def _clean_sheet_url_input(value: str) -> str:
+        """Normalize user-provided URL text from Discord messages."""
+        raw = (value or "").strip()
+        if raw.startswith("<") and raw.endswith(">"):
+            raw = raw[1:-1].strip()
+        return raw
+
+    @staticmethod
     def _normalize_sheet_source_url(value: str) -> str:
         """Normalize a Google Sheets URL to an XLSX export URL when possible."""
-        raw = (value or "").strip()
+        raw = WholesalerCog._clean_sheet_url_input(value)
         if not raw:
             return raw
         parsed = urlparse(raw)
@@ -118,14 +126,17 @@ class WholesalerCog(commands.Cog):
         if "/export" in parsed.path:
             return raw
 
-        match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", parsed.path)
+        match = re.search(r"/spreadsheets/(?:u/\d+/)?d/([a-zA-Z0-9-_]+)", parsed.path)
         if not match:
             return raw
 
         sheet_id = match.group(1)
         gid = parse_qs(parsed.query).get("gid", [None])[0]
-        if not gid and parsed.fragment.startswith("gid="):
-            gid = parsed.fragment.split("=", 1)[1]
+        if not gid and parsed.fragment:
+            frag_qs = parse_qs(parsed.fragment)
+            gid = frag_qs.get("gid", [None])[0]
+            if not gid and parsed.fragment.startswith("gid="):
+                gid = parsed.fragment.split("=", 1)[1].split("&", 1)[0]
 
         export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
         if gid:
@@ -827,7 +838,7 @@ class WholesalerCog(commands.Cog):
             await ctx.send("❌ Admin role required.")
             return
 
-        value = xlsx_export_url.strip()
+        value = self._clean_sheet_url_input(xlsx_export_url)
         async with self.lock:
             state = await self._load_state()
             settings = state.setdefault("settings", {})
@@ -837,7 +848,7 @@ class WholesalerCog(commands.Cog):
                 await ctx.send("✅ Runtime sheet URL cleared. Using config/default source.")
                 return
 
-            if not value.startswith("http"):
+            if not value.startswith(("http://", "https://")):
                 await ctx.send("❌ URL must start with http/https.")
                 return
 
