@@ -184,7 +184,7 @@ Commands:
 ### WholesalerCog
 *File: `NightCityBot/cogs/wholesaler.py`*
 
-Implements the two-tier gun supply chain with scarcity: corporate wholesaler lots are generated from the Master Gun List sheet, store owners buy those lots, then sell to players using UnbelievaBoat balance transfers. Store inventories and wholesaler lots are persisted on disk in `NightCityBot/data/wholesaler/state.json` so stock survives restarts. The wholesaler auto-refreshes weekly right after cyberware processing, and all sales produce immutable receipts in the wholesaler audit channel for manual staff spreadsheet updates.
+Implements the two-tier gun supply chain with scarcity: corporate wholesaler lots are generated from the Master Gun List sheet, store owners buy those lots, then sell to players using UnbelievaBoat balance transfers. Wholesaler state, transaction logs, sheet cache, wholesale lots, and per-store inventories are persisted under `NightCityBot/data/wholesaler/` so stock survives restarts. The wholesaler auto-refreshes weekly right after cyberware processing, and all sales produce immutable receipts in the wholesaler audit channel for manual staff spreadsheet updates.
 
 Main commands (separated by role):
 

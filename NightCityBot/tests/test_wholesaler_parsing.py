@@ -256,6 +256,24 @@ def test_extract_sheet_gid_from_query_and_fragment():
     assert WholesalerCog._extract_sheet_gid("https://docs.google.com/spreadsheets/d/abc123/edit#gid=654&range=A1") == "654"
 
 
+def test_resolve_data_path_defaults_to_wholesaler_data_dir(tmp_path: Path):
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.data_dir = tmp_path / "NightCityBot" / "data" / "wholesaler"
+
+    resolved = cog._resolve_data_path(None, "inventory/stores")
+
+    assert resolved == cog.data_dir / "inventory" / "stores"
+
+
+def test_resolve_data_path_treats_relative_config_as_data_dir_relative(tmp_path: Path):
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.data_dir = tmp_path / "NightCityBot" / "data" / "wholesaler"
+
+    resolved = cog._resolve_data_path("custom/transactions.json", "transactions.json")
+
+    assert resolved == cog.data_dir / "custom" / "transactions.json"
+
+
 def test_parse_master_sheet_falls_back_to_single_tab_when_name_missing(tmp_path: Path):
     wb = Workbook()
     ws = wb.active

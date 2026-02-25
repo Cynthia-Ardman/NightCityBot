@@ -70,42 +70,34 @@ class WholesalerCog(commands.Cog):
         self.unbelievaboat = UnbelievaBoatAPI(config.UNBELIEVABOAT_API_TOKEN)
 
         default_data_dir = Path(__file__).resolve().parents[1] / "data" / "wholesaler"
-        configured_state = getattr(config, "WHOLESALER_STATE_FILE", None)
-        if configured_state:
-            self.state_file = Path(configured_state)
-            self.data_dir = self.state_file.parent
-        else:
-            self.data_dir = default_data_dir
-            self.state_file = self.data_dir / "state.json"
+        configured_data_dir = getattr(config, "WHOLESALER_DATA_DIR", None)
+        self.data_dir = Path(configured_data_dir) if configured_data_dir else default_data_dir
+        self.state_file = self._resolve_data_path(
+            getattr(config, "WHOLESALER_STATE_FILE", None),
+            "state.json",
+        )
 
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
-        self.sheet_cache_path = Path(
-            getattr(
-                config,
-                "WHOLESALER_SHEET_CACHE_FILE",
-                str(self.data_dir / "master_sheet_latest.xlsx"),
-            )
+        self.sheet_cache_path = self._resolve_data_path(
+            getattr(config, "WHOLESALER_SHEET_CACHE_FILE", None),
+            "master_sheet_latest.xlsx",
         )
-        self.store_state_file = Path(
-            getattr(config, "WHOLESALER_STORE_STATE_FILE", str(self.state_file))
+        self.store_state_file = self._resolve_data_path(
+            getattr(config, "WHOLESALER_STORE_STATE_FILE", None),
+            "state.json",
         )
-        self.wholesale_inventory_file = Path(
-            getattr(
-                config,
-                "WHOLESALER_WHOLESALE_FILE",
-                str(self.data_dir / "inventory" / "wholesale.json"),
-            )
+        self.wholesale_inventory_file = self._resolve_data_path(
+            getattr(config, "WHOLESALER_WHOLESALE_FILE", None),
+            "inventory/wholesale.json",
         )
-        self.store_inventory_dir = Path(
-            getattr(
-                config,
-                "WHOLESALER_STORE_INVENTORY_DIR",
-                str(self.data_dir / "inventory" / "stores"),
-            )
+        self.store_inventory_dir = self._resolve_data_path(
+            getattr(config, "WHOLESALER_STORE_INVENTORY_DIR", None),
+            "inventory/stores",
         )
-        self.tx_file = Path(
-            getattr(config, "WHOLESALER_TX_FILE", str(self.data_dir / "transactions.json"))
+        self.tx_file = self._resolve_data_path(
+            getattr(config, "WHOLESALER_TX_FILE", None),
+            "transactions.json",
         )
 
         self._migrate_legacy_files(default_data_dir)
@@ -113,6 +105,15 @@ class WholesalerCog(commands.Cog):
         self.store_inventory_dir.mkdir(parents=True, exist_ok=True)
         self.lock = asyncio.Lock()
         self.weekly_sunday_restock.start()
+
+    def _resolve_data_path(self, configured_path: Any, default_relative: str) -> Path:
+        if configured_path is None:
+            return self.data_dir / default_relative
+
+        configured = Path(str(configured_path)).expanduser()
+        if configured.is_absolute():
+            return configured
+        return self.data_dir / configured
 
     def _migrate_legacy_files(self, legacy_dir: Path) -> None:
         """Copy old in-repo wholesaler files into configured persistent paths once."""
@@ -136,6 +137,28 @@ class WholesalerCog(commands.Cog):
                 logger.info("Migrated wholesaler data file %s -> %s", src, dst)
             except Exception:
                 logger.exception("Failed to migrate wholesaler data file %s -> %s", src, dst)
+
+        legacy_wholesale = legacy_dir / "inventory" / "wholesale.json"
+        if legacy_wholesale.exists() and not self.wholesale_inventory_file.exists():
+            self.wholesale_inventory_file.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                self.wholesale_inventory_file.write_bytes(legacy_wholesale.read_bytes())
+                logger.info("Migrated wholesaler inventory file %s -> %s", legacy_wholesale, self.wholesale_inventory_file)
+            except Exception:
+                logger.exception("Failed to migrate wholesaler inventory file %s -> %s", legacy_wholesale, self.wholesale_inventory_file)
+
+        legacy_store_dir = legacy_dir / "inventory" / "stores"
+        if legacy_store_dir.exists():
+            self.store_inventory_dir.mkdir(parents=True, exist_ok=True)
+            for src in sorted(legacy_store_dir.glob("*.json")):
+                dst = self.store_inventory_dir / src.name
+                if dst.exists():
+                    continue
+                try:
+                    dst.write_bytes(src.read_bytes())
+                    logger.info("Migrated store inventory file %s -> %s", src, dst)
+                except Exception:
+                    logger.exception("Failed to migrate store inventory file %s -> %s", src, dst)
 
 
     def _store_inventory_file(self, store_id: str) -> Path:
