@@ -326,6 +326,12 @@ class WholesalerCog(commands.Cog):
                     self.store_state_file,
                     self.store_inventory_dir,
                 )
+            if self.data_dir != self.base_dir / "data" / "wholesaler":
+                logger.info(
+                    "Wholesaler data directory override active data_dir=%s base_dir=%s",
+                    self.data_dir,
+                    self.base_dir,
+                )
 
 
     @staticmethod
@@ -1476,6 +1482,37 @@ class WholesalerCog(commands.Cog):
 
         await ctx.send("\n".join(lines))
         await self._audit_send("[WHOLESALE_RECHECK] " + " | ".join(lines[:4]))
+
+    @commands.command(name="wh_paths")
+    async def wh_paths(self, ctx: commands.Context):
+        """Show resolved wholesaler persistence paths and whether files exist."""
+        if not await self._system_enabled(ctx):
+            return
+        member = await self._ensure_member(ctx)
+        if not member:
+            return
+        if not self._is_admin(member):
+            await ctx.send("❌ Admin role required.")
+            return
+
+        files = (
+            ("data_dir", Path(self.data_dir), True),
+            ("state_file", Path(self.state_file), False),
+            ("store_state_file", Path(self.store_state_file), False),
+            ("wholesale_inventory_file", Path(self.wholesale_inventory_file), False),
+            ("store_inventory_dir", Path(self.store_inventory_dir), True),
+            ("transactions_file", Path(self.tx_file), False),
+        )
+        lines = ["**Wholesaler persistence paths**"]
+        for label, path, is_dir in files:
+            exists = path.is_dir() if is_dir else path.is_file()
+            lines.append(f"- `{label}`: `{path}` (exists={exists})")
+
+        configured_dir = getattr(config, "WHOLESALER_DATA_DIR", None)
+        if configured_dir:
+            lines.append(f"- `WHOLESALER_DATA_DIR` config: `{configured_dir}`")
+
+        await ctx.send("\n".join(lines))
 
     @commands.command(name="wh_add")
     async def wh_add(self, ctx: commands.Context, gun_name: str, level: str, unit_cost: int, qty: int):
