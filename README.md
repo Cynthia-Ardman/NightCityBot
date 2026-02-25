@@ -264,6 +264,12 @@ A comprehensive suite of automated tests lives in `NightCityBot/tests`.  They ca
 pytest
 ```
 
+For release-readiness checks of the economy + wholesaler loop (simulated over multiple weeks with buy/sell and UnbelievaBoat balance transfers), run:
+
+```bash
+pytest -q NightCityBot/tests/test_release_readiness_simulation.py
+```
+
 Alternatively, run `!test_bot` inside Discord to perform many of the same checks without leaving the chat.
 
 
