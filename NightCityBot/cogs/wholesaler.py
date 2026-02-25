@@ -90,11 +90,27 @@ class WholesalerCog(commands.Cog):
         self.store_state_file = Path(
             getattr(config, "WHOLESALER_STORE_STATE_FILE", str(self.state_file))
         )
+        self.wholesale_inventory_file = Path(
+            getattr(
+                config,
+                "WHOLESALER_WHOLESALE_FILE",
+                str(self.data_dir / "inventory" / "wholesale.json"),
+            )
+        )
+        self.store_inventory_dir = Path(
+            getattr(
+                config,
+                "WHOLESALER_STORE_INVENTORY_DIR",
+                str(self.data_dir / "inventory" / "stores"),
+            )
+        )
         self.tx_file = Path(
             getattr(config, "WHOLESALER_TX_FILE", str(self.data_dir / "transactions.json"))
         )
 
         self._migrate_legacy_files(default_data_dir)
+        self.wholesale_inventory_file.parent.mkdir(parents=True, exist_ok=True)
+        self.store_inventory_dir.mkdir(parents=True, exist_ok=True)
         self.lock = asyncio.Lock()
         self.weekly_sunday_restock.start()
 
@@ -120,6 +136,18 @@ class WholesalerCog(commands.Cog):
                 logger.info("Migrated wholesaler data file %s -> %s", src, dst)
             except Exception:
                 logger.exception("Failed to migrate wholesaler data file %s -> %s", src, dst)
+
+
+    def _store_inventory_file(self, store_id: str) -> Path:
+        safe_store_id = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(store_id)).strip("-")
+        store_inventory_dir = Path(getattr(self, "store_inventory_dir", Path(getattr(self, "state_file", Path("state.json"))).parent / "inventory" / "stores"))
+        return store_inventory_dir / f"{safe_store_id or 'store'}.json"
+
+    def _list_store_inventory_files(self) -> list[Path]:
+        store_inventory_dir = Path(getattr(self, "store_inventory_dir", Path(getattr(self, "state_file", Path("state.json"))).parent / "inventory" / "stores"))
+        if not store_inventory_dir.exists():
+            return []
+        return sorted(store_inventory_dir.glob("*.json"))
 
     def cog_unload(self):
         self.weekly_sunday_restock.cancel()
@@ -398,6 +426,11 @@ class WholesalerCog(commands.Cog):
         )
 
     async def _load_state(self) -> dict[str, Any]:
+        wholesale_file = Path(getattr(self, "wholesale_inventory_file", self.state_file))
+        store_file = Path(getattr(self, "store_state_file", self.state_file))
+        default_data_dir = Path(getattr(self, "data_dir", Path(self.state_file).parent))
+        store_inventory_dir = Path(getattr(self, "store_inventory_dir", default_data_dir / "inventory" / "stores"))
+
         state = await helpers.load_json_file(
             self.state_file,
             default={
@@ -408,16 +441,41 @@ class WholesalerCog(commands.Cog):
             },
         )
 
-        if self.store_state_file == self.state_file:
+        wholesale_state = await helpers.load_json_file(wholesale_file, default={})
+
+        stores: dict[str, Any] = {}
+        shop_registry: dict[str, Any] = {}
+
+        if store_file == self.state_file:
             store_state = state
         else:
             store_state = await helpers.load_json_file(
-                self.store_state_file,
+                store_file,
                 default={"stores": {}, "shop_registry": {}},
             )
 
-        state["stores"] = store_state.get("stores", {})
-        state["shop_registry"] = store_state.get("shop_registry", {})
+        legacy_stores = store_state.get("stores", {})
+        if isinstance(legacy_stores, dict):
+            stores.update(legacy_stores)
+
+        legacy_registry = store_state.get("shop_registry", {})
+        if isinstance(legacy_registry, dict):
+            shop_registry.update(legacy_registry)
+
+        if store_inventory_dir.exists():
+            for store_file_path in sorted(store_inventory_dir.glob("*.json")):
+                payload = await helpers.load_json_file(store_file_path, default={})
+                if not isinstance(payload, dict):
+                    continue
+                store_id = str(payload.get("store_id") or store_file_path.stem)
+                lots = payload.get("lots", [])
+                if isinstance(lots, list):
+                    owner_id = payload.get("owner_id")
+                    stores[store_id] = {"owner_id": owner_id, "lots": lots}
+
+        state["stores"] = stores
+        state["shop_registry"] = shop_registry
+        state["wholesale_lots"] = wholesale_state.get("wholesale_lots", state.get("wholesale_lots", []))
         state.setdefault("shop_registry", {})
         state.setdefault("stores", {})
         state.setdefault("wholesale_lots", [])
@@ -562,21 +620,58 @@ class WholesalerCog(commands.Cog):
         return lots, level_totals
 
     async def _save_state(self, state: dict[str, Any]) -> bool:
-        if self.store_state_file == self.state_file:
-            return await helpers.save_json_file(self.state_file, state)
+        wholesale_file = Path(getattr(self, "wholesale_inventory_file", self.state_file))
+        store_file = Path(getattr(self, "store_state_file", self.state_file))
+        default_data_dir = Path(getattr(self, "data_dir", Path(self.state_file).parent))
+        store_inventory_dir = Path(getattr(self, "store_inventory_dir", default_data_dir / "inventory" / "stores"))
 
         state_main = dict(state)
         state_main.pop("stores", None)
         state_main.pop("shop_registry", None)
+        state_main.pop("wholesale_lots", None)
+
+        wholesale_payload = {
+            "wholesale_lots": state.get("wholesale_lots", []),
+            "updated_at": self._now_iso(),
+        }
 
         stores_payload = {
-            "stores": state.get("stores", {}),
             "shop_registry": state.get("shop_registry", {}),
         }
 
         main_ok = await helpers.save_json_file(self.state_file, state_main)
-        stores_ok = await helpers.save_json_file(self.store_state_file, stores_payload)
-        return main_ok and stores_ok
+        wholesale_ok = await helpers.save_json_file(wholesale_file, wholesale_payload)
+
+        store_index_ok = True
+        if store_file != self.state_file:
+            store_index_ok = await helpers.save_json_file(store_file, stores_payload)
+
+        store_inventory_dir.mkdir(parents=True, exist_ok=True)
+        stores = state.get("stores", {})
+        desired_paths: set[Path] = set()
+        store_files_ok = True
+        if isinstance(stores, dict):
+            for store_id, store_data in stores.items():
+                dest = self._store_inventory_file(str(store_id))
+                desired_paths.add(dest)
+                payload = {
+                    "store_id": store_id,
+                    "owner_id": store_data.get("owner_id"),
+                    "lots": store_data.get("lots", []),
+                    "updated_at": self._now_iso(),
+                }
+                if not await helpers.save_json_file(dest, payload):
+                    store_files_ok = False
+
+        for old_file in self._list_store_inventory_files():
+            if old_file not in desired_paths:
+                try:
+                    old_file.unlink(missing_ok=True)
+                except Exception:
+                    logger.exception("Failed to remove stale store inventory file: %s", old_file)
+                    store_files_ok = False
+
+        return main_ok and wholesale_ok and store_index_ok and store_files_ok
 
     async def _append_tx(self, tx: dict[str, Any]) -> bool:
         return await helpers.append_json_file(self.tx_file, tx)
