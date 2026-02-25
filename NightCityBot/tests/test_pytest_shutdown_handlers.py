@@ -68,3 +68,18 @@ def test_keep_alive_respects_disable_flag(monkeypatch):
 
     assert keep_alive() is False
     assert started["value"] is False
+
+
+def test_healthcheck_endpoints_return_ok():
+    client = __import__("NightCityBot.bot", fromlist=["app"]).app.test_client()
+
+    home = client.get("/")
+    healthz = client.get("/healthz")
+    readyz = client.get("/readyz")
+
+    assert home.status_code == 200
+    assert b"Bot is alive" in home.data
+    assert healthz.status_code == 200
+    assert healthz.get_json() == {"status": "ok"}
+    assert readyz.status_code == 200
+    assert readyz.get_json() == {"status": "ready"}
