@@ -382,20 +382,24 @@ def test_load_state_reads_store_inventory_from_separate_file(tmp_path: Path):
     assert state["stores"]["g-1"]["lots"][0]["lot_id"] == "store-1"
 
 
-def test_save_state_writes_store_inventory_to_separate_file(tmp_path: Path):
+def test_save_state_writes_wholesale_and_store_inventory_files(tmp_path: Path):
     import asyncio
     import json
 
     state_path = tmp_path / "state.json"
     stores_path = tmp_path / "stores.json"
+    wholesale_path = tmp_path / "inventory" / "wholesale.json"
+    store_dir = tmp_path / "inventory" / "stores"
 
     cog = WholesalerCog.__new__(WholesalerCog)
     cog.state_file = state_path
     cog.store_state_file = stores_path
+    cog.wholesale_inventory_file = wholesale_path
+    cog.store_inventory_dir = store_dir
 
     payload = {
         "wholesale_lots": [{"lot_id": "lot-1"}],
-        "stores": {"g-1": {"lots": [{"lot_id": "store-1"}]}},
+        "stores": {"g-1:123": {"owner_id": 123, "lots": [{"lot_id": "store-1"}]}},
         "shop_registry": {"test-shop": 123},
         "settings": {},
     }
@@ -406,9 +410,45 @@ def test_save_state_writes_store_inventory_to_separate_file(tmp_path: Path):
     assert asyncio.run(_run()) is True
 
     main = json.loads(state_path.read_text(encoding="utf-8"))
-    stores = json.loads(stores_path.read_text(encoding="utf-8"))
+    stores_index = json.loads(stores_path.read_text(encoding="utf-8"))
+    wholesale = json.loads(wholesale_path.read_text(encoding="utf-8"))
+    store_inventory = json.loads((store_dir / "g-1-123.json").read_text(encoding="utf-8"))
 
     assert "stores" not in main
     assert "shop_registry" not in main
-    assert stores["stores"]["g-1"]["lots"][0]["lot_id"] == "store-1"
-    assert stores["shop_registry"]["test-shop"] == 123
+    assert "wholesale_lots" not in main
+    assert stores_index["shop_registry"]["test-shop"] == 123
+    assert wholesale["wholesale_lots"][0]["lot_id"] == "lot-1"
+    assert store_inventory["store_id"] == "g-1:123"
+    assert store_inventory["lots"][0]["lot_id"] == "store-1"
+
+
+def test_load_state_prefers_new_inventory_files(tmp_path: Path):
+    import asyncio
+
+    state_path = tmp_path / "state.json"
+    stores_path = tmp_path / "stores.json"
+    wholesale_path = tmp_path / "inventory" / "wholesale.json"
+    store_dir = tmp_path / "inventory" / "stores"
+    store_dir.mkdir(parents=True, exist_ok=True)
+
+    state_path.write_text('{"wholesale_lots": [{"lot_id": "legacy-lot"}], "settings": {}}', encoding="utf-8")
+    stores_path.write_text('{"shop_registry": {"alpha": 222}}', encoding="utf-8")
+    wholesale_path.parent.mkdir(parents=True, exist_ok=True)
+    wholesale_path.write_text('{"wholesale_lots": [{"lot_id": "new-lot"}]}', encoding="utf-8")
+    (store_dir / "1-222.json").write_text('{"store_id": "1:222", "owner_id": 222, "lots": [{"lot_id": "store-new"}]}', encoding="utf-8")
+
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.state_file = state_path
+    cog.store_state_file = stores_path
+    cog.wholesale_inventory_file = wholesale_path
+    cog.store_inventory_dir = store_dir
+    cog.DEFAULT_RESTOCK_SETTINGS = WholesalerCog.DEFAULT_RESTOCK_SETTINGS
+
+    async def _run():
+        return await cog._load_state()
+
+    state = asyncio.run(_run())
+    assert state["wholesale_lots"][0]["lot_id"] == "new-lot"
+    assert state["stores"]["1:222"]["lots"][0]["lot_id"] == "store-new"
+    assert state["shop_registry"]["alpha"] == 222
