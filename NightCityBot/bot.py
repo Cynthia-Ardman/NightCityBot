@@ -169,20 +169,29 @@ def home():
     return "Bot is alive Version 1.2!"
 
 
+def _resolve_keep_alive_port() -> int:
+    raw_port = str(os.getenv("PORT", "5000")).strip()
+    try:
+        return int(raw_port)
+    except ValueError:
+        logger.warning("Invalid PORT value '%s'; falling back to 5000", raw_port)
+        return 5000
+
+
 def run_flask():
-    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+    app.run(host="0.0.0.0", port=_resolve_keep_alive_port(), debug=False, use_reloader=False)
 
 
 def keep_alive() -> bool:
     """Start the optional keep-alive HTTP server.
 
-    Running a second web server thread alongside discord.py can contend for the
-    GIL on smaller hosts and trigger heartbeat-blocked warnings. Keep-alive is
-    therefore opt-in via ``ENABLE_KEEP_ALIVE=true``.
+    Keep-alive is enabled by default so container healthchecks to ``/`` pass
+    on hosts that expect an HTTP listener. Set ``DISABLE_KEEP_ALIVE=true`` to
+    disable it explicitly.
     """
-    enabled = os.getenv("ENABLE_KEEP_ALIVE", "").lower() in {"1", "true", "yes"}
-    if not enabled:
-        logger.info("Skipping keep-alive server (set ENABLE_KEEP_ALIVE=true to enable)")
+    disabled = os.getenv("DISABLE_KEEP_ALIVE", "").lower() in {"1", "true", "yes"}
+    if disabled:
+        logger.info("Skipping keep-alive server (DISABLE_KEEP_ALIVE=true)")
         return False
 
     t = Thread(target=run_flask, daemon=True)
