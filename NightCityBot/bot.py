@@ -173,9 +173,21 @@ def run_flask():
     app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
 
 
-def keep_alive():
+def keep_alive() -> bool:
+    """Start the optional keep-alive HTTP server.
+
+    Running a second web server thread alongside discord.py can contend for the
+    GIL on smaller hosts and trigger heartbeat-blocked warnings. Keep-alive is
+    therefore opt-in via ``ENABLE_KEEP_ALIVE=true``.
+    """
+    enabled = os.getenv("ENABLE_KEEP_ALIVE", "").lower() in {"1", "true", "yes"}
+    if not enabled:
+        logger.info("Skipping keep-alive server (set ENABLE_KEEP_ALIVE=true to enable)")
+        return False
+
     t = Thread(target=run_flask, daemon=True)
     t.start()
+    return True
 
 
 def register_shutdown(bot: NightCityBot):
@@ -224,11 +236,13 @@ def main():
         logger.error(f"❌ Failed to create bot instance: {e}")
         return
 
-    # Start keep-alive server
-    print("🌐 Starting keep-alive server...")
+    # Start keep-alive server (opt-in)
+    print("🌐 Evaluating keep-alive server...")
     try:
-        keep_alive()
-        print("✅ Keep-alive server started")
+        if keep_alive():
+            print("✅ Keep-alive server started")
+        else:
+            print("ℹ️ Keep-alive server disabled")
     except Exception as e:
         print(f"❌ Failed to start keep-alive server: {e}")
         logger.error(f"❌ Failed to start keep-alive server: {e}")
