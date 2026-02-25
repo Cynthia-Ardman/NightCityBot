@@ -16,6 +16,7 @@ async def run(suite, logs, verbose=False):
         "wh_shops",
         "wh_setsheet",
         "wh_recheck",
+        "wh_paths",
     }
     available = {cmd.name for cmd in cog.get_commands()}
 
