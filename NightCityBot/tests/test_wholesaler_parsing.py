@@ -290,6 +290,47 @@ def test_resolve_data_path_treats_relative_config_as_data_dir_relative(tmp_path:
     assert resolved == cog.data_dir / "custom" / "transactions.json"
 
 
+
+
+def test_resolve_base_path_treats_relative_config_as_base_dir_relative(tmp_path: Path):
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.base_dir = tmp_path / "NightCityBot"
+
+    resolved = cog._resolve_base_path("data/wholesaler", cog.base_dir / "default")
+
+    assert resolved == cog.base_dir / "data" / "wholesaler"
+
+
+def test_audit_send_fetches_channel_when_not_cached(monkeypatch):
+    class _Channel:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, text):
+            self.sent.append(text)
+
+    class _Bot:
+        def __init__(self, channel):
+            self._channel = channel
+
+        def get_channel(self, _):
+            return None
+
+        async def fetch_channel(self, _):
+            return self._channel
+
+    import config
+
+    channel = _Channel()
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.bot = _Bot(channel)
+    monkeypatch.setattr(config, "WHOLESALER_AUDIT_CHANNEL_ID", 123456)
+
+    import asyncio
+
+    asyncio.run(cog._audit_send("hello audit"))
+
+    assert channel.sent == ["hello audit"]
 def test_parse_master_sheet_falls_back_to_single_tab_when_name_missing(tmp_path: Path):
     wb = Workbook()
     ws = wb.active

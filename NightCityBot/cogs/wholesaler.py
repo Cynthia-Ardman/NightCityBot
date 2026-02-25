@@ -70,9 +70,10 @@ class WholesalerCog(commands.Cog):
         self.unbelievaboat = UnbelievaBoatAPI(config.UNBELIEVABOAT_API_TOKEN)
 
         base_dir = Path(getattr(config, "BASE_DIR", Path(__file__).resolve().parents[1]))
+        self.base_dir = base_dir
         default_data_dir = base_dir / "data" / "wholesaler"
         configured_data_dir = getattr(config, "WHOLESALER_DATA_DIR", None)
-        self.data_dir = Path(configured_data_dir) if configured_data_dir else default_data_dir
+        self.data_dir = self._resolve_base_path(configured_data_dir, default_data_dir)
         self.state_file = self._resolve_data_path(
             getattr(config, "WHOLESALER_STATE_FILE", None),
             "state.json",
@@ -116,6 +117,16 @@ class WholesalerCog(commands.Cog):
         if configured.is_absolute():
             return configured
         return self.data_dir / configured
+
+    def _resolve_base_path(self, configured_path: Any, default_path: Path) -> Path:
+        """Resolve base-level paths, anchoring relative values to config.BASE_DIR."""
+        if configured_path is None:
+            return default_path
+
+        configured = Path(str(configured_path)).expanduser()
+        if configured.is_absolute():
+            return configured
+        return self.base_dir / configured
 
     def _migrate_legacy_files(self, legacy_dir: Path) -> None:
         """Copy old in-repo wholesaler files into configured persistent paths once."""
@@ -820,9 +831,21 @@ class WholesalerCog(commands.Cog):
         return any(r.id in store_role_ids for r in member.roles)
 
     async def _audit_send(self, text: str) -> None:
-        channel = self.bot.get_channel(getattr(config, "WHOLESALER_AUDIT_CHANNEL_ID", 0))
+        channel_id = int(getattr(config, "WHOLESALER_AUDIT_CHANNEL_ID", 0) or 0)
+        if channel_id <= 0:
+            logger.warning("Missing wholesaler audit channel id=%s", channel_id)
+            return
+
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(channel_id)
+            except Exception:
+                logger.warning("Missing wholesaler audit channel id=%s", channel_id)
+                return
+
         if not channel:
-            logger.warning("Missing wholesaler audit channel id=%s", getattr(config, "WHOLESALER_AUDIT_CHANNEL_ID", 0))
+            logger.warning("Missing wholesaler audit channel id=%s", channel_id)
             return
         try:
             await channel.send(text)
