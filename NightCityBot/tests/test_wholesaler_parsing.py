@@ -486,3 +486,29 @@ def test_load_state_prefers_new_inventory_files(tmp_path: Path):
     assert state["wholesale_lots"][0]["lot_id"] == "new-lot"
     assert state["stores"]["1:222"]["lots"][0]["lot_id"] == "store-new"
     assert state["shop_registry"]["alpha"] == 222
+
+
+def test_load_state_sanitizes_malformed_inventory_collections(tmp_path: Path):
+    import asyncio
+
+    state_path = tmp_path / "state.json"
+    stores_path = tmp_path / "stores.json"
+    wholesale_path = tmp_path / "inventory" / "wholesale.json"
+
+    state_path.write_text('{"wholesale_lots": [{"lot_id": "legacy"}], "settings": {}}', encoding="utf-8")
+    stores_path.write_text('{"stores": {"1:222": {"owner_id": 222, "lots": 7}}}', encoding="utf-8")
+    wholesale_path.parent.mkdir(parents=True, exist_ok=True)
+    wholesale_path.write_text('{"wholesale_lots": 12}', encoding="utf-8")
+
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.state_file = state_path
+    cog.store_state_file = stores_path
+    cog.wholesale_inventory_file = wholesale_path
+    cog.DEFAULT_RESTOCK_SETTINGS = WholesalerCog.DEFAULT_RESTOCK_SETTINGS
+
+    async def _run():
+        return await cog._load_state()
+
+    state = asyncio.run(_run())
+    assert state["wholesale_lots"] == []
+    assert state["stores"]["1:222"]["lots"] == []

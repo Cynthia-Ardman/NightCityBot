@@ -456,7 +456,14 @@ class WholesalerCog(commands.Cog):
 
         legacy_stores = store_state.get("stores", {})
         if isinstance(legacy_stores, dict):
-            stores.update(legacy_stores)
+            for store_id, payload in legacy_stores.items():
+                if not isinstance(payload, dict):
+                    continue
+                lots = payload.get("lots", [])
+                stores[str(store_id)] = {
+                    "owner_id": payload.get("owner_id"),
+                    "lots": lots if isinstance(lots, list) else [],
+                }
 
         legacy_registry = store_state.get("shop_registry", {})
         if isinstance(legacy_registry, dict):
@@ -475,7 +482,8 @@ class WholesalerCog(commands.Cog):
 
         state["stores"] = stores
         state["shop_registry"] = shop_registry
-        state["wholesale_lots"] = wholesale_state.get("wholesale_lots", state.get("wholesale_lots", []))
+        wholesale_lots = wholesale_state.get("wholesale_lots", state.get("wholesale_lots", []))
+        state["wholesale_lots"] = wholesale_lots if isinstance(wholesale_lots, list) else []
         state.setdefault("shop_registry", {})
         state.setdefault("stores", {})
         state.setdefault("wholesale_lots", [])
@@ -939,11 +947,18 @@ class WholesalerCog(commands.Cog):
             lot["qty_available"] -= qty
             store_id = self._store_id(ctx.guild.id, member.id)
             store = state.setdefault("stores", {}).setdefault(store_id, {"owner_id": member.id, "lots": []})
-            existing = next((l for l in store["lots"] if l.get("lot_id") == lot_id), None)
+            if not isinstance(store, dict):
+                store = {"owner_id": member.id, "lots": []}
+                state["stores"][store_id] = store
+            lots = store.get("lots", [])
+            if not isinstance(lots, list):
+                lots = []
+                store["lots"] = lots
+            existing = next((l for l in lots if isinstance(l, dict) and l.get("lot_id") == lot_id), None)
             if existing:
                 existing["qty_remaining"] += qty
             else:
-                store["lots"].append(
+                lots.append(
                     {
                         "lot_id": lot_id,
                         "gun_name": lot["gun_name"],
