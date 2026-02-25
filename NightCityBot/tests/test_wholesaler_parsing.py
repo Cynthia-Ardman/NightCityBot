@@ -527,9 +527,41 @@ def test_save_state_writes_wholesale_and_store_inventory_files(tmp_path: Path):
     assert main["stores"]["g-1:123"]["lots"][0]["lot_id"] == "store-1"
     assert main["shop_registry"]["test-shop"] == 123
     assert stores_index["shop_registry"]["test-shop"] == 123
+    assert stores_index["stores"]["g-1:123"]["owner_id"] == 123
+    assert stores_index["stores"]["g-1:123"]["inventory_file"].endswith("g-1-123.json")
     assert wholesale["wholesale_lots"][0]["lot_id"] == "lot-1"
     assert store_inventory["store_id"] == "g-1:123"
     assert store_inventory["lots"][0]["lot_id"] == "store-1"
+
+
+def test_store_state_file_default_is_separate_from_main_state(tmp_path: Path):
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.data_dir = tmp_path
+
+    resolved = cog._resolve_data_path(None, "stores.json")
+
+    assert resolved == tmp_path / "stores.json"
+
+
+def test_ensure_inventory_files_exist_bootstraps_missing_files(tmp_path: Path):
+    import asyncio
+
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.state_file = tmp_path / "state.json"
+    cog.store_state_file = tmp_path / "stores.json"
+    cog.wholesale_inventory_file = tmp_path / "inventory" / "wholesale.json"
+    cog.store_inventory_dir = tmp_path / "inventory" / "stores"
+    cog.lock = asyncio.Lock()
+    cog.DEFAULT_RESTOCK_SETTINGS = WholesalerCog.DEFAULT_RESTOCK_SETTINGS
+
+    async def _run():
+        await cog._ensure_inventory_files_exist()
+
+    asyncio.run(_run())
+
+    assert cog.state_file.exists()
+    assert cog.store_state_file.exists()
+    assert cog.wholesale_inventory_file.exists()
 
 
 def test_load_state_prefers_new_inventory_files(tmp_path: Path):
