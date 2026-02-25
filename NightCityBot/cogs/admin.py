@@ -213,6 +213,16 @@ class Admin(commands.Cog):
                 "\n".join([
                     "**Store Owner Ops:** `!wh_list`, `!wh_buy <lot_id> <qty>`, `!store_inv`, `!sell @buyer <lot_id> <qty> <total_price> [character:\"Name\"]`.",
                     "**Admin/Wholesaler Ops:** `!store_inv [shop_name]`, `!wh_setshop`, `!wh_shops`, `!wh_setsheet`, `!wh_restock`, `!wh_restock_settings`, `!wh_recheck`, `!wh_add`, `!store_add`, `!wh_tx`, `!wh_retry_payout`.",
+                    "`!wh_list` – list current wholesaler lots.",
+                    "`!store_inv [shop_name]` – view your store inventory (admins can inspect a mapped shop alias).",
+                    "`!wh_buy <lot_id> <qty>` / `!sell @buyer <lot_id> <qty> <total_price> [character:\"Name\"]` – wholesale purchase and player sale flow.",
+                    "`!wh_setshop <shop_name> @owner` – bind a shop alias (shop1/shop2/shop3) to a specific owner account.",
+                    "`!wh_shops` – list all shop alias mappings.",
+                    "`!wh_restock [seed]` – regenerate weekly wholesaler stock from the configured sheet source.",
+                    "`!wh_recheck` – compare current lots to source sheet values and report mismatches.",
+                    "`!wh_setsheet <xlsx_export_url|off>` – set or clear the runtime master gun list source URL.\n`!wh_restock_settings [key] [value]` – view or tune weekly wholesaler refresh settings (lot counts and qty ranges).",
+                    "`!wh_add <gun> <L|M|H> <unit_cost> <qty>` / `!store_add @owner <gun> <L|M|H> <unit_cost> <qty>` – manual stock adjustments.",
+                    "`!wh_tx <tx_id>` / `!wh_retry_payout <tx_id>` – inspect transactions and retry pending payouts.",
                 ]),
             ),
             (
