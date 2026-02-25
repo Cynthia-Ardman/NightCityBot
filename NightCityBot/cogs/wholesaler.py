@@ -104,6 +104,7 @@ class WholesalerCog(commands.Cog):
         self.wholesale_inventory_file.parent.mkdir(parents=True, exist_ok=True)
         self.store_inventory_dir.mkdir(parents=True, exist_ok=True)
         self.lock = asyncio.Lock()
+        self._startup_audit_sent = False
         self.weekly_sunday_restock.start()
 
     def _resolve_data_path(self, configured_path: Any, default_relative: str) -> Path:
@@ -239,6 +240,64 @@ class WholesalerCog(commands.Cog):
     def _normalize_shop_name(name: str) -> str:
         cleaned = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
         return cleaned
+
+    @staticmethod
+    def _inventory_totals(state: dict[str, Any]) -> tuple[int, int, int, int]:
+        wholesale_lots = state.get("wholesale_lots", [])
+        wholesale_lot_count = len(wholesale_lots) if isinstance(wholesale_lots, list) else 0
+        wholesale_unit_count = (
+            sum(max(int(lot.get("qty_available", 0)), 0) for lot in wholesale_lots)
+            if isinstance(wholesale_lots, list)
+            else 0
+        )
+
+        stores = state.get("stores", {})
+        store_count = len(stores) if isinstance(stores, dict) else 0
+        store_unit_count = 0
+        if isinstance(stores, dict):
+            for payload in stores.values():
+                if not isinstance(payload, dict):
+                    continue
+                for lot in payload.get("lots", []):
+                    if isinstance(lot, dict):
+                        store_unit_count += max(int(lot.get("qty_remaining", 0)), 0)
+
+        return wholesale_lot_count, wholesale_unit_count, store_count, store_unit_count
+
+    async def emit_inventory_snapshot_audit(
+        self,
+        reason: str,
+        *,
+        actor: Optional[discord.abc.User] = None,
+    ) -> None:
+        """Emit an audit line that captures persisted inventory state."""
+        try:
+            state = await self._load_state()
+            lots, wholesale_units, stores, store_units = self._inventory_totals(state)
+            wholesale_exists = self.wholesale_inventory_file.exists()
+            wholesale_bytes = self.wholesale_inventory_file.stat().st_size if wholesale_exists else 0
+            state_exists = self.state_file.exists()
+            state_bytes = self.state_file.stat().st_size if state_exists else 0
+            actor_text = f" actor=<@{actor.id}>" if actor else ""
+            await self._audit_send(
+                "[WHOLESALE_SNAPSHOT]"
+                f" reason={reason}{actor_text}"
+                f" lots={lots} wholesale_units={wholesale_units}"
+                f" stores={stores} store_units={store_units}"
+                f" wholesale_file={self.wholesale_inventory_file}"
+                f" wholesale_file_exists={wholesale_exists} wholesale_file_bytes={wholesale_bytes}"
+                f" state_file={self.state_file}"
+                f" state_file_exists={state_exists} state_file_bytes={state_bytes}"
+            )
+        except Exception:
+            logger.exception("Failed to emit wholesaler inventory snapshot for reason=%s", reason)
+
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        if self._startup_audit_sent:
+            return
+        self._startup_audit_sent = True
+        await self.emit_inventory_snapshot_audit("BOT_READY")
 
 
     @staticmethod
