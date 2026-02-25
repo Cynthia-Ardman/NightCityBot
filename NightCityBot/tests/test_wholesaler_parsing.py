@@ -87,3 +87,33 @@ def test_generate_restock_lots_uses_actual_level_on_fallback():
     assert len(lots) == 1
     assert lots[0]["gun_level"] == "L"
     assert lots[0]["qty_available"] == 3
+
+
+def test_generate_restock_lots_recomputes_level_totals_after_cap():
+    cog = WholesalerCog.__new__(WholesalerCog)
+    guns = [
+        {"gun_name": "L1", "gun_level": "L", "price_new": 100},
+        {"gun_name": "M1", "gun_level": "M", "price_new": 200},
+        {"gun_name": "H1", "gun_level": "H", "price_new": 300},
+    ]
+    cfg = {
+        "total_lots": 1,
+        "lots_L": 1,
+        "lots_M": 1,
+        "lots_H": 1,
+        "qty_min_L": 2,
+        "qty_max_L": 2,
+        "qty_min_M": 3,
+        "qty_max_M": 3,
+        "qty_min_H": 4,
+        "qty_max_H": 4,
+    }
+
+    import random
+
+    lots, totals = cog._generate_restock_lots(guns, cfg, random.Random(2))
+
+    assert len(lots) == 1
+    level = lots[0]["gun_level"]
+    assert totals[level] == lots[0]["qty_available"]
+    assert sum(totals.values()) == lots[0]["qty_available"]

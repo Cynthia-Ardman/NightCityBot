@@ -108,12 +108,13 @@ class WholesalerCog(commands.Cog):
             raise ValueError(f"Sheet '{sheet_name}' not found in workbook")
 
         ws = wb[sheet_name]
-        rows = list(ws.iter_rows(values_only=True))
-        if not rows:
+        row_iter = ws.iter_rows(values_only=True)
+        header_row = next(row_iter, None)
+        if not header_row:
             wb.close()
             return []
 
-        header = [str(c).strip() if c is not None else "" for c in rows[0]]
+        header = [str(c).strip() if c is not None else "" for c in header_row]
         header_lookup = {name.lower(): idx for idx, name in enumerate(header)}
 
         def idx_for(options: list[str], fallback: int) -> int:
@@ -130,7 +131,7 @@ class WholesalerCog(commands.Cog):
         cyberware_idx = idx_for(["Cyberware Needed", "Cyberware"], 4)
 
         parsed: list[dict[str, Any]] = []
-        for row in rows[1:]:
+        for row in row_iter:
             if not row:
                 continue
 
@@ -296,6 +297,11 @@ class WholesalerCog(commands.Cog):
 
         if len(lots) > cfg["total_lots"]:
             lots = rng.sample(lots, cfg["total_lots"])
+            level_totals = {
+                "L": sum(int(lot.get("qty_available", 0)) for lot in lots if lot.get("gun_level") == "L"),
+                "M": sum(int(lot.get("qty_available", 0)) for lot in lots if lot.get("gun_level") == "M"),
+                "H": sum(int(lot.get("qty_available", 0)) for lot in lots if lot.get("gun_level") == "H"),
+            }
 
         return lots, level_totals
 
