@@ -11,6 +11,7 @@ async def run(suite, logs, verbose=False):
         "store_inv",
         "sell",
         "wh_restock",
+        "wh_clear_inventory",
         "wh_setshop",
         "wh_shops",
         "wh_setsheet",

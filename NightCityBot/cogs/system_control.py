@@ -30,7 +30,7 @@ class SystemControl(commands.Cog):
         updated = False
         for system in SYSTEMS:
             if system not in self.status:
-                self.status[system] = False
+                self.status[system] = system == "wholesaler"
                 updated = True
         if updated:
             await save_json_file(path, self.status)
