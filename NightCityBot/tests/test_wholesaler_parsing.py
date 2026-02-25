@@ -129,3 +129,71 @@ def test_normalize_google_sheet_url_preserves_gid_from_fragment():
     url = "https://docs.google.com/spreadsheets/d/abc123/edit#gid=456"
     out = WholesalerCog._normalize_sheet_source_url(url)
     assert out == "https://docs.google.com/spreadsheets/d/abc123/export?format=xlsx&gid=456"
+
+
+def test_is_admin_allows_discord_administrator_permission():
+    cog = WholesalerCog.__new__(WholesalerCog)
+
+    class _Perms:
+        administrator = True
+
+    class _Role:
+        id = 0
+
+    class _Member:
+        guild_permissions = _Perms()
+        roles = [_Role()]
+
+    assert cog._is_admin(_Member()) is True
+
+
+def test_resolve_sheet_path_accepts_url_in_legacy_xlsx_path(monkeypatch):
+    import asyncio
+
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.lock = asyncio.Lock()
+    cog.sheet_cache_path = Path('/tmp/sheet_cache.xlsx')
+
+    async def _state():
+        return {"settings": {}}
+
+    cog._load_state = _state
+
+    monkeypatch.setattr('config.WHOLESALER_GOOGLE_SHEET_XLSX_URL', '')
+    monkeypatch.setattr('config.WHOLESALER_XLSX_PATH', 'https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing')
+
+    async def _run():
+        path = await cog._resolve_sheet_path()
+        return path
+
+    class _Resp:
+        status = 200
+
+        async def read(self):
+            return b'test'
+
+    class _GetCtx:
+        async def __aenter__(self):
+            return _Resp()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _Session:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url):
+            assert url == 'https://docs.google.com/spreadsheets/d/abc123/export?format=xlsx'
+            return _GetCtx()
+
+    monkeypatch.setattr('aiohttp.ClientSession', _Session)
+
+    path = asyncio.run(_run())
+    assert path == cog.sheet_cache_path

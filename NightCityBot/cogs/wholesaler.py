@@ -208,10 +208,24 @@ class WholesalerCog(commands.Cog):
         """Return local xlsx path, downloading from Google Sheets if configured."""
         state = await self._load_state()
         configured_url = str(state.get("settings", {}).get("master_sheet_url", "")).strip()
-        raw_url = configured_url or getattr(config, "WHOLESALER_GOOGLE_SHEET_XLSX_URL", "").strip()
+        config_url = getattr(config, "WHOLESALER_GOOGLE_SHEET_XLSX_URL", "")
+        raw_url = configured_url or str(config_url).strip()
+
+        # Backward compatibility: if WHOLESALER_XLSX_PATH is set to a URL, treat it
+        # as a remote sheet source rather than a local filesystem path.
+        local_fallback = str(getattr(config, "WHOLESALER_XLSX_PATH", "")).strip()
+        if not raw_url and local_fallback.startswith(("http://", "https://")):
+            raw_url = local_fallback
+
         sheet_url = self._normalize_sheet_source_url(raw_url)
         if not sheet_url:
-            return Path(config.WHOLESALER_XLSX_PATH)
+            local_path = Path(config.WHOLESALER_XLSX_PATH)
+            if not local_path.exists():
+                raise FileNotFoundError(
+                    f"Local wholesaler sheet not found at '{local_path}'. "
+                    "Set a Google Sheet source with !wh_setsheet <url>, or update WHOLESALER_XLSX_PATH."
+                )
+            return local_path
 
         # Self-heal older stored share URLs by persisting normalized export URL.
         if configured_url and configured_url != sheet_url:
@@ -352,7 +366,7 @@ class WholesalerCog(commands.Cog):
 
     def _is_admin(self, member: discord.Member) -> bool:
         admin_role_ids = set(getattr(config, "WHOLESALER_ADMIN_ROLE_IDS", []))
-        return any(r.id in admin_role_ids for r in member.roles)
+        return bool(member.guild_permissions.administrator) or any(r.id in admin_role_ids for r in member.roles)
 
     def _is_store_owner(self, member: discord.Member) -> bool:
         store_role_ids = set(getattr(config, "WHOLESALER_STORE_ROLE_IDS", []))

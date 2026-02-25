@@ -106,6 +106,7 @@ class NightCityBot(commands.Bot):
         intents.dm_messages = True
 
         super().__init__(command_prefix="!", help_command=None, intents=intents)
+        self._shutdown_logged = False
 
     async def setup_hook(self):
         # Load all cogs
@@ -148,6 +149,17 @@ class NightCityBot(commands.Bot):
         if admin:
             await admin.log_audit(self.user, "✅ Bot started and ready.")
 
+    async def close(self):
+        if not self._shutdown_logged:
+            self._shutdown_logged = True
+            admin = self.get_cog("Admin")
+            if admin and self.user:
+                try:
+                    await admin.log_audit(self.user, "🛑 Bot shutting down.")
+                except Exception:
+                    logger.exception("Failed to log shutdown audit")
+        await super().close()
+
 
 app = Flask("")
 
@@ -172,12 +184,6 @@ def register_shutdown(bot: NightCityBot):
     async def shutdown():
         print("🛑 Shutdown signal received. Cleaning up...")
         logger.info("Shutdown signal received")
-        admin = bot.get_cog("Admin")
-        if admin:
-            try:
-                await admin.log_audit(bot.user, "🛑 Bot shutting down.")
-            except Exception:
-                logger.exception("Failed to log shutdown audit")
         await bot.close()
         print("✅ Shutdown complete")
         logger.info("Shutdown complete")
