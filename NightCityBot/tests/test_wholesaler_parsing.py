@@ -215,3 +215,24 @@ def test_resolve_sheet_path_accepts_url_in_legacy_xlsx_path(monkeypatch):
 
     path = asyncio.run(_run())
     assert path == cog.sheet_cache_path
+
+
+def test_extract_sheet_gid_from_query_and_fragment():
+    assert WholesalerCog._extract_sheet_gid("https://docs.google.com/spreadsheets/d/abc123/edit?gid=321") == "321"
+    assert WholesalerCog._extract_sheet_gid("https://docs.google.com/spreadsheets/d/abc123/edit#gid=654&range=A1") == "654"
+
+
+def test_parse_master_sheet_falls_back_to_single_tab_when_name_missing(tmp_path: Path):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Weapons"
+    ws.append(["Gun Name", "Type/Armor Effectiveness", "Mag Size", "Price New", "Cyberware Needed"])
+    ws.append(["Test Gun", "Power (M)", 10, 1000, ""])
+
+    xlsx = tmp_path / "single-sheet.xlsx"
+    wb.save(xlsx)
+
+    rows = WholesalerCog.parse_master_sheet(xlsx, "Master Gun List")
+
+    assert len(rows) == 1
+    assert rows[0]["gun_name"] == "Test Gun"

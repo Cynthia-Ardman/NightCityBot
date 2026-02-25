@@ -144,12 +144,52 @@ class WholesalerCog(commands.Cog):
         return export_url
 
     @staticmethod
-    def parse_master_sheet(xlsx_path: str | Path, sheet_name: str) -> list[dict[str, Any]]:
-        wb = load_workbook(filename=xlsx_path, read_only=True, data_only=True)
-        if sheet_name not in wb.sheetnames:
-            raise ValueError(f"Sheet '{sheet_name}' not found in workbook")
+    def _extract_sheet_gid(value: str) -> Optional[str]:
+        """Extract a Google Sheets gid from a URL query or fragment."""
+        raw = WholesalerCog._clean_sheet_url_input(value)
+        if not raw:
+            return None
+        parsed = urlparse(raw)
+        gid = parse_qs(parsed.query).get("gid", [None])[0]
+        if gid:
+            return gid
+        if parsed.fragment:
+            frag_qs = parse_qs(parsed.fragment)
+            gid = frag_qs.get("gid", [None])[0]
+            if gid:
+                return gid
+            if parsed.fragment.startswith("gid="):
+                return parsed.fragment.split("=", 1)[1].split("&", 1)[0]
+        return None
 
-        ws = wb[sheet_name]
+    @staticmethod
+    def parse_master_sheet(
+        xlsx_path: str | Path,
+        sheet_name: str,
+        sheet_gid: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        wb = load_workbook(filename=xlsx_path, read_only=True, data_only=True)
+        selected_sheet = sheet_name if sheet_name in wb.sheetnames else None
+        if not selected_sheet and sheet_gid:
+            for candidate in wb.worksheets:
+                tab_id = getattr(candidate.sheet_properties, "tabId", None)
+                if tab_id is not None and str(tab_id) == str(sheet_gid):
+                    selected_sheet = candidate.title
+                    break
+
+        # Some exports only include one visible tab. Use it as a safe fallback.
+        if not selected_sheet and len(wb.sheetnames) == 1:
+            selected_sheet = wb.sheetnames[0]
+
+        if not selected_sheet:
+            available = ", ".join(wb.sheetnames)
+            wb.close()
+            raise ValueError(
+                f"Sheet '{sheet_name}' not found in workbook"
+                f" (available: {available})"
+            )
+
+        ws = wb[selected_sheet]
         row_iter = ws.iter_rows(values_only=True)
         header_row = next(row_iter, None)
         if not header_row:
@@ -215,20 +255,24 @@ class WholesalerCog(commands.Cog):
         wb.close()
         return parsed
 
+    async def _resolve_sheet_source(self) -> tuple[str, Optional[str]]:
+        """Resolve active master-sheet URL and optional gid override."""
+        state = await self._load_state()
+        configured_url = str(state.get("settings", {}).get("master_sheet_url", "")).strip()
+        config_url = str(getattr(config, "WHOLESALER_GOOGLE_SHEET_XLSX_URL", "") or "").strip()
+        raw_url = configured_url or config_url
+
+        local_fallback = str(getattr(config, "WHOLESALER_XLSX_PATH", "") or "").strip()
+        if not raw_url and local_fallback.startswith(("http://", "https://")):
+            raw_url = local_fallback
+
+        return self._normalize_sheet_source_url(raw_url), self._extract_sheet_gid(raw_url)
+
     async def _resolve_sheet_path(self) -> Path:
         """Return local xlsx path, downloading from Google Sheets if configured."""
         state = await self._load_state()
         configured_url = str(state.get("settings", {}).get("master_sheet_url", "")).strip()
-        config_url = getattr(config, "WHOLESALER_GOOGLE_SHEET_XLSX_URL", "")
-        raw_url = configured_url or str(config_url).strip()
-
-        # Backward compatibility: if WHOLESALER_XLSX_PATH is set to a URL, treat it
-        # as a remote sheet source rather than a local filesystem path.
-        local_fallback = str(getattr(config, "WHOLESALER_XLSX_PATH", "")).strip()
-        if not raw_url and local_fallback.startswith(("http://", "https://")):
-            raw_url = local_fallback
-
-        sheet_url = self._normalize_sheet_source_url(raw_url)
+        sheet_url, _ = await self._resolve_sheet_source()
         if not sheet_url:
             local_path = Path(config.WHOLESALER_XLSX_PATH)
             if not local_path.exists():
@@ -253,6 +297,16 @@ class WholesalerCog(commands.Cog):
                 payload = await resp.read()
                 self.sheet_cache_path.write_bytes(payload)
         return self.sheet_cache_path
+
+    async def _load_master_guns(self) -> list[dict[str, Any]]:
+        """Load wholesaler source rows using configured sheet name with gid fallback."""
+        sheet_path = await self._resolve_sheet_path()
+        _, sheet_gid = await self._resolve_sheet_source()
+        return self.parse_master_sheet(
+            sheet_path,
+            config.WHOLESALER_MASTER_SHEET_NAME,
+            sheet_gid=sheet_gid,
+        )
 
     async def _load_state(self) -> dict[str, Any]:
         state = await helpers.load_json_file(
@@ -719,8 +773,7 @@ class WholesalerCog(commands.Cog):
             return
 
         try:
-            sheet_path = await self._resolve_sheet_path()
-            guns = self.parse_master_sheet(sheet_path, config.WHOLESALER_MASTER_SHEET_NAME)
+            guns = await self._load_master_guns()
         except Exception as e:
             logger.exception("wh_restock failed")
             await ctx.send(f"❌ Restock failed while reading source sheet: {e}")
@@ -751,8 +804,7 @@ class WholesalerCog(commands.Cog):
         if control and not control.is_enabled("wholesaler"):
             return False
         try:
-            sheet_path = await self._resolve_sheet_path()
-            guns = self.parse_master_sheet(sheet_path, config.WHOLESALER_MASTER_SHEET_NAME)
+            guns = await self._load_master_guns()
         except Exception:
             logger.exception("Auto wholesaler refresh failed during sheet read")
             return False
@@ -872,8 +924,7 @@ class WholesalerCog(commands.Cog):
             return
 
         try:
-            sheet_path = await self._resolve_sheet_path()
-            guns = self.parse_master_sheet(sheet_path, config.WHOLESALER_MASTER_SHEET_NAME)
+            guns = await self._load_master_guns()
         except Exception as e:
             await ctx.send(f"❌ Recheck failed: {e}")
             return
