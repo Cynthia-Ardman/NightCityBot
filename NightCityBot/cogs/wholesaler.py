@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse, parse_qs
-
 import aiohttp
 import discord
 from discord.ext import commands
@@ -102,36 +101,6 @@ class WholesalerCog(commands.Cog):
         cleaned = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
         return cleaned
 
-
-    @staticmethod
-    def _normalize_sheet_source_url(value: str) -> str:
-        """Normalize a Google Sheets URL to an XLSX export URL when possible."""
-        raw = (value or "").strip()
-        if not raw:
-            return raw
-        parsed = urlparse(raw)
-
-        if "docs.google.com" not in parsed.netloc:
-            return raw
-
-        # Already an export endpoint
-        if "/export" in parsed.path:
-            return raw
-
-        match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", parsed.path)
-        if not match:
-            return raw
-
-        sheet_id = match.group(1)
-        gid = parse_qs(parsed.query).get("gid", [None])[0]
-        if not gid and parsed.fragment.startswith("gid="):
-            gid = parsed.fragment.split("=", 1)[1]
-
-        export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
-        if gid:
-            export_url += f"&gid={gid}"
-        return export_url
-
     @staticmethod
     def parse_master_sheet(xlsx_path: str | Path, sheet_name: str) -> list[dict[str, Any]]:
         wb = load_workbook(filename=xlsx_path, read_only=True, data_only=True)
@@ -208,17 +177,9 @@ class WholesalerCog(commands.Cog):
         """Return local xlsx path, downloading from Google Sheets if configured."""
         state = await self._load_state()
         configured_url = str(state.get("settings", {}).get("master_sheet_url", "")).strip()
-        raw_url = configured_url or getattr(config, "WHOLESALER_GOOGLE_SHEET_XLSX_URL", "").strip()
-        sheet_url = self._normalize_sheet_source_url(raw_url)
+        sheet_url = configured_url or getattr(config, "WHOLESALER_GOOGLE_SHEET_XLSX_URL", "").strip()
         if not sheet_url:
             return Path(config.WHOLESALER_XLSX_PATH)
-
-        # Self-heal older stored share URLs by persisting normalized export URL.
-        if configured_url and configured_url != sheet_url:
-            async with self.lock:
-                latest = await self._load_state()
-                latest.setdefault("settings", {})["master_sheet_url"] = sheet_url
-                await self._save_state(latest)
 
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -794,12 +755,11 @@ class WholesalerCog(commands.Cog):
                 await ctx.send("❌ URL must start with http/https.")
                 return
 
-            normalized = self._normalize_sheet_source_url(value)
-            settings["master_sheet_url"] = normalized
+            settings["master_sheet_url"] = value
             await self._save_state(state)
 
         await ctx.send("✅ Runtime wholesaler sheet URL updated.")
-        await self._audit_send(f"[WHOLESALE_SOURCE_SET] by={member.mention} url={normalized}")
+        await self._audit_send(f"[WHOLESALE_SOURCE_SET] by={member.mention} url={value}")
 
     @commands.command(name="wh_recheck")
     async def wh_recheck(self, ctx: commands.Context):

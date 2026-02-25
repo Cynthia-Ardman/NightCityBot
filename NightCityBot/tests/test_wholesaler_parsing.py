@@ -117,15 +117,3 @@ def test_generate_restock_lots_recomputes_level_totals_after_cap():
     level = lots[0]["gun_level"]
     assert totals[level] == lots[0]["qty_available"]
     assert sum(totals.values()) == lots[0]["qty_available"]
-
-
-def test_normalize_google_sheet_url_to_xlsx_export():
-    url = "https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing"
-    out = WholesalerCog._normalize_sheet_source_url(url)
-    assert out == "https://docs.google.com/spreadsheets/d/abc123/export?format=xlsx"
-
-
-def test_normalize_google_sheet_url_preserves_gid_from_fragment():
-    url = "https://docs.google.com/spreadsheets/d/abc123/edit#gid=456"
-    out = WholesalerCog._normalize_sheet_source_url(url)
-    assert out == "https://docs.google.com/spreadsheets/d/abc123/export?format=xlsx&gid=456"

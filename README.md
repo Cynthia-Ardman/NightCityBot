@@ -184,7 +184,7 @@ Main commands:
 * `!store_inv [shop_name]` – view your store inventory; admins can inspect registered shops by alias (`shop1`, `shop2`, etc.).
 * `!sell @buyer <lot_id> <qty> <total_price> [character:"Name"]` – complete player purchase; deduct buyer and credit seller with pending payout fallback on partial failure.
 * `!wh_setshop <shop_name> @owner` / `!wh_shops` – manage shop alias mapping to specific Discord users.
-* `!wh_setsheet <xlsx_export_url|off>` – set/clear a runtime Google Sheets source URL without restarting the bot (regular share links are auto-converted to XLSX export).
+* `!wh_setsheet <xlsx_export_url|off>` – set/clear a runtime Google Sheets XLSX source URL without restarting the bot.
 * `!wh_restock [seed]` – regenerate weekly wholesaler lots from sheet data with L/M/H weighted scarcity.
 * `!wh_restock_settings [key] [value]` – view/tune refresh settings (total lots, lots per level, qty ranges).
 * `!wh_recheck` – compare current wholesaler lot level/cost data against the current source sheet and report mismatches.
