@@ -175,7 +175,7 @@ Commands:
 ### WholesalerCog
 *File: `NightCityBot/cogs/wholesaler.py`*
 
-Implements the two-tier gun supply chain with scarcity: corporate wholesaler lots are generated from the Master Gun List sheet, store owners buy those lots, then sell to players using UnbelievaBoat balance transfers. The wholesaler auto-refreshes weekly right after cyberware processing, and all sales produce immutable receipts in the wholesaler audit channel for manual staff spreadsheet updates.
+Implements the two-tier gun supply chain with scarcity: corporate wholesaler lots are generated from the Master Gun List sheet, store owners buy those lots, then sell to players using UnbelievaBoat balance transfers. Store inventories and wholesaler lots are persisted on disk in `NightCityBot/data/wholesaler/state.json` so stock survives restarts. The wholesaler auto-refreshes weekly right after cyberware processing, and all sales produce immutable receipts in the wholesaler audit channel for manual staff spreadsheet updates.
 
 Main commands (separated by role):
 
@@ -190,6 +190,7 @@ Main commands (separated by role):
 * `!wh_setshop <shop_name> @owner` / `!wh_shops` – manage shop alias mapping to specific Discord users.
 * `!wh_setsheet <xlsx_export_url|off>` – set/clear a runtime Google Sheets source URL without restarting the bot (regular share links are auto-converted to XLSX export).
 * `!wh_restock [seed]` – regenerate weekly wholesaler lots from sheet data with L/M/H weighted scarcity.
+* `!wh_clear_inventory` – clear all current wholesaler lots without modifying store inventories.
 * `!wh_restock_settings [key] [value]` – view/tune refresh settings (total lots, lots per level, qty ranges).
 * `!wh_recheck` – compare current wholesaler lot level/cost data against the current source sheet and report mismatches.
 * `!wh_add`, `!store_add`, `!wh_tx`, `!wh_retry_payout` – admin adjustment, transaction lookup, and payout recovery tools.
@@ -197,7 +198,7 @@ Main commands (separated by role):
 ### SystemControl
 *File: `NightCityBot/cogs/system_control.py`*
 
-A small cog that allows administrators to enable or disable major subsystems at runtime. States are persisted in `system_status.json`.
+A small cog that allows administrators to enable or disable major subsystems at runtime. States are persisted in `system_status.json`, and the `wholesaler` subsystem defaults to enabled when no prior status exists.
 
 Commands:
 

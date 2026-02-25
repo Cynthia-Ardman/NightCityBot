@@ -883,6 +883,31 @@ class WholesalerCog(commands.Cog):
             f"[WHOLESALE_RESTOCK] by={member.mention} lots={len(lots)} qtyL={level_totals['L']} qtyM={level_totals['M']} qtyH={level_totals['H']}"
         )
 
+    @commands.command(name="wh_clear_inventory")
+    async def wh_clear_inventory(self, ctx: commands.Context):
+        """Clear all current wholesaler lots while preserving store inventories."""
+        if not await self._system_enabled(ctx):
+            return
+        member = await self._ensure_member(ctx)
+        if not member:
+            return
+        if not self._is_admin(member):
+            await ctx.send("❌ Admin role required.")
+            return
+
+        async with self.lock:
+            state = await self._load_state()
+            lots = state.get("wholesale_lots", [])
+            lot_count = len(lots)
+            qty_count = sum(max(int(lot.get("qty_available", 0)), 0) for lot in lots)
+            state["wholesale_lots"] = []
+            await self._save_state(state)
+
+        await ctx.send(f"✅ Cleared wholesaler inventory ({lot_count} lots, {qty_count} units).")
+        await self._audit_send(
+            f"[WHOLESALE_CLEAR_INVENTORY] by={member.mention} lots={lot_count} units={qty_count}"
+        )
+
     async def auto_refresh_weekly_after_cyberware(self) -> bool:
         """Auto-restock once per week, called by cyberware weekly process."""
         control = self.bot.get_cog("SystemControl")
