@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse, parse_qs
+from zipfile import BadZipFile
 import aiohttp
 import discord
 from discord.ext import commands
@@ -102,6 +103,27 @@ class WholesalerCog(commands.Cog):
         return cleaned
 
     @staticmethod
+    def _coerce_google_sheet_export_url(url: str) -> str:
+        """Normalize common Google Sheets share URLs into XLSX export URLs."""
+        parsed = urlparse((url or "").strip())
+        if parsed.scheme not in {"http", "https"}:
+            return url
+        if "docs.google.com" not in parsed.netloc.lower() or "/spreadsheets/d/" not in parsed.path:
+            return url
+        if parsed.path.endswith("/export"):
+            return url
+
+        path_parts = [p for p in parsed.path.split("/") if p]
+        try:
+            doc_id = path_parts[path_parts.index("d") + 1]
+        except (ValueError, IndexError):
+            return url
+
+        query = parse_qs(parsed.query)
+        gid = query.get("gid", ["0"])[0]
+        return f"https://docs.google.com/spreadsheets/d/{doc_id}/export?format=xlsx&gid={gid}"
+
+    @staticmethod
     def parse_master_sheet(xlsx_path: str | Path, sheet_name: str) -> list[dict[str, Any]]:
         wb = load_workbook(filename=xlsx_path, read_only=True, data_only=True)
         if sheet_name not in wb.sheetnames:
@@ -181,12 +203,21 @@ class WholesalerCog(commands.Cog):
         if not sheet_url:
             return Path(config.WHOLESALER_XLSX_PATH)
 
+        sheet_url = self._coerce_google_sheet_export_url(sheet_url)
+
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(sheet_url) as resp:
                 if resp.status != 200:
                     raise RuntimeError(f"Failed to fetch sheet export ({resp.status})")
                 payload = await resp.read()
+                if len(payload) < 4 or not payload.startswith(b"PK"):
+                    content_type = resp.headers.get("Content-Type", "unknown")
+                    raise RuntimeError(
+                        "Downloaded sheet is not an XLSX file. "
+                        "Use a Google Sheets export URL or run !wh_setsheet with a direct .xlsx link "
+                        f"(content-type: {content_type})."
+                    )
                 self.sheet_cache_path.write_bytes(payload)
         return self.sheet_cache_path
 
@@ -774,6 +805,12 @@ class WholesalerCog(commands.Cog):
         try:
             sheet_path = await self._resolve_sheet_path()
             guns = self.parse_master_sheet(sheet_path, config.WHOLESALER_MASTER_SHEET_NAME)
+        except BadZipFile:
+            await ctx.send(
+                "❌ Recheck failed: Downloaded sheet is not a valid XLSX file. "
+                "Please provide a Google Sheets export URL (format=xlsx)."
+            )
+            return
         except Exception as e:
             await ctx.send(f"❌ Recheck failed: {e}")
             return

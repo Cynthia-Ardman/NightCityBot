@@ -117,3 +117,19 @@ def test_generate_restock_lots_recomputes_level_totals_after_cap():
     level = lots[0]["gun_level"]
     assert totals[level] == lots[0]["qty_available"]
     assert sum(totals.values()) == lots[0]["qty_available"]
+
+
+def test_coerce_google_sheet_export_url_converts_edit_url():
+    url = "https://docs.google.com/spreadsheets/d/abc123/edit?gid=987654321#gid=987654321"
+
+    export = WholesalerCog._coerce_google_sheet_export_url(url)
+
+    assert export == "https://docs.google.com/spreadsheets/d/abc123/export?format=xlsx&gid=987654321"
+
+
+def test_coerce_google_sheet_export_url_keeps_existing_export_url():
+    url = "https://docs.google.com/spreadsheets/d/abc123/export?format=xlsx&gid=0"
+
+    export = WholesalerCog._coerce_google_sheet_export_url(url)
+
+    assert export == url
