@@ -319,3 +319,96 @@ def test_generate_restock_lots_uses_explicit_type_mix():
     assert len(lots) == 2
     assert {lot["gun_name"] for lot in lots} == {"Nova"}
     assert totals["L"] == 2
+
+
+def test_migrate_legacy_files_copies_state_and_transactions(tmp_path: Path):
+    legacy_dir = tmp_path / "legacy"
+    legacy_dir.mkdir(parents=True, exist_ok=True)
+    (legacy_dir / "state.json").write_text('{"wholesale_lots": [{"lot_id": "abc"}]}', encoding="utf-8")
+    (legacy_dir / "transactions.json").write_text('[{"id": 1}]', encoding="utf-8")
+
+    new_dir = tmp_path / "persistent"
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.data_dir = new_dir
+    cog.state_file = new_dir / "state.json"
+    cog.tx_file = new_dir / "transactions.json"
+    cog.sheet_cache_path = new_dir / "master_sheet_latest.xlsx"
+
+    cog._migrate_legacy_files(legacy_dir)
+
+    assert cog.state_file.read_text(encoding="utf-8") == '{"wholesale_lots": [{"lot_id": "abc"}]}'
+    assert cog.tx_file.read_text(encoding="utf-8") == '[{"id": 1}]'
+
+
+def test_migrate_legacy_files_does_not_overwrite_existing_destination(tmp_path: Path):
+    legacy_dir = tmp_path / "legacy"
+    legacy_dir.mkdir(parents=True, exist_ok=True)
+    (legacy_dir / "state.json").write_text('{"wholesale_lots": [{"lot_id": "old"}]}', encoding="utf-8")
+
+    new_dir = tmp_path / "persistent"
+    new_dir.mkdir(parents=True, exist_ok=True)
+    existing_state = new_dir / "state.json"
+    existing_state.write_text('{"wholesale_lots": [{"lot_id": "new"}]}', encoding="utf-8")
+
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.data_dir = new_dir
+    cog.state_file = existing_state
+    cog.tx_file = new_dir / "transactions.json"
+    cog.sheet_cache_path = new_dir / "master_sheet_latest.xlsx"
+
+    cog._migrate_legacy_files(legacy_dir)
+
+    assert existing_state.read_text(encoding="utf-8") == '{"wholesale_lots": [{"lot_id": "new"}]}'
+
+
+def test_load_state_reads_store_inventory_from_separate_file(tmp_path: Path):
+    import asyncio
+
+    state_path = tmp_path / "state.json"
+    stores_path = tmp_path / "stores.json"
+    state_path.write_text('{"wholesale_lots": [{"lot_id": "lot-1"}], "settings": {}}', encoding="utf-8")
+    stores_path.write_text('{"stores": {"g-1": {"lots": [{"lot_id": "store-1"}]}}}', encoding="utf-8")
+
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.state_file = state_path
+    cog.store_state_file = stores_path
+    cog.DEFAULT_RESTOCK_SETTINGS = WholesalerCog.DEFAULT_RESTOCK_SETTINGS
+
+    async def _run():
+        return await cog._load_state()
+
+    state = asyncio.run(_run())
+    assert state["wholesale_lots"][0]["lot_id"] == "lot-1"
+    assert state["stores"]["g-1"]["lots"][0]["lot_id"] == "store-1"
+
+
+def test_save_state_writes_store_inventory_to_separate_file(tmp_path: Path):
+    import asyncio
+    import json
+
+    state_path = tmp_path / "state.json"
+    stores_path = tmp_path / "stores.json"
+
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.state_file = state_path
+    cog.store_state_file = stores_path
+
+    payload = {
+        "wholesale_lots": [{"lot_id": "lot-1"}],
+        "stores": {"g-1": {"lots": [{"lot_id": "store-1"}]}},
+        "shop_registry": {"test-shop": 123},
+        "settings": {},
+    }
+
+    async def _run():
+        return await cog._save_state(payload)
+
+    assert asyncio.run(_run()) is True
+
+    main = json.loads(state_path.read_text(encoding="utf-8"))
+    stores = json.loads(stores_path.read_text(encoding="utf-8"))
+
+    assert "stores" not in main
+    assert "shop_registry" not in main
+    assert stores["stores"]["g-1"]["lots"][0]["lot_id"] == "store-1"
+    assert stores["shop_registry"]["test-shop"] == 123
