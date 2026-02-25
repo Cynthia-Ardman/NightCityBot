@@ -338,17 +338,18 @@ class WholesalerCog(commands.Cog):
                 if resp.status != 200:
                     raise RuntimeError(f"Failed to fetch sheet export ({resp.status})")
                 payload = await resp.read()
-                self.sheet_cache_path.write_bytes(payload)
+                await asyncio.to_thread(self.sheet_cache_path.write_bytes, payload)
         return self.sheet_cache_path
 
     async def _load_master_guns(self) -> list[dict[str, Any]]:
         """Load wholesaler source rows using configured sheet name with gid fallback."""
         sheet_path = await self._resolve_sheet_path()
         _, sheet_gid = await self._resolve_sheet_source()
-        return self.parse_master_sheet(
+        return await asyncio.to_thread(
+            self.parse_master_sheet,
             sheet_path,
             config.WHOLESALER_MASTER_SHEET_NAME,
-            sheet_gid=sheet_gid,
+            sheet_gid,
         )
 
     async def _load_state(self) -> dict[str, Any]:
