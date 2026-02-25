@@ -38,3 +38,52 @@ def test_level_derivation_treats_mh_as_h():
 def test_normalize_shop_name_for_aliases():
     assert WholesalerCog._normalize_shop_name("Shop 1") == "shop-1"
     assert WholesalerCog._normalize_shop_name("SHOP__2") == "shop-2"
+
+
+def test_restock_settings_allow_zero_for_level_lots():
+    cog = WholesalerCog.__new__(WholesalerCog)
+    cog.DEFAULT_RESTOCK_SETTINGS = WholesalerCog.DEFAULT_RESTOCK_SETTINGS
+
+    cfg = cog._resolve_restock_settings(
+        {
+            "settings": {
+                "restock": {
+                    "total_lots": 5,
+                    "lots_L": 5,
+                    "lots_M": 0,
+                    "lots_H": 0,
+                    "qty_min_L": 2,
+                    "qty_max_L": 2,
+                }
+            }
+        }
+    )
+
+    assert cfg["lots_M"] == 0
+    assert cfg["lots_H"] == 0
+    assert cfg["total_lots"] == 5
+
+
+def test_generate_restock_lots_uses_actual_level_on_fallback():
+    cog = WholesalerCog.__new__(WholesalerCog)
+    guns = [{"gun_name": "Only L", "gun_level": "L", "price_new": 1000}]
+    cfg = {
+        "total_lots": 1,
+        "lots_L": 0,
+        "lots_M": 0,
+        "lots_H": 1,
+        "qty_min_L": 3,
+        "qty_max_L": 3,
+        "qty_min_M": 1,
+        "qty_max_M": 1,
+        "qty_min_H": 1,
+        "qty_max_H": 1,
+    }
+
+    import random
+
+    lots, _totals = cog._generate_restock_lots(guns, cfg, random.Random(1))
+
+    assert len(lots) == 1
+    assert lots[0]["gun_level"] == "L"
+    assert lots[0]["qty_available"] == 3

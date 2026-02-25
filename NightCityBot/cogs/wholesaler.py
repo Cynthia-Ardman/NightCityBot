@@ -219,12 +219,22 @@ class WholesalerCog(commands.Cog):
         except Exception:
             return fallback
 
+    @staticmethod
+    def _sanitize_non_negative_int(value: Any, fallback: int) -> int:
+        try:
+            v = int(value)
+            return v if v >= 0 else fallback
+        except Exception:
+            return fallback
+
     def _resolve_restock_settings(self, state: dict[str, Any]) -> dict[str, int]:
         raw = state.get("settings", {}).get("restock", {})
-        data = {
-            key: self._sanitize_positive_int(raw.get(key), default)
-            for key, default in self.DEFAULT_RESTOCK_SETTINGS.items()
-        }
+        data = {}
+        for key, default in self.DEFAULT_RESTOCK_SETTINGS.items():
+            if key in {"lots_L", "lots_M", "lots_H"}:
+                data[key] = self._sanitize_non_negative_int(raw.get(key), default)
+            else:
+                data[key] = self._sanitize_positive_int(raw.get(key), default)
 
         # Keep ranges valid and ensure at least one lot is generated.
         for lvl in ("L", "M", "H"):
@@ -236,7 +246,58 @@ class WholesalerCog(commands.Cog):
         if data["lots_L"] + data["lots_M"] + data["lots_H"] <= 0:
             data["lots_L"] = 1
 
+        data["total_lots"] = max(1, data["total_lots"])
+
         return data
+
+    def _generate_restock_lots(
+        self,
+        guns: list[dict[str, Any]],
+        cfg: dict[str, int],
+        rng: random.Random,
+    ) -> tuple[list[dict[str, Any]], dict[str, int]]:
+        by_level = {
+            "L": [g for g in guns if g["gun_level"] == "L"],
+            "M": [g for g in guns if g["gun_level"] == "M"],
+            "H": [g for g in guns if g["gun_level"] == "H"],
+        }
+        weighted = [
+            g
+            for g in guns
+            for _ in range(self.LEVEL_SETTINGS.get(g["gun_level"], {"weight": 1})["weight"])
+        ]
+
+        lots: list[dict[str, Any]] = []
+        level_totals = {"L": 0, "M": 0, "H": 0}
+
+        for requested_level in ("L", "M", "H"):
+            target = cfg[f"lots_{requested_level}"]
+            pool = by_level[requested_level] if by_level[requested_level] else weighted
+            if not pool or target <= 0:
+                continue
+
+            for _ in range(target):
+                gun = rng.choice(pool)
+                actual_level = str(gun.get("gun_level", requested_level))
+                if actual_level not in {"L", "M", "H"}:
+                    actual_level = requested_level
+                qty = rng.randint(cfg[f"qty_min_{actual_level}"], cfg[f"qty_max_{actual_level}"])
+                lots.append(
+                    {
+                        "lot_id": f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
+                        "gun_name": gun["gun_name"],
+                        "gun_level": actual_level,
+                        "unit_cost": int(gun["price_new"]),
+                        "qty_available": qty,
+                        "created_at": self._now_iso(),
+                    }
+                )
+                level_totals[actual_level] += qty
+
+        if len(lots) > cfg["total_lots"]:
+            lots = rng.sample(lots, cfg["total_lots"])
+
+        return lots, level_totals
 
     async def _save_state(self, state: dict[str, Any]) -> bool:
         return await helpers.save_json_file(self.state_file, state)
@@ -576,45 +637,8 @@ class WholesalerCog(commands.Cog):
         async with self.lock:
             state = await self._load_state()
             cfg = self._resolve_restock_settings(state)
-
-            by_level = {
-                "L": [g for g in guns if g["gun_level"] == "L"],
-                "M": [g for g in guns if g["gun_level"] == "M"],
-                "H": [g for g in guns if g["gun_level"] == "H"],
-            }
-            weighted = [
-                g
-                for g in guns
-                for _ in range(self.LEVEL_SETTINGS.get(g["gun_level"], {"weight": 1})["weight"])
-            ]
-
             rng = random.Random(seed)
-            lots: list[dict[str, Any]] = []
-            level_totals = {"L": 0, "M": 0, "H": 0}
-
-            for lvl in ("L", "M", "H"):
-                target = cfg[f"lots_{lvl}"]
-                pool = by_level[lvl] if by_level[lvl] else weighted
-                if not pool or target <= 0:
-                    continue
-                for _ in range(target):
-                    gun = rng.choice(pool)
-                    qty = rng.randint(cfg[f"qty_min_{lvl}"], cfg[f"qty_max_{lvl}"])
-                    lots.append(
-                        {
-                            "lot_id": f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
-                            "gun_name": gun["gun_name"],
-                            "gun_level": lvl,
-                            "unit_cost": int(gun["price_new"]),
-                            "qty_available": qty,
-                            "created_at": self._now_iso(),
-                        }
-                    )
-                    level_totals[lvl] += qty
-
-            # Respect total_lots cap if present.
-            if len(lots) > cfg["total_lots"]:
-                lots = rng.sample(lots, cfg["total_lots"])
+            lots, level_totals = self._generate_restock_lots(guns, cfg, rng)
 
             state["wholesale_lots"] = lots
             state.setdefault("settings", {}).setdefault("restock", {}).update(cfg)
@@ -646,39 +670,7 @@ class WholesalerCog(commands.Cog):
 
             cfg = self._resolve_restock_settings(state)
             rng = random.Random()
-            by_level = {
-                "L": [g for g in guns if g["gun_level"] == "L"],
-                "M": [g for g in guns if g["gun_level"] == "M"],
-                "H": [g for g in guns if g["gun_level"] == "H"],
-            }
-            weighted = [
-                g
-                for g in guns
-                for _ in range(self.LEVEL_SETTINGS.get(g["gun_level"], {"weight": 1})["weight"])
-            ]
-
-            lots: list[dict[str, Any]] = []
-            for lvl in ("L", "M", "H"):
-                target = cfg[f"lots_{lvl}"]
-                pool = by_level[lvl] if by_level[lvl] else weighted
-                if not pool or target <= 0:
-                    continue
-                for _ in range(target):
-                    gun = rng.choice(pool)
-                    qty = rng.randint(cfg[f"qty_min_{lvl}"], cfg[f"qty_max_{lvl}"])
-                    lots.append(
-                        {
-                            "lot_id": f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
-                            "gun_name": gun["gun_name"],
-                            "gun_level": lvl,
-                            "unit_cost": int(gun["price_new"]),
-                            "qty_available": qty,
-                            "created_at": self._now_iso(),
-                        }
-                    )
-
-            if len(lots) > cfg["total_lots"]:
-                lots = rng.sample(lots, cfg["total_lots"])
+            lots, _level_totals = self._generate_restock_lots(guns, cfg, rng)
 
             state["wholesale_lots"] = lots
             state.setdefault("settings", {})["last_auto_restock_week"] = week_key
@@ -716,7 +708,10 @@ class WholesalerCog(commands.Cog):
                         + ", ".join(sorted(self.DEFAULT_RESTOCK_SETTINGS.keys()))
                     )
                     return
-                cfg[key] = max(1, int(value))
+                if key in {"lots_L", "lots_M", "lots_H"}:
+                    cfg[key] = max(0, int(value))
+                else:
+                    cfg[key] = max(1, int(value))
                 state.setdefault("settings", {}).setdefault("restock", {}).update(cfg)
                 await self._save_state(state)
                 await ctx.send(f"✅ Updated {key} to {cfg[key]}.")
