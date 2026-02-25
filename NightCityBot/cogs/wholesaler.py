@@ -68,13 +68,58 @@ class WholesalerCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.unbelievaboat = UnbelievaBoatAPI(config.UNBELIEVABOAT_API_TOKEN)
-        self.data_dir = Path(__file__).resolve().parents[1] / "data" / "wholesaler"
+
+        default_data_dir = Path(__file__).resolve().parents[1] / "data" / "wholesaler"
+        configured_state = getattr(config, "WHOLESALER_STATE_FILE", None)
+        if configured_state:
+            self.state_file = Path(configured_state)
+            self.data_dir = self.state_file.parent
+        else:
+            self.data_dir = default_data_dir
+            self.state_file = self.data_dir / "state.json"
+
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.sheet_cache_path = self.data_dir / "master_sheet_latest.xlsx"
-        self.state_file = self.data_dir / "state.json"
-        self.tx_file = self.data_dir / "transactions.json"
+
+        self.sheet_cache_path = Path(
+            getattr(
+                config,
+                "WHOLESALER_SHEET_CACHE_FILE",
+                str(self.data_dir / "master_sheet_latest.xlsx"),
+            )
+        )
+        self.store_state_file = Path(
+            getattr(config, "WHOLESALER_STORE_STATE_FILE", str(self.state_file))
+        )
+        self.tx_file = Path(
+            getattr(config, "WHOLESALER_TX_FILE", str(self.data_dir / "transactions.json"))
+        )
+
+        self._migrate_legacy_files(default_data_dir)
         self.lock = asyncio.Lock()
         self.weekly_sunday_restock.start()
+
+    def _migrate_legacy_files(self, legacy_dir: Path) -> None:
+        """Copy old in-repo wholesaler files into configured persistent paths once."""
+        if self.data_dir == legacy_dir:
+            return
+
+        store_state_file = getattr(self, "store_state_file", self.state_file)
+
+        migrations = (
+            (legacy_dir / "state.json", self.state_file),
+            (legacy_dir / "state.json", store_state_file),
+            (legacy_dir / "transactions.json", self.tx_file),
+            (legacy_dir / "master_sheet_latest.xlsx", self.sheet_cache_path),
+        )
+        for src, dst in migrations:
+            if dst.exists() or not src.exists():
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                dst.write_bytes(src.read_bytes())
+                logger.info("Migrated wholesaler data file %s -> %s", src, dst)
+            except Exception:
+                logger.exception("Failed to migrate wholesaler data file %s -> %s", src, dst)
 
     def cog_unload(self):
         self.weekly_sunday_restock.cancel()
@@ -357,13 +402,22 @@ class WholesalerCog(commands.Cog):
             self.state_file,
             default={
                 "wholesale_lots": [],
-                "stores": {},
                 "transactions": 0,
                 "pending_payouts": [],
-                "shop_registry": {},
                 "settings": {},
             },
         )
+
+        if self.store_state_file == self.state_file:
+            store_state = state
+        else:
+            store_state = await helpers.load_json_file(
+                self.store_state_file,
+                default={"stores": {}, "shop_registry": {}},
+            )
+
+        state["stores"] = store_state.get("stores", {})
+        state["shop_registry"] = store_state.get("shop_registry", {})
         state.setdefault("shop_registry", {})
         state.setdefault("stores", {})
         state.setdefault("wholesale_lots", [])
@@ -508,7 +562,21 @@ class WholesalerCog(commands.Cog):
         return lots, level_totals
 
     async def _save_state(self, state: dict[str, Any]) -> bool:
-        return await helpers.save_json_file(self.state_file, state)
+        if self.store_state_file == self.state_file:
+            return await helpers.save_json_file(self.state_file, state)
+
+        state_main = dict(state)
+        state_main.pop("stores", None)
+        state_main.pop("shop_registry", None)
+
+        stores_payload = {
+            "stores": state.get("stores", {}),
+            "shop_registry": state.get("shop_registry", {}),
+        }
+
+        main_ok = await helpers.save_json_file(self.state_file, state_main)
+        stores_ok = await helpers.save_json_file(self.store_state_file, stores_payload)
+        return main_ok and stores_ok
 
     async def _append_tx(self, tx: dict[str, Any]) -> bool:
         return await helpers.append_json_file(self.tx_file, tx)
