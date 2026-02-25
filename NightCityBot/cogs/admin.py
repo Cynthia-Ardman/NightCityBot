@@ -141,6 +141,18 @@ class Admin(commands.Cog):
             inline=False,
         )
 
+
+        embed.add_field(
+            name="🔫 Gun Stores & Wholesaler",
+            value=(
+                "`!wh_list` – view current wholesaler lots.\n"
+                "`!store_inv` – view your store inventory.\n"
+                "`!wh_buy <lot_id> <qty>` – store owners buy lots from corp wholesaler.\n"
+                "`!sell @buyer <lot_id> <qty> <total_price> [character:\"Name\"]` – complete a gun sale with a receipt posted to audit."
+            ),
+            inline=False,
+        )
+
         embed.add_field(
             name="📑 Character Sheets",
             value=(
@@ -194,6 +206,13 @@ class Admin(commands.Cog):
                     "`!collect_rent [@user] [-v] [-force]` (alias: !collectrent) – run the monthly rent cycle. Use `-force` to ignore the 30\u202fday limit.",
                     "`!collect_housing @user [-v] [-force]` / `!collect_business @user [-v] [-force]` / `!collect_trauma @user [-v] [-force]` – charge specific fees with optional verbose logs. (aliases: !collecthousing / !collectbusiness / !collecttrauma)",
                     "`!list_deficits` – list members who can't cover upcoming charges.",
+                ]),
+            ),
+            (
+                "🔫 Wholesaler / Store Tools",
+                "\n".join([
+                    "**Store Owner Ops:** `!wh_list`, `!wh_buy <lot_id> <qty>`, `!store_inv`, `!sell @buyer <lot_id> <qty> <total_price> [character:\"Name\"]`.",
+                    "**Admin/Wholesaler Ops:** `!store_inv [shop_name]`, `!wh_setshop`, `!wh_shops`, `!wh_setsheet`, `!wh_restock`, `!wh_restock_settings`, `!wh_recheck`, `!wh_add`, `!store_add`, `!wh_tx`, `!wh_retry_payout`.",
                 ]),
             ),
             (

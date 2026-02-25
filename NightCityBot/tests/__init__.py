@@ -68,6 +68,7 @@ TEST_MODULES = {
     "test_move_npcs_command": "Moves NPC threads to the NPC forum.",
     "test_copy_thread_truncate": "Ensures long thread posts are truncated when archived.",
     "test_manual_cyberware_log": "Adds manual cyberware payment to weekly log when empty.",
+    "test_wholesaler_commands": "Ensures WholesalerCog and key supply-chain commands are registered.",
 }
 
 for name in TEST_MODULES:

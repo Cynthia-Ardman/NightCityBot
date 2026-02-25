@@ -35,6 +35,15 @@ TIMEZONE = "America/Los_Angeles"  # or your preferred zone
 
 Configuration is verified automatically when the bot starts.
 
+Wholesaler-specific configuration:
+
+* `WHOLESALER_GOOGLE_SHEET_XLSX_URL` – optional Google Sheets export URL (XLSX). When set, the bot downloads fresh stock source data directly from the sheet before restocks/rechecks.
+* `WHOLESALER_XLSX_PATH` – local fallback XLSX path if Google export URL is not set.
+* `WHOLESALER_MASTER_SHEET_NAME` – source tab name (default `Master Gun List`).
+* `WHOLESALER_AUDIT_CHANNEL_ID` – channel where immutable sales receipts and payout alerts are posted.
+* `WHOLESALER_ADMIN_ROLE_IDS` / `WHOLESALER_STORE_ROLE_IDS` – comma-separated role IDs for command permissions.
+
+
 ## Running the bot
 
 Execute the entry point script:
@@ -162,6 +171,29 @@ Commands:
 
 * `!call_trauma` – notify the Trauma Team channel with your plan role.
 
+
+### WholesalerCog
+*File: `NightCityBot/cogs/wholesaler.py`*
+
+Implements the two-tier gun supply chain with scarcity: corporate wholesaler lots are generated from the Master Gun List sheet, store owners buy those lots, then sell to players using UnbelievaBoat balance transfers. The wholesaler auto-refreshes weekly right after cyberware processing, and all sales produce immutable receipts in the wholesaler audit channel for manual staff spreadsheet updates.
+
+Main commands (separated by role):
+
+**Gun Store Owner Commands**
+* `!wh_list` – list available wholesaler lots.
+* `!wh_buy <lot_id> <qty>` – buy stock from wholesaler into your store inventory (deducts owner funds).
+* `!store_inv` – view your own store inventory.
+* `!sell @buyer <lot_id> <qty> <total_price> [character:"Name"]` – process player sale (deduct buyer, credit seller, decrement inventory, post receipt).
+
+**Wholesaler / Admin Commands**
+* `!store_inv [shop_name]` – admin lookup for mapped shops by alias (`shop1`, `shop2`, etc.).
+* `!wh_setshop <shop_name> @owner` / `!wh_shops` – manage shop alias mapping to specific Discord users.
+* `!wh_setsheet <xlsx_export_url|off>` – set/clear a runtime Google Sheets source URL without restarting the bot (regular share links are auto-converted to XLSX export).
+* `!wh_restock [seed]` – regenerate weekly wholesaler lots from sheet data with L/M/H weighted scarcity.
+* `!wh_restock_settings [key] [value]` – view/tune refresh settings (total lots, lots per level, qty ranges).
+* `!wh_recheck` – compare current wholesaler lot level/cost data against the current source sheet and report mismatches.
+* `!wh_add`, `!store_add`, `!wh_tx`, `!wh_retry_payout` – admin adjustment, transaction lookup, and payout recovery tools.
+
 ### SystemControl
 *File: `NightCityBot/cogs/system_control.py`*
 
@@ -232,3 +264,12 @@ pytest
 ```
 
 Alternatively, run `!test_bot` inside Discord to perform many of the same checks without leaving the chat.
+
+
+## Setting up a new gun store owner
+
+1. **Grant store permissions role** to the player (one of `WHOLESALER_STORE_ROLE_IDS`).
+2. **Bind a shop alias** to that owner: `!wh_setshop shop1 @User` (use any alias like `shop2`, `shop3`, etc.).
+3. **Seed inventory** either by wholesaler flow (`!wh_restock` then owner runs `!wh_buy`) or direct admin injection with `!store_add @User <gun> <L|M|H> <unit_cost> <qty>`.
+4. **Verify mapping and stock** with `!wh_shops` and `!store_inv shop1`.
+5. (Optional) **Set/rotate source sheet URL live** with `!wh_setsheet <google_xlsx_export_url>`. Use `!wh_setsheet off` to revert to config values.
