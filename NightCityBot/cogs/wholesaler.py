@@ -87,7 +87,7 @@ class WholesalerCog(commands.Cog):
         )
         self.store_state_file = self._resolve_data_path(
             getattr(config, "WHOLESALER_STORE_STATE_FILE", None),
-            "state.json",
+            "stores.json",
         )
         self.wholesale_inventory_file = self._resolve_data_path(
             getattr(config, "WHOLESALER_WHOLESALE_FILE", None),
@@ -309,7 +309,23 @@ class WholesalerCog(commands.Cog):
         if self._startup_audit_sent:
             return
         self._startup_audit_sent = True
+        await self._ensure_inventory_files_exist()
         await self.emit_inventory_snapshot_audit("BOT_READY")
+
+    async def _ensure_inventory_files_exist(self) -> None:
+        """Create baseline wholesaler/store persistence files during startup."""
+        async with self.lock:
+            state = await self._load_state()
+            saved = await self._save_state(state)
+            if not saved:
+                logger.warning(
+                    "Wholesaler startup bootstrap could not persist one or more inventory files "
+                    "(state=%s, wholesale=%s, store_index=%s, store_dir=%s)",
+                    self.state_file,
+                    self.wholesale_inventory_file,
+                    self.store_state_file,
+                    self.store_inventory_dir,
+                )
 
 
     @staticmethod
@@ -739,14 +755,14 @@ class WholesalerCog(commands.Cog):
 
         stores_payload = {
             "shop_registry": state.get("shop_registry", {}),
+            "stores": {},
+            "updated_at": self._now_iso(),
         }
 
         main_ok = await helpers.save_json_file(self.state_file, state_main)
         wholesale_ok = await helpers.save_json_file(wholesale_file, wholesale_payload)
 
         store_index_ok = True
-        if store_file != self.state_file:
-            store_index_ok = await helpers.save_json_file(store_file, stores_payload)
 
         store_inventory_dir.mkdir(parents=True, exist_ok=True)
         stores = state.get("stores", {})
@@ -756,6 +772,10 @@ class WholesalerCog(commands.Cog):
             for store_id, store_data in stores.items():
                 dest = self._store_inventory_file(str(store_id))
                 desired_paths.add(dest)
+                stores_payload["stores"][store_id] = {
+                    "owner_id": store_data.get("owner_id"),
+                    "inventory_file": str(dest),
+                }
                 payload = {
                     "store_id": store_id,
                     "owner_id": store_data.get("owner_id"),
@@ -772,6 +792,9 @@ class WholesalerCog(commands.Cog):
                 except Exception:
                     logger.exception("Failed to remove stale store inventory file: %s", old_file)
                     store_files_ok = False
+
+        if store_file != self.state_file:
+            store_index_ok = await helpers.save_json_file(store_file, stores_payload)
 
         ok = main_ok and wholesale_ok and store_index_ok and store_files_ok
         if not ok:
