@@ -27,4 +27,3 @@ run = ["sh", "-c", "python -m NightCityBot.bot"]
 [userenv]
 
 [userenv.shared]
-DISABLE_KEEP_ALIVE = "true"
