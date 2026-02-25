@@ -121,6 +121,23 @@ class CyberwareManager(commands.Cog):
             except Exception:
                 pass
 
+        wholesaler = self.bot.get_cog("WholesalerCog")
+        if wholesaler and hasattr(wholesaler, "auto_refresh_weekly_after_cyberware"):
+            try:
+                refreshed = await wholesaler.auto_refresh_weekly_after_cyberware()
+                if notify_user:
+                    await notify_user.send(
+                        "📦 Weekly wholesaler refresh complete."
+                        if refreshed
+                        else "⚠️ Weekly wholesaler refresh skipped/failed."
+                    )
+            except Exception:
+                if notify_user:
+                    try:
+                        await notify_user.send("❌ Weekly wholesaler refresh errored.")
+                    except Exception:
+                        pass
+
     async def process_week(
         self,
         *,

@@ -73,6 +73,9 @@ print("✅ RoleButtons imported")
 from NightCityBot.cogs.trauma_team import TraumaTeam
 
 print("✅ TraumaTeam imported")
+from NightCityBot.cogs.wholesaler import WholesalerCog
+
+print("✅ WholesalerCog imported")
 
 print("🔍 Importing startup checks...")
 from NightCityBot.utils.startup_checks import perform_startup_checks
@@ -116,6 +119,7 @@ class NightCityBot(commands.Bot):
         await self.add_cog(CharacterManager(self))
         await self.add_cog(RoleButtons(self))
         await self.add_cog(TraumaTeam(self))
+        await self.add_cog(WholesalerCog(self))
         await self.add_cog(Admin(self))
         await self.add_cog(TestSuite(self))
         # Verify configuration and clean up logs after all cogs are loaded
