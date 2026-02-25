@@ -169,6 +169,18 @@ def home():
     return "Bot is alive Version 1.2!"
 
 
+@app.route("/healthz")
+def healthz():
+    """Liveness endpoint for container platforms (Cloud Run, Autoscale)."""
+    return {"status": "ok"}, 200
+
+
+@app.route("/readyz")
+def readyz():
+    """Readiness endpoint for container platforms (Cloud Run, Autoscale)."""
+    return {"status": "ready"}, 200
+
+
 def _resolve_keep_alive_port() -> int:
     raw_port = str(os.getenv("PORT", "5000")).strip()
     try:
@@ -179,7 +191,12 @@ def _resolve_keep_alive_port() -> int:
 
 
 def run_flask():
-    app.run(host="0.0.0.0", port=_resolve_keep_alive_port(), debug=False, use_reloader=False)
+    app.run(
+        host="0.0.0.0",
+        port=_resolve_keep_alive_port(),
+        debug=False,
+        use_reloader=False,
+    )
 
 
 def keep_alive() -> bool:
@@ -224,6 +241,18 @@ def main():
     print("🚀 Starting NightCityBot initialization...")
     logger.info("Starting NightCityBot...")
 
+    # Start keep-alive server as early as possible so HTTP health checks can
+    # pass even while Discord startup is still initializing.
+    print("🌐 Evaluating keep-alive server...")
+    try:
+        if keep_alive():
+            print("✅ Keep-alive server started")
+        else:
+            print("ℹ️ Keep-alive server disabled")
+    except Exception as e:
+        print(f"❌ Failed to start keep-alive server: {e}")
+        logger.error(f"❌ Failed to start keep-alive server: {e}")
+
     # Check token
     print(f"🔑 Checking for Discord token...")
     if not config.TOKEN:
@@ -244,17 +273,6 @@ def main():
         print(f"❌ Failed to create bot instance: {e}")
         logger.error(f"❌ Failed to create bot instance: {e}")
         return
-
-    # Start keep-alive server (opt-in)
-    print("🌐 Evaluating keep-alive server...")
-    try:
-        if keep_alive():
-            print("✅ Keep-alive server started")
-        else:
-            print("ℹ️ Keep-alive server disabled")
-    except Exception as e:
-        print(f"❌ Failed to start keep-alive server: {e}")
-        logger.error(f"❌ Failed to start keep-alive server: {e}")
 
     # Connect to Discord
     print("🔗 Connecting to Discord...")
