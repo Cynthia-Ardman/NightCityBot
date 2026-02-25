@@ -288,6 +288,7 @@ class Admin(commands.Cog):
                     "`!test_bot [tests] [-silent] [-verbose]` – execute the built-in test suite. Results can be DMed when `-silent` is used and step details are shown with `-verbose`. Prefixes run groups of tests.",
                     "`!list_tests` – show all available self-test names.",
                     "`!test__bot [pattern]` – run the PyTest suite optionally filtering by pattern.",
+                    "`!shutdown_bot` (aliases: !shutdownbot, !forceshutdown) – log an audit message and cleanly shut down the bot process.",
                 ]),
             ),
             (
@@ -328,6 +329,14 @@ class Admin(commands.Cog):
 
         for e in embeds:
             await ctx.send(embed=e)
+
+    @commands.command(name="shutdown_bot", aliases=["shutdownbot", "forceshutdown"])
+    @commands.has_permissions(administrator=True)
+    async def shutdown_bot(self, ctx):
+        """Force a clean bot shutdown with audit logging."""
+        await ctx.send("🛑 Shutdown requested. Closing bot process...")
+        await self.log_audit(ctx.author, "🛑 Manual shutdown requested via !shutdown_bot.")
+        await self.bot.close()
 
     @commands.command()
     @commands.has_permissions(administrator=True)
