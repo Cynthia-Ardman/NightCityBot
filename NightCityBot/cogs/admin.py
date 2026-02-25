@@ -211,6 +211,8 @@ class Admin(commands.Cog):
             (
                 "🔫 Wholesaler / Store Tools",
                 "\n".join([
+                    "**Store Owner Ops:** `!wh_list`, `!wh_buy <lot_id> <qty>`, `!store_inv`, `!sell @buyer <lot_id> <qty> <total_price> [character:\"Name\"]`.",
+                    "**Admin/Wholesaler Ops:** `!store_inv [shop_name]`, `!wh_setshop`, `!wh_shops`, `!wh_setsheet`, `!wh_restock`, `!wh_restock_settings`, `!wh_recheck`, `!wh_add`, `!store_add`, `!wh_tx`, `!wh_retry_payout`.",
                     "`!wh_list` – list current wholesaler lots.",
                     "`!store_inv [shop_name]` – view your store inventory (admins can inspect a mapped shop alias).",
                     "`!wh_buy <lot_id> <qty>` / `!sell @buyer <lot_id> <qty> <total_price> [character:\"Name\"]` – wholesale purchase and player sale flow.",

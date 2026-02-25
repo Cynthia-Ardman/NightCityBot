@@ -177,14 +177,18 @@ Commands:
 
 Implements the two-tier gun supply chain with scarcity: corporate wholesaler lots are generated from the Master Gun List sheet, store owners buy those lots, then sell to players using UnbelievaBoat balance transfers. The wholesaler auto-refreshes weekly right after cyberware processing, and all sales produce immutable receipts in the wholesaler audit channel for manual staff spreadsheet updates.
 
-Main commands:
+Main commands (separated by role):
 
+**Gun Store Owner Commands**
 * `!wh_list` – list available wholesaler lots.
-* `!wh_buy <lot_id> <qty>` – store owner buys stock from wholesaler.
-* `!store_inv [shop_name]` – view your store inventory; admins can inspect registered shops by alias (`shop1`, `shop2`, etc.).
-* `!sell @buyer <lot_id> <qty> <total_price> [character:"Name"]` – complete player purchase; deduct buyer and credit seller with pending payout fallback on partial failure.
+* `!wh_buy <lot_id> <qty>` – buy stock from wholesaler into your store inventory (deducts owner funds).
+* `!store_inv` – view your own store inventory.
+* `!sell @buyer <lot_id> <qty> <total_price> [character:"Name"]` – process player sale (deduct buyer, credit seller, decrement inventory, post receipt).
+
+**Wholesaler / Admin Commands**
+* `!store_inv [shop_name]` – admin lookup for mapped shops by alias (`shop1`, `shop2`, etc.).
 * `!wh_setshop <shop_name> @owner` / `!wh_shops` – manage shop alias mapping to specific Discord users.
-* `!wh_setsheet <xlsx_export_url|off>` – set/clear a runtime Google Sheets XLSX source URL without restarting the bot.
+* `!wh_setsheet <xlsx_export_url|off>` – set/clear a runtime Google Sheets source URL without restarting the bot (regular share links are auto-converted to XLSX export).
 * `!wh_restock [seed]` – regenerate weekly wholesaler lots from sheet data with L/M/H weighted scarcity.
 * `!wh_restock_settings [key] [value]` – view/tune refresh settings (total lots, lots per level, qty ranges).
 * `!wh_recheck` – compare current wholesaler lot level/cost data against the current source sheet and report mismatches.

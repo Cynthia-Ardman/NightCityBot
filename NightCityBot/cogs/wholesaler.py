@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse, parse_qs
-from zipfile import BadZipFile
+
 import aiohttp
 import discord
 from discord.ext import commands
@@ -102,26 +102,35 @@ class WholesalerCog(commands.Cog):
         cleaned = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
         return cleaned
 
+
     @staticmethod
-    def _coerce_google_sheet_export_url(url: str) -> str:
-        """Normalize common Google Sheets share URLs into XLSX export URLs."""
-        parsed = urlparse((url or "").strip())
-        if parsed.scheme not in {"http", "https"}:
-            return url
-        if "docs.google.com" not in parsed.netloc.lower() or "/spreadsheets/d/" not in parsed.path:
-            return url
-        if parsed.path.endswith("/export"):
-            return url
+    def _normalize_sheet_source_url(value: str) -> str:
+        """Normalize a Google Sheets URL to an XLSX export URL when possible."""
+        raw = (value or "").strip()
+        if not raw:
+            return raw
+        parsed = urlparse(raw)
 
-        path_parts = [p for p in parsed.path.split("/") if p]
-        try:
-            doc_id = path_parts[path_parts.index("d") + 1]
-        except (ValueError, IndexError):
-            return url
+        if "docs.google.com" not in parsed.netloc:
+            return raw
 
-        query = parse_qs(parsed.query)
-        gid = query.get("gid", ["0"])[0]
-        return f"https://docs.google.com/spreadsheets/d/{doc_id}/export?format=xlsx&gid={gid}"
+        # Already an export endpoint
+        if "/export" in parsed.path:
+            return raw
+
+        match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", parsed.path)
+        if not match:
+            return raw
+
+        sheet_id = match.group(1)
+        gid = parse_qs(parsed.query).get("gid", [None])[0]
+        if not gid and parsed.fragment.startswith("gid="):
+            gid = parsed.fragment.split("=", 1)[1]
+
+        export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+        if gid:
+            export_url += f"&gid={gid}"
+        return export_url
 
     @staticmethod
     def parse_master_sheet(xlsx_path: str | Path, sheet_name: str) -> list[dict[str, Any]]:
@@ -199,11 +208,17 @@ class WholesalerCog(commands.Cog):
         """Return local xlsx path, downloading from Google Sheets if configured."""
         state = await self._load_state()
         configured_url = str(state.get("settings", {}).get("master_sheet_url", "")).strip()
-        sheet_url = configured_url or getattr(config, "WHOLESALER_GOOGLE_SHEET_XLSX_URL", "").strip()
+        raw_url = configured_url or getattr(config, "WHOLESALER_GOOGLE_SHEET_XLSX_URL", "").strip()
+        sheet_url = self._normalize_sheet_source_url(raw_url)
         if not sheet_url:
             return Path(config.WHOLESALER_XLSX_PATH)
 
-        sheet_url = self._coerce_google_sheet_export_url(sheet_url)
+        # Self-heal older stored share URLs by persisting normalized export URL.
+        if configured_url and configured_url != sheet_url:
+            async with self.lock:
+                latest = await self._load_state()
+                latest.setdefault("settings", {})["master_sheet_url"] = sheet_url
+                await self._save_state(latest)
 
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -211,13 +226,6 @@ class WholesalerCog(commands.Cog):
                 if resp.status != 200:
                     raise RuntimeError(f"Failed to fetch sheet export ({resp.status})")
                 payload = await resp.read()
-                if len(payload) < 4 or not payload.startswith(b"PK"):
-                    content_type = resp.headers.get("Content-Type", "unknown")
-                    raise RuntimeError(
-                        "Downloaded sheet is not an XLSX file. "
-                        "Use a Google Sheets export URL or run !wh_setsheet with a direct .xlsx link "
-                        f"(content-type: {content_type})."
-                    )
                 self.sheet_cache_path.write_bytes(payload)
         return self.sheet_cache_path
 
@@ -360,6 +368,14 @@ class WholesalerCog(commands.Cog):
         except Exception:
             logger.exception("Failed to send wholesaler audit line")
 
+
+    async def _system_enabled(self, ctx: commands.Context) -> bool:
+        control = self.bot.get_cog("SystemControl")
+        if control and not control.is_enabled("wholesaler"):
+            await ctx.send("⚠️ The wholesaler system is currently disabled.")
+            return False
+        return True
+
     async def _ensure_member(self, ctx: commands.Context) -> Optional[discord.Member]:
         if not ctx.guild or not isinstance(ctx.author, discord.Member):
             await ctx.send("❌ This command can only be used in the server.")
@@ -422,6 +438,8 @@ class WholesalerCog(commands.Cog):
     @commands.command(name="wh_setshop")
     async def wh_setshop(self, ctx: commands.Context, shop_name: str, owner: discord.Member):
         """Bind shop aliases (shop1/shop2/shop3 etc.) to an owner Discord account."""
+        if not await self._system_enabled(ctx):
+            return
         member = await self._ensure_member(ctx)
         if not member:
             return
@@ -443,6 +461,9 @@ class WholesalerCog(commands.Cog):
 
     @commands.command(name="wh_shops")
     async def wh_shops(self, ctx: commands.Context):
+
+        if not await self._system_enabled(ctx):
+            return
         member = await self._ensure_member(ctx)
         if not member:
             return
@@ -456,6 +477,9 @@ class WholesalerCog(commands.Cog):
 
     @commands.command(name="wh_list")
     async def wh_list(self, ctx: commands.Context):
+
+        if not await self._system_enabled(ctx):
+            return
         state = await self._load_state()
         lots = [lot for lot in state.get("wholesale_lots", []) if int(lot.get("qty_available", 0)) > 0]
         if not lots:
@@ -470,6 +494,8 @@ class WholesalerCog(commands.Cog):
     @commands.command(name="store_inv")
     async def store_inv(self, ctx: commands.Context, *, shop: Optional[str] = None):
         """Show your inventory or a named shop inventory (`!store_inv shop1`)."""
+        if not await self._system_enabled(ctx):
+            return
         member = await self._ensure_member(ctx)
         if not member:
             return
@@ -495,6 +521,9 @@ class WholesalerCog(commands.Cog):
 
     @commands.command(name="wh_buy")
     async def wh_buy(self, ctx: commands.Context, lot_id: str, qty: int):
+
+        if not await self._system_enabled(ctx):
+            return
         member = await self._ensure_member(ctx)
         if not member:
             return
@@ -567,6 +596,8 @@ class WholesalerCog(commands.Cog):
         *,
         extra: str = "",
     ):
+        if not await self._system_enabled(ctx):
+            return
         member = await self._ensure_member(ctx)
         if not member:
             return
@@ -652,6 +683,9 @@ class WholesalerCog(commands.Cog):
 
     @commands.command(name="wh_restock")
     async def wh_restock(self, ctx: commands.Context, seed: Optional[int] = None):
+
+        if not await self._system_enabled(ctx):
+            return
         member = await self._ensure_member(ctx)
         if not member:
             return
@@ -688,6 +722,9 @@ class WholesalerCog(commands.Cog):
 
     async def auto_refresh_weekly_after_cyberware(self) -> bool:
         """Auto-restock once per week, called by cyberware weekly process."""
+        control = self.bot.get_cog("SystemControl")
+        if control and not control.is_enabled("wholesaler"):
+            return False
         try:
             sheet_path = await self._resolve_sheet_path()
             guns = self.parse_master_sheet(sheet_path, config.WHOLESALER_MASTER_SHEET_NAME)
@@ -727,6 +764,8 @@ class WholesalerCog(commands.Cog):
 
         Example: !wh_restock_settings lots_L 12
         """
+        if not await self._system_enabled(ctx):
+            return
         member = await self._ensure_member(ctx)
         if not member:
             return
@@ -765,6 +804,8 @@ class WholesalerCog(commands.Cog):
 
         Use `!wh_setsheet off` to clear runtime override and fall back to config.
         """
+        if not await self._system_enabled(ctx):
+            return
         member = await self._ensure_member(ctx)
         if not member:
             return
@@ -786,15 +827,18 @@ class WholesalerCog(commands.Cog):
                 await ctx.send("❌ URL must start with http/https.")
                 return
 
-            settings["master_sheet_url"] = value
+            normalized = self._normalize_sheet_source_url(value)
+            settings["master_sheet_url"] = normalized
             await self._save_state(state)
 
         await ctx.send("✅ Runtime wholesaler sheet URL updated.")
-        await self._audit_send(f"[WHOLESALE_SOURCE_SET] by={member.mention} url={value}")
+        await self._audit_send(f"[WHOLESALE_SOURCE_SET] by={member.mention} url={normalized}")
 
     @commands.command(name="wh_recheck")
     async def wh_recheck(self, ctx: commands.Context):
         """Reconcile current wholesaler lots against current sheet prices/levels."""
+        if not await self._system_enabled(ctx):
+            return
         member = await self._ensure_member(ctx)
         if not member:
             return
@@ -805,12 +849,6 @@ class WholesalerCog(commands.Cog):
         try:
             sheet_path = await self._resolve_sheet_path()
             guns = self.parse_master_sheet(sheet_path, config.WHOLESALER_MASTER_SHEET_NAME)
-        except BadZipFile:
-            await ctx.send(
-                "❌ Recheck failed: Downloaded sheet is not a valid XLSX file. "
-                "Please provide a Google Sheets export URL (format=xlsx)."
-            )
-            return
         except Exception as e:
             await ctx.send(f"❌ Recheck failed: {e}")
             return
@@ -852,6 +890,9 @@ class WholesalerCog(commands.Cog):
 
     @commands.command(name="wh_add")
     async def wh_add(self, ctx: commands.Context, gun_name: str, level: str, unit_cost: int, qty: int):
+
+        if not await self._system_enabled(ctx):
+            return
         member = await self._ensure_member(ctx)
         if not member:
             return
@@ -904,6 +945,8 @@ class WholesalerCog(commands.Cog):
         unit_cost: int,
         qty: int,
     ):
+        if not await self._system_enabled(ctx):
+            return
         member = await self._ensure_member(ctx)
         if not member:
             return
@@ -950,6 +993,9 @@ class WholesalerCog(commands.Cog):
 
     @commands.command(name="wh_tx")
     async def wh_tx(self, ctx: commands.Context, tx_id: str):
+
+        if not await self._system_enabled(ctx):
+            return
         member = await self._ensure_member(ctx)
         if not member:
             return
@@ -966,6 +1012,9 @@ class WholesalerCog(commands.Cog):
 
     @commands.command(name="wh_retry_payout")
     async def wh_retry_payout(self, ctx: commands.Context, tx_id: str):
+
+        if not await self._system_enabled(ctx):
+            return
         member = await self._ensure_member(ctx)
         if not member:
             return

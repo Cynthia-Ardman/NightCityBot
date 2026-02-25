@@ -8,6 +8,7 @@ SYSTEMS = [
     "cyberware",
     "attend",
     "open_shop",
+    "wholesaler",
     "loa",
     "housing_rent",
     "business_rent",
