@@ -69,7 +69,8 @@ class WholesalerCog(commands.Cog):
         self.bot = bot
         self.unbelievaboat = UnbelievaBoatAPI(config.UNBELIEVABOAT_API_TOKEN)
 
-        default_data_dir = Path(__file__).resolve().parents[1] / "data" / "wholesaler"
+        base_dir = Path(getattr(config, "BASE_DIR", Path(__file__).resolve().parents[1]))
+        default_data_dir = base_dir / "data" / "wholesaler"
         configured_data_dir = getattr(config, "WHOLESALER_DATA_DIR", None)
         self.data_dir = Path(configured_data_dir) if configured_data_dir else default_data_dir
         self.state_file = self._resolve_data_path(
@@ -761,7 +762,21 @@ class WholesalerCog(commands.Cog):
                     logger.exception("Failed to remove stale store inventory file: %s", old_file)
                     store_files_ok = False
 
-        return main_ok and wholesale_ok and store_index_ok and store_files_ok
+        ok = main_ok and wholesale_ok and store_index_ok and store_files_ok
+        if not ok:
+            logger.error(
+                "Wholesaler persistence failure main_ok=%s wholesale_ok=%s store_index_ok=%s store_files_ok=%s "
+                "state_file=%s wholesale_file=%s store_file=%s store_inventory_dir=%s",
+                main_ok,
+                wholesale_ok,
+                store_index_ok,
+                store_files_ok,
+                self.state_file,
+                wholesale_file,
+                store_file,
+                store_inventory_dir,
+            )
+        return ok
 
     async def _append_tx(self, tx: dict[str, Any]) -> bool:
         return await helpers.append_json_file(self.tx_file, tx)
