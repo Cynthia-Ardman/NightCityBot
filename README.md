@@ -54,6 +54,15 @@ python -m NightCityBot.bot
 
 A small Flask server is also started to keep the bot alive on certain hosting platforms.
 
+### Replit restart behavior (why it comes back after stopping)
+
+If your bot appears to auto-restart on Replit, that is usually platform behavior rather than bot code:
+
+* `.replit` defines a deployment target (`cloudrun`) and run command. Replit Deployments supervise the process and restart it when it exits.
+* The bot also starts a keep-alive HTTP listener by default, which can make the Repl look active whenever external health checks or uptime pings hit `/`.
+
+To disable the internal keep-alive listener for manual/dev runs, set `DISABLE_KEEP_ALIVE=true` in your environment before starting the bot.
+
 ## Cogs
 
 ### DMHandler
