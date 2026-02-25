@@ -236,3 +236,17 @@ def test_parse_master_sheet_falls_back_to_single_tab_when_name_missing(tmp_path:
 
     assert len(rows) == 1
     assert rows[0]["gun_name"] == "Test Gun"
+
+
+def test_shop_display_name_prefers_mapped_alias_for_owner():
+    cog = WholesalerCog.__new__(WholesalerCog)
+    state = {"shop_registry": {"nova-arms": 100, "redline-guns": 200}}
+
+    assert cog._shop_display_name(state, 100) == "nova-arms"
+
+
+def test_shop_display_name_normalizes_requested_shop_name():
+    cog = WholesalerCog.__new__(WholesalerCog)
+    state = {"shop_registry": {"nova-arms": 100}}
+
+    assert cog._shop_display_name(state, 200, "Nova Arms") == "nova-arms"

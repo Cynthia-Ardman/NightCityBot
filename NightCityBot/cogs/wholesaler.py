@@ -465,6 +465,22 @@ class WholesalerCog(commands.Cog):
     def _store_id(guild_id: int, owner_id: int) -> str:
         return f"{guild_id}:{owner_id}"
 
+    def _shop_display_name(
+        self,
+        state: dict[str, Any],
+        owner_id: int,
+        requested_shop: Optional[str] = None,
+    ) -> str:
+        if requested_shop:
+            return self._normalize_shop_name(requested_shop)
+
+        registry = state.get("shop_registry", {})
+        aliases = sorted(name for name, mapped_owner in registry.items() if int(mapped_owner) == int(owner_id))
+        if aliases:
+            return aliases[0]
+
+        return f"owner:{owner_id}"
+
     def _build_tx(self, tx_type: str, **kwargs: Any) -> dict[str, Any]:
         return {
             "tx_id": f"tx-{uuid.uuid4().hex[:12]}",
@@ -591,7 +607,7 @@ class WholesalerCog(commands.Cog):
             await ctx.send("Store inventory is empty.")
             return
 
-        shop_title = shop or f"owner:{owner_id}"
+        shop_title = self._shop_display_name(state, owner_id, shop)
         lines = [
             f"`{l['lot_id']}` | {l['gun_name']} ({l['gun_level']}) | cost ${l['unit_cost']} | qty {l['qty_remaining']}"
             for l in lots[:30]
@@ -793,7 +809,7 @@ class WholesalerCog(commands.Cog):
             state.setdefault("settings", {}).setdefault("restock", {}).update(cfg)
             await self._save_state(state)
 
-        await ctx.send(f"✅ Restocked {len(lots)} wholesale lots.")
+        await ctx.send(f"✅ Wholesaler is restocked. Added {len(lots)} wholesale lots.")
         await self._audit_send(
             f"[WHOLESALE_RESTOCK] by={member.mention} lots={len(lots)} qtyL={level_totals['L']} qtyM={level_totals['M']} qtyH={level_totals['H']}"
         )
