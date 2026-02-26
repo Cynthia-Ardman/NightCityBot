@@ -242,7 +242,8 @@
           "unit_cost": 13000,
           "qty_remaining": 0
         }
-      ]
+      ],
+      "controlled_buyers": []
     }
   },
   "shop_registry": {}

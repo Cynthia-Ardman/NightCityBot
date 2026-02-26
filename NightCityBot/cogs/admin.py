@@ -225,7 +225,10 @@ class Admin(commands.Cog):
                     "`!wh_gunlist` (aliases: !wh_guns, !wh_masterlist) – list every gun parsed from the master sheet with type, tier and price.",
                     "`!wh_setsheet <xlsx_export_url|off>` – set or clear the runtime master gun list source URL.",
                     "`!wh_restock_settings [key] [value]` – view or tune weekly wholesaler refresh settings (lot counts and qty ranges).",
-                    "`!wh_add <gun> <L|M|H> <unit_cost> <qty>` / `!store_add @owner <gun> <L|M|H> <unit_cost> <qty>` – manual stock adjustments.",
+                    "`!wh_add <gun> <L|M|H> <unit_cost> <qty> [restriction]` / `!store_add @owner <gun> <L|M|H> <unit_cost> <qty> [restriction]` – manual stock adjustments. Restriction: `basic` (default), `controlled`, or `restricted`.",
+                    "`!wh_approve @user` – add a user to your controlled-buyer list.",
+                    "`!wh_unapprove @user` – remove a user from your controlled-buyer list.",
+                    "`!wh_approved` – view your controlled-buyer list.",
                     "`!wh_tx <tx_id>` – inspect a transaction by ID.",
                     "`!wh_retry_payout <tx_id>` – retry a pending seller payout.",
                     "`!wh_paths` – show wholesaler data file paths.",
@@ -393,6 +396,20 @@ class Admin(commands.Cog):
                 "3. Remove the item(s) from your inventory\n"
                 "4. Post an audit receipt for staff records\n\n"
                 "You can also use `!sell` as a shortcut."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🔒 Restrictions",
+            value=(
+                "Guns have a restriction level: **basic**, **controlled**, or **restricted**.\n"
+                "- **Basic** — anyone can buy (default).\n"
+                "- **Controlled** — only buyers on your approved list can purchase.\n"
+                "- **Restricted** — approved list + an admin must approve each sale.\n\n"
+                "`!wh_approve @user` — add someone to your approved buyer list.\n"
+                "`!wh_unapprove @user` — remove someone.\n"
+                "`!wh_approved` — view your list."
             ),
             inline=False,
         )

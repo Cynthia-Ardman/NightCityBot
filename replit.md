@@ -31,3 +31,15 @@ All state is persisted as JSON files in the workspace:
 1. `!wh_restock` — downloads Google Sheet, generates random weapon lots, saves to `state.json` + `wholesale.json`
 2. `!wh_buy` — store owners buy lots from wholesaler, creates per-store files in `inventory/stores/`
 3. `!wh_sell` — store owners sell weapons to players (syntax: `!wh_sell @buyer "character_name" <lot_id> <qty> <price>`; `!sell` kept as alias)
+
+## Gun Restriction System
+
+Each weapon lot has a `restriction` field (default: `basic`):
+- **basic** — anyone can buy, no special requirements
+- **controlled** — buyer must be on the store owner's controlled-buyer list (`!wh_approve @user`)
+- **restricted** — buyer must be on the controlled-buyer list AND an admin must approve the sale via audit channel reaction (5-minute timeout)
+
+Store owner commands: `!wh_approve @user`, `!wh_unapprove @user`, `!wh_approved`
+Admin commands: `!wh_add` and `!store_add` accept optional restriction parameter (e.g., `!wh_add "Nue" M 1300 5 controlled`)
+Restrictions carry over from wholesaler to store when purchased via `!wh_buy`.
+Controlled buyers list is persisted per-store in `inventory/stores/<store_id>.json`.

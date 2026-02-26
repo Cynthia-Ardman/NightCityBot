@@ -38,6 +38,7 @@ def _make_cog(tmp_path: Path, monkeypatch):
     cog.DEFAULT_RESTOCK_SETTINGS = WholesalerCog.DEFAULT_RESTOCK_SETTINGS
     cog.WEAPON_TYPES = WholesalerCog.WEAPON_TYPES
     cog.WEAPON_TYPE_PATTERNS = WholesalerCog.WEAPON_TYPE_PATTERNS
+    cog.VALID_RESTRICTIONS = WholesalerCog.VALID_RESTRICTIONS
 
     cog._audit_send = AsyncMock()
 
@@ -1331,3 +1332,472 @@ class TestEdgeCases:
         assert cfg["lots_M"] == 0
         assert cfg["lots_H"] == 0
         assert cfg["total_lots"] == 5
+
+
+class TestRestrictions:
+
+    def test_wh_add_default_restriction_is_basic(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        admin = _admin()
+        ctx = _ctx(admin)
+
+        async def _run():
+            await _cmd(cog, "wh_add", ctx, "Nue", "M", 1300, 5)
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        lots = result["wholesale_lots"]
+        assert len(lots) == 1
+        assert lots[0]["restriction"] == "basic"
+
+    def test_wh_add_with_restriction(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        admin = _admin()
+        ctx = _ctx(admin)
+
+        async def _run():
+            await _cmd(cog, "wh_add", ctx, "Nue", "M", 1300, 5, "controlled")
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        assert result["wholesale_lots"][0]["restriction"] == "controlled"
+
+    def test_wh_add_invalid_restriction_rejected(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        admin = _admin()
+        ctx = _ctx(admin)
+
+        async def _run():
+            await _cmd(cog, "wh_add", ctx, "Nue", "M", 1300, 5, "invalid")
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        assert len(result["wholesale_lots"]) == 0
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("restriction" in m.lower() for m in sent)
+
+    def test_store_add_with_restriction(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        admin = _admin()
+        owner = _store_owner()
+        ctx = _ctx(admin)
+
+        async def _run():
+            await _cmd(cog, "store_add", ctx, owner, "Nue", "M", 1300, 5, "restricted")
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        store_id = f"111:{owner.id}"
+        lots = result["stores"][store_id]["lots"]
+        assert len(lots) == 1
+        assert lots[0]["restriction"] == "restricted"
+
+    def test_wh_buy_carries_restriction_to_store(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        owner = _store_owner()
+        ctx = _ctx(owner)
+
+        state = {
+            "wholesale_lots": [
+                {"lot_id": "lot-r1", "gun_name": "Nue", "gun_level": "M",
+                 "weapon_type": "pistol", "unit_cost": 1300, "qty_available": 5,
+                 "restriction": "controlled"}
+            ],
+            "stores": {},
+            "settings": {},
+        }
+
+        cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 50000, "bank": 0})
+        cog.unbelievaboat.update_balance = AsyncMock(return_value=True)
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_buy", ctx, "lot-r1", 2)
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        store_id = f"111:{owner.id}"
+        store_lot = result["stores"][store_id]["lots"][0]
+        assert store_lot["restriction"] == "controlled"
+
+    def test_sell_basic_works_for_anyone(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        seller = _store_owner()
+        buyer = _buyer()
+        ctx = _ctx(seller)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {
+                f"111:{seller.id}": {
+                    "owner_id": seller.id,
+                    "lots": [
+                        {"lot_id": "lot-basic", "gun_name": "Nue", "gun_level": "M",
+                         "weapon_type": "pistol", "unit_cost": 1300, "qty_remaining": 5,
+                         "restriction": "basic"}
+                    ]
+                }
+            },
+            "settings": {},
+        }
+
+        cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 50000, "bank": 0})
+        cog.unbelievaboat.update_balance = AsyncMock(return_value=True)
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_sell", ctx, buyer, "TestChar", "lot-basic", 1, 2000)
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        assert result["stores"][f"111:{seller.id}"]["lots"][0]["qty_remaining"] == 4
+
+    def test_sell_controlled_rejected_without_approval(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        seller = _store_owner()
+        buyer = _buyer()
+        ctx = _ctx(seller)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {
+                f"111:{seller.id}": {
+                    "owner_id": seller.id,
+                    "controlled_buyers": [],
+                    "lots": [
+                        {"lot_id": "lot-ctrl", "gun_name": "Nue", "gun_level": "M",
+                         "weapon_type": "pistol", "unit_cost": 1300, "qty_remaining": 5,
+                         "restriction": "controlled"}
+                    ]
+                }
+            },
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_sell", ctx, buyer, "TestChar", "lot-ctrl", 1, 2000)
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        assert result["stores"][f"111:{seller.id}"]["lots"][0]["qty_remaining"] == 5
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("controlled-buyer" in m.lower() or "approved" in m.lower() or "approval" in m.lower() for m in sent)
+
+    def test_sell_controlled_succeeds_for_approved_buyer(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        seller = _store_owner()
+        buyer = _buyer()
+        ctx = _ctx(seller)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {
+                f"111:{seller.id}": {
+                    "owner_id": seller.id,
+                    "controlled_buyers": [buyer.id],
+                    "lots": [
+                        {"lot_id": "lot-ctrl", "gun_name": "Nue", "gun_level": "M",
+                         "weapon_type": "pistol", "unit_cost": 1300, "qty_remaining": 5,
+                         "restriction": "controlled"}
+                    ]
+                }
+            },
+            "settings": {},
+        }
+
+        cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 50000, "bank": 0})
+        cog.unbelievaboat.update_balance = AsyncMock(return_value=True)
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_sell", ctx, buyer, "TestChar", "lot-ctrl", 1, 2000)
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        assert result["stores"][f"111:{seller.id}"]["lots"][0]["qty_remaining"] == 4
+
+    def test_sell_restricted_rejected_without_approval(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        seller = _store_owner()
+        buyer = _buyer()
+        ctx = _ctx(seller)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {
+                f"111:{seller.id}": {
+                    "owner_id": seller.id,
+                    "controlled_buyers": [],
+                    "lots": [
+                        {"lot_id": "lot-rstr", "gun_name": "Nue", "gun_level": "H",
+                         "weapon_type": "pistol", "unit_cost": 5000, "qty_remaining": 3,
+                         "restriction": "restricted"}
+                    ]
+                }
+            },
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_sell", ctx, buyer, "TestChar", "lot-rstr", 1, 6000)
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        assert result["stores"][f"111:{seller.id}"]["lots"][0]["qty_remaining"] == 3
+
+
+class TestControlledBuyerList:
+
+    def test_approve_adds_user(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        owner = _store_owner()
+        buyer = _buyer()
+        ctx = _ctx(owner)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {
+                f"111:{owner.id}": {
+                    "owner_id": owner.id,
+                    "lots": []
+                }
+            },
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_approve", ctx, buyer)
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        store_id = f"111:{owner.id}"
+        assert buyer.id in result["stores"][store_id]["controlled_buyers"]
+
+    def test_approve_duplicate_ignored(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        owner = _store_owner()
+        buyer = _buyer()
+        ctx = _ctx(owner)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {
+                f"111:{owner.id}": {
+                    "owner_id": owner.id,
+                    "controlled_buyers": [buyer.id],
+                    "lots": []
+                }
+            },
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_approve", ctx, buyer)
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        store_id = f"111:{owner.id}"
+        assert result["stores"][store_id]["controlled_buyers"].count(buyer.id) == 1
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("already" in m.lower() for m in sent)
+
+    def test_unapprove_removes_user(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        owner = _store_owner()
+        buyer = _buyer()
+        ctx = _ctx(owner)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {
+                f"111:{owner.id}": {
+                    "owner_id": owner.id,
+                    "controlled_buyers": [buyer.id],
+                    "lots": []
+                }
+            },
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_unapprove", ctx, buyer)
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        store_id = f"111:{owner.id}"
+        assert buyer.id not in result["stores"][store_id]["controlled_buyers"]
+
+    def test_unapprove_not_on_list(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        owner = _store_owner()
+        buyer = _buyer()
+        ctx = _ctx(owner)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {
+                f"111:{owner.id}": {
+                    "owner_id": owner.id,
+                    "controlled_buyers": [],
+                    "lots": []
+                }
+            },
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_unapprove", ctx, buyer)
+
+        asyncio.run(_run())
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("not on" in m.lower() for m in sent)
+
+    def test_approved_shows_list(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        owner = _store_owner()
+        buyer = _buyer()
+        ctx = _ctx(owner)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {
+                f"111:{owner.id}": {
+                    "owner_id": owner.id,
+                    "controlled_buyers": [buyer.id],
+                    "lots": []
+                }
+            },
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_approved", ctx)
+
+        asyncio.run(_run())
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any(str(buyer.id) in m for m in sent)
+
+    def test_approved_empty_list(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        owner = _store_owner()
+        ctx = _ctx(owner)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {
+                f"111:{owner.id}": {
+                    "owner_id": owner.id,
+                    "controlled_buyers": [],
+                    "lots": []
+                }
+            },
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_approved", ctx)
+
+        asyncio.run(_run())
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("empty" in m.lower() for m in sent)
+
+    def test_non_store_owner_cannot_approve(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        regular = _member(9999)
+        buyer = _buyer()
+        ctx = _ctx(regular)
+
+        async def _run():
+            await _cmd(cog, "wh_approve", ctx, buyer)
+
+        asyncio.run(_run())
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("store owner" in m.lower() for m in sent)
+
+    def test_no_store_cannot_approve(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        owner = _store_owner()
+        buyer = _buyer()
+        ctx = _ctx(owner)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {},
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_approve", ctx, buyer)
+
+        asyncio.run(_run())
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("no store" in m.lower() for m in sent)
+
+
+class TestRestrictionDisplay:
+
+    def test_wh_list_shows_restriction_tag(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        ctx = _ctx(_store_owner())
+
+        state = {
+            "wholesale_lots": [
+                {"lot_id": "lot-b", "gun_name": "Nue", "gun_level": "M",
+                 "weapon_type": "pistol", "unit_cost": 1300, "qty_available": 5,
+                 "restriction": "basic"},
+                {"lot_id": "lot-c", "gun_name": "Nova", "gun_level": "H",
+                 "weapon_type": "revolver", "unit_cost": 4000, "qty_available": 2,
+                 "restriction": "controlled"},
+            ],
+            "stores": {},
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_list", ctx)
+
+        asyncio.run(_run())
+        sent = [str(c) for c in ctx.send.call_args_list]
+        output = " ".join(sent)
+        assert "controlled" in output.lower()
+        assert "lot-b" in output
+        assert "lot-c" in output
+
+    def test_store_inv_shows_restriction_tag(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        owner = _store_owner()
+        ctx = _ctx(owner)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {
+                f"111:{owner.id}": {
+                    "owner_id": owner.id,
+                    "lots": [
+                        {"lot_id": "lot-r", "gun_name": "Nue", "gun_level": "H",
+                         "weapon_type": "pistol", "unit_cost": 5000, "qty_remaining": 1,
+                         "restriction": "restricted"},
+                    ]
+                }
+            },
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "store_inv", ctx)
+
+        asyncio.run(_run())
+        sent = [str(c) for c in ctx.send.call_args_list]
+        output = " ".join(sent)
+        assert "restricted" in output.lower()

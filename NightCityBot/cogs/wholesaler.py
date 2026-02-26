@@ -55,6 +55,7 @@ class WholesalerCog(commands.Cog):
         "precision_rifle",
         "sniper_rifle",
     )
+    VALID_RESTRICTIONS = ("basic", "controlled", "restricted")
     WEAPON_TYPE_PATTERNS = {
         "pistol": ("pistol",),
         "revolver": ("revolver",),
@@ -651,6 +652,7 @@ class WholesalerCog(commands.Cog):
                 stores[str(store_id)] = {
                     "owner_id": payload.get("owner_id"),
                     "lots": lots if isinstance(lots, list) else [],
+                    "controlled_buyers": payload.get("controlled_buyers", []),
                 }
 
         legacy_registry = store_state.get("shop_registry", {})
@@ -666,7 +668,8 @@ class WholesalerCog(commands.Cog):
                 lots = payload.get("lots", [])
                 if isinstance(lots, list):
                     owner_id = payload.get("owner_id")
-                    stores[store_id] = {"owner_id": owner_id, "lots": lots}
+                    controlled = payload.get("controlled_buyers", [])
+                    stores[store_id] = {"owner_id": owner_id, "lots": lots, "controlled_buyers": controlled}
 
         state["stores"] = stores
         state["shop_registry"] = shop_registry
@@ -877,6 +880,7 @@ class WholesalerCog(commands.Cog):
                     "store_id": store_id,
                     "owner_id": store_data.get("owner_id"),
                     "lots": store_data.get("lots", []),
+                    "controlled_buyers": store_data.get("controlled_buyers", []),
                     "updated_at": self._now_iso(),
                 }
                 if not await helpers.save_json_file(dest, payload):
@@ -1135,8 +1139,10 @@ class WholesalerCog(commands.Cog):
             heading = wtype.replace("_", " ").title() if wtype != "other" else "Other"
             lines.append(f"\n__**{heading}**__")
             for l in group:
+                r = l.get("restriction", "basic")
+                r_tag = "" if r == "basic" else f" | 🔒 {r}"
                 lines.append(
-                    f"`{l['lot_id']}` | {l['gun_name']} | Tier {l['gun_level']} | ${l['unit_cost']} | qty {l['qty_available']}"
+                    f"`{l['lot_id']}` | {l['gun_name']} | Tier {l['gun_level']} | ${l['unit_cost']} | qty {l['qty_available']}{r_tag}"
                 )
         await ctx.send("\n".join(lines))
 
@@ -1175,8 +1181,10 @@ class WholesalerCog(commands.Cog):
             heading = wtype.replace("_", " ").title() if wtype != "other" else "Other"
             lines.append(f"\n__**{heading}**__")
             for l in group:
+                r = l.get("restriction", "basic")
+                r_tag = "" if r == "basic" else f" | 🔒 {r}"
                 lines.append(
-                    f"`{l['lot_id']}` | {l['gun_name']} | Tier {l['gun_level']} | cost ${l['unit_cost']} | qty {l['qty_remaining']}"
+                    f"`{l['lot_id']}` | {l['gun_name']} | Tier {l['gun_level']} | cost ${l['unit_cost']} | qty {l['qty_remaining']}{r_tag}"
                 )
         await ctx.send("\n".join(lines))
 
@@ -1244,6 +1252,7 @@ class WholesalerCog(commands.Cog):
                         "weapon_type": lot.get("weapon_type") or "",
                         "unit_cost": lot["unit_cost"],
                         "qty_remaining": qty,
+                        "restriction": lot.get("restriction", "basic"),
                     }
                 )
             await self._save_state(state)
@@ -1282,6 +1291,7 @@ class WholesalerCog(commands.Cog):
 
         character_name = character_name.strip().strip('"')
 
+        restriction = "basic"
         async with self.lock:
             state = await self._load_state()
             store_id = self._store_id(ctx.guild.id, member.id)
@@ -1293,6 +1303,36 @@ class WholesalerCog(commands.Cog):
             store_lot = next((l for l in store.get("lots", []) if l.get("lot_id") == lot_id), None)
             if not store_lot or int(store_lot.get("qty_remaining", 0)) < qty:
                 await ctx.send("❌ Invalid lot or insufficient quantity.")
+                return
+
+            restriction = store_lot.get("restriction", "basic")
+            approved_list = store.get("controlled_buyers", [])
+
+            if restriction in ("controlled", "restricted") and buyer.id not in approved_list:
+                await ctx.send(
+                    f"❌ {buyer.mention} is not on your controlled-buyer list. "
+                    f"This **{restriction}** item requires buyer approval first (`!wh_approve @user`)."
+                )
+                return
+
+        if restriction == "restricted":
+            admin_ok = await self._request_admin_approval(ctx, member, buyer, store_lot, qty, total_price, character_name)
+            if not admin_ok:
+                return
+
+        async with self.lock:
+            state = await self._load_state()
+            store_id = self._store_id(ctx.guild.id, member.id)
+            store = state.get("stores", {}).get(store_id)
+            if not store:
+                await ctx.send("❌ No store inventory found.")
+                return
+            store_lot = next((l for l in store.get("lots", []) if l.get("lot_id") == lot_id), None)
+            if not store_lot or int(store_lot.get("qty_remaining", 0)) < qty:
+                if restriction == "restricted":
+                    await ctx.send("❌ Inventory changed while waiting for approval. Sale cancelled.")
+                else:
+                    await ctx.send("❌ Invalid lot or insufficient quantity.")
                 return
 
             tx = self._build_tx(
@@ -1354,8 +1394,93 @@ class WholesalerCog(commands.Cog):
             "[PLAYER_SALE_RECEIPT] "
             f"tx={tx['tx_id']} ts={tx['timestamp']} seller={member.mention} buyer={buyer.mention} "
             f"character={character_name or 'N/A'} gun={store_lot['gun_name']} level={store_lot['gun_level']} "
-            f"qty={qty} total={total_price} unit_cost={store_lot['unit_cost']} lot={lot_id}"
+            f"qty={qty} total={total_price} unit_cost={store_lot['unit_cost']} lot={lot_id} restriction={restriction}"
         )
+
+    async def _request_admin_approval(
+        self,
+        ctx: commands.Context,
+        seller: discord.Member,
+        buyer: discord.Member,
+        lot: dict,
+        qty: int,
+        total_price: int,
+        character_name: str,
+    ) -> bool:
+        """Post a restricted-sale approval request and wait for an admin reaction."""
+        channel_id = int(getattr(config, "WHOLESALER_AUDIT_CHANNEL_ID", 0) or 0)
+        if channel_id <= 0:
+            await ctx.send("❌ Audit channel not configured — cannot process restricted sales.")
+            return False
+
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(channel_id)
+            except Exception:
+                await ctx.send("❌ Audit channel not found — cannot process restricted sales.")
+                return False
+
+        embed = discord.Embed(
+            title="🔒 Restricted Sale — Admin Approval Required",
+            color=discord.Color.orange(),
+        )
+        embed.add_field(name="Seller", value=seller.mention, inline=True)
+        embed.add_field(name="Buyer", value=f"{buyer.mention} (character: {character_name})", inline=True)
+        embed.add_field(name="Item", value=f"{qty}x {lot['gun_name']} (Tier {lot['gun_level']})", inline=True)
+        embed.add_field(name="Total Price", value=f"${total_price}", inline=True)
+        embed.add_field(name="Lot ID", value=f"`{lot['lot_id']}`", inline=True)
+        embed.set_footer(text="React ✅ to approve or ❌ to deny. Expires in 5 minutes.")
+
+        try:
+            msg = await channel.send(embed=embed)
+            await msg.add_reaction("✅")
+            await msg.add_reaction("❌")
+        except Exception:
+            logger.exception("Failed to post restricted sale approval request")
+            await ctx.send("❌ Failed to post approval request to audit channel.")
+            return False
+
+        await ctx.send(f"⏳ Restricted sale pending admin approval in the audit channel. Waiting up to 5 minutes...")
+
+        def check(reaction, user):
+            return (
+                reaction.message.id == msg.id
+                and str(reaction.emoji) in ("✅", "❌")
+                and user != self.bot.user
+                and self._is_admin(user)
+            )
+
+        try:
+            reaction, admin_user = await self.bot.wait_for("reaction_add", timeout=300.0, check=check)
+        except asyncio.TimeoutError:
+            await ctx.send("❌ Restricted sale timed out — no admin response within 5 minutes.")
+            try:
+                await msg.edit(embed=embed.set_footer(text="EXPIRED — no admin response."))
+            except Exception:
+                pass
+            return False
+
+        if str(reaction.emoji) == "✅":
+            await ctx.send(f"✅ Restricted sale approved by {admin_user.mention}. Processing...")
+            try:
+                await msg.edit(embed=embed.set_footer(text=f"APPROVED by {admin_user.display_name}"))
+            except Exception:
+                pass
+            await self._audit_send(
+                f"[RESTRICTED_SALE_APPROVED] admin={admin_user.mention} seller={seller.mention} buyer={buyer.mention} gun={lot['gun_name']} qty={qty} price={total_price}"
+            )
+            return True
+        else:
+            await ctx.send(f"❌ Restricted sale denied by {admin_user.mention}.")
+            try:
+                await msg.edit(embed=embed.set_footer(text=f"DENIED by {admin_user.display_name}"))
+            except Exception:
+                pass
+            await self._audit_send(
+                f"[RESTRICTED_SALE_DENIED] admin={admin_user.mention} seller={seller.mention} buyer={buyer.mention} gun={lot['gun_name']} qty={qty} price={total_price}"
+            )
+            return False
 
     @commands.command(name="wh_restock")
     async def wh_restock(self, ctx: commands.Context, seed: Optional[int] = None):
@@ -1726,7 +1851,7 @@ class WholesalerCog(commands.Cog):
         await ctx.send("\n".join(lines))
 
     @commands.command(name="wh_add")
-    async def wh_add(self, ctx: commands.Context, gun_name: str, level: str, unit_cost: int, qty: int):
+    async def wh_add(self, ctx: commands.Context, gun_name: str, level: str, unit_cost: int, qty: int, restriction: Optional[str] = None):
 
         if not await self._system_enabled(ctx):
             return
@@ -1745,6 +1870,11 @@ class WholesalerCog(commands.Cog):
             await ctx.send("❌ level must be L/M/H.")
             return
 
+        restriction = (restriction or "basic").lower()
+        if restriction not in self.VALID_RESTRICTIONS:
+            await ctx.send(f"❌ restriction must be one of: {', '.join(self.VALID_RESTRICTIONS)}.")
+            return
+
         derived_type = self._derive_weapon_type(gun_name, "") or ""
         lot = {
             "lot_id": f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
@@ -1753,6 +1883,7 @@ class WholesalerCog(commands.Cog):
             "weapon_type": derived_type,
             "unit_cost": unit_cost,
             "qty_available": qty,
+            "restriction": restriction,
             "created_at": self._now_iso(),
         }
         async with self.lock:
@@ -1786,6 +1917,7 @@ class WholesalerCog(commands.Cog):
         level: str,
         unit_cost: int,
         qty: int,
+        restriction: Optional[str] = None,
     ):
         if not await self._system_enabled(ctx):
             return
@@ -1804,6 +1936,11 @@ class WholesalerCog(commands.Cog):
             await ctx.send("❌ level must be L/M/H.")
             return
 
+        restriction = (restriction or "basic").lower()
+        if restriction not in self.VALID_RESTRICTIONS:
+            await ctx.send(f"❌ restriction must be one of: {', '.join(self.VALID_RESTRICTIONS)}.")
+            return
+
         lot_id = f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
         derived_type = self._derive_weapon_type(gun_name, "") or ""
         store_lot = {
@@ -1813,6 +1950,7 @@ class WholesalerCog(commands.Cog):
             "weapon_type": derived_type,
             "unit_cost": unit_cost,
             "qty_remaining": qty,
+            "restriction": restriction,
         }
         async with self.lock:
             state = await self._load_state()
@@ -1837,6 +1975,92 @@ class WholesalerCog(commands.Cog):
         await self._audit_send(
             f"[STORE_ADMIN_ADD] by={member.mention} owner={store_owner.mention} gun={gun_name} level={level} qty={qty} unit_cost={unit_cost} lot={lot_id}"
         )
+
+    @commands.command(name="wh_approve")
+    async def wh_approve(self, ctx: commands.Context, user: discord.Member):
+        """Add a user to your store's controlled-buyer list."""
+        if not await self._system_enabled(ctx):
+            return
+        member = await self._ensure_member(ctx)
+        if not member:
+            return
+        if not self._is_store_owner(member):
+            await ctx.send("❌ Store owner role required.")
+            return
+
+        async with self.lock:
+            state = await self._load_state()
+            store_id = self._store_id(ctx.guild.id, member.id)
+            store = state.get("stores", {}).get(store_id)
+            if not store:
+                await ctx.send("❌ No store inventory found. Buy or add stock first.")
+                return
+            approved = store.setdefault("controlled_buyers", [])
+            if user.id in approved:
+                await ctx.send(f"ℹ️ {user.mention} is already on your approved list.")
+                return
+            approved.append(user.id)
+            await self._save_state(state)
+
+        await ctx.send(f"✅ {user.mention} added to your controlled-buyer list.")
+        await self._audit_send(
+            f"[CONTROLLED_APPROVE] store_owner={member.mention} approved={user.mention}"
+        )
+
+    @commands.command(name="wh_unapprove")
+    async def wh_unapprove(self, ctx: commands.Context, user: discord.Member):
+        """Remove a user from your store's controlled-buyer list."""
+        if not await self._system_enabled(ctx):
+            return
+        member = await self._ensure_member(ctx)
+        if not member:
+            return
+        if not self._is_store_owner(member):
+            await ctx.send("❌ Store owner role required.")
+            return
+
+        async with self.lock:
+            state = await self._load_state()
+            store_id = self._store_id(ctx.guild.id, member.id)
+            store = state.get("stores", {}).get(store_id)
+            if not store:
+                await ctx.send("❌ No store inventory found.")
+                return
+            approved = store.get("controlled_buyers", [])
+            if user.id not in approved:
+                await ctx.send(f"ℹ️ {user.mention} is not on your approved list.")
+                return
+            approved.remove(user.id)
+            await self._save_state(state)
+
+        await ctx.send(f"✅ {user.mention} removed from your controlled-buyer list.")
+        await self._audit_send(
+            f"[CONTROLLED_UNAPPROVE] store_owner={member.mention} removed={user.mention}"
+        )
+
+    @commands.command(name="wh_approved")
+    async def wh_approved(self, ctx: commands.Context):
+        """Show your store's controlled-buyer list."""
+        if not await self._system_enabled(ctx):
+            return
+        member = await self._ensure_member(ctx)
+        if not member:
+            return
+        if not self._is_store_owner(member):
+            await ctx.send("❌ Store owner role required.")
+            return
+
+        state = await self._load_state()
+        store_id = self._store_id(ctx.guild.id, member.id)
+        store = state.get("stores", {}).get(store_id)
+        approved = store.get("controlled_buyers", []) if store else []
+        if not approved:
+            await ctx.send("Your controlled-buyer list is empty.")
+            return
+        lines = ["**Controlled-Buyer List**"]
+        for uid in approved:
+            lines.append(f"• <@{uid}>")
+        await ctx.send("\n".join(lines))
 
     @commands.command(name="wh_tx")
     async def wh_tx(self, ctx: commands.Context, tx_id: str):
