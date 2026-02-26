@@ -760,6 +760,7 @@ class WholesalerCog(commands.Cog):
                                 "lot_id": f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
                                 "gun_name": gun["gun_name"],
                                 "gun_level": requested_level,
+                                "weapon_type": gun.get("weapon_type") or "",
                                 "unit_cost": int(gun["price_new"]),
                                 "qty_available": qty,
                                 "created_at": self._now_iso(),
@@ -785,6 +786,7 @@ class WholesalerCog(commands.Cog):
                             "lot_id": f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
                             "gun_name": gun["gun_name"],
                             "gun_level": actual_level,
+                            "weapon_type": gun.get("weapon_type") or "",
                             "unit_cost": int(gun["price_new"]),
                             "qty_available": qty,
                             "created_at": self._now_iso(),
@@ -1090,10 +1092,13 @@ class WholesalerCog(commands.Cog):
         if not lots:
             await ctx.send("No wholesale lots available.")
             return
-        lines = [
-            f"`{l['lot_id']}` | {l['gun_name']} ({l['gun_level']}) | ${l['unit_cost']} | qty {l['qty_available']}"
-            for l in lots[:25]
-        ]
+        lines = []
+        for l in lots[:25]:
+            wtype = l.get("weapon_type") or ""
+            wtype_display = wtype.replace("_", " ").title() if wtype else "Unknown"
+            lines.append(
+                f"`{l['lot_id']}` | {l['gun_name']} | {wtype_display} | Tier {l['gun_level']} | ${l['unit_cost']} | qty {l['qty_available']}"
+            )
         await ctx.send("**Wholesaler Stock**\n" + "\n".join(lines))
 
     @commands.command(name="store_inv")
@@ -1118,10 +1123,13 @@ class WholesalerCog(commands.Cog):
             return
 
         shop_title = self._shop_display_name(state, owner_id, shop)
-        lines = [
-            f"`{l['lot_id']}` | {l['gun_name']} ({l['gun_level']}) | cost ${l['unit_cost']} | qty {l['qty_remaining']}"
-            for l in lots[:30]
-        ]
+        lines = []
+        for l in lots[:30]:
+            wtype = l.get("weapon_type") or ""
+            wtype_display = wtype.replace("_", " ").title() if wtype else "Unknown"
+            lines.append(
+                f"`{l['lot_id']}` | {l['gun_name']} | {wtype_display} | Tier {l['gun_level']} | cost ${l['unit_cost']} | qty {l['qty_remaining']}"
+            )
         await ctx.send(f"**Store Inventory ({shop_title})**\n" + "\n".join(lines))
 
     @commands.command(name="wh_buy")
@@ -1185,6 +1193,7 @@ class WholesalerCog(commands.Cog):
                         "lot_id": lot_id,
                         "gun_name": lot["gun_name"],
                         "gun_level": lot["gun_level"],
+                        "weapon_type": lot.get("weapon_type") or "",
                         "unit_cost": lot["unit_cost"],
                         "qty_remaining": qty,
                     }
@@ -1630,10 +1639,12 @@ class WholesalerCog(commands.Cog):
             await ctx.send("❌ level must be L/M/H.")
             return
 
+        derived_type = self._derive_weapon_type(gun_name, "") or ""
         lot = {
             "lot_id": f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
             "gun_name": gun_name,
             "gun_level": level,
+            "weapon_type": derived_type,
             "unit_cost": unit_cost,
             "qty_available": qty,
             "created_at": self._now_iso(),
@@ -1688,10 +1699,12 @@ class WholesalerCog(commands.Cog):
             return
 
         lot_id = f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
+        derived_type = self._derive_weapon_type(gun_name, "") or ""
         store_lot = {
             "lot_id": lot_id,
             "gun_name": gun_name,
             "gun_level": level,
+            "weapon_type": derived_type,
             "unit_cost": unit_cost,
             "qty_remaining": qty,
         }
