@@ -186,10 +186,10 @@
       "gun_level": "H",
       "weapon_type": "sniper_rifle",
       "unit_cost": 35000,
-      "qty_available": 1,
+      "qty_available": 0,
       "restriction": "restricted",
       "created_at": "2026-02-26T07:12:27.315668+00:00"
     }
   ],
-  "updated_at": "2026-02-26T12:23:59.314197+00:00"
+  "updated_at": "2026-02-26T14:17:21.004195+00:00"
 }

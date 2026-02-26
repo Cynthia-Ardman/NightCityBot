@@ -60,5 +60,20 @@
     "total_price": 3000,
     "lot_id": "lot-20260226-5787ed",
     "character_name": ""
+  },
+  {
+    "tx_id": "tx-089131fc2ade",
+    "type": "WHOLESALE_BUY",
+    "timestamp": "2026-02-26T14:03:00.908739+00:00",
+    "status": "SUCCESS",
+    "error_details": "",
+    "seller_id": "WHOLESALER",
+    "buyer_id": 286338318076084226,
+    "gun_name": "SPT32 Grad",
+    "gun_level": "H",
+    "qty": 1,
+    "unit_price": 35000,
+    "total_price": 35000,
+    "lot_id": "lot-20260226-39b5d4"
   }
 ]

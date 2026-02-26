@@ -999,6 +999,29 @@ class WholesalerCog(commands.Cog):
             return None
         return ctx.author
 
+    async def _resolve_member(self, ctx: commands.Context, raw) -> Optional[discord.Member]:
+        if isinstance(raw, discord.Member):
+            return raw
+        if not ctx.guild:
+            return None
+        raw = str(raw)
+        match = re.match(r"<@!?(\d+)>", raw)
+        user_id = int(match.group(1)) if match else None
+        if not user_id and raw.isdigit():
+            user_id = int(raw)
+        if user_id:
+            member = ctx.guild.get_member(user_id)
+            if member:
+                return member
+            try:
+                return await ctx.guild.fetch_member(user_id)
+            except (discord.NotFound, discord.HTTPException):
+                return None
+        try:
+            return await commands.MemberConverter().convert(ctx, raw)
+        except commands.MemberNotFound:
+            return None
+
     @staticmethod
     def _store_id(guild_id: int, owner_id: int) -> str:
         return f"{guild_id}:{owner_id}"
@@ -1073,7 +1096,7 @@ class WholesalerCog(commands.Cog):
         return result
 
     @commands.command(name="wh_setshop")
-    async def wh_setshop(self, ctx: commands.Context, shop_name: str, owner: discord.Member):
+    async def wh_setshop(self, ctx: commands.Context, shop_name: str, owner_raw: str):
         """Bind shop aliases (shop1/shop2/shop3 etc.) to an owner Discord account."""
         if not await self._system_enabled(ctx):
             return
@@ -1082,6 +1105,10 @@ class WholesalerCog(commands.Cog):
             return
         if not self._is_admin(member):
             await ctx.send("❌ Admin role required.")
+            return
+        owner = await self._resolve_member(ctx, owner_raw)
+        if not owner:
+            await ctx.send(f"❌ Could not find member `{owner_raw}`. Use a mention, user ID, or exact username.")
             return
 
         normalized = self._normalize_shop_name(shop_name)
@@ -1276,7 +1303,7 @@ class WholesalerCog(commands.Cog):
     async def wh_sell(
         self,
         ctx: commands.Context,
-        buyer: discord.Member,
+        buyer_raw: str,
         character_name: str,
         lot_id: str,
         qty: int,
@@ -1290,6 +1317,10 @@ class WholesalerCog(commands.Cog):
             return
         member = await self._ensure_member(ctx)
         if not member:
+            return
+        buyer = await self._resolve_member(ctx, buyer_raw)
+        if not buyer:
+            await ctx.send(f"❌ Could not find member `{buyer_raw}`. Use a mention, user ID, or exact username.")
             return
         if not self._is_store_owner(member):
             await ctx.send("❌ Store owner role required.")
@@ -1923,7 +1954,7 @@ class WholesalerCog(commands.Cog):
     async def store_add(
         self,
         ctx: commands.Context,
-        store_owner: discord.Member,
+        store_owner_raw: str,
         gun_name: str,
         level: str,
         unit_cost: int,
@@ -1937,6 +1968,10 @@ class WholesalerCog(commands.Cog):
             return
         if not self._is_admin(member):
             await ctx.send("❌ Admin role required.")
+            return
+        store_owner = await self._resolve_member(ctx, store_owner_raw)
+        if not store_owner:
+            await ctx.send(f"❌ Could not find member `{store_owner_raw}`. Use a mention, user ID, or exact username.")
             return
         if unit_cost <= 0 or qty <= 0:
             await ctx.send("❌ unit_cost and qty must be positive.")
@@ -2047,7 +2082,7 @@ class WholesalerCog(commands.Cog):
         )
 
     @commands.command(name="store_remove")
-    async def store_remove(self, ctx: commands.Context, store_owner: discord.Member, lot_id: str, qty: Optional[int] = None):
+    async def store_remove(self, ctx: commands.Context, store_owner_raw: str, lot_id: str, qty: Optional[int] = None):
         if not await self._system_enabled(ctx):
             return
         member = await self._ensure_member(ctx)
@@ -2055,6 +2090,10 @@ class WholesalerCog(commands.Cog):
             return
         if not self._is_admin(member):
             await ctx.send("❌ Admin role required.")
+            return
+        store_owner = await self._resolve_member(ctx, store_owner_raw)
+        if not store_owner:
+            await ctx.send(f"❌ Could not find member `{store_owner_raw}`. Use a mention, user ID, or exact username.")
             return
         if qty is not None and qty <= 0:
             await ctx.send("❌ qty must be positive.")
@@ -2112,7 +2151,7 @@ class WholesalerCog(commands.Cog):
         )
 
     @commands.command(name="wh_approve")
-    async def wh_approve(self, ctx: commands.Context, user: discord.Member):
+    async def wh_approve(self, ctx: commands.Context, user_raw: str):
         """Add a user to your store's controlled-buyer list."""
         if not await self._system_enabled(ctx):
             return
@@ -2121,6 +2160,10 @@ class WholesalerCog(commands.Cog):
             return
         if not self._is_store_owner(member):
             await ctx.send("❌ Store owner role required.")
+            return
+        user = await self._resolve_member(ctx, user_raw)
+        if not user:
+            await ctx.send(f"❌ Could not find member `{user_raw}`. Use a mention, user ID, or exact username.")
             return
 
         async with self.lock:
@@ -2143,7 +2186,7 @@ class WholesalerCog(commands.Cog):
         )
 
     @commands.command(name="wh_unapprove")
-    async def wh_unapprove(self, ctx: commands.Context, user: discord.Member):
+    async def wh_unapprove(self, ctx: commands.Context, user_raw: str):
         """Remove a user from your store's controlled-buyer list."""
         if not await self._system_enabled(ctx):
             return
@@ -2152,6 +2195,10 @@ class WholesalerCog(commands.Cog):
             return
         if not self._is_store_owner(member):
             await ctx.send("❌ Store owner role required.")
+            return
+        user = await self._resolve_member(ctx, user_raw)
+        if not user:
+            await ctx.send(f"❌ Could not find member `{user_raw}`. Use a mention, user ID, or exact username.")
             return
 
         async with self.lock:

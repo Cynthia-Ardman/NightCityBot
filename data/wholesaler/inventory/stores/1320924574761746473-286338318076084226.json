@@ -15,8 +15,19 @@
       "gun_level": "L",
       "unit_cost": 13000,
       "qty_remaining": 0
+    },
+    {
+      "lot_id": "lot-20260226-39b5d4",
+      "gun_name": "SPT32 Grad",
+      "gun_level": "H",
+      "weapon_type": "sniper_rifle",
+      "unit_cost": 35000,
+      "qty_remaining": 1,
+      "restriction": "restricted"
     }
   ],
-  "controlled_buyers": [],
-  "updated_at": "2026-02-26T12:23:59.317413+00:00"
+  "controlled_buyers": [
+    1379527789434241114
+  ],
+  "updated_at": "2026-02-26T14:17:21.006888+00:00"
 }
