@@ -315,6 +315,41 @@ class WholesalerCog(commands.Cog):
     async def _ensure_inventory_files_exist(self) -> None:
         """Create baseline wholesaler/store persistence files during startup."""
         async with self.lock:
+            data_dir = Path(getattr(self, "data_dir", self.state_file.parent))
+            # Create expected files/directories up front so deployments can
+            # validate storage locations immediately after startup.
+            data_dir.mkdir(parents=True, exist_ok=True)
+            self.wholesale_inventory_file.parent.mkdir(parents=True, exist_ok=True)
+            self.store_inventory_dir.mkdir(parents=True, exist_ok=True)
+
+            if not self.state_file.exists():
+                await helpers.save_json_file(
+                    self.state_file,
+                    {
+                        "wholesale_lots": [],
+                        "transactions": 0,
+                        "pending_payouts": [],
+                        "settings": {},
+                    },
+                )
+            if not self.store_state_file.exists():
+                await helpers.save_json_file(
+                    self.store_state_file,
+                    {
+                        "shop_registry": {},
+                        "stores": {},
+                    },
+                )
+            if not self.wholesale_inventory_file.exists():
+                await helpers.save_json_file(
+                    self.wholesale_inventory_file,
+                    {
+                        "wholesale_lots": [],
+                    },
+                )
+            if not self.tx_file.exists():
+                await helpers.save_json_file(self.tx_file, [])
+
             state = await self._load_state()
             saved = await self._save_state(state)
             if not saved:
@@ -326,11 +361,12 @@ class WholesalerCog(commands.Cog):
                     self.store_state_file,
                     self.store_inventory_dir,
                 )
-            if self.data_dir != self.base_dir / "data" / "wholesaler":
+            base_dir = Path(getattr(self, "base_dir", data_dir.parent))
+            if data_dir != base_dir / "data" / "wholesaler":
                 logger.info(
                     "Wholesaler data directory override active data_dir=%s base_dir=%s",
-                    self.data_dir,
-                    self.base_dir,
+                    data_dir,
+                    base_dir,
                 )
 
 
