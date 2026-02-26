@@ -9,6 +9,7 @@ print("✅ discord.ext.commands imported")
 import os
 import signal
 import asyncio
+import fcntl
 
 print("✅ os imported")
 import sys
@@ -166,19 +167,19 @@ app = Flask("")
 
 @app.route("/")
 def home():
-    return "Bot is alive Version 1.2!"
+    return "Bot is alive Version 1.2!", 200
 
 
 @app.route("/healthz")
 def healthz():
     """Liveness endpoint for container platforms (Cloud Run, Autoscale)."""
-    return {"status": "ok"}, 200
+    return "ok", 200
 
 
 @app.route("/readyz")
 def readyz():
     """Readiness endpoint for container platforms (Cloud Run, Autoscale)."""
-    return {"status": "ready"}, 200
+    return "ready", 200
 
 
 def _resolve_keep_alive_port() -> int:
@@ -191,6 +192,8 @@ def _resolve_keep_alive_port() -> int:
 
 
 def run_flask():
+    log = logging.getLogger("werkzeug")
+    log.setLevel(logging.WARNING)
     app.run(
         host="0.0.0.0",
         port=_resolve_keep_alive_port(),
@@ -216,6 +219,31 @@ def keep_alive() -> bool:
     return True
 
 
+_lock_file = None
+
+
+def acquire_instance_lock() -> bool:
+    """Ensure only one bot instance runs at a time using a file lock.
+
+    Returns True if the lock was acquired, False if another instance holds it.
+    """
+    global _lock_file
+    lock_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), ".bot.lock"
+    )
+    try:
+        _lock_file = open(lock_path, "w")
+        fcntl.flock(_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_file.write(str(os.getpid()))
+        _lock_file.flush()
+        return True
+    except (IOError, OSError):
+        logger.error(
+            "Another bot instance is already running. Exiting to avoid duplicates."
+        )
+        return False
+
+
 def register_shutdown(bot: NightCityBot):
     """Register signal handlers for a graceful shutdown."""
 
@@ -234,15 +262,17 @@ def register_shutdown(bot: NightCityBot):
 
 
 def main():
-    # Add startup logging
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
     print("🚀 Starting NightCityBot initialization...")
     logger.info("Starting NightCityBot...")
 
-    # Start keep-alive server as early as possible so HTTP health checks can
-    # pass even while Discord startup is still initializing.
+    if not acquire_instance_lock():
+        print("❌ Another bot instance is already running. Exiting.")
+        sys.exit(1)
+    print("✅ Instance lock acquired (no duplicate bot)")
+
     print("🌐 Evaluating keep-alive server...")
     try:
         if keep_alive():
@@ -253,7 +283,6 @@ def main():
         print(f"❌ Failed to start keep-alive server: {e}")
         logger.error(f"❌ Failed to start keep-alive server: {e}")
 
-    # Check token
     print(f"🔑 Checking for Discord token...")
     if not config.TOKEN:
         print("❌ No Discord token found! Please set TOKEN in Secrets.")
@@ -263,7 +292,6 @@ def main():
     print("✅ Token found!")
     logger.info("✅ Token found, connecting to Discord...")
 
-    # Initialize bot
     print("🤖 Creating bot instance...")
     try:
         bot = NightCityBot()
@@ -274,7 +302,6 @@ def main():
         logger.error(f"❌ Failed to create bot instance: {e}")
         return
 
-    # Connect to Discord
     print("🔗 Connecting to Discord...")
     try:
         bot.run(config.TOKEN)
