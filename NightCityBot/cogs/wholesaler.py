@@ -309,7 +309,23 @@ class WholesalerCog(commands.Cog):
         if self._startup_audit_sent:
             return
         self._startup_audit_sent = True
+        logger.info(
+            "Wholesaler data paths: data_dir=%s state=%s wholesale=%s stores=%s store_inv_dir=%s tx=%s",
+            self.data_dir,
+            self.state_file,
+            self.wholesale_inventory_file,
+            self.store_state_file,
+            self.store_inventory_dir,
+            self.tx_file,
+        )
         await self._ensure_inventory_files_exist()
+        logger.info(
+            "Wholesaler files verified: state=%s wholesale=%s stores=%s tx=%s",
+            self.state_file.exists(),
+            self.wholesale_inventory_file.exists(),
+            self.store_state_file.exists(),
+            self.tx_file.exists(),
+        )
         await self.emit_inventory_snapshot_audit("BOT_READY")
 
     async def _ensure_inventory_files_exist(self) -> None:
@@ -1287,7 +1303,21 @@ class WholesalerCog(commands.Cog):
 
             state["wholesale_lots"] = lots
             state.setdefault("settings", {}).setdefault("restock", {}).update(cfg)
-            await self._save_state(state)
+            saved = await self._save_state(state)
+
+        if not saved:
+            logger.error(
+                "wh_restock: _save_state returned False — files may not have been written "
+                "(state=%s, wholesale=%s, store=%s)",
+                self.state_file,
+                self.wholesale_inventory_file,
+                self.store_state_file,
+            )
+            await ctx.send(
+                f"⚠️ Restocked {len(lots)} lots but **failed to persist** inventory files. "
+                "Check bot logs for details."
+            )
+            return
 
         await ctx.send(f"✅ Wholesaler is restocked. Added {len(lots)} wholesale lots.")
         await self._audit_send(
@@ -1359,7 +1389,9 @@ class WholesalerCog(commands.Cog):
             state["wholesale_lots"] = lots
             settings["last_auto_restock_sunday"] = sunday_key
             settings["last_auto_restock_week"] = legacy_week_key
-            await self._save_state(state)
+            saved = await self._save_state(state)
+            if not saved:
+                logger.error("Auto restock save failed trigger=%s", trigger)
 
         await self._audit_send(
             f"[WHOLESALE_AUTO_RESTOCK] trigger={trigger} lots={len(lots)} sunday={sunday_key}"
