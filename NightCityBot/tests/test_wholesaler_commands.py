@@ -9,7 +9,7 @@ async def run(suite, logs, verbose=False):
         "wh_list",
         "wh_buy",
         "store_inv",
-        "sell",
+        "wh_sell",
         "wh_restock",
         "wh_clear_inventory",
         "wh_setshop",

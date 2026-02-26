@@ -29,5 +29,36 @@
     "total_price": 3000,
     "lot_id": "lot-20260226-1233ad",
     "character_name": ""
+  },
+  {
+    "tx_id": "tx-e3b7ee7ab355",
+    "type": "WHOLESALE_BUY",
+    "timestamp": "2026-02-26T02:20:20.764579+00:00",
+    "status": "SUCCESS",
+    "error_details": "",
+    "seller_id": "WHOLESALER",
+    "buyer_id": 286338318076084226,
+    "gun_name": "Kappa",
+    "gun_level": "L",
+    "qty": 1,
+    "unit_price": 13000,
+    "total_price": 13000,
+    "lot_id": "lot-20260226-5787ed"
+  },
+  {
+    "tx_id": "tx-84e920c04a77",
+    "type": "PLAYER_SALE",
+    "timestamp": "2026-02-26T02:20:46.556207+00:00",
+    "status": "SUCCESS",
+    "error_details": "",
+    "seller_id": 286338318076084226,
+    "buyer_id": 286338318076084226,
+    "gun_name": "Kappa",
+    "gun_level": "L",
+    "qty": 1,
+    "unit_price": 3000,
+    "total_price": 3000,
+    "lot_id": "lot-20260226-5787ed",
+    "character_name": ""
   }
 ]

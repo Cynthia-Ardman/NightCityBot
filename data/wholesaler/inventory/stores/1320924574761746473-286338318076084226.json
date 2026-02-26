@@ -8,7 +8,14 @@
       "gun_level": "H",
       "unit_cost": 24000,
       "qty_remaining": 0
+    },
+    {
+      "lot_id": "lot-20260226-5787ed",
+      "gun_name": "Kappa",
+      "gun_level": "L",
+      "unit_cost": 13000,
+      "qty_remaining": 0
     }
   ],
-  "updated_at": "2026-02-26T02:19:09.070855+00:00"
+  "updated_at": "2026-02-26T02:26:24.963210+00:00"
 }

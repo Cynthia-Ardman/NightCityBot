@@ -1021,7 +1021,11 @@ class WholesalerCog(commands.Cog):
         return (ok, "" if ok else "Failed to deduct funds")
 
     async def _credit_funds(self, user_id: int, amount: int, reason: str) -> bool:
-        return await self.unbelievaboat.update_balance(user_id, {"cash": amount}, reason=reason)
+        logger.info("_credit_funds: crediting user=%s amount=%d reason=%s", user_id, amount, reason)
+        result = await self.unbelievaboat.update_balance(user_id, {"cash": amount}, reason=reason)
+        if not result:
+            logger.error("_credit_funds: FAILED to credit user=%s amount=%d", user_id, amount)
+        return result
 
     @commands.command(name="wh_setshop")
     async def wh_setshop(self, ctx: commands.Context, shop_name: str, owner: discord.Member):
@@ -1193,17 +1197,20 @@ class WholesalerCog(commands.Cog):
             f"[WHOLESALE_BUY] tx={tx['tx_id']} buyer={member.mention} gun={lot['gun_name']} level={lot['gun_level']} qty={qty} total={total} lot={lot_id}"
         )
 
-    @commands.command(name="sell")
-    async def sell(
+    @commands.command(name="wh_sell", aliases=["sell"])
+    async def wh_sell(
         self,
         ctx: commands.Context,
         buyer: discord.Member,
+        character_name: str,
         lot_id: str,
         qty: int,
         total_price: int,
-        *,
-        extra: str = "",
     ):
+        """Sell a weapon to a player.
+
+        Usage: ``!wh_sell @buyer "character_name" <lot_id> <qty> <price>``
+        """
         if not await self._system_enabled(ctx):
             return
         member = await self._ensure_member(ctx)
@@ -1213,12 +1220,10 @@ class WholesalerCog(commands.Cog):
             await ctx.send("❌ Store owner role required.")
             return
         if qty <= 0 or total_price <= 0:
-            await ctx.send("❌ qty and total_price must be > 0.")
+            await ctx.send("❌ qty and price must be > 0.")
             return
 
-        character_name = ""
-        if "character:" in extra.lower():
-            character_name = extra.split(":", 1)[1].strip().strip('"')
+        character_name = character_name.strip().strip('"')
 
         async with self.lock:
             state = await self._load_state()
@@ -1246,6 +1251,10 @@ class WholesalerCog(commands.Cog):
                 character_name=character_name,
             )
 
+            logger.info(
+                "wh_sell: deducting %d from buyer=%s for gun=%s",
+                total_price, buyer.id, store_lot["gun_name"],
+            )
             deduct_ok, deduct_err = await self._deduct_funds(
                 buyer.id,
                 total_price,
@@ -1257,12 +1266,14 @@ class WholesalerCog(commands.Cog):
                 await self._append_tx(tx)
                 await ctx.send(f"❌ Sale failed: {deduct_err}")
                 return
+            logger.info("wh_sell: buyer deduct OK, crediting seller=%s amount=%d", member.id, total_price)
 
             payout_ok = await self._credit_funds(
                 member.id,
                 total_price,
                 f"Gun sale to {buyer.id} ({store_lot['gun_name']})",
             )
+            logger.info("wh_sell: seller credit result=%s", payout_ok)
             if not payout_ok:
                 tx["status"] = "PENDING_PAYOUT"
                 tx["error_details"] = "Buyer charged, seller payout failed"
@@ -1281,7 +1292,7 @@ class WholesalerCog(commands.Cog):
             await self._save_state(state)
             await self._append_tx(tx)
 
-        await ctx.send(f"✅ Sold {qty}x {store_lot['gun_name']} for ${total_price}.")
+        await ctx.send(f"✅ Sold {qty}x {store_lot['gun_name']} to {buyer.mention} for ${total_price} (character: {character_name}).")
         await self._audit_send(
             "[PLAYER_SALE_RECEIPT] "
             f"tx={tx['tx_id']} ts={tx['timestamp']} seller={member.mention} buyer={buyer.mention} "

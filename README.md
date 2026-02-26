@@ -192,7 +192,7 @@ Main commands (separated by role):
 * `!wh_list` – list available wholesaler lots.
 * `!wh_buy <lot_id> <qty>` – buy stock from wholesaler into your store inventory (deducts owner funds).
 * `!store_inv` – view your own store inventory.
-* `!sell @buyer <lot_id> <qty> <total_price> [character:"Name"]` – process player sale (deduct buyer, credit seller, decrement inventory, post receipt).
+* `!wh_sell @buyer "character_name" <lot_id> <qty> <price>` – process player sale (deduct buyer, credit seller, decrement inventory, post receipt). `!sell` also works as an alias.
 
 **Wholesaler / Admin Commands**
 * `!store_inv [shop_name]` – admin lookup for mapped shops by alias (`shop1`, `shop2`, etc.).

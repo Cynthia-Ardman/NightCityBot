@@ -148,7 +148,7 @@ class Admin(commands.Cog):
                 "`!wh_list` – view current wholesaler lots.\n"
                 "`!store_inv` – view your store inventory.\n"
                 "`!wh_buy <lot_id> <qty>` – store owners buy lots from corp wholesaler.\n"
-                "`!sell @buyer <lot_id> <qty> <total_price> [character:\"Name\"]` – complete a gun sale with a receipt posted to audit."
+                "`!wh_sell @buyer \"character_name\" <lot_id> <qty> <price>` – complete a gun sale with a receipt posted to audit."
             ),
             inline=False,
         )
@@ -211,11 +211,11 @@ class Admin(commands.Cog):
             (
                 "🔫 Wholesaler / Store Tools",
                 "\n".join([
-                    "**Store Owner Ops:** `!wh_list`, `!wh_buy <lot_id> <qty>`, `!store_inv`, `!sell @buyer <lot_id> <qty> <total_price> [character:\"Name\"]`.",
+                    "**Store Owner Ops:** `!wh_list`, `!wh_buy <lot_id> <qty>`, `!store_inv`, `!wh_sell @buyer \"character_name\" <lot_id> <qty> <price>`.",
                     "**Admin/Wholesaler Ops:** `!store_inv [shop_name]`, `!wh_setshop`, `!wh_shops`, `!wh_setsheet`, `!wh_restock`, `!wh_clear_inventory`, `!wh_restock_settings`, `!wh_recheck`, `!wh_add`, `!store_add`, `!wh_tx`, `!wh_retry_payout`.",
                     "`!wh_list` – list current wholesaler lots.",
                     "`!store_inv [shop_name]` – view your store inventory (admins can inspect a mapped shop alias).",
-                    "`!wh_buy <lot_id> <qty>` / `!sell @buyer <lot_id> <qty> <total_price> [character:\"Name\"]` – wholesale purchase and player sale flow.",
+                    "`!wh_buy <lot_id> <qty>` / `!wh_sell @buyer \"character_name\" <lot_id> <qty> <price>` – wholesale purchase and player sale flow.",
                     "`!wh_setshop <shop_name> @owner` – bind a shop alias (shop1/shop2/shop3) to a specific owner account.",
                     "`!wh_shops` – list all shop alias mappings.",
                     "`!wh_restock [seed]` – regenerate weekly wholesaler stock from the configured sheet source.",

@@ -30,4 +30,4 @@ All state is persisted as JSON files in the workspace:
 
 1. `!wh_restock` — downloads Google Sheet, generates random weapon lots, saves to `state.json` + `wholesale.json`
 2. `!wh_buy` — store owners buy lots from wholesaler, creates per-store files in `inventory/stores/`
-3. `!sell` — store owners sell weapons to players
+3. `!wh_sell` — store owners sell weapons to players (syntax: `!wh_sell @buyer "character_name" <lot_id> <qty> <price>`; `!sell` kept as alias)

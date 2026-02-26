@@ -85,7 +85,7 @@
       "gun_name": "Kappa",
       "gun_level": "L",
       "unit_cost": 13000,
-      "qty_available": 9,
+      "qty_available": 8,
       "created_at": "2026-02-26T02:09:19.243304+00:00"
     },
     {
@@ -210,6 +210,13 @@
           "gun_name": "DB-2 Satara (14 pellets) (2 shot burst)",
           "gun_level": "H",
           "unit_cost": 24000,
+          "qty_remaining": 0
+        },
+        {
+          "lot_id": "lot-20260226-5787ed",
+          "gun_name": "Kappa",
+          "gun_level": "L",
+          "unit_cost": 13000,
           "qty_remaining": 0
         }
       ]
