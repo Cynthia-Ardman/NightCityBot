@@ -27,3 +27,6 @@ run = ["sh", "-c", "python -m NightCityBot.bot"]
 [userenv]
 
 [userenv.shared]
+
+[agent]
+expertMode = true
