@@ -1,0 +1,14 @@
+{
+  "store_id": "1320924574761746473:286338318076084226",
+  "owner_id": 286338318076084226,
+  "lots": [
+    {
+      "lot_id": "lot-20260226-1233ad",
+      "gun_name": "DB-2 Satara (14 pellets) (2 shot burst)",
+      "gun_level": "H",
+      "unit_cost": 24000,
+      "qty_remaining": 1
+    }
+  ],
+  "updated_at": "2026-02-26T02:09:45.304173+00:00"
+}

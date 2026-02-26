@@ -1,1 +1,17 @@
-[]
+[
+  {
+    "tx_id": "tx-9fcc2bfdfc8d",
+    "type": "WHOLESALE_BUY",
+    "timestamp": "2026-02-26T02:09:45.301268+00:00",
+    "status": "SUCCESS",
+    "error_details": "",
+    "seller_id": "WHOLESALER",
+    "buyer_id": 286338318076084226,
+    "gun_name": "DB-2 Satara (14 pellets) (2 shot burst)",
+    "gun_level": "H",
+    "qty": 1,
+    "unit_price": 24000,
+    "total_price": 24000,
+    "lot_id": "lot-20260226-1233ad"
+  }
+]

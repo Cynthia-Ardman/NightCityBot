@@ -1,5 +1,10 @@
 {
   "shop_registry": {},
-  "stores": {},
-  "updated_at": "2026-02-26T02:07:32.810784+00:00"
+  "stores": {
+    "1320924574761746473:286338318076084226": {
+      "owner_id": 286338318076084226,
+      "inventory_file": "/home/runner/workspace/data/wholesaler/inventory/stores/1320924574761746473-286338318076084226.json"
+    }
+  },
+  "updated_at": "2026-02-26T02:09:45.301391+00:00"
 }
