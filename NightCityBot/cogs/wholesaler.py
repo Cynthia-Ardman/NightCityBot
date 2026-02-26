@@ -1987,6 +1987,130 @@ class WholesalerCog(commands.Cog):
             f"[STORE_ADMIN_ADD] by={member.mention} owner={store_owner.mention} gun={gun_name} level={level} qty={qty} unit_cost={unit_cost} lot={lot_id}"
         )
 
+    @commands.command(name="wh_remove")
+    async def wh_remove(self, ctx: commands.Context, lot_id: str, qty: Optional[int] = None):
+        if not await self._system_enabled(ctx):
+            return
+        member = await self._ensure_member(ctx)
+        if not member:
+            return
+        if not self._is_admin(member):
+            await ctx.send("❌ Admin role required.")
+            return
+        if qty is not None and qty <= 0:
+            await ctx.send("❌ qty must be positive.")
+            return
+
+        async with self.lock:
+            state = await self._load_state()
+            lots = state.get("wholesale_lots", [])
+            target = None
+            for lot in lots:
+                if lot.get("lot_id") == lot_id:
+                    target = lot
+                    break
+            if not target:
+                await ctx.send(f"❌ Lot `{lot_id}` not found in wholesaler inventory.")
+                return
+
+            old_qty = target.get("qty_available", 0)
+            remove_qty = qty if qty is not None else old_qty
+
+            if remove_qty > old_qty:
+                await ctx.send(f"❌ Lot only has {old_qty} units; cannot remove {remove_qty}.")
+                return
+
+            if remove_qty >= old_qty:
+                lots.remove(target)
+                msg = f"✅ Removed lot `{lot_id}` ({target['gun_name']} ×{old_qty}) from wholesaler."
+            else:
+                target["qty_available"] = old_qty - remove_qty
+                msg = f"✅ Reduced lot `{lot_id}` ({target['gun_name']}) from {old_qty} → {target['qty_available']} units."
+
+            await self._save_state(state)
+
+        tx = self._build_tx(
+            "ADMIN_REMOVE",
+            seller_id="WHOLESALER",
+            buyer_id=member.id,
+            gun_name=target["gun_name"],
+            gun_level=target.get("gun_level", "?"),
+            qty=remove_qty,
+            unit_price=target.get("unit_cost", 0),
+            total_price=target.get("unit_cost", 0) * remove_qty,
+            lot_id=lot_id,
+        )
+        await self._append_tx(tx)
+        await ctx.send(msg)
+        await self._audit_send(
+            f"[WHOLESALE_ADMIN_REMOVE] by={member.mention} lot={lot_id} gun={target['gun_name']} removed_qty={remove_qty}"
+        )
+
+    @commands.command(name="store_remove")
+    async def store_remove(self, ctx: commands.Context, store_owner: discord.Member, lot_id: str, qty: Optional[int] = None):
+        if not await self._system_enabled(ctx):
+            return
+        member = await self._ensure_member(ctx)
+        if not member:
+            return
+        if not self._is_admin(member):
+            await ctx.send("❌ Admin role required.")
+            return
+        if qty is not None and qty <= 0:
+            await ctx.send("❌ qty must be positive.")
+            return
+
+        async with self.lock:
+            state = await self._load_state()
+            store_id = self._store_id(ctx.guild.id, store_owner.id)
+            store = state.get("stores", {}).get(store_id)
+            if not store:
+                await ctx.send(f"❌ No store found for {store_owner.mention}.")
+                return
+
+            lots = store.get("lots", [])
+            target = None
+            for lot in lots:
+                if lot.get("lot_id") == lot_id:
+                    target = lot
+                    break
+            if not target:
+                await ctx.send(f"❌ Lot `{lot_id}` not found in {store_owner.mention}'s store.")
+                return
+
+            old_qty = target.get("qty_remaining", 0)
+            remove_qty = qty if qty is not None else old_qty
+
+            if remove_qty > old_qty:
+                await ctx.send(f"❌ Lot only has {old_qty} units; cannot remove {remove_qty}.")
+                return
+
+            if remove_qty >= old_qty:
+                lots.remove(target)
+                msg = f"✅ Removed lot `{lot_id}` ({target['gun_name']} ×{old_qty}) from {store_owner.mention}'s store."
+            else:
+                target["qty_remaining"] = old_qty - remove_qty
+                msg = f"✅ Reduced lot `{lot_id}` ({target['gun_name']}) in {store_owner.mention}'s store from {old_qty} → {target['qty_remaining']} units."
+
+            await self._save_state(state)
+
+        tx = self._build_tx(
+            "ADMIN_REMOVE",
+            seller_id=store_owner.id,
+            buyer_id=member.id,
+            gun_name=target["gun_name"],
+            gun_level=target.get("gun_level", "?"),
+            qty=remove_qty,
+            unit_price=target.get("unit_cost", 0),
+            total_price=target.get("unit_cost", 0) * remove_qty,
+            lot_id=lot_id,
+        )
+        await self._append_tx(tx)
+        await ctx.send(msg)
+        await self._audit_send(
+            f"[STORE_ADMIN_REMOVE] by={member.mention} owner={store_owner.mention} lot={lot_id} gun={target['gun_name']} removed_qty={remove_qty}"
+        )
+
     @commands.command(name="wh_approve")
     async def wh_approve(self, ctx: commands.Context, user: discord.Member):
         """Add a user to your store's controlled-buyer list."""

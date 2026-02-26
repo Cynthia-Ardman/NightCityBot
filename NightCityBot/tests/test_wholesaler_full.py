@@ -1451,6 +1451,208 @@ class TestRestrictions:
         assert len(lots) == 1
         assert lots[0]["restriction"] == "restricted"
 
+    def test_wh_remove_entire_lot(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        admin = _admin()
+        ctx = _ctx(admin)
+
+        state = {
+            "wholesale_lots": [
+                {"lot_id": "lot-rm1", "gun_name": "Nue", "gun_level": "M",
+                 "weapon_type": "pistol", "unit_cost": 1300, "qty_available": 5}
+            ],
+            "stores": {},
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_remove", ctx, "lot-rm1")
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        assert len(result["wholesale_lots"]) == 0
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("Removed" in m for m in sent)
+
+    def test_wh_remove_partial_qty(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        admin = _admin()
+        ctx = _ctx(admin)
+
+        state = {
+            "wholesale_lots": [
+                {"lot_id": "lot-rm2", "gun_name": "Nue", "gun_level": "M",
+                 "weapon_type": "pistol", "unit_cost": 1300, "qty_available": 10}
+            ],
+            "stores": {},
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_remove", ctx, "lot-rm2", 3)
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        assert len(result["wholesale_lots"]) == 1
+        assert result["wholesale_lots"][0]["qty_available"] == 7
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("Reduced" in m for m in sent)
+
+    def test_wh_remove_not_found(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        admin = _admin()
+        ctx = _ctx(admin)
+
+        state = {"wholesale_lots": [], "stores": {}, "settings": {}}
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_remove", ctx, "lot-nope")
+
+        asyncio.run(_run())
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("not found" in m.lower() for m in sent)
+
+    def test_wh_remove_exceeds_qty(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        admin = _admin()
+        ctx = _ctx(admin)
+
+        state = {
+            "wholesale_lots": [
+                {"lot_id": "lot-rm3", "gun_name": "Nue", "gun_level": "M",
+                 "weapon_type": "pistol", "unit_cost": 1300, "qty_available": 3}
+            ],
+            "stores": {},
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "wh_remove", ctx, "lot-rm3", 10)
+
+        asyncio.run(_run())
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("cannot remove" in m.lower() for m in sent)
+
+    def test_wh_remove_non_admin_rejected(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        owner = _store_owner()
+        ctx = _ctx(owner)
+
+        async def _run():
+            await _cmd(cog, "wh_remove", ctx, "lot-x")
+
+        asyncio.run(_run())
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("admin" in m.lower() for m in sent)
+
+    def test_store_remove_entire_lot(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        admin = _admin()
+        owner = _store_owner()
+        ctx = _ctx(admin)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {
+                f"111:{owner.id}": {
+                    "owner_id": owner.id,
+                    "lots": [
+                        {"lot_id": "lot-sr1", "gun_name": "Nue", "gun_level": "M",
+                         "weapon_type": "pistol", "unit_cost": 1300, "qty_remaining": 5}
+                    ]
+                }
+            },
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "store_remove", ctx, owner, "lot-sr1")
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        store_id = f"111:{owner.id}"
+        assert len(result["stores"][store_id]["lots"]) == 0
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("Removed" in m for m in sent)
+
+    def test_store_remove_partial_qty(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        admin = _admin()
+        owner = _store_owner()
+        ctx = _ctx(admin)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {
+                f"111:{owner.id}": {
+                    "owner_id": owner.id,
+                    "lots": [
+                        {"lot_id": "lot-sr2", "gun_name": "Nue", "gun_level": "M",
+                         "weapon_type": "pistol", "unit_cost": 1300, "qty_remaining": 8}
+                    ]
+                }
+            },
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "store_remove", ctx, owner, "lot-sr2", 3)
+            return await cog._load_state()
+
+        result = asyncio.run(_run())
+        store_id = f"111:{owner.id}"
+        assert len(result["stores"][store_id]["lots"]) == 1
+        assert result["stores"][store_id]["lots"][0]["qty_remaining"] == 5
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("Reduced" in m for m in sent)
+
+    def test_store_remove_not_found(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        admin = _admin()
+        owner = _store_owner()
+        ctx = _ctx(admin)
+
+        state = {
+            "wholesale_lots": [],
+            "stores": {
+                f"111:{owner.id}": {
+                    "owner_id": owner.id,
+                    "lots": []
+                }
+            },
+            "settings": {},
+        }
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "store_remove", ctx, owner, "lot-nope")
+
+        asyncio.run(_run())
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("not found" in m.lower() for m in sent)
+
+    def test_store_remove_no_store(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        admin = _admin()
+        owner = _store_owner()
+        ctx = _ctx(admin)
+
+        state = {"wholesale_lots": [], "stores": {}, "settings": {}}
+
+        async def _run():
+            await cog._save_state(state)
+            await _cmd(cog, "store_remove", ctx, owner, "lot-x")
+
+        asyncio.run(_run())
+        sent = [str(c) for c in ctx.send.call_args_list]
+        assert any("no store" in m.lower() for m in sent)
+
     def test_wh_buy_carries_restriction_to_store(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
         owner = _store_owner()

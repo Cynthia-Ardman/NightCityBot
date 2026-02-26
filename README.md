@@ -213,7 +213,9 @@ Main commands (separated by role):
 * `!wh_recheck` – compare current wholesaler lot level/cost data against the current source sheet and report mismatches.
 * `!wh_gunlist` (aliases: `!wh_guns`, `!wh_masterlist`) – list every gun parsed from the master spreadsheet grouped by weapon type, showing tier and price. Useful for verifying new spreadsheet entries are parsed correctly.
 * `!wh_add <gun_name> <L|M|H> <unit_cost> <qty> [restriction]` – manually add a lot to the wholesaler. Optional restriction: `basic` (default), `controlled`, or `restricted`.
+* `!wh_remove <lot_id> [qty]` – remove a lot from the wholesaler, or reduce its quantity if qty is specified.
 * `!store_add @owner <gun_name> <L|M|H> <unit_cost> <qty> [restriction]` – manually add a lot directly to a store with optional restriction.
+* `!store_remove @owner <lot_id> [qty]` – remove a lot from a store, or reduce its quantity if qty is specified.
 * `!wh_approve @user` – add a user to your store's controlled-buyer list.
 * `!wh_unapprove @user` – remove a user from your store's controlled-buyer list.
 * `!wh_approved` – view your store's controlled-buyer list.

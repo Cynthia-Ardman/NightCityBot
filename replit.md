@@ -40,6 +40,10 @@ Each weapon lot has a `restriction` field (default: `basic`):
 - **restricted** — buyer must be on the controlled-buyer list AND an admin must approve the sale via audit channel reaction (5-minute timeout)
 
 Store owner commands: `!wh_approve @user`, `!wh_unapprove @user`, `!wh_approved`
-Admin commands: `!wh_add` and `!store_add` accept optional restriction parameter (e.g., `!wh_add "Nue" M 1300 5 controlled`)
+Admin commands:
+- `!wh_add` and `!store_add` accept optional restriction parameter (e.g., `!wh_add "Nue" M 1300 5 controlled`)
+- `!wh_remove <lot_id> [qty]` — remove a lot or reduce its quantity from the wholesaler
+- `!store_remove @owner <lot_id> [qty]` — remove a lot or reduce its quantity from a store
+
 Restrictions carry over from wholesaler to store when purchased via `!wh_buy`.
 Controlled buyers list is persisted per-store in `inventory/stores/<store_id>.json`.

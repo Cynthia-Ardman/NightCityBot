@@ -1,184 +1,194 @@
 {
   "wholesale_lots": [
     {
-      "lot_id": "lot-20260226-cb2493",
-      "gun_name": "M2038 Tactician (6 pellets)",
-      "gun_level": "L",
-      "weapon_type": "shotgun",
-      "unit_cost": 4000,
-      "qty_available": 6,
-      "created_at": "2026-02-26T02:38:20.510509+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-9fc2dc",
-      "gun_name": "D5 Sidewinder",
+      "lot_id": "lot-20260226-32bb45",
+      "gun_name": "VST-37 Pozhar (6 pellets) (Auto)",
       "gun_level": "L",
       "weapon_type": "assault_rifle",
-      "unit_cost": 20000,
-      "qty_available": 3,
-      "created_at": "2026-02-26T02:38:20.510535+00:00"
+      "unit_cost": 6000,
+      "qty_available": 7,
+      "restriction": "controlled",
+      "created_at": "2026-02-26T07:12:27.315463+00:00"
     },
     {
-      "lot_id": "lot-20260226-71e838",
-      "gun_name": "Slaught-O-Matic",
+      "lot_id": "lot-20260226-6164d8",
+      "gun_name": "Ticon",
       "gun_level": "L",
       "weapon_type": "pistol",
-      "unit_cost": 100,
-      "qty_available": 4,
-      "created_at": "2026-02-26T02:38:20.510551+00:00"
+      "unit_cost": 20000,
+      "qty_available": 7,
+      "restriction": "restricted",
+      "created_at": "2026-02-26T07:12:27.315491+00:00"
     },
     {
-      "lot_id": "lot-20260226-6075b9",
-      "gun_name": "M221 Saratoga",
-      "gun_level": "L",
-      "weapon_type": "submachine_gun",
-      "unit_cost": 5000,
-      "qty_available": 8,
-      "created_at": "2026-02-26T02:38:20.510565+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-1ca9b1",
-      "gun_name": "HA-7 Warden",
-      "gun_level": "L",
-      "weapon_type": "submachine_gun",
-      "unit_cost": 16000,
-      "qty_available": 4,
-      "created_at": "2026-02-26T02:38:20.510579+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-66677c",
-      "gun_name": "M221 Saratoga",
-      "gun_level": "L",
-      "weapon_type": "submachine_gun",
-      "unit_cost": 5000,
-      "qty_available": 9,
-      "created_at": "2026-02-26T02:38:20.510592+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-2ee993",
-      "gun_name": "DA8 Umbra",
-      "gun_level": "L",
-      "weapon_type": "assault_rifle",
-      "unit_cost": 3000,
-      "qty_available": 6,
-      "created_at": "2026-02-26T02:38:20.510605+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-1c7084",
-      "gun_name": "M2038 Tactician (6 pellets)",
-      "gun_level": "L",
-      "weapon_type": "shotgun",
-      "unit_cost": 4000,
-      "qty_available": 6,
-      "created_at": "2026-02-26T02:38:20.510619+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-3e772a",
+      "lot_id": "lot-20260226-259206",
       "gun_name": "A-22B Chao",
       "gun_level": "L",
       "weapon_type": "pistol",
       "unit_cost": 11000,
       "qty_available": 8,
-      "created_at": "2026-02-26T02:38:20.510639+00:00"
+      "restriction": "basic",
+      "created_at": "2026-02-26T07:12:27.315504+00:00"
     },
     {
-      "lot_id": "lot-20260226-60ec2b",
+      "lot_id": "lot-20260226-beebda",
+      "gun_name": "D5 Sidewinder",
+      "gun_level": "L",
+      "weapon_type": "assault_rifle",
+      "unit_cost": 20000,
+      "qty_available": 10,
+      "restriction": "basic",
+      "created_at": "2026-02-26T07:12:27.315517+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-506742",
+      "gun_name": "RT-46 Burya",
+      "gun_level": "L",
+      "weapon_type": "revolver",
+      "unit_cost": 18000,
+      "qty_available": 7,
+      "restriction": "basic",
+      "created_at": "2026-02-26T07:12:27.315528+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-8e04f8",
+      "gun_name": "DB-2 Testera (6 pellets)",
+      "gun_level": "L",
+      "weapon_type": "shotgun",
+      "unit_cost": 2000,
+      "qty_available": 10,
+      "restriction": "basic",
+      "created_at": "2026-02-26T07:12:27.315538+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-190f3e",
+      "gun_name": "Nowaki",
+      "gun_level": "L",
+      "weapon_type": "assault_rifle",
+      "unit_cost": 5000,
+      "qty_available": 10,
+      "restriction": "controlled",
+      "created_at": "2026-02-26T07:12:27.315547+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-24df37",
+      "gun_name": "HA-7 Warden",
+      "gun_level": "L",
+      "weapon_type": "submachine_gun",
+      "unit_cost": 16000,
+      "qty_available": 8,
+      "restriction": "restricted",
+      "created_at": "2026-02-26T07:12:27.315565+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-27ee61",
+      "gun_name": "HJKE-11 Yukimura",
+      "gun_level": "L",
+      "weapon_type": "pistol",
+      "unit_cost": 13000,
+      "qty_available": 7,
+      "restriction": "restricted",
+      "created_at": "2026-02-26T07:12:27.315575+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-9f97e6",
+      "gun_name": "Guillotine",
+      "gun_level": "L",
+      "weapon_type": "submachine_gun",
+      "unit_cost": 3000,
+      "qty_available": 10,
+      "restriction": "restricted",
+      "created_at": "2026-02-26T07:12:27.315585+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-4efde8",
       "gun_name": "M-10AF Lexington",
       "gun_level": "L",
       "weapon_type": "pistol",
       "unit_cost": 1000,
-      "qty_available": 4,
-      "created_at": "2026-02-26T02:38:20.510653+00:00"
+      "qty_available": 7,
+      "restriction": "restricted",
+      "created_at": "2026-02-26T07:12:27.315594+00:00"
     },
     {
-      "lot_id": "lot-20260226-f3ac1b",
+      "lot_id": "lot-20260226-c24ec9",
+      "gun_name": "G-58 Dian",
+      "gun_level": "L",
+      "weapon_type": "submachine_gun",
+      "unit_cost": 25000,
+      "qty_available": 6,
+      "restriction": "basic",
+      "created_at": "2026-02-26T07:12:27.315610+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-46a5a9",
       "gun_name": "Senkoh LX",
       "gun_level": "L",
       "weapon_type": "submachine_gun",
       "unit_cost": 30000,
-      "qty_available": 5,
-      "created_at": "2026-02-26T02:38:20.510666+00:00"
+      "qty_available": 8,
+      "restriction": "basic",
+      "created_at": "2026-02-26T07:12:27.315618+00:00"
     },
     {
-      "lot_id": "lot-20260226-709896",
-      "gun_name": "DR-12 Quasar",
-      "gun_level": "L",
-      "weapon_type": "assault_rifle",
-      "unit_cost": 20000,
-      "qty_available": 7,
-      "created_at": "2026-02-26T02:38:20.510680+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-d89dd6",
-      "gun_name": "HJSH-18 Masamune",
-      "gun_level": "L",
-      "weapon_type": "assault_rifle",
-      "unit_cost": 6000,
-      "qty_available": 10,
-      "created_at": "2026-02-26T02:38:20.510693+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-4d2fd7",
-      "gun_name": "Crusher (6 pellets) (Auto)",
-      "gun_level": "L",
-      "weapon_type": "shotgun",
-      "unit_cost": 6000,
-      "qty_available": 6,
-      "created_at": "2026-02-26T02:38:20.510706+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-5dd0fd",
+      "lot_id": "lot-20260226-1f79aa",
       "gun_name": "Nue",
       "gun_level": "M",
       "weapon_type": "pistol",
       "unit_cost": 1300,
-      "qty_available": 5,
-      "created_at": "2026-02-26T02:38:20.510720+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-f0d6d8",
-      "gun_name": "Nue",
-      "gun_level": "M",
-      "weapon_type": "pistol",
-      "unit_cost": 1300,
-      "qty_available": 2,
-      "created_at": "2026-02-26T02:38:20.510733+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-8c2740",
-      "gun_name": "Kyubi",
-      "gun_level": "M",
-      "weapon_type": "assault_rifle",
-      "unit_cost": 6000,
-      "qty_available": 1,
-      "created_at": "2026-02-26T02:38:20.510746+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-84e249",
-      "gun_name": "Nue",
-      "gun_level": "M",
-      "weapon_type": "pistol",
-      "unit_cost": 1300,
-      "qty_available": 2,
-      "created_at": "2026-02-26T02:38:20.510759+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-89354b",
-      "gun_name": "DB-4 Palica (8 pellets)",
-      "gun_level": "M",
-      "weapon_type": "shotgun",
-      "unit_cost": 14000,
       "qty_available": 4,
-      "created_at": "2026-02-26T02:38:20.510772+00:00"
+      "restriction": "basic",
+      "created_at": "2026-02-26T07:12:27.315627+00:00"
     },
     {
-      "lot_id": "lot-20260226-84750a",
-      "gun_name": "DB-2 Satara (14 pellets) (2 shot burst)",
-      "gun_level": "H",
-      "weapon_type": "shotgun",
-      "unit_cost": 24000,
+      "lot_id": "lot-20260226-68f0fe",
+      "gun_name": "Overture",
+      "gun_level": "M",
+      "weapon_type": "revolver",
+      "unit_cost": 3000,
       "qty_available": 1,
-      "created_at": "2026-02-26T02:38:20.510786+00:00"
+      "restriction": "controlled",
+      "created_at": "2026-02-26T07:12:27.315635+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-6ee841",
+      "gun_name": "Liberty",
+      "gun_level": "M",
+      "weapon_type": "pistol",
+      "unit_cost": 2000,
+      "qty_available": 2,
+      "restriction": "basic",
+      "created_at": "2026-02-26T07:12:27.315643+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-b6c8dd",
+      "gun_name": "M251s Ajax",
+      "gun_level": "M",
+      "weapon_type": "assault_rifle",
+      "unit_cost": 6000,
+      "qty_available": 5,
+      "restriction": "basic",
+      "created_at": "2026-02-26T07:12:27.315651+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-a789b9",
+      "gun_name": "Metel",
+      "gun_level": "M",
+      "weapon_type": "revolver",
+      "unit_cost": 3500,
+      "qty_available": 5,
+      "restriction": "basic",
+      "created_at": "2026-02-26T07:12:27.315659+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-39b5d4",
+      "gun_name": "SPT32 Grad",
+      "gun_level": "H",
+      "weapon_type": "sniper_rifle",
+      "unit_cost": 35000,
+      "qty_available": 1,
+      "restriction": "restricted",
+      "created_at": "2026-02-26T07:12:27.315668+00:00"
     }
   ],
   "transactions": 0,
