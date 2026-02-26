@@ -497,6 +497,7 @@ class WholesalerCog(commands.Cog):
         mag_idx = idx_for(["Mag Size", "Mag"], 2)
         price_idx = idx_for(["Price New", "Price", "Price (New)"], 3)
         cyberware_idx = idx_for(["Cyberware Needed", "Cyberware"], 4)
+        restriction_idx = idx_for(["Restriction", "Restrictions"], None)
 
         section_header_map = {
             "pistols": "pistol",
@@ -545,6 +546,11 @@ class WholesalerCog(commands.Cog):
             if cyberware_needed is None:
                 cyberware_needed = "" if cyber_raw is None else str(cyber_raw)
 
+            restriction_raw = ""
+            if restriction_idx is not None and restriction_idx < len(row) and row[restriction_idx] is not None:
+                restriction_raw = str(row[restriction_idx]).strip().lower()
+            restriction = restriction_raw if restriction_raw in ("basic", "controlled", "restricted") else "basic"
+
             parsed.append(
                 {
                     "gun_name": gun_name,
@@ -555,6 +561,7 @@ class WholesalerCog(commands.Cog):
                     "gun_level": WholesalerCog._derive_level(effectiveness_raw),
                     "gun_category": WholesalerCog._derive_category(effectiveness_raw),
                     "weapon_type": weapon_type,
+                    "restriction": restriction,
                 }
             )
 
@@ -786,6 +793,7 @@ class WholesalerCog(commands.Cog):
                                 "weapon_type": gun.get("weapon_type") or "",
                                 "unit_cost": int(gun["price_new"]),
                                 "qty_available": qty,
+                                "restriction": gun.get("restriction", "basic"),
                                 "created_at": self._now_iso(),
                             }
                         )
@@ -812,6 +820,7 @@ class WholesalerCog(commands.Cog):
                             "weapon_type": gun.get("weapon_type") or "",
                             "unit_cost": int(gun["price_new"]),
                             "qty_available": qty,
+                            "restriction": gun.get("restriction", "basic"),
                             "created_at": self._now_iso(),
                         }
                     )
@@ -1803,8 +1812,10 @@ class WholesalerCog(commands.Cog):
             type_guns.sort(key=lambda g: (g["gun_level"], g["gun_name"]))
             section_lines = [section_header]
             for g in type_guns:
+                r = g.get("restriction", "basic")
+                r_tag = "" if r == "basic" else f" | 🔒 {r}"
                 section_lines.append(
-                    f"`{g['gun_level']}` **{g['gun_name']}** — ${g['price_new']:,}"
+                    f"`{g['gun_level']}` **{g['gun_name']}** — ${g['price_new']:,}{r_tag}"
                 )
 
             block = "\n".join(section_lines)

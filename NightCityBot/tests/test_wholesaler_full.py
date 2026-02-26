@@ -148,6 +148,33 @@ class TestSheetParsing:
         for g in guns:
             assert g["price_new"] > 0, f"{g['gun_name']} has price {g['price_new']}"
 
+    def test_restriction_column_parsed_from_spreadsheet(self, tmp_path):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Master Gun List"
+        ws.append(["Gun Name", "Type", "Mag Size", "Price", "Cyberware", "Restriction"])
+        ws.append(["Basic Gun", "Power (L)", 10, 500, "", "basic"])
+        ws.append(["Controlled Gun", "Power (M)", 10, 1000, "", "controlled"])
+        ws.append(["Restricted Gun", "Power (H)", 10, 5000, "", "restricted"])
+        ws.append(["No Restriction", "Power (L)", 10, 300, "", ""])
+        ws.append(["Invalid Restriction", "Power (L)", 10, 400, "", "superspecial"])
+        xlsx = tmp_path / "restriction_test.xlsx"
+        wb.save(xlsx)
+        guns = WholesalerCog.parse_master_sheet(xlsx, "Master Gun List")
+        assert len(guns) == 5
+        by_name = {g["gun_name"]: g for g in guns}
+        assert by_name["Basic Gun"]["restriction"] == "basic"
+        assert by_name["Controlled Gun"]["restriction"] == "controlled"
+        assert by_name["Restricted Gun"]["restriction"] == "restricted"
+        assert by_name["No Restriction"]["restriction"] == "basic"
+        assert by_name["Invalid Restriction"]["restriction"] == "basic"
+
+    def test_no_restriction_column_defaults_to_basic(self, tmp_path):
+        xlsx = _make_xlsx(tmp_path)
+        guns = WholesalerCog.parse_master_sheet(xlsx, "Master Gun List")
+        for g in guns:
+            assert g["restriction"] == "basic", f"{g['gun_name']} should default to basic"
+
     def test_zero_price_guns_are_filtered(self, tmp_path):
         wb = Workbook()
         ws = wb.active
@@ -1375,6 +1402,38 @@ class TestRestrictions:
         assert len(result["wholesale_lots"]) == 0
         sent = [str(c) for c in ctx.send.call_args_list]
         assert any("restriction" in m.lower() for m in sent)
+
+    def test_restock_carries_restriction_from_parsed_guns(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        guns = [
+            {"gun_name": "Nue", "gun_level": "M", "price_new": 1300, "weapon_type": "pistol", "restriction": "controlled"},
+        ]
+        cfg = {
+            "total_lots": 50,
+            "lots_L": 0, "lots_M": 3, "lots_H": 0,
+            "qty_min_L": 1, "qty_max_L": 1,
+            "qty_min_M": 1, "qty_max_M": 1,
+            "qty_min_H": 1, "qty_max_H": 1,
+        }
+        lots, _totals = cog._generate_restock_lots(guns, cfg, random.Random(42))
+        assert len(lots) == 1
+        assert lots[0]["restriction"] == "controlled"
+
+    def test_restock_defaults_restriction_to_basic(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        guns = [
+            {"gun_name": "Nue", "gun_level": "M", "price_new": 1300, "weapon_type": "pistol"},
+        ]
+        cfg = {
+            "total_lots": 50,
+            "lots_L": 0, "lots_M": 1, "lots_H": 0,
+            "qty_min_L": 1, "qty_max_L": 1,
+            "qty_min_M": 1, "qty_max_M": 1,
+            "qty_min_H": 1, "qty_max_H": 1,
+        }
+        lots, _totals = cog._generate_restock_lots(guns, cfg, random.Random(42))
+        assert len(lots) == 1
+        assert lots[0]["restriction"] == "basic"
 
     def test_store_add_with_restriction(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)

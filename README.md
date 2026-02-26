@@ -188,6 +188,13 @@ Implements a two-tier gun supply chain with scarcity: corporate wholesaler lots 
 
 Lots are grouped by weapon type (Pistol, Revolver, Shotgun, Submachine Gun, Assault Rifle, etc.) based on section headers in the source spreadsheet. During restock, duplicate guns with the same name, level, cost and type are automatically consolidated into a single lot with combined quantity.
 
+Each weapon has a restriction level that controls who can purchase it:
+* **basic** (default) – anyone can buy, no special requirements.
+* **controlled** – only buyers on the store owner's controlled-buyer list can purchase.
+* **restricted** – requires being on the controlled-buyer list AND admin approval via audit channel reaction (5-minute timeout).
+
+Restrictions are read from a "Restriction" column in the master spreadsheet (if present). They can also be set manually when adding stock via `!wh_add` or `!store_add`. Restrictions carry over from the wholesaler to store inventories when purchased via `!wh_buy`.
+
 Main commands (separated by role):
 
 **Gun Store Owner Commands**
@@ -205,8 +212,11 @@ Main commands (separated by role):
 * `!wh_restock_settings [key] [value]` – view/tune refresh settings (total lots, lots per level, qty ranges, and per-weapon-type lot counts).
 * `!wh_recheck` – compare current wholesaler lot level/cost data against the current source sheet and report mismatches.
 * `!wh_gunlist` (aliases: `!wh_guns`, `!wh_masterlist`) – list every gun parsed from the master spreadsheet grouped by weapon type, showing tier and price. Useful for verifying new spreadsheet entries are parsed correctly.
-* `!wh_add <gun_name> <L|M|H> <unit_cost> <qty>` – manually add a lot to the wholesaler.
-* `!store_add @owner <gun_name> <L|M|H> <unit_cost> <qty>` – manually add a lot directly to a store.
+* `!wh_add <gun_name> <L|M|H> <unit_cost> <qty> [restriction]` – manually add a lot to the wholesaler. Optional restriction: `basic` (default), `controlled`, or `restricted`.
+* `!store_add @owner <gun_name> <L|M|H> <unit_cost> <qty> [restriction]` – manually add a lot directly to a store with optional restriction.
+* `!wh_approve @user` – add a user to your store's controlled-buyer list.
+* `!wh_unapprove @user` – remove a user from your store's controlled-buyer list.
+* `!wh_approved` – view your store's controlled-buyer list.
 * `!wh_tx <tx_id>` – look up raw transaction data by ID.
 * `!wh_retry_payout <tx_id>` – retry a failed seller payout from a previous sale where the buyer was charged but the seller credit failed.
 * `!wh_paths` – display the file system paths where wholesaler data is stored.
@@ -282,7 +292,7 @@ pytest
 
 Key test files:
 
-* `test_wholesaler_full.py` – **64 tests** covering the entire wholesaler system end-to-end: spreadsheet parsing with weapon type assignment, restock lot consolidation, state save/load roundtrips, wholesale buying (success, insufficient funds, invalid lot, zero qty, exceeding stock), player sales (success, buyer/seller failures, pending payouts), permission enforcement for all roles, shop registry management, admin stock commands (`wh_add`, `store_add`, `wh_clear_inventory`), transaction logging, full lifecycle flows (restock → buy → sell), multi-store independence, display grouping by weapon type, restock settings, and edge cases for URL normalization and utility functions.
+* `test_wholesaler_full.py` – **83 tests** covering the entire wholesaler system end-to-end: spreadsheet parsing with weapon type assignment, restock lot consolidation, state save/load roundtrips, wholesale buying (success, insufficient funds, invalid lot, zero qty, exceeding stock), player sales (success, buyer/seller failures, pending payouts), permission enforcement for all roles, shop registry management, admin stock commands (`wh_add`, `store_add`, `wh_clear_inventory`), transaction logging, full lifecycle flows (restock → buy → sell), multi-store independence, display grouping by weapon type, restock settings, gun restrictions (basic/controlled/restricted enforcement, restriction carry-over via `wh_buy`, restriction display), controlled-buyer list management (approve, unapprove, view, duplicates, permissions), and edge cases for URL normalization and utility functions.
 * `test_wholesaler_parsing.py` – **35 tests** for parsing logic, restock math, state migration, and file persistence.
 * `test_wholesaler_commands.py` – smoke tests verifying all wholesaler commands are registered.
 * `test_release_readiness_simulation.py` – simulated multi-week economy + wholesaler cycles with buy/sell and UnbelievaBoat balance transfers.
