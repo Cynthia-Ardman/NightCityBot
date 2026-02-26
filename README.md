@@ -204,6 +204,7 @@ Main commands (separated by role):
 * `!wh_clear_inventory` – clear all current wholesaler lots without modifying store inventories.
 * `!wh_restock_settings [key] [value]` – view/tune refresh settings (total lots, lots per level, qty ranges, and per-weapon-type lot counts).
 * `!wh_recheck` – compare current wholesaler lot level/cost data against the current source sheet and report mismatches.
+* `!wh_gunlist` (aliases: `!wh_guns`, `!wh_masterlist`) – list every gun parsed from the master spreadsheet grouped by weapon type, showing tier and price. Useful for verifying new spreadsheet entries are parsed correctly.
 * `!wh_add <gun_name> <L|M|H> <unit_cost> <qty>` – manually add a lot to the wholesaler.
 * `!store_add @owner <gun_name> <L|M|H> <unit_cost> <qty>` – manually add a lot directly to a store.
 * `!wh_tx <tx_id>` – look up raw transaction data by ID.

@@ -1637,6 +1637,64 @@ class WholesalerCog(commands.Cog):
         await ctx.send("\n".join(lines))
         await self._audit_send("[WHOLESALE_RECHECK] " + " | ".join(lines[:4]))
 
+    @commands.command(name="wh_gunlist", aliases=["wh_guns", "wh_masterlist"])
+    async def wh_gunlist(self, ctx: commands.Context):
+        """List every gun parsed from the master spreadsheet with type and tier."""
+        if not await self._system_enabled(ctx):
+            return
+        member = await self._ensure_member(ctx)
+        if not member:
+            return
+        if not self._is_admin(member):
+            await ctx.send("❌ Admin role required.")
+            return
+
+        try:
+            guns = await self._load_master_guns()
+        except Exception as e:
+            await ctx.send(f"❌ Failed to load master sheet: {e}")
+            return
+
+        if not guns:
+            await ctx.send("⚠️ No guns found in the master sheet.")
+            return
+
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for g in guns:
+            wtype = g.get("weapon_type") or "unknown"
+            grouped.setdefault(wtype, []).append(g)
+
+        type_order = list(self.WEAPON_TYPES) + sorted(
+            k for k in grouped if k not in self.WEAPON_TYPES
+        )
+
+        pages: list[str] = []
+        current_lines: list[str] = [f"**Master Gun List** — {len(guns)} guns parsed\n"]
+        for wtype in type_order:
+            type_guns = grouped.get(wtype)
+            if not type_guns:
+                continue
+            label = wtype.replace("_", " ").title()
+            section_header = f"\n__**{label}**__ ({len(type_guns)})"
+            type_guns.sort(key=lambda g: (g["gun_level"], g["gun_name"]))
+            section_lines = [section_header]
+            for g in type_guns:
+                section_lines.append(
+                    f"`{g['gun_level']}` **{g['gun_name']}** — ${g['price_new']:,}"
+                )
+
+            block = "\n".join(section_lines)
+            if len("\n".join(current_lines)) + len(block) + 1 > 1900:
+                pages.append("\n".join(current_lines))
+                current_lines = []
+            current_lines.append(block)
+
+        if current_lines:
+            pages.append("\n".join(current_lines))
+
+        for page in pages:
+            await ctx.send(page)
+
     @commands.command(name="wh_paths")
     async def wh_paths(self, ctx: commands.Context):
         """Show resolved wholesaler persistence paths and whether files exist."""

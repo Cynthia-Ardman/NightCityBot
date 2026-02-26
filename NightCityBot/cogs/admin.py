@@ -222,6 +222,7 @@ class Admin(commands.Cog):
                     "`!wh_restock [seed]` – regenerate weekly wholesaler stock from the configured sheet source.",
                     "`!wh_clear_inventory` – clear current wholesaler lots without touching store inventories.",
                     "`!wh_recheck` – compare current lots to source sheet values and report mismatches.",
+                    "`!wh_gunlist` (aliases: !wh_guns, !wh_masterlist) – list every gun parsed from the master sheet with type, tier and price.",
                     "`!wh_setsheet <xlsx_export_url|off>` – set or clear the runtime master gun list source URL.\n`!wh_restock_settings [key] [value]` – view or tune weekly wholesaler refresh settings (lot counts and qty ranges).",
                     "`!wh_add <gun> <L|M|H> <unit_cost> <qty>` / `!store_add @owner <gun> <L|M|H> <unit_cost> <qty>` – manual stock adjustments.",
                     "`!wh_tx <tx_id>` / `!wh_retry_payout <tx_id>` – inspect transactions and retry pending payouts.",
