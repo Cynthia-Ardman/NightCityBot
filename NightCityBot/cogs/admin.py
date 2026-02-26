@@ -119,7 +119,8 @@ class Admin(commands.Cog):
                 "`!attend` — Sundays only\n"
                 "→ Verified players earn $250 every week they attend.\n"
                 "`!due` — Estimate what you'll owe on the 1st.\n"
-                "`!paydue [-v]` — pay your monthly obligations early."
+                "`!paydue [-v]` — pay your monthly obligations early.\n"
+                "`!last_payment` — view the details of your last automated payment."
             ),
             inline=False,
         )
@@ -212,20 +213,22 @@ class Admin(commands.Cog):
             (
                 "🔫 Wholesaler / Store Tools",
                 "\n".join([
-                    "**Store Owner Ops:** `!wh_list`, `!wh_buy <lot_id> <qty>`, `!store_inv`, `!wh_sell @buyer \"character_name\" <lot_id> <qty> <price>`.",
-                    "**Admin/Wholesaler Ops:** `!store_inv [shop_name]`, `!wh_setshop`, `!wh_shops`, `!wh_setsheet`, `!wh_restock`, `!wh_clear_inventory`, `!wh_restock_settings`, `!wh_recheck`, `!wh_add`, `!store_add`, `!wh_tx`, `!wh_retry_payout`.",
-                    "`!wh_list` – list current wholesaler lots.",
+                    "`!wh_list` – view current wholesaler lots grouped by weapon type.",
                     "`!store_inv [shop_name]` – view your store inventory (admins can inspect a mapped shop alias).",
-                    "`!wh_buy <lot_id> <qty>` / `!wh_sell @buyer \"character_name\" <lot_id> <qty> <price>` – wholesale purchase and player sale flow.",
-                    "`!wh_setshop <shop_name> @owner` – bind a shop alias (shop1/shop2/shop3) to a specific owner account.",
+                    '`!wh_buy <lot_id> <qty>` – buy stock from the wholesaler into your store.',
+                    '`!wh_sell @buyer "character_name" <lot_id> <qty> <price>` – sell to a player (debit buyer, credit seller, post receipt). Alias: `!sell`.',
+                    "`!wh_setshop <shop_name> @owner` – bind a shop alias to a specific owner account.",
                     "`!wh_shops` – list all shop alias mappings.",
                     "`!wh_restock [seed]` – regenerate weekly wholesaler stock from the configured sheet source.",
                     "`!wh_clear_inventory` – clear current wholesaler lots without touching store inventories.",
                     "`!wh_recheck` – compare current lots to source sheet values and report mismatches.",
                     "`!wh_gunlist` (aliases: !wh_guns, !wh_masterlist) – list every gun parsed from the master sheet with type, tier and price.",
-                    "`!wh_setsheet <xlsx_export_url|off>` – set or clear the runtime master gun list source URL.\n`!wh_restock_settings [key] [value]` – view or tune weekly wholesaler refresh settings (lot counts and qty ranges).",
+                    "`!wh_setsheet <xlsx_export_url|off>` – set or clear the runtime master gun list source URL.",
+                    "`!wh_restock_settings [key] [value]` – view or tune weekly wholesaler refresh settings (lot counts and qty ranges).",
                     "`!wh_add <gun> <L|M|H> <unit_cost> <qty>` / `!store_add @owner <gun> <L|M|H> <unit_cost> <qty>` – manual stock adjustments.",
-                    "`!wh_tx <tx_id>` / `!wh_retry_payout <tx_id>` – inspect transactions and retry pending payouts.",
+                    "`!wh_tx <tx_id>` – inspect a transaction by ID.",
+                    "`!wh_retry_payout <tx_id>` – retry a pending seller payout.",
+                    "`!wh_paths` – show wholesaler data file paths.",
                 ]),
             ),
             (
@@ -234,6 +237,9 @@ class Admin(commands.Cog):
                     "`!start_loa [@user]` (aliases: !startloa, !loa_start, !loastart) / `!end_loa [@user]` (aliases: !endloa, !loa_end, !loaend) – toggle LOA for yourself or the specified member.",
                     "`!checkup @user` (aliases: !check-up, !check_up, !cu, !cup) – remove the checkup role once an in-character exam is completed.",
                     "`!weeks_without_checkup @user` (aliases: !wwocup, !wwc) – show how many weeks a member has kept the role without a checkup.",
+                    "`!give_checkup_role [@user]` (aliases: !givecheckuprole, !cuall) – give the check-up role to a member or all cyberware users.",
+                    "`!checkup_report` (aliases: !cu_report, !cur) – list who did a checkup, who paid meds, and who couldn't pay.",
+                    "`!cyberware_status` (aliases: !cstatus, !cstat) – show current week status for all cyberware users.",
                     "`!collect_cyberware @user [-v]` – manually charge a member for their meds and show the last few log lines unless `-v` is supplied.",
                     "`!paycyberware [-v]` – pay your own cyberware meds manually.",
                 ]),
@@ -292,6 +298,7 @@ class Admin(commands.Cog):
                     "`!list_tests` – show all available self-test names.",
                     "`!test__bot [pattern]` – run the PyTest suite optionally filtering by pattern.",
                     "`!shutdown_bot` (aliases: !shutdownbot, !forceshutdown) – log an audit message and cleanly shut down the bot process.",
+                    "`!backfill_logs [limit]` – rebuild attendance and business open logs from recent message history.",
                 ]),
             ),
             (
@@ -319,7 +326,7 @@ class Admin(commands.Cog):
             for i, chunk in enumerate(chunks):
                 field_name = name if i == 0 else "\u200b"
                 if embed_len(current) + len(field_name) + len(chunk) > 5800:
-                    current.set_footer(text="Fixer tools by MedusaCascade | v1.2")
+                    current.set_footer(text="Admin tools by MedusaCascade | v1.2")
                     embeds.append(current)
                     current = discord.Embed(
                         title="🛠️ NCRP Bot — Admin Help (cont.)",
@@ -327,7 +334,7 @@ class Admin(commands.Cog):
                     )
                 current.add_field(name=field_name, value=chunk, inline=False)
 
-        current.set_footer(text="Fixer tools by MedusaCascade | v1.2")
+        current.set_footer(text="Admin tools by MedusaCascade | v1.2")
         embeds.append(current)
 
         for e in embeds:
@@ -393,8 +400,7 @@ class Admin(commands.Cog):
         embed.add_field(
             name="🏪 Other Useful Commands",
             value=(
-                "`!wh_shops` — see all registered shop aliases and owners.\n"
-                "`!wh_list` — refresh the wholesaler stock list (new stock arrives weekly)."
+                "`!wh_shops` — see all registered shop aliases and owners."
             ),
             inline=False,
         )

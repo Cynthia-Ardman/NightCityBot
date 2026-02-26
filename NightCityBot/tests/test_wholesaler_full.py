@@ -532,6 +532,7 @@ class TestPlayerSale:
         result = asyncio.run(_run())
         sent_messages = [str(c) for c in ctx.send.call_args_list]
         assert any("pending" in m.lower() or "payout" in m.lower() for m in sent_messages)
+        assert result["stores"][f"111:{seller.id}"]["lots"][0]["qty_remaining"] == 3
 
     def test_sell_invalid_lot_rejected(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)

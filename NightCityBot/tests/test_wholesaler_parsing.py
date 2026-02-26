@@ -425,8 +425,9 @@ def test_generate_restock_lots_uses_explicit_type_mix():
 
     lots, totals = cog._generate_restock_lots(guns, cfg, random.Random(9))
 
-    assert len(lots) == 2
-    assert {lot["gun_name"] for lot in lots} == {"Nova"}
+    assert len(lots) == 1
+    assert lots[0]["gun_name"] == "Nova"
+    assert lots[0]["qty_available"] == 2
     assert totals["L"] == 2
 
 

@@ -615,10 +615,9 @@ class WholesalerCog(commands.Cog):
         )
 
     async def _load_state(self) -> dict[str, Any]:
-        wholesale_file = Path(getattr(self, "wholesale_inventory_file", self.state_file))
-        store_file = Path(getattr(self, "store_state_file", self.state_file))
-        default_data_dir = Path(getattr(self, "data_dir", Path(self.state_file).parent))
-        store_inventory_dir = Path(getattr(self, "store_inventory_dir", default_data_dir / "inventory" / "stores"))
+        wholesale_file = getattr(self, "wholesale_inventory_file", self.state_file)
+        store_file = getattr(self, "store_state_file", self.state_file)
+        store_inventory_dir = getattr(self, "store_inventory_dir", Path(self.state_file).parent / "inventory" / "stores")
 
         state = await helpers.load_json_file(
             self.state_file,
@@ -686,7 +685,7 @@ class WholesalerCog(commands.Cog):
             len(state["wholesale_lots"]),
             len(state["stores"]),
             self.state_file,
-            self.wholesale_inventory_file,
+            wholesale_file,
         )
         return state
 
@@ -1332,6 +1331,8 @@ class WholesalerCog(commands.Cog):
                 f"Gun sale to {buyer.id} ({store_lot['gun_name']})",
             )
             logger.info("wh_sell: seller credit result=%s", payout_ok)
+            store_lot["qty_remaining"] -= qty
+
             if not payout_ok:
                 tx["status"] = "PENDING_PAYOUT"
                 tx["error_details"] = "Buyer charged, seller payout failed"
@@ -1345,8 +1346,6 @@ class WholesalerCog(commands.Cog):
                 )
                 await ctx.send("⚠️ Buyer charged, seller payout pending admin retry.")
                 return
-
-            store_lot["qty_remaining"] -= qty
             await self._save_state(state)
             await self._append_tx(tx)
 
