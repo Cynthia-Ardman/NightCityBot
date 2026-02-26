@@ -1,165 +1,185 @@
 {
   "wholesale_lots": [
     {
-      "lot_id": "lot-20260226-3e41fb",
-      "gun_name": "JKE-X2 Kenshin",
-      "gun_level": "L",
-      "unit_cost": 18000,
-      "qty_available": 3,
-      "created_at": "2026-02-26T02:09:19.243182+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-71707a",
-      "gun_name": "VST-37 Pozhar (6 pellets) (Auto)",
-      "gun_level": "L",
-      "unit_cost": 6000,
-      "qty_available": 9,
-      "created_at": "2026-02-26T02:09:19.243205+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-9e0589",
-      "gun_name": "DR-12 Quasar",
-      "gun_level": "L",
-      "unit_cost": 20000,
-      "qty_available": 5,
-      "created_at": "2026-02-26T02:09:19.243217+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-efe6c0",
-      "gun_name": "Kappa",
-      "gun_level": "L",
-      "unit_cost": 13000,
-      "qty_available": 9,
-      "created_at": "2026-02-26T02:09:19.243228+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-6e69e6",
-      "gun_name": "M-10AF Lexington",
-      "gun_level": "L",
-      "unit_cost": 1000,
-      "qty_available": 5,
-      "created_at": "2026-02-26T02:09:19.243240+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-58a076",
-      "gun_name": "DB-2 Testera (6 pellets)",
-      "gun_level": "L",
-      "unit_cost": 2000,
-      "qty_available": 6,
-      "created_at": "2026-02-26T02:09:19.243250+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-1781d8",
-      "gun_name": "D5 Sidewinder",
-      "gun_level": "L",
-      "unit_cost": 20000,
-      "qty_available": 10,
-      "created_at": "2026-02-26T02:09:19.243260+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-f6ea8f",
-      "gun_name": "DB-2 Testera (6 pellets)",
-      "gun_level": "L",
-      "unit_cost": 2000,
-      "qty_available": 6,
-      "created_at": "2026-02-26T02:09:19.243277+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-33e176",
+      "lot_id": "lot-20260226-983a50",
       "gun_name": "Senkoh LX",
       "gun_level": "L",
+      "weapon_type": "",
       "unit_cost": 30000,
       "qty_available": 9,
-      "created_at": "2026-02-26T02:09:19.243287+00:00"
+      "created_at": "2026-02-26T02:32:05.752012+00:00"
     },
     {
-      "lot_id": "lot-20260226-5d8fdb",
+      "lot_id": "lot-20260226-a1dbb5",
+      "gun_name": "TKI-20 Shingen",
+      "gun_level": "L",
+      "weapon_type": "",
+      "unit_cost": 20000,
+      "qty_available": 6,
+      "created_at": "2026-02-26T02:32:05.752046+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-0ff34e",
+      "gun_name": "Crusher (6 pellets) (Auto)",
+      "gun_level": "L",
+      "weapon_type": "",
+      "unit_cost": 6000,
+      "qty_available": 7,
+      "created_at": "2026-02-26T02:32:05.752058+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-91bc64",
+      "gun_name": "Senkoh LX",
+      "gun_level": "L",
+      "weapon_type": "",
+      "unit_cost": 30000,
+      "qty_available": 4,
+      "created_at": "2026-02-26T02:32:05.752067+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-f6ba40",
+      "gun_name": "HA-7 Warden",
+      "gun_level": "L",
+      "weapon_type": "",
+      "unit_cost": 16000,
+      "qty_available": 9,
+      "created_at": "2026-02-26T02:32:05.752075+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-bc49c5",
+      "gun_name": "D5 Copperhead",
+      "gun_level": "L",
+      "weapon_type": "",
+      "unit_cost": 4000,
+      "qty_available": 10,
+      "created_at": "2026-02-26T02:32:05.752083+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-dd5d97",
+      "gun_name": "JKE-X2 Kenshin",
+      "gun_level": "L",
+      "weapon_type": "",
+      "unit_cost": 18000,
+      "qty_available": 5,
+      "created_at": "2026-02-26T02:32:05.752091+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-95ff97",
+      "gun_name": "Guillotine",
+      "gun_level": "L",
+      "weapon_type": "",
+      "unit_cost": 3000,
+      "qty_available": 6,
+      "created_at": "2026-02-26T02:32:05.752100+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-81dbe0",
+      "gun_name": "DB-4 Igla (6 pellets)",
+      "gun_level": "L",
+      "weapon_type": "",
+      "unit_cost": 2000,
+      "qty_available": 10,
+      "created_at": "2026-02-26T02:32:05.752108+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-9699e8",
+      "gun_name": "Guillotine",
+      "gun_level": "L",
+      "weapon_type": "",
+      "unit_cost": 3000,
+      "qty_available": 10,
+      "created_at": "2026-02-26T02:32:05.752117+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-f61635",
+      "gun_name": "M-76e Omaha",
+      "gun_level": "L",
+      "weapon_type": "",
+      "unit_cost": 20000,
+      "qty_available": 5,
+      "created_at": "2026-02-26T02:32:05.752125+00:00"
+    },
+    {
+      "lot_id": "lot-20260226-6cb1b0",
       "gun_name": "DR-12 Quasar",
       "gun_level": "L",
+      "weapon_type": "assault_rifle",
       "unit_cost": 20000,
-      "qty_available": 4,
-      "created_at": "2026-02-26T02:09:19.243296+00:00"
+      "qty_available": 9,
+      "created_at": "2026-02-26T02:32:05.752133+00:00"
     },
     {
-      "lot_id": "lot-20260226-5787ed",
-      "gun_name": "Kappa",
+      "lot_id": "lot-20260226-fa1eb3",
+      "gun_name": "Senkoh LX",
       "gun_level": "L",
-      "unit_cost": 13000,
+      "weapon_type": "",
+      "unit_cost": 30000,
       "qty_available": 8,
-      "created_at": "2026-02-26T02:09:19.243304+00:00"
+      "created_at": "2026-02-26T02:32:05.752141+00:00"
     },
     {
-      "lot_id": "lot-20260226-58400c",
-      "gun_name": "VST-37 Pozhar (6 pellets) (Auto)",
+      "lot_id": "lot-20260226-d73eca",
+      "gun_name": "TKI-20 Shingen",
       "gun_level": "L",
-      "unit_cost": 6000,
-      "qty_available": 3,
-      "created_at": "2026-02-26T02:09:19.243312+00:00"
+      "weapon_type": "",
+      "unit_cost": 20000,
+      "qty_available": 8,
+      "created_at": "2026-02-26T02:32:05.752149+00:00"
     },
     {
-      "lot_id": "lot-20260226-f97db4",
-      "gun_name": "DS1 Pulsar",
-      "gun_level": "L",
-      "unit_cost": 6000,
-      "qty_available": 10,
-      "created_at": "2026-02-26T02:09:19.243320+00:00"
+      "lot_id": "lot-20260226-90b8eb",
+      "gun_name": "MA70 HB",
+      "gun_level": "M",
+      "weapon_type": "",
+      "unit_cost": 50000,
+      "qty_available": 5,
+      "created_at": "2026-02-26T02:32:05.752158+00:00"
     },
     {
-      "lot_id": "lot-20260226-86ff7b",
-      "gun_name": "DA8 Umbra",
-      "gun_level": "L",
-      "unit_cost": 3000,
-      "qty_available": 4,
-      "created_at": "2026-02-26T02:09:19.243328+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-a0c467",
+      "lot_id": "lot-20260226-a1ab6b",
       "gun_name": "Liberty",
       "gun_level": "M",
+      "weapon_type": "",
       "unit_cost": 2000,
-      "qty_available": 4,
-      "created_at": "2026-02-26T02:09:19.243339+00:00"
+      "qty_available": 5,
+      "created_at": "2026-02-26T02:32:05.752166+00:00"
     },
     {
-      "lot_id": "lot-20260226-73a922",
-      "gun_name": "M2067 Defender",
+      "lot_id": "lot-20260226-81f7b3",
+      "gun_name": "HIB-MK33 Revolver",
       "gun_level": "M",
-      "unit_cost": 50000,
-      "qty_available": 4,
-      "created_at": "2026-02-26T02:09:19.243352+00:00"
+      "weapon_type": "revolver",
+      "unit_cost": 3000,
+      "qty_available": 3,
+      "created_at": "2026-02-26T02:32:05.752174+00:00"
     },
     {
-      "lot_id": "lot-20260226-08cda1",
-      "gun_name": "Unity",
-      "gun_level": "M",
-      "unit_cost": 1500,
-      "qty_available": 4,
-      "created_at": "2026-02-26T02:09:19.243375+00:00"
-    },
-    {
-      "lot_id": "lot-20260226-00e1ec",
+      "lot_id": "lot-20260226-83edf7",
       "gun_name": "Metel",
       "gun_level": "M",
+      "weapon_type": "",
       "unit_cost": 3500,
-      "qty_available": 4,
-      "created_at": "2026-02-26T02:09:19.243384+00:00"
+      "qty_available": 5,
+      "created_at": "2026-02-26T02:32:05.752182+00:00"
     },
     {
-      "lot_id": "lot-20260226-50cb84",
-      "gun_name": "Overture",
+      "lot_id": "lot-20260226-4f109d",
+      "gun_name": "Unity",
       "gun_level": "M",
-      "unit_cost": 3000,
-      "qty_available": 1,
-      "created_at": "2026-02-26T02:09:19.243392+00:00"
+      "weapon_type": "",
+      "unit_cost": 1500,
+      "qty_available": 5,
+      "created_at": "2026-02-26T02:32:05.752190+00:00"
     },
     {
-      "lot_id": "lot-20260226-1233ad",
-      "gun_name": "DB-2 Satara (14 pellets) (2 shot burst)",
+      "lot_id": "lot-20260226-9dc189",
+      "gun_name": "Mk. 31 HMG",
       "gun_level": "H",
-      "unit_cost": 24000,
-      "qty_available": 0,
-      "created_at": "2026-02-26T02:09:19.243401+00:00"
+      "weapon_type": "heavy_machine_gun",
+      "unit_cost": 90000,
+      "qty_available": 1,
+      "created_at": "2026-02-26T02:32:05.752199+00:00"
     }
   ],
-  "updated_at": "2026-02-26T02:28:30.897397+00:00"
+  "updated_at": "2026-02-26T02:35:22.158882+00:00"
 }

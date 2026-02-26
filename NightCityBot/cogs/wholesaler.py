@@ -45,6 +45,7 @@ class WholesalerCog(commands.Cog):
         "qty_max_H": 2,
     }
     WEAPON_TYPES = (
+        "pistol",
         "revolver",
         "submachine_gun",
         "shotgun",
@@ -55,6 +56,7 @@ class WholesalerCog(commands.Cog):
         "sniper_rifle",
     )
     WEAPON_TYPE_PATTERNS = {
+        "pistol": ("pistol",),
         "revolver": ("revolver",),
         "submachine_gun": ("submachine gun", "submachine-gun", "smg"),
         "shotgun": ("shotgun",),
@@ -495,6 +497,19 @@ class WholesalerCog(commands.Cog):
         price_idx = idx_for(["Price New", "Price", "Price (New)"], 3)
         cyberware_idx = idx_for(["Cyberware Needed", "Cyberware"], 4)
 
+        section_header_map = {
+            "pistols": "pistol",
+            "revolvers": "revolver",
+            "submachine guns": "submachine_gun",
+            "shotguns": "shotgun",
+            "assault rifles": "assault_rifle",
+            "light machine guns": "light_machine_gun",
+            "heavy machine guns": "heavy_machine_gun",
+            "precision rifles": "precision_rifle",
+            "sniper rifles": "sniper_rifle",
+        }
+        current_section_type = "pistol"
+
         parsed: list[dict[str, Any]] = []
         for row in row_iter:
             if not row:
@@ -509,9 +524,15 @@ class WholesalerCog(commands.Cog):
             if not gun_name:
                 continue
             if effectiveness_raw.lower() == "type":
+                matched_section = section_header_map.get(gun_name.lower().strip())
+                if matched_section:
+                    current_section_type = matched_section
+                    logger.debug("Sheet section header: '%s' → weapon_type=%s", gun_name, current_section_type)
                 continue
             if price_new is None or price_new <= 0:
                 continue
+
+            weapon_type = self._derive_weapon_type(gun_name, effectiveness_raw) or current_section_type
 
             mag_raw = row[mag_idx] if mag_idx < len(row) else None
             mag_size = WholesalerCog._to_int(mag_raw)
@@ -532,7 +553,7 @@ class WholesalerCog(commands.Cog):
                     "cyberware_needed": cyberware_needed,
                     "gun_level": WholesalerCog._derive_level(effectiveness_raw),
                     "gun_category": WholesalerCog._derive_category(effectiveness_raw),
-                    "weapon_type": WholesalerCog._derive_weapon_type(gun_name, effectiveness_raw),
+                    "weapon_type": weapon_type,
                 }
             )
 
