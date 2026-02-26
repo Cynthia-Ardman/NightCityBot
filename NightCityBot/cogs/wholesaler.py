@@ -660,6 +660,13 @@ class WholesalerCog(commands.Cog):
         restock = state["settings"].setdefault("restock", {})
         for key, value in self.DEFAULT_RESTOCK_SETTINGS.items():
             restock.setdefault(key, value)
+        logger.debug(
+            "_load_state: wholesale_lots=%d stores=%d (state_file=%s wholesale_file=%s)",
+            len(state["wholesale_lots"]),
+            len(state["stores"]),
+            self.state_file,
+            self.wholesale_inventory_file,
+        )
         return state
 
     @staticmethod
@@ -1065,7 +1072,17 @@ class WholesalerCog(commands.Cog):
         if not await self._system_enabled(ctx):
             return
         state = await self._load_state()
-        lots = [lot for lot in state.get("wholesale_lots", []) if int(lot.get("qty_available", 0)) > 0]
+        all_lots = state.get("wholesale_lots", [])
+        logger.info(
+            "wh_list: loaded %d total wholesale lots from state "
+            "(state_file=%s, wholesale_file=%s, state_file_exists=%s, wholesale_file_exists=%s)",
+            len(all_lots),
+            self.state_file,
+            self.wholesale_inventory_file,
+            self.state_file.exists(),
+            self.wholesale_inventory_file.exists(),
+        )
+        lots = [lot for lot in all_lots if int(lot.get("qty_available", 0)) > 0]
         if not lots:
             await ctx.send("No wholesale lots available.")
             return
