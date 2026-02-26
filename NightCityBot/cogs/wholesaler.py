@@ -1113,14 +1113,23 @@ class WholesalerCog(commands.Cog):
         if not lots:
             await ctx.send("No wholesale lots available.")
             return
-        lines = []
-        for l in lots[:25]:
-            wtype = l.get("weapon_type") or ""
-            wtype_display = wtype.replace("_", " ").title() if wtype else "Unknown"
-            lines.append(
-                f"`{l['lot_id']}` | {l['gun_name']} | {wtype_display} | Tier {l['gun_level']} | ${l['unit_cost']} | qty {l['qty_available']}"
-            )
-        await ctx.send("**Wholesaler Stock**\n" + "\n".join(lines))
+        grouped: dict[str, list] = {}
+        for l in lots:
+            wtype = l.get("weapon_type") or "other"
+            grouped.setdefault(wtype, []).append(l)
+        type_order = list(self.WEAPON_TYPES) + ["other"]
+        lines = ["**Wholesaler Stock**"]
+        for wtype in type_order:
+            group = grouped.get(wtype)
+            if not group:
+                continue
+            heading = wtype.replace("_", " ").title() if wtype != "other" else "Other"
+            lines.append(f"\n__**{heading}**__")
+            for l in group:
+                lines.append(
+                    f"`{l['lot_id']}` | {l['gun_name']} | Tier {l['gun_level']} | ${l['unit_cost']} | qty {l['qty_available']}"
+                )
+        await ctx.send("\n".join(lines))
 
     @commands.command(name="store_inv")
     async def store_inv(self, ctx: commands.Context, *, shop: Optional[str] = None):
@@ -1144,14 +1153,23 @@ class WholesalerCog(commands.Cog):
             return
 
         shop_title = self._shop_display_name(state, owner_id, shop)
-        lines = []
-        for l in lots[:30]:
-            wtype = l.get("weapon_type") or ""
-            wtype_display = wtype.replace("_", " ").title() if wtype else "Unknown"
-            lines.append(
-                f"`{l['lot_id']}` | {l['gun_name']} | {wtype_display} | Tier {l['gun_level']} | cost ${l['unit_cost']} | qty {l['qty_remaining']}"
-            )
-        await ctx.send(f"**Store Inventory ({shop_title})**\n" + "\n".join(lines))
+        grouped: dict[str, list] = {}
+        for l in lots:
+            wtype = l.get("weapon_type") or "other"
+            grouped.setdefault(wtype, []).append(l)
+        type_order = list(self.WEAPON_TYPES) + ["other"]
+        lines = [f"**Store Inventory ({shop_title})**"]
+        for wtype in type_order:
+            group = grouped.get(wtype)
+            if not group:
+                continue
+            heading = wtype.replace("_", " ").title() if wtype != "other" else "Other"
+            lines.append(f"\n__**{heading}**__")
+            for l in group:
+                lines.append(
+                    f"`{l['lot_id']}` | {l['gun_name']} | Tier {l['gun_level']} | cost ${l['unit_cost']} | qty {l['qty_remaining']}"
+                )
+        await ctx.send("\n".join(lines))
 
     @commands.command(name="wh_buy")
     async def wh_buy(self, ctx: commands.Context, lot_id: str, qty: int):
