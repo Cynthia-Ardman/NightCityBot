@@ -1125,9 +1125,23 @@ class WholesalerCog(commands.Cog):
                 continue
             heading = wtype.replace("_", " ").title() if wtype != "other" else "Other"
             lines.append(f"\n__**{heading}**__")
+            merged: dict[str, dict] = {}
             for l in group:
+                key = f"{l['gun_name']}|{l['gun_level']}|{l['unit_cost']}"
+                if key not in merged:
+                    merged[key] = {
+                        "gun_name": l["gun_name"],
+                        "gun_level": l["gun_level"],
+                        "unit_cost": l["unit_cost"],
+                        "total_qty": 0,
+                        "lot_ids": [],
+                    }
+                merged[key]["total_qty"] += int(l["qty_available"])
+                merged[key]["lot_ids"].append(f"{l['lot_id']}({l['qty_available']})")
+            for m in merged.values():
+                lot_info = ", ".join(m["lot_ids"])
                 lines.append(
-                    f"`{l['lot_id']}` | {l['gun_name']} | Tier {l['gun_level']} | ${l['unit_cost']} | qty {l['qty_available']}"
+                    f"{m['gun_name']} | Tier {m['gun_level']} | ${m['unit_cost']} | **qty {m['total_qty']}** — lots: `{lot_info}`"
                 )
         await ctx.send("\n".join(lines))
 
@@ -1165,9 +1179,23 @@ class WholesalerCog(commands.Cog):
                 continue
             heading = wtype.replace("_", " ").title() if wtype != "other" else "Other"
             lines.append(f"\n__**{heading}**__")
+            merged: dict[str, dict] = {}
             for l in group:
+                key = f"{l['gun_name']}|{l['gun_level']}|{l['unit_cost']}"
+                if key not in merged:
+                    merged[key] = {
+                        "gun_name": l["gun_name"],
+                        "gun_level": l["gun_level"],
+                        "unit_cost": l["unit_cost"],
+                        "total_qty": 0,
+                        "lot_ids": [],
+                    }
+                merged[key]["total_qty"] += int(l.get("qty_remaining", 0))
+                merged[key]["lot_ids"].append(f"{l['lot_id']}({l.get('qty_remaining', 0)})")
+            for m in merged.values():
+                lot_info = ", ".join(m["lot_ids"])
                 lines.append(
-                    f"`{l['lot_id']}` | {l['gun_name']} | Tier {l['gun_level']} | cost ${l['unit_cost']} | qty {l['qty_remaining']}"
+                    f"{m['gun_name']} | Tier {m['gun_level']} | cost ${m['unit_cost']} | **qty {m['total_qty']}** — lots: `{lot_info}`"
                 )
         await ctx.send("\n".join(lines))
 
