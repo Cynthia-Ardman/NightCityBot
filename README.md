@@ -184,25 +184,31 @@ Commands:
 ### WholesalerCog
 *File: `NightCityBot/cogs/wholesaler.py`*
 
-Implements the two-tier gun supply chain with scarcity: corporate wholesaler lots are generated from the Master Gun List sheet, store owners buy those lots, then sell to players using UnbelievaBoat balance transfers. Wholesaler state, transaction logs, sheet cache, wholesale lots, and per-store inventories are persisted under `NightCityBot/data/wholesaler/` so stock survives restarts. The wholesaler auto-refreshes weekly right after cyberware processing, and all sales produce immutable receipts in the wholesaler audit channel for manual staff spreadsheet updates.
+Implements a two-tier gun supply chain with scarcity: corporate wholesaler lots are generated from the Master Gun List spreadsheet, store owners purchase those lots, then sell to players using UnbelievaBoat balance transfers. Wholesaler state, transaction logs, sheet cache, wholesale lots, and per-store inventories are persisted under `data/wholesaler/` so stock survives restarts. The wholesaler auto-refreshes weekly right after cyberware processing, and all sales produce immutable receipts in the wholesaler audit channel for manual staff spreadsheet updates.
+
+Lots are grouped by weapon type (Pistol, Revolver, Shotgun, Submachine Gun, Assault Rifle, etc.) based on section headers in the source spreadsheet. During restock, duplicate guns with the same name, level, cost and type are automatically consolidated into a single lot with combined quantity.
 
 Main commands (separated by role):
 
 **Gun Store Owner Commands**
-* `!wh_list` – list available wholesaler lots.
+* `!wh_list` – list available wholesaler lots grouped by weapon type.
 * `!wh_buy <lot_id> <qty>` – buy stock from wholesaler into your store inventory (deducts owner funds).
-* `!store_inv` – view your own store inventory.
+* `!store_inv [shop_name]` – view your own store inventory, or an admin can look up any shop by alias.
 * `!wh_sell @buyer "character_name" <lot_id> <qty> <price>` – process player sale (deduct buyer, credit seller, decrement inventory, post receipt). `!sell` also works as an alias.
+* `!wh_shops` – list all configured shop aliases and their owners.
 
 **Wholesaler / Admin Commands**
-* `!store_inv [shop_name]` – admin lookup for mapped shops by alias (`shop1`, `shop2`, etc.).
-* `!wh_setshop <shop_name> @owner` / `!wh_shops` – manage shop alias mapping to specific Discord users.
+* `!wh_setshop <shop_name> @owner` – bind a shop alias to a Discord user.
 * `!wh_setsheet <xlsx_export_url|off>` – set/clear a runtime Google Sheets source URL without restarting the bot (regular share links are auto-converted to XLSX export).
-* `!wh_restock [seed]` – regenerate weekly wholesaler lots from sheet data with L/M/H weighted scarcity.
+* `!wh_restock [seed]` – regenerate weekly wholesaler lots from sheet data with L/M/H weighted scarcity and per-weapon-type mix settings.
 * `!wh_clear_inventory` – clear all current wholesaler lots without modifying store inventories.
-* `!wh_restock_settings [key] [value]` – view/tune refresh settings (total lots, lots per level, qty ranges).
+* `!wh_restock_settings [key] [value]` – view/tune refresh settings (total lots, lots per level, qty ranges, and per-weapon-type lot counts).
 * `!wh_recheck` – compare current wholesaler lot level/cost data against the current source sheet and report mismatches.
-* `!wh_add`, `!store_add`, `!wh_tx`, `!wh_retry_payout` – admin adjustment, transaction lookup, and payout recovery tools.
+* `!wh_add <gun_name> <L|M|H> <unit_cost> <qty>` – manually add a lot to the wholesaler.
+* `!store_add @owner <gun_name> <L|M|H> <unit_cost> <qty>` – manually add a lot directly to a store.
+* `!wh_tx <tx_id>` – look up raw transaction data by ID.
+* `!wh_retry_payout <tx_id>` – retry a failed seller payout from a previous sale where the buyer was charged but the seller credit failed.
+* `!wh_paths` – display the file system paths where wholesaler data is stored.
 
 ### SystemControl
 *File: `NightCityBot/cogs/system_control.py`*
@@ -267,16 +273,29 @@ These files are loaded on startup via `utils.helpers.load_json_file`.
 
 ## Testing
 
-A comprehensive suite of automated tests lives in `NightCityBot/tests`.  They can be executed with:
+A comprehensive suite of automated tests lives in `NightCityBot/tests`. They can be executed with:
 
 ```bash
 pytest
 ```
 
-For release-readiness checks of the economy + wholesaler loop (simulated over multiple weeks with buy/sell and UnbelievaBoat balance transfers), run:
+Key test files:
+
+* `test_wholesaler_full.py` – **64 tests** covering the entire wholesaler system end-to-end: spreadsheet parsing with weapon type assignment, restock lot consolidation, state save/load roundtrips, wholesale buying (success, insufficient funds, invalid lot, zero qty, exceeding stock), player sales (success, buyer/seller failures, pending payouts), permission enforcement for all roles, shop registry management, admin stock commands (`wh_add`, `store_add`, `wh_clear_inventory`), transaction logging, full lifecycle flows (restock → buy → sell), multi-store independence, display grouping by weapon type, restock settings, and edge cases for URL normalization and utility functions.
+* `test_wholesaler_parsing.py` – **35 tests** for parsing logic, restock math, state migration, and file persistence.
+* `test_wholesaler_commands.py` – smoke tests verifying all wholesaler commands are registered.
+* `test_release_readiness_simulation.py` – simulated multi-week economy + wholesaler cycles with buy/sell and UnbelievaBoat balance transfers.
+
+For release-readiness checks only:
 
 ```bash
 pytest -q NightCityBot/tests/test_release_readiness_simulation.py
+```
+
+For the full wholesaler system test suite:
+
+```bash
+pytest -v NightCityBot/tests/test_wholesaler_full.py
 ```
 
 Alternatively, run `!test_bot` inside Discord to perform many of the same checks without leaving the chat.
