@@ -551,6 +551,7 @@ def test_ensure_inventory_files_exist_bootstraps_missing_files(tmp_path: Path):
     cog.store_state_file = tmp_path / "stores.json"
     cog.wholesale_inventory_file = tmp_path / "inventory" / "wholesale.json"
     cog.store_inventory_dir = tmp_path / "inventory" / "stores"
+    cog.tx_file = tmp_path / "transactions.json"
     cog.lock = asyncio.Lock()
     cog.DEFAULT_RESTOCK_SETTINGS = WholesalerCog.DEFAULT_RESTOCK_SETTINGS
 
@@ -562,6 +563,7 @@ def test_ensure_inventory_files_exist_bootstraps_missing_files(tmp_path: Path):
     assert cog.state_file.exists()
     assert cog.store_state_file.exists()
     assert cog.wholesale_inventory_file.exists()
+    assert cog.tx_file.exists()
 
 
 def test_load_state_prefers_new_inventory_files(tmp_path: Path):
