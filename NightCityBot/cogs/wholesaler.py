@@ -532,7 +532,7 @@ class WholesalerCog(commands.Cog):
             if price_new is None or price_new <= 0:
                 continue
 
-            weapon_type = self._derive_weapon_type(gun_name, effectiveness_raw) or current_section_type
+            weapon_type = WholesalerCog._derive_weapon_type(gun_name, effectiveness_raw) or current_section_type
 
             mag_raw = row[mag_idx] if mag_idx < len(row) else None
             mag_size = WholesalerCog._to_int(mag_raw)
