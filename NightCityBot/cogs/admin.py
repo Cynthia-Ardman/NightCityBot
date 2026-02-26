@@ -94,7 +94,7 @@ class Admin(commands.Cog):
         """Display help for regular users."""
         embed = discord.Embed(
             title="📘 NCRP Bot — Player Help",
-            description="Basic commands for RP, rent, and rolling dice. Use `!helpfixer` if you're a Fixer.",
+            description="Basic commands for RP, rent, and rolling dice. Use `!helpfixer` if you're a Fixer, or `!helpbusiness` if you run a gun store.",
             color=discord.Color.teal(),
         )
 
@@ -148,7 +148,8 @@ class Admin(commands.Cog):
                 "`!wh_list` – view current wholesaler lots.\n"
                 "`!store_inv` – view your store inventory.\n"
                 "`!wh_buy <lot_id> <qty>` – store owners buy lots from corp wholesaler.\n"
-                "`!wh_sell @buyer \"character_name\" <lot_id> <qty> <price>` – complete a gun sale with a receipt posted to audit."
+                '`!wh_sell @buyer "character_name" <lot_id> <qty> <price>` – complete a gun sale with a receipt posted to audit.\n\n'
+                "Run `!helpbusiness` for a full step-by-step guide."
             ),
             inline=False,
         )
@@ -330,6 +331,86 @@ class Admin(commands.Cog):
 
         for e in embeds:
             await ctx.send(embed=e)
+
+    @commands.command(name="helpbusiness", aliases=["helpshop", "helpstore"])
+    async def helpbusiness(self, ctx):
+        """Display help for gun store business owners."""
+        embed = discord.Embed(
+            title="🔫 NCRP Bot — Gun Store Owner Help",
+            description=(
+                "Everything you need to run your gun store. "
+                "You buy stock from the corporate wholesaler, then sell to players at your own markup."
+            ),
+            color=discord.Color.orange(),
+        )
+
+        embed.add_field(
+            name="📋 Step 1 — Check Wholesaler Stock",
+            value=(
+                "`!wh_list` — see what the wholesaler currently has available.\n"
+                "Lots are grouped by weapon type (Pistol, Revolver, Shotgun, etc.).\n"
+                "Each lot shows: **Lot ID**, gun name, tier (L/M/H), cost per unit, and quantity."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🛒 Step 2 — Buy Stock for Your Store",
+            value=(
+                "`!wh_buy <lot_id> <qty>`\n"
+                "Example: `!wh_buy lot-a3f2 5` — buys 5 units from that lot.\n\n"
+                "The total cost (unit price x qty) is deducted from your balance.\n"
+                "The guns move into your store inventory automatically."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="📦 Step 3 — Check Your Store Inventory",
+            value=(
+                "`!store_inv` — view what you currently have in stock.\n"
+                "Each item shows a **Lot ID** you'll use when selling to players."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="💰 Step 4 — Sell to a Player",
+            value=(
+                '`!wh_sell @buyer "character_name" <lot_id> <qty> <price>`\n'
+                'Example: `!wh_sell @Johnny "V" lot-a3f2 1 2500`\n\n'
+                "This will:\n"
+                "1. Deduct the price from the buyer's balance\n"
+                "2. Credit the price to your balance\n"
+                "3. Remove the item(s) from your inventory\n"
+                "4. Post an audit receipt for staff records\n\n"
+                "You can also use `!sell` as a shortcut."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🏪 Other Useful Commands",
+            value=(
+                "`!wh_shops` — see all registered shop aliases and owners.\n"
+                "`!wh_list` — refresh the wholesaler stock list (new stock arrives weekly)."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="⚠️ Good to Know",
+            value=(
+                "- Wholesaler stock refreshes **weekly** — buy what you need before it's gone.\n"
+                "- You set your own sale prices — the wholesaler cost is your floor.\n"
+                "- If a sale's payout to you fails, staff can retry it with `!wh_retry_payout`.\n"
+                "- Your store inventory is separate from the wholesaler — clearing wholesaler stock won't touch your shelves."
+            ),
+            inline=False,
+        )
+
+        embed.set_footer(text="Buy low, sell high, stay strapped. | Use !helpme for general help.")
+        await ctx.send(embed=embed)
 
     @commands.command(name="shutdown_bot", aliases=["shutdownbot", "forceshutdown"])
     @commands.has_permissions(administrator=True)
