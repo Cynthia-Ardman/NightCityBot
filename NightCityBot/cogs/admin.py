@@ -161,7 +161,8 @@ class Admin(commands.Cog):
                 "`!search_characters <keyword> [-depth N]` – search thread titles, tags and posts with fuzzy matching (Fixers only).\n"
                 "`!retire` – move threads tagged 'Retired' to the archive (Fixers only).\n"
                 "`!move_npcs` – move threads tagged 'NPC' to the NPC forum (Fixers only).\n"
-                "`!unretire <thread_id>` – move a retired thread back (Fixers only)."
+                "`!unretire <thread_id>` – move a retired thread back (Fixers only).\n"
+                "`!export_threads #channel` – export all threads from a channel into a downloadable HTML file (Fixers only)."
             ),
             inline=False,
         )
@@ -195,6 +196,7 @@ class Admin(commands.Cog):
                 "\n".join([
                     "`!start_rp @users...` (aliases: !startrp, !rp_start, !rpstart) – create a locked RP channel for the listed users and ping Fixers.",
                     "`!end_rp` (aliases: !endrp, !rp_end, !rpend) – archive the current RP channel to the log forum and then delete it.",
+                    "`!export_threads #channel` – export all threads from a channel into a downloadable HTML file.",
                 ]),
             ),
             (
@@ -555,6 +557,239 @@ class Admin(commands.Cog):
             await self.log_audit(
                 ctx.author, f"⚠️ Error: {ctx.message.content} → {str(error)}"
             )
+
+    @commands.command(name="export_threads", aliases=["exportthreads"])
+    @is_fixer()
+    async def export_threads(self, ctx: commands.Context, channel_input: str):
+        """Export all threads from a channel into an HTML file.
+
+        Usage: ``!export_threads #channel`` or ``!export_threads <channel_id>``
+        """
+        channel_id = None
+        import re as _re
+        match = _re.match(r"<#(\d+)>", channel_input)
+        if match:
+            channel_id = int(match.group(1))
+        elif channel_input.isdigit():
+            channel_id = int(channel_input)
+
+        if not channel_id:
+            await ctx.send("❌ Provide a channel mention or ID. Example: `!export_threads #general`")
+            return
+
+        channel = ctx.guild.get_channel(channel_id)
+        if not channel:
+            await ctx.send("❌ Channel not found in this server.")
+            return
+
+        is_forum = isinstance(channel, discord.ForumChannel)
+        is_text = isinstance(channel, discord.TextChannel)
+        if not is_forum and not is_text:
+            await ctx.send("❌ That channel type doesn't support threads.")
+            return
+
+        status_msg = await ctx.send(f"⏳ Exporting threads from **{channel.name}**… this may take a while.")
+
+        threads = []
+        if is_forum:
+            for t in channel.threads:
+                threads.append(t)
+            async for t in channel.archived_threads(limit=None):
+                if t not in threads:
+                    threads.append(t)
+        else:
+            for t in channel.threads:
+                threads.append(t)
+            async for t in channel.archived_threads(limit=None):
+                if t not in threads:
+                    threads.append(t)
+
+        if not threads:
+            await status_msg.edit(content=f"ℹ️ No threads found in **{channel.name}**.")
+            return
+
+        await status_msg.edit(content=f"⏳ Found {len(threads)} thread(s). Reading messages…")
+
+        thread_data = []
+        for i, thread in enumerate(threads, 1):
+            if i % 10 == 0:
+                try:
+                    await status_msg.edit(content=f"⏳ Processing thread {i}/{len(threads)}…")
+                except Exception:
+                    pass
+
+            messages = []
+            try:
+                async for msg in thread.history(limit=None, oldest_first=True):
+                    attachments = []
+                    for a in msg.attachments:
+                        attachments.append({"name": a.filename, "url": a.url})
+                    embeds_list = []
+                    for emb in msg.embeds:
+                        embeds_list.append({
+                            "title": emb.title or "",
+                            "description": emb.description or "",
+                        })
+                    messages.append({
+                        "author": getattr(msg.author, "display_name", str(msg.author)),
+                        "author_id": msg.author.id,
+                        "content": msg.content or "",
+                        "timestamp": msg.created_at.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                        "attachments": attachments,
+                        "embeds": embeds_list,
+                    })
+            except discord.Forbidden:
+                messages.append({
+                    "author": "System",
+                    "author_id": 0,
+                    "content": "[Could not read thread — missing permissions]",
+                    "timestamp": "",
+                    "attachments": [],
+                    "embeds": [],
+                })
+
+            tags = []
+            if hasattr(thread, "applied_tags"):
+                tags = [t.name for t in thread.applied_tags]
+
+            thread_data.append({
+                "name": thread.name,
+                "id": thread.id,
+                "tags": tags,
+                "message_count": len(messages),
+                "messages": messages,
+                "archived": thread.archived,
+                "created_at": thread.created_at.strftime("%Y-%m-%d %H:%M:%S UTC") if thread.created_at else "",
+            })
+
+        html = self._build_export_html(channel.name, thread_data)
+
+        import io as _io
+        buf = _io.BytesIO(html.encode("utf-8"))
+        filename = f"{channel.name}_threads_export.html"
+        file = discord.File(buf, filename=filename)
+
+        await status_msg.edit(content=f"✅ Exported {len(threads)} thread(s) from **{channel.name}**.")
+        await ctx.send(file=file)
+
+    @staticmethod
+    def _build_export_html(channel_name: str, threads: list) -> str:
+        from html import escape
+        parts = [
+            "<!DOCTYPE html>",
+            "<html lang='en'>",
+            "<head>",
+            "<meta charset='UTF-8'>",
+            f"<title>Threads — #{escape(channel_name)}</title>",
+            "<style>",
+            "  * { box-sizing: border-box; margin: 0; padding: 0; }",
+            "  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;",
+            "         background: #1a1a2e; color: #e0e0e0; padding: 20px; line-height: 1.5; }",
+            "  h1 { color: #00d4ff; margin-bottom: 10px; font-size: 1.8em; }",
+            "  .summary { color: #888; margin-bottom: 30px; }",
+            "  .thread { background: #16213e; border: 1px solid #0f3460; border-radius: 8px;",
+            "            margin-bottom: 20px; overflow: hidden; }",
+            "  .thread-header { background: #0f3460; padding: 12px 16px; cursor: pointer;",
+            "                   display: flex; justify-content: space-between; align-items: center; }",
+            "  .thread-header:hover { background: #1a4080; }",
+            "  .thread-title { font-weight: bold; color: #00d4ff; font-size: 1.1em; }",
+            "  .thread-meta { font-size: 0.85em; color: #888; }",
+            "  .tag { display: inline-block; background: #533483; color: #e0e0e0; padding: 2px 8px;",
+            "         border-radius: 4px; font-size: 0.75em; margin-left: 6px; }",
+            "  .thread-body { display: none; padding: 0; }",
+            "  .thread.open .thread-body { display: block; }",
+            "  .message { padding: 10px 16px; border-bottom: 1px solid #0f3460; }",
+            "  .message:last-child { border-bottom: none; }",
+            "  .msg-header { display: flex; gap: 10px; align-items: baseline; margin-bottom: 4px; }",
+            "  .msg-author { font-weight: bold; color: #e94560; }",
+            "  .msg-time { font-size: 0.8em; color: #666; }",
+            "  .msg-content { white-space: pre-wrap; word-wrap: break-word; }",
+            "  .attachment { margin-top: 6px; }",
+            "  .attachment a { color: #00d4ff; text-decoration: none; }",
+            "  .attachment a:hover { text-decoration: underline; }",
+            "  .embed-block { margin-top: 6px; border-left: 3px solid #533483; padding: 6px 10px;",
+            "                 background: #1a1a3e; border-radius: 4px; }",
+            "  .embed-title { font-weight: bold; color: #00d4ff; }",
+            "  .archived-badge { background: #e94560; color: #fff; padding: 2px 8px;",
+            "                    border-radius: 4px; font-size: 0.75em; }",
+            "  .toc { background: #16213e; border: 1px solid #0f3460; border-radius: 8px;",
+            "         padding: 16px; margin-bottom: 30px; }",
+            "  .toc h2 { color: #00d4ff; margin-bottom: 10px; }",
+            "  .toc a { color: #e0e0e0; text-decoration: none; display: block; padding: 3px 0; }",
+            "  .toc a:hover { color: #00d4ff; }",
+            "  .search-box { width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #0f3460;",
+            "                border-radius: 6px; background: #16213e; color: #e0e0e0; font-size: 1em; }",
+            "  .search-box::placeholder { color: #666; }",
+            "  .hidden { display: none !important; }",
+            "</style>",
+            "</head>",
+            "<body>",
+            f"<h1>Threads — #{escape(channel_name)}</h1>",
+            f"<p class='summary'>{len(threads)} thread(s), "
+            f"{sum(t['message_count'] for t in threads)} total message(s)</p>",
+            "<input type='text' class='search-box' placeholder='Search threads…' oninput='filterThreads(this.value)'>",
+            "<div class='toc'><h2>Table of Contents</h2>",
+        ]
+
+        for i, t in enumerate(threads):
+            badge = " [archived]" if t["archived"] else ""
+            parts.append(
+                f"  <a href='#thread-{i}' onclick=\"toggleThread('t{i}')\">"
+                f"{escape(t['name'])} ({t['message_count']} msgs){badge}</a>"
+            )
+        parts.append("</div>")
+
+        for i, t in enumerate(threads):
+            tags_html = "".join(f"<span class='tag'>{escape(tag)}</span>" for tag in t["tags"])
+            archived = "<span class='archived-badge'>Archived</span> " if t["archived"] else ""
+            parts.append(f"<div class='thread' id='t{i}' data-name='{escape(t['name']).lower()}'>")
+            parts.append(f"  <div class='thread-header' id='thread-{i}' onclick=\"toggleThread('t{i}')\">")
+            parts.append(f"    <span><span class='thread-title'>{escape(t['name'])}</span>{tags_html}</span>")
+            parts.append(f"    <span class='thread-meta'>{archived}{t['message_count']} messages · {t['created_at']}</span>")
+            parts.append("  </div>")
+            parts.append("  <div class='thread-body'>")
+
+            for msg in t["messages"]:
+                parts.append("    <div class='message'>")
+                parts.append(
+                    f"      <div class='msg-header'>"
+                    f"<span class='msg-author'>{escape(msg['author'])}</span>"
+                    f"<span class='msg-time'>{escape(msg['timestamp'])}</span></div>"
+                )
+                if msg["content"]:
+                    parts.append(f"      <div class='msg-content'>{escape(msg['content'])}</div>")
+                for att in msg["attachments"]:
+                    parts.append(
+                        f"      <div class='attachment'>📎 <a href='{escape(att['url'])}' "
+                        f"target='_blank'>{escape(att['name'])}</a></div>"
+                    )
+                for emb in msg["embeds"]:
+                    parts.append("      <div class='embed-block'>")
+                    if emb["title"]:
+                        parts.append(f"        <div class='embed-title'>{escape(emb['title'])}</div>")
+                    if emb["description"]:
+                        parts.append(f"        <div>{escape(emb['description'])}</div>")
+                    parts.append("      </div>")
+                parts.append("    </div>")
+
+            parts.append("  </div>")
+            parts.append("</div>")
+
+        parts.append("<script>")
+        parts.append("function toggleThread(id) {")
+        parts.append("  document.getElementById(id).classList.toggle('open');")
+        parts.append("}")
+        parts.append("function filterThreads(q) {")
+        parts.append("  q = q.toLowerCase();")
+        parts.append("  document.querySelectorAll('.thread').forEach(el => {")
+        parts.append("    const name = el.dataset.name || '';")
+        parts.append("    const text = el.textContent.toLowerCase();")
+        parts.append("    el.classList.toggle('hidden', q && !text.includes(q));")
+        parts.append("  });")
+        parts.append("}")
+        parts.append("</script>")
+        parts.append("</body></html>")
+        return "\n".join(parts)
 
     async def log_audit(self, user, action_desc):
         """Log an audit entry to the audit channel."""
