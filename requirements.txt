@@ -7,3 +7,4 @@ tzdata
 discord
 python-dotenv
 rapidfuzz
+openpyxl

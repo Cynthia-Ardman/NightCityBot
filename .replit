@@ -1,20 +1,27 @@
 modules = ["python-3.11"]
 
 [workflows]
-runButton = "bot"
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "bot"
 
 [[workflows.workflow]]
 name = "bot"
-mode = "sequential"
-author = 23431825
+author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pip install -r requirements.txt"
+args = "pip install -r requirements.txt && python -m NightCityBot.bot"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python -m NightCityBot.bot"
+[workflows.workflow.metadata]
+outputType = "console"
 
 [[ports]]
 localPort = 5000
@@ -27,6 +34,7 @@ ignorePorts = true
 
 [nix]
 packages = ["lsof"]
+
 
 [agent]
 expertMode = true

@@ -9,6 +9,7 @@ print("✅ discord.ext.commands imported")
 import os
 import signal
 import asyncio
+import fcntl
 
 print("✅ os imported")
 import sys
@@ -73,6 +74,9 @@ print("✅ RoleButtons imported")
 from NightCityBot.cogs.trauma_team import TraumaTeam
 
 print("✅ TraumaTeam imported")
+from NightCityBot.cogs.wholesaler import WholesalerCog
+
+print("✅ WholesalerCog imported")
 
 print("🔍 Importing startup checks...")
 from NightCityBot.utils.startup_checks import perform_startup_checks
@@ -103,6 +107,7 @@ class NightCityBot(commands.Bot):
         intents.dm_messages = True
 
         super().__init__(command_prefix="!", help_command=None, intents=intents)
+        self._shutdown_logged = False
 
     async def setup_hook(self):
         # Load all cogs
@@ -116,6 +121,7 @@ class NightCityBot(commands.Bot):
         await self.add_cog(CharacterManager(self))
         await self.add_cog(RoleButtons(self))
         await self.add_cog(TraumaTeam(self))
+        await self.add_cog(WholesalerCog(self))
         await self.add_cog(Admin(self))
         await self.add_cog(TestSuite(self))
         # Verify configuration and clean up logs after all cogs are loaded
@@ -144,22 +150,98 @@ class NightCityBot(commands.Bot):
         if admin:
             await admin.log_audit(self.user, "✅ Bot started and ready.")
 
+    async def close(self):
+        if not self._shutdown_logged:
+            self._shutdown_logged = True
+            admin = self.get_cog("Admin")
+            if admin and self.user:
+                try:
+                    await admin.log_audit(self.user, "🛑 Bot shutting down.")
+                except Exception:
+                    logger.exception("Failed to log shutdown audit")
+        await super().close()
+
 
 app = Flask("")
 
 
 @app.route("/")
 def home():
-    return "Bot is alive Version 1.2!"
+    return "Bot is alive Version 1.2!", 200
+
+
+@app.route("/healthz")
+def healthz():
+    """Liveness endpoint for container platforms (Cloud Run, Autoscale)."""
+    return "ok", 200
+
+
+@app.route("/readyz")
+def readyz():
+    """Readiness endpoint for container platforms (Cloud Run, Autoscale)."""
+    return "ready", 200
+
+
+def _resolve_keep_alive_port() -> int:
+    raw_port = str(os.getenv("PORT", "5000")).strip()
+    try:
+        return int(raw_port)
+    except ValueError:
+        logger.warning("Invalid PORT value '%s'; falling back to 5000", raw_port)
+        return 5000
 
 
 def run_flask():
-    app.run(host="0.0.0.0", port=5000)
+    log = logging.getLogger("werkzeug")
+    log.setLevel(logging.WARNING)
+    app.run(
+        host="0.0.0.0",
+        port=_resolve_keep_alive_port(),
+        debug=False,
+        use_reloader=False,
+    )
 
 
-def keep_alive():
-    t = Thread(target=run_flask)
+def keep_alive() -> bool:
+    """Start the optional keep-alive HTTP server.
+
+    Keep-alive is enabled by default so container healthchecks to ``/`` pass
+    on hosts that expect an HTTP listener. Set ``DISABLE_KEEP_ALIVE=true`` to
+    disable it explicitly.
+    """
+    disabled = os.getenv("DISABLE_KEEP_ALIVE", "").lower() in {"1", "true", "yes"}
+    if disabled:
+        logger.info("Skipping keep-alive server (DISABLE_KEEP_ALIVE=true)")
+        return False
+
+    t = Thread(target=run_flask, daemon=True)
     t.start()
+    return True
+
+
+_lock_file = None
+
+
+def acquire_instance_lock() -> bool:
+    """Ensure only one bot instance runs at a time using a file lock.
+
+    Returns True if the lock was acquired, False if another instance holds it.
+    """
+    global _lock_file
+    lock_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), ".bot.lock"
+    )
+    try:
+        _lock_file = open(lock_path, "w")
+        fcntl.flock(_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_file.write(str(os.getpid()))
+        _lock_file.flush()
+        return True
+    except (IOError, OSError):
+        logger.error(
+            "Another bot instance is already running. Exiting to avoid duplicates."
+        )
+        return False
 
 
 def register_shutdown(bot: NightCityBot):
@@ -168,12 +250,6 @@ def register_shutdown(bot: NightCityBot):
     async def shutdown():
         print("🛑 Shutdown signal received. Cleaning up...")
         logger.info("Shutdown signal received")
-        admin = bot.get_cog("Admin")
-        if admin:
-            try:
-                await admin.log_audit(bot.user, "🛑 Bot shutting down.")
-            except Exception:
-                logger.exception("Failed to log shutdown audit")
         await bot.close()
         print("✅ Shutdown complete")
         logger.info("Shutdown complete")
@@ -186,14 +262,27 @@ def register_shutdown(bot: NightCityBot):
 
 
 def main():
-    # Add startup logging
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
     print("🚀 Starting NightCityBot initialization...")
     logger.info("Starting NightCityBot...")
 
-    # Check token
+    if not acquire_instance_lock():
+        print("❌ Another bot instance is already running. Exiting.")
+        sys.exit(1)
+    print("✅ Instance lock acquired (no duplicate bot)")
+
+    print("🌐 Evaluating keep-alive server...")
+    try:
+        if keep_alive():
+            print("✅ Keep-alive server started")
+        else:
+            print("ℹ️ Keep-alive server disabled")
+    except Exception as e:
+        print(f"❌ Failed to start keep-alive server: {e}")
+        logger.error(f"❌ Failed to start keep-alive server: {e}")
+
     print(f"🔑 Checking for Discord token...")
     if not config.TOKEN:
         print("❌ No Discord token found! Please set TOKEN in Secrets.")
@@ -203,7 +292,6 @@ def main():
     print("✅ Token found!")
     logger.info("✅ Token found, connecting to Discord...")
 
-    # Initialize bot
     print("🤖 Creating bot instance...")
     try:
         bot = NightCityBot()
@@ -214,16 +302,6 @@ def main():
         logger.error(f"❌ Failed to create bot instance: {e}")
         return
 
-    # Start keep-alive server
-    print("🌐 Starting keep-alive server...")
-    try:
-        keep_alive()
-        print("✅ Keep-alive server started")
-    except Exception as e:
-        print(f"❌ Failed to start keep-alive server: {e}")
-        logger.error(f"❌ Failed to start keep-alive server: {e}")
-
-    # Connect to Discord
     print("🔗 Connecting to Discord...")
     try:
         bot.run(config.TOKEN)

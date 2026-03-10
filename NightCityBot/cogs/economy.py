@@ -77,7 +77,7 @@ class Economy(commands.Cog):
         local_now = now.astimezone(tz)
         days_since_sun = (local_now.weekday() - 6) % 7
         sunday = (local_now - timedelta(days=days_since_sun)).replace(
-            hour=15, minute=0, second=0, microsecond=0
+            hour=14, minute=0, second=0, microsecond=0
         )
         return sunday
 
@@ -293,16 +293,16 @@ class Economy(commands.Cog):
         else:
             if now.weekday() != 6:
                 await ctx.send(
-                    "❌ Attendance is only allowed during Sunday events (3pm to 6pm Pacific)."
+                    "❌ Attendance is only allowed during Sunday events (2pm to 7pm Pacific)."
                 )
                 return
             tz = ZoneInfo(getattr(config, "TIMEZONE", "UTC"))
             local_now = now.astimezone(tz)
             start = self._sunday_event_start(now)
-            end = start + timedelta(hours=3)
+            end = start + timedelta(hours=5)
             if not (start <= local_now <= end):
                 await ctx.send(
-                    "❌ Attendance is only allowed during Sunday events (3pm to 6pm Pacific)."
+                    "❌ Attendance is only allowed during Sunday events (2pm to 7pm Pacific)."
                 )
                 return
             event_start = start

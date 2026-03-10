@@ -35,6 +35,15 @@ TIMEZONE = "America/Los_Angeles"  # or your preferred zone
 
 Configuration is verified automatically when the bot starts.
 
+Wholesaler-specific configuration:
+
+* `WHOLESALER_GOOGLE_SHEET_XLSX_URL` – optional Google Sheets export URL (XLSX). When set, the bot downloads fresh stock source data directly from the sheet before restocks/rechecks.
+* `WHOLESALER_XLSX_PATH` – local fallback XLSX path if Google export URL is not set.
+* `WHOLESALER_MASTER_SHEET_NAME` – source tab name (default `Master Gun List`).
+* `WHOLESALER_AUDIT_CHANNEL_ID` – channel where immutable sales receipts and payout alerts are posted.
+* `WHOLESALER_ADMIN_ROLE_IDS` / `WHOLESALER_STORE_ROLE_IDS` – comma-separated role IDs for command permissions.
+
+
 ## Running the bot
 
 Execute the entry point script:
@@ -44,6 +53,15 @@ python -m NightCityBot.bot
 ```
 
 A small Flask server is also started to keep the bot alive on certain hosting platforms.
+
+### Replit restart behavior (why it comes back after stopping)
+
+If your bot appears to auto-restart on Replit, that is usually platform behavior rather than bot code:
+
+* `.replit` defines a deployment target (`cloudrun`) and run command. Replit Deployments supervise the process and restart it when it exits.
+* The bot also starts a keep-alive HTTP listener by default, which can make the Repl look active whenever external health checks or uptime pings hit `/`.
+
+To disable the internal keep-alive listener for manual/dev runs, set `DISABLE_KEEP_ALIVE=true` in your environment before starting the bot.
 
 ## Cogs
 
@@ -162,10 +180,53 @@ Commands:
 
 * `!call_trauma` – notify the Trauma Team channel with your plan role.
 
+
+### WholesalerCog
+*File: `NightCityBot/cogs/wholesaler.py`*
+
+Implements a two-tier gun supply chain with scarcity: corporate wholesaler lots are generated from the Master Gun List spreadsheet, store owners purchase those lots, then sell to players using UnbelievaBoat balance transfers. Wholesaler state, transaction logs, sheet cache, wholesale lots, and per-store inventories are persisted under `data/wholesaler/` so stock survives restarts. The wholesaler auto-refreshes weekly right after cyberware processing, and all sales produce immutable receipts in the wholesaler audit channel for manual staff spreadsheet updates.
+
+Lots are grouped by weapon type (Pistol, Revolver, Shotgun, Submachine Gun, Assault Rifle, etc.) based on section headers in the source spreadsheet. During restock, duplicate guns with the same name, level, cost and type are automatically consolidated into a single lot with combined quantity.
+
+Each weapon has a restriction level that controls who can purchase it:
+* **basic** (default) – anyone can buy, no special requirements.
+* **controlled** – only buyers on the store owner's controlled-buyer list can purchase.
+* **restricted** – requires being on the controlled-buyer list AND admin approval via audit channel reaction (5-minute timeout).
+
+Restrictions are read from a "Restriction" column in the master spreadsheet (if present). They can also be set manually when adding stock via `!wh_add` or `!store_add`. Restrictions carry over from the wholesaler to store inventories when purchased via `!wh_buy`.
+
+Main commands (separated by role):
+
+**Gun Store Owner Commands**
+* `!wh_list` – list available wholesaler lots grouped by weapon type.
+* `!wh_buy <lot_id> <qty>` – buy stock from wholesaler into your store inventory (deducts owner funds).
+* `!store_inv [shop_name]` – view your own store inventory, or an admin can look up any shop by alias.
+* `!wh_sell @buyer "character_name" <lot_id> <qty> <price>` – process player sale (deduct buyer, credit seller, decrement inventory, post receipt). `!sell` also works as an alias.
+* `!wh_shops` – list all configured shop aliases and their owners.
+
+**Wholesaler / Admin Commands**
+* `!wh_setshop <shop_name> @owner` – bind a shop alias to a Discord user.
+* `!wh_setsheet <xlsx_export_url|off>` – set/clear a runtime Google Sheets source URL without restarting the bot (regular share links are auto-converted to XLSX export).
+* `!wh_restock [seed]` – regenerate weekly wholesaler lots from sheet data with L/M/H weighted scarcity and per-weapon-type mix settings.
+* `!wh_clear_inventory` – clear all current wholesaler lots without modifying store inventories.
+* `!wh_restock_settings [key] [value]` – view/tune refresh settings (total lots, lots per level, qty ranges, and per-weapon-type lot counts).
+* `!wh_recheck` – compare current wholesaler lot level/cost data against the current source sheet and report mismatches.
+* `!wh_gunlist` (aliases: `!wh_guns`, `!wh_masterlist`) – list every gun parsed from the master spreadsheet grouped by weapon type, showing tier and price. Useful for verifying new spreadsheet entries are parsed correctly.
+* `!wh_add <gun_name> <L|M|H> <unit_cost> <qty> [restriction]` – manually add a lot to the wholesaler. Optional restriction: `basic` (default), `controlled`, or `restricted`.
+* `!wh_remove <lot_id> [qty]` – remove a lot from the wholesaler, or reduce its quantity if qty is specified.
+* `!store_add @owner <gun_name> <L|M|H> <unit_cost> <qty> [restriction]` – manually add a lot directly to a store with optional restriction.
+* `!store_remove @owner <lot_id> [qty]` – remove a lot from a store, or reduce its quantity if qty is specified.
+* `!wh_approve @user` – add a user to your store's controlled-buyer list.
+* `!wh_unapprove @user` – remove a user from your store's controlled-buyer list.
+* `!wh_approved` – view your store's controlled-buyer list.
+* `!wh_tx <tx_id>` – look up raw transaction data by ID.
+* `!wh_retry_payout <tx_id>` – retry a failed seller payout from a previous sale where the buyer was charged but the seller credit failed.
+* `!wh_paths` – display the file system paths where wholesaler data is stored.
+
 ### SystemControl
 *File: `NightCityBot/cogs/system_control.py`*
 
-A small cog that allows administrators to enable or disable major subsystems at runtime. States are persisted in `system_status.json`.
+A small cog that allows administrators to enable or disable major subsystems at runtime. States are persisted in `system_status.json`, and the `wholesaler` subsystem defaults to enabled when no prior status exists.
 
 Commands:
 
@@ -178,7 +239,7 @@ Commands:
 Offers helper commands for staff and global error handling.
 
 * `!post <channel> <message>` – send a message or execute a command in another channel or thread. If `<message>` begins with `!`, the command is run as if it were typed in that location.
-* `!helpme`, `!helpfixer` and `!helpadmin` – show the built in help embeds. `!helpme` lists player commands, `!helpfixer` covers fixer tools, and `!helpadmin` documents administrator-only features.
+* `!helpme`, `!helpfixer`, `!helpadmin` and `!helpbusiness` (aliases: `!helpshop`, `!helpstore`) – show the built in help embeds. `!helpme` lists player commands, `!helpfixer` covers fixer tools, `!helpadmin` documents administrator-only features, and `!helpbusiness` walks gun store owners through the buy-and-sell workflow step by step.
 * `!backfill_logs [limit]` – rebuild `attendance_log.json` and `business_open_log.json` by scanning recent messages. Only successful command usages are recorded. The optional limit controls how many messages are parsed (default 1000).
 * All sensitive actions are logged via `log_audit` to the channel defined by `AUDIT_LOG_CHANNEL_ID`.
 
@@ -225,10 +286,38 @@ These files are loaded on startup via `utils.helpers.load_json_file`.
 
 ## Testing
 
-A comprehensive suite of automated tests lives in `NightCityBot/tests`.  They can be executed with:
+A comprehensive suite of automated tests lives in `NightCityBot/tests`. They can be executed with:
 
 ```bash
 pytest
 ```
 
+Key test files:
+
+* `test_wholesaler_full.py` – **83 tests** covering the entire wholesaler system end-to-end: spreadsheet parsing with weapon type assignment, restock lot consolidation, state save/load roundtrips, wholesale buying (success, insufficient funds, invalid lot, zero qty, exceeding stock), player sales (success, buyer/seller failures, pending payouts), permission enforcement for all roles, shop registry management, admin stock commands (`wh_add`, `store_add`, `wh_clear_inventory`), transaction logging, full lifecycle flows (restock → buy → sell), multi-store independence, display grouping by weapon type, restock settings, gun restrictions (basic/controlled/restricted enforcement, restriction carry-over via `wh_buy`, restriction display), controlled-buyer list management (approve, unapprove, view, duplicates, permissions), and edge cases for URL normalization and utility functions.
+* `test_wholesaler_parsing.py` – **35 tests** for parsing logic, restock math, state migration, and file persistence.
+* `test_wholesaler_commands.py` – smoke tests verifying all wholesaler commands are registered.
+* `test_release_readiness_simulation.py` – simulated multi-week economy + wholesaler cycles with buy/sell and UnbelievaBoat balance transfers.
+
+For release-readiness checks only:
+
+```bash
+pytest -q NightCityBot/tests/test_release_readiness_simulation.py
+```
+
+For the full wholesaler system test suite:
+
+```bash
+pytest -v NightCityBot/tests/test_wholesaler_full.py
+```
+
 Alternatively, run `!test_bot` inside Discord to perform many of the same checks without leaving the chat.
+
+
+## Setting up a new gun store owner
+
+1. **Grant store permissions role** to the player (one of `WHOLESALER_STORE_ROLE_IDS`).
+2. **Bind a shop alias** to that owner: `!wh_setshop shop1 @User` (use any alias like `shop2`, `shop3`, etc.).
+3. **Seed inventory** either by wholesaler flow (`!wh_restock` then owner runs `!wh_buy`) or direct admin injection with `!store_add @User <gun> <L|M|H> <unit_cost> <qty>`.
+4. **Verify mapping and stock** with `!wh_shops` and `!store_inv shop1`.
+5. (Optional) **Set/rotate source sheet URL live** with `!wh_setsheet <google_xlsx_export_url>`. Use `!wh_setsheet off` to revert to config values.
