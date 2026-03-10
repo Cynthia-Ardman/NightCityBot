@@ -588,7 +588,17 @@ class Admin(commands.Cog):
             await ctx.send("❌ That channel type doesn't support threads.")
             return
 
-        status_msg = await ctx.send(f"⏳ Exporting threads from **{channel.name}**… this may take a while.")
+        try:
+            status_msg = await ctx.send(f"⏳ Exporting threads from **{channel.name}**… this may take a while.")
+        except Exception:
+            status_msg = None
+
+        async def _update_status(content: str):
+            if status_msg is not None:
+                try:
+                    await status_msg.edit(content=content)
+                except Exception:
+                    pass
 
         threads = []
         if is_forum:
@@ -605,18 +615,17 @@ class Admin(commands.Cog):
                     threads.append(t)
 
         if not threads:
-            await status_msg.edit(content=f"ℹ️ No threads found in **{channel.name}**.")
+            await _update_status(f"ℹ️ No threads found in **{channel.name}**.")
+            if not status_msg:
+                await ctx.send(f"ℹ️ No threads found in **{channel.name}**.")
             return
 
-        await status_msg.edit(content=f"⏳ Found {len(threads)} thread(s). Reading messages…")
+        await _update_status(f"⏳ Found {len(threads)} thread(s). Reading messages…")
 
         thread_data = []
         for i, thread in enumerate(threads, 1):
             if i % 10 == 0:
-                try:
-                    await status_msg.edit(content=f"⏳ Processing thread {i}/{len(threads)}…")
-                except Exception:
-                    pass
+                await _update_status(f"⏳ Processing thread {i}/{len(threads)}…")
 
             messages = []
             try:
@@ -669,7 +678,7 @@ class Admin(commands.Cog):
         filename = f"{channel.name}_threads_export.html"
         file = discord.File(buf, filename=filename)
 
-        await status_msg.edit(content=f"✅ Exported {len(threads)} thread(s) from **{channel.name}**.")
+        await _update_status(f"✅ Exported {len(threads)} thread(s) from **{channel.name}**.")
         await ctx.send(file=file)
 
     @staticmethod
