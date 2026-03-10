@@ -1,6 +1,6 @@
 from typing import List
 import discord
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import config
 from NightCityBot.utils.constants import ROLE_COSTS_BUSINESS, ROLE_COSTS_HOUSING
 
@@ -9,9 +9,15 @@ async def run(suite, ctx) -> List[str]:
     """Test rent logging functionality."""
     logs = []
     try:
-        user = await suite.get_test_user(ctx)
-        approved = discord.Object(id=config.APPROVED_ROLE_ID)
+        real_user = await suite.get_test_user(ctx)
+        approved = MagicMock(spec=discord.Role)
+        approved.name = "Approved Character"
+        approved.id = config.APPROVED_ROLE_ID
+        user = MagicMock(spec=discord.Member)
+        user.id = real_user.id
+        user.display_name = real_user.display_name
         user.roles = [approved]
+        user.guild = ctx.guild
         rent_log_channel = ctx.guild.get_channel(config.RENT_LOG_CHANNEL_ID)
         eviction_channel = ctx.guild.get_channel(config.EVICTION_CHANNEL_ID)
 

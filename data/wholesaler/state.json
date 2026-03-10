@@ -1,0 +1,27 @@
+{
+  "wholesale_lots": [],
+  "transactions": 0,
+  "pending_payouts": [],
+  "settings": {
+    "restock": {
+      "total_lots": 20,
+      "lots_L": 14,
+      "lots_M": 5,
+      "lots_H": 1,
+      "qty_min_L": 3,
+      "qty_max_L": 10,
+      "qty_min_M": 1,
+      "qty_max_M": 5,
+      "qty_min_H": 1,
+      "qty_max_H": 2
+    }
+  },
+  "stores": {
+    "1320924574761746473-286338318076084226": {
+      "owner_id": null,
+      "lots": [],
+      "controlled_buyers": []
+    }
+  },
+  "shop_registry": {}
+}

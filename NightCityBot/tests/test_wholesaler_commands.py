@@ -1,9 +1,12 @@
-async def run(suite, logs, verbose=False):
+from typing import List
+
+async def run(suite, ctx) -> List[str]:
     """Smoke-check that WholesalerCog is loaded and key commands are registered."""
+    logs: List[str] = []
     cog = suite.bot.get_cog("WholesalerCog")
     if not cog:
         logs.append("❌ WholesalerCog is not loaded")
-        return
+        return logs
 
     required = {
         "wh_list",
@@ -25,3 +28,4 @@ async def run(suite, logs, verbose=False):
         logs.append(f"❌ Missing wholesaler commands: {', '.join(missing)}")
     else:
         logs.append("✅ Wholesaler commands are registered")
+    return logs

@@ -6,11 +6,15 @@ import config
 async def run(suite, ctx) -> List[str]:
     """Ensure collect_rent backs up member balances."""
     logs = []
-    user = await suite.get_test_user(ctx)
+    real_user = await suite.get_test_user(ctx)
     approved = MagicMock(spec=discord.Role)
     approved.name = 'Approved Character'
     approved.id = config.APPROVED_ROLE_ID
+    user = MagicMock(spec=discord.Member)
+    user.id = real_user.id
+    user.display_name = real_user.display_name
     user.roles = [approved]
+    user.guild = ctx.guild
     economy = suite.bot.get_cog('Economy')
     ctx.send = AsyncMock()
     with (

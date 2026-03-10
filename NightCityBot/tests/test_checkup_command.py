@@ -14,23 +14,31 @@ async def run(suite, ctx) -> List[str]:
     if not cyber:
         logs.append("❌ CyberwareManager cog not loaded")
         return logs
+
+    checkup_role = MagicMock(spec=discord.Role)
+    checkup_role.id = config.CYBER_CHECKUP_ROLE_ID
+    checkup_role.name = "Cyberware Checkup"
+
     member = MagicMock(spec=discord.Member)
+    member.id = 99999
     member.display_name = "TestUser"
-    member.roles = [discord.Object(id=config.CYBER_CHECKUP_ROLE_ID)]
+    member.roles = [checkup_role]
     member.remove_roles = AsyncMock()
+
     log_channel = MagicMock()
     log_channel.send = AsyncMock()
+    ctx.send = AsyncMock()
+
     with (
-        patch("discord.Guild.get_role", return_value=discord.Object(id=config.CYBER_CHECKUP_ROLE_ID)),
-        patch("discord.Guild.get_channel", return_value=log_channel),
+        patch.object(ctx.guild, "get_role", return_value=checkup_role),
+        patch.object(ctx.guild, "get_channel", return_value=log_channel),
         patch("NightCityBot.cogs.cyberware.save_json_file", new=AsyncMock()),
     ):
         await cyber.checkup.callback(cyber, ctx, member)
     suite.assert_send(logs, member.remove_roles, "remove_roles")
     suite.assert_send(logs, log_channel.send, "log_channel.send")
-    from datetime import date
-    expected = date.today().isoformat()
-    if cyber.data.get(str(member.id)) == expected:
+    entry = cyber.data.get(str(member.id))
+    if isinstance(entry, dict) and entry.get("weeks") == 0:
         logs.append("✅ checkup streak reset")
     else:
         logs.append("❌ checkup streak not reset")

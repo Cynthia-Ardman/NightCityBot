@@ -1,0 +1,267 @@
+test_dm_roll_relay — Relays a roll to a user's DM forum thread using `!dm`.
+✅ dm.send was called
+✅ loggable_roll was called
+────────────
+test_roll_direct_dm — User runs `!roll` in a DM. Verifies result is DM'd and logged to DM thread.
+✅ loggable_roll was called
+────────────
+test_post_executes_command — Sends a `!roll` command into a channel using `!post`.
+✅ !post executed and command sent in reused RP channel
+────────────
+test_post_roll_execution — Executes a roll via !post and checks result inside RP channel.
+✅ !post <thread> !roll d20+1 executed in reused RP channel
+────────────
+test_rolls — Runs `!roll` with valid and invalid input and checks result.
+→ Expected: Valid roll should return a total, invalid roll should return a format error.
+→ Result (Valid): ✅ Roll succeeded and result sent.
+→ Result (Invalid): ✅ Error message shown for invalid format.
+────────────
+test_bonus_rolls — Ensures Netrunner roles do not grant bonus rolls.
+→ Expected: Roll result should not include 'Netrunner bonus' in output.
+→ Result: ✅ No bonus text in roll output.
+────────────
+test_full_rent_commands — Executes rent collection on a live user and verifies balance updates.
+❌ Exception in test_full_rent_commands: property 'roles' of 'Member' object has no setter
+────────────
+test_passive_income_logic — Applies passive income based on recent shop opens.
+✅ Business Tier 0 with 0 opens → $0
+✅ Business Tier 0 with 1 opens → $150
+✅ Business Tier 0 with 2 opens → $250
+✅ Business Tier 0 with 3 opens → $350
+✅ Business Tier 0 with 4 opens → $500
+✅ Business Tier 1 with 0 opens → $0
+✅ Business Tier 1 with 1 opens → $500
+✅ Business Tier 1 with 2 opens → $800
+✅ Business Tier 1 with 3 opens → $1200
+✅ Business Tier 1 with 4 opens → $1600
+✅ Business Tier 2 with 0 opens → $0
+✅ Business Tier 2 with 1 opens → $750
+✅ Business Tier 2 with 2 opens → $1200
+✅ Business Tier 2 with 3 opens → $1800
+Dyno
+APP
+ — 1:40 PM
+
+medusa_cascade
+Message sent by @Medusa (Shadow the Edgehog) Deleted in ⁠attendance
+!add-money @IssacHatter 250
+Author: 286338318076084226 | Message ID: 1481029002008199433•Today at 1:40 PM
+
+medusa_cascade
+Message sent by @Medusa (Shadow the Edgehog) Deleted in ⁠attendance
+!add-money @Valin 250
+Author: 286338318076084226 | Message ID: 1481029019121225920•Today at 1:40 PM
+NightCityBot
+APP
+ — 1:40 PM
+✅ Business Tier 2 with 4 opens → $2400✅ Business Tier 3 with 0 opens → $0
+✅ Business Tier 3 with 1 opens → $1250
+✅ Business Tier 3 with 2 opens → $2000
+✅ Business Tier 3 with 3 opens → $3000
+✅ Business Tier 3 with 4 opens → $4000
+────────────
+test_trauma_payment — Attempts to log a trauma plan subscription in the correct DM thread.
+❌ Exception in test_trauma_payment: property 'roles' of 'Member' object has no setter
+────────────
+test_rent_logging_sends — Verifies that rent events are logged in #rent and #eviction-notices.
+❌ Exception in test_rent_logging_sends: property 'roles' of 'Member' object has no setter
+────────────
+test_open_shop_command — Runs !open_shop in the correct channel.
+→ Expected: !open_shop should succeed when run inside the business channel.
+✅ ctx.send was called
+→ Result: ✅ !open_shop executed in correct channel
+────────────
+test_dm_thread_reuse — Ensures DM logging reuses existing threads.
+✅ DM thread reused correctly
+✅ get_or_create_dm_thread was called
+────────────
+test_open_shop_errors — Checks open_shop failures for bad context.
+✅ ctx.send was called
+✅ open_shop rejected outside business channel
+✅ open_shop rejected without business role
+✅ open_shop rejected on non-Sunday
+────────────
+test_start_end_rp — Creates and ends an RP session to verify logging.
+✅ start_rp created channel
+✅ end_rp_session was called
+────────────
+test_unknown_command — Ensures unknown commands don't spam the audit log.
+✅ Unknown command handled without audit log
+────────────
+test_ignore_unbelievaboat — Ignores UnbelievaBoat economy commands.
+✅ UnbelievaBoat command ignored
+────────────
+test_open_shop_daily_limit — Ensures !open_shop can't run twice on the same Sunday.
+❌ open_shop did not enforce daily limit
+────────────
+test_attend_command — Runs !attend and verifies weekly/Sunday restrictions.
+✅ attend rejected in wrong channel
+✅ attend rejected on non-Sunday
+📝 Audit Log
+User
+medusa_cascade (286338318076084226)
+Action
+🗑️ Deleted message in ⁠attendance: !add-money @IssacHatter 250
+📝 Audit Log
+User
+medusa_cascade (286338318076084226)
+Action
+🗑️ Deleted message in ⁠attendance: !add-money @Valin 250
+❌ attend did not enforce event limit❌ attend did not succeed after cooldown
+────────────
+test_cyberware_costs — Ensures cyberware medication costs scale and cap correctly.
+✅ Cyberware costs escalate and cap correctly
+────────────
+test_loa_commands — Runs start_loa and end_loa commands.
+✅ add_roles was called
+✅ remove_roles was called
+────────────
+test_checkup_command — Runs the ripperdoc !checkup command.
+✅ remove_roles was called
+✅ log_channel.send was called
+❌ checkup streak not reset
+────────────
+test_help_commands — Executes !helpme, !helpfixer and !helpadmin.
+✅ help commands executed
+────────────
+test_post_dm_channel — Runs !post from a DM thread.
+✅ dest.send was called
+────────────
+test_post_roll_as_user — Executes a roll as another user via !post.
+✅ bot.invoke was called
+────────────
+test_dm_plain — Sends a normal anonymous DM using !dm.
+✅ user.send was called
+────────────
+test_dm_roll_command — Relays a roll through !dm.
+✅ dm.send was called
+✅ loggable_roll was called
+────────────
+test_dm_userid — Ensures !dm works with a raw user ID.
+✅ user.send was called
+────────────
+test_dm_thread_autolink — Links DM threads from their name when missing.
+❌ Exception in `test_dm_thread_autolink`: 'Member' object attribute 'send' is read-only
+────────────
+test_dm_unknown_user — Handles missing user ID when relaying from DM thread.
+✅ Unknown user handled gracefully
+────────────
+test_start_rp_multi — Starts RP with two users and ends it.
+✅ start_rp handled users
+🔍 end_rp called in multi
+✅ end_rp_session was called
+────────────
+test_cyberware_weekly — Simulates the weekly cyberware task.
+❌ add_roles was not called
+❌ log_channel.send was not called
+────────────
+test_cyberware_streak — Ensures missed weeks increment streak correctly.
+❌ streak incorrect: 1
+────────────
+test_loa_fixer_other — Fixer starts and ends LOA for another user.
+✅ add_roles was called
+✅ remove_roles was called────────────
+test_loa_id_check — Handles LOA with distinct role instances sharing an ID.
+✅ add_roles was called
+✅ remove_roles was called
+────────────
+test_roll_as_user — Rolls on behalf of another user.
+✅ roll executed for mentioned user
+✅ roll executed for ID user
+────────────
+test_message_cleanup — Ensures !dm and !post delete their commands.
+✅ !dm deleted command message
+✅ !post deleted command message
+────────────
+test_balance_backup — Ensures collect_rent backs up balances before processing.
+❌ Exception in `test_balance_backup`: property 'roles' of 'Member' object has no setter
+────────────
+test_backup_balance_command — Runs !backup_balance for a single user.
+✅ backup_balances was called
+✅ balance saved
+────────────
+test_backup_balances_command — Runs !backup_balances and saves a snapshot.
+✅ backup_balances was called
+✅ balances saved
+────────────
+test_backup_sheets_command — Runs !backup_sheets to archive character threads.
+✅ send was called
+✅ sheet saved
+✅ attachment saved
+────────────
+test_restore_balance_command — Restores a single user's balance from backup.
+✅ update_balance was called
+────────────
+test_restore_balance_latest — Restores the latest entry from a user's backup log.
+✅ update_balance was called
+────────────
+test_restore_balance_label — Restores a user's balance using a label.
+✅ update_balance was called
+────────────
+test_restore_balances_label — Restores all users' balances using a label.
+✅ update_balance was called
+❌ expected 2 updates got 1
+────────────
+test_test_bot_dm — Runs test_bot in silent mode and checks DM output.
+✅ test_bot DM summary sent
+────────────
+test_open_shop_concurrency — Runs open_shop concurrently to ensure locking.
+❌ concurrency issue in open_shop
+────────────
+test_npc_button — Assign NPC role via button.
+✅ ctx.send was called
+✅ add_roles was called
+✅ send_message was called
+────────────
+test_call_trauma — Pings Trauma Team with the user's plan.❌ Exception in `test_call_trauma`: property 'roles' of 'Member' object has no setter
+────────────
+test_list_deficits — Reports members with insufficient funds.
+❌ Exception in `test_list_deficits`: 'Object' object has no attribute 'name'
+────────────
+test_simulate_rent_cyberware — Runs simulate_rent with the -cyberware flag.
+❌ cyberware cost missing
+────────────
+test_simulate_all — Runs the combined simulate_all command.
+❌ Exception in `test_simulate_all`: 'Object' object has no attribute 'name'
+────────────
+test_log_audit_chunks — Ensures long audit entries are split across fields.
+✅ chunks used
+────────────
+test_helpfixer_chunks — Ensures long help entries are split across fields.
+✅ chunks used
+────────────
+test_helpadmin_chunks — Ensures admin help entries are split across fields.
+✅ chunks used
+────────────
+test_send_chunks — Ensures long plain messages are chunked automatically.
+✅ chunks used
+────────────
+test_rent_baseline_non_tier — Baseline living cost deducted for members without Tier roles.
+✅ update_balance was called
+✅ baseline deducted for non-tier user
+────────────
+test_eviction_on_baseline_failure — Eviction notices sent when baseline deduction fails.
+→ Expected: baseline failure should still trigger eviction notices.
+✅ eviction notices sent for baseline, housing and business
+────────────
+test_negative_cash — Handles baseline deduction when cash is negative.
+✅ update_balance was called
+✅ negative cash handled correctly
+────────────
+test_character_manager — Moves retired threads and searches sheets.
+❌ create_thread was not called
+❌ thread.delete was not called
+✅ _move_thread was called
+✅ send was called
+────────────
+test_move_npcs_command — Moves NPC threads to the NPC forum.
+❌ create_thread was not called
+❌ thread.delete was not called
+────────────
+test_copy_thread_truncate — Ensures long thread posts are truncated when archived.✅ truncated
+────────────
+test_manual_cyberware_log — Adds manual cyberware payment to weekly log when empty.
+❌ Exception in `test_manual_cyberware_log`: property 'roles' of 'Member' object has no setter
+────────────
+test_wholesaler_commands — Ensures WholesalerCog and key supply-chain commands are registered.
+❌ Exception in `test_wholesaler_commands`: 'Context' object has no attribute 'append'

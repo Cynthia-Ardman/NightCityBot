@@ -13,7 +13,19 @@ async def run(suite, ctx) -> List[str]:
     logs = []
     economy = suite.bot.get_cog('Economy')
     original_channel = ctx.channel
+    original_author = ctx.author
     ctx.channel = ctx.guild.get_channel(config.BUSINESS_ACTIVITY_CHANNEL_ID)
+    if not ctx.channel:
+        ctx.channel = MagicMock(id=config.BUSINESS_ACTIVITY_CHANNEL_ID)
+
+    biz_role = MagicMock(spec=discord.Role)
+    biz_role.name = "Business Tier 1"
+    biz_role.id = 9999
+    mock_author = MagicMock(spec=discord.Member)
+    mock_author.id = original_author.id
+    mock_author.display_name = original_author.display_name
+    mock_author.roles = [biz_role]
+    ctx.author = mock_author
 
     storage = {}
 
@@ -40,4 +52,5 @@ async def run(suite, ctx) -> List[str]:
     else:
         logs.append("❌ open_shop did not enforce daily limit")
     ctx.channel = original_channel
+    ctx.author = original_author
     return logs

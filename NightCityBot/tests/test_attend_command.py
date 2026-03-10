@@ -2,6 +2,7 @@ from typing import List
 import discord
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import config
 from NightCityBot.utils.constants import ROLE_COSTS_BUSINESS, ROLE_COSTS_HOUSING
 
@@ -19,14 +20,14 @@ async def run(suite, ctx) -> List[str]:
     ctx.author = mock_author
     ctx.send = AsyncMock()
     original_channel = ctx.channel
-    # Ensure the channel id matches the configured attendance channel so
-    # subsequent checks don't fail due to a mismatched ID.
-    original_channel.id = config.ATTENDANCE_CHANNEL_ID
+
+    tz = ZoneInfo(getattr(config, "TIMEZONE", "America/Los_Angeles"))
 
     # Wrong channel should be rejected
     ctx.channel = MagicMock(id=9999)
-    sunday = datetime(2025, 6, 15)
-    with patch("NightCityBot.utils.helpers.get_tz_now", return_value=sunday):
+    sunday_local = datetime(2025, 6, 15, 15, 30, tzinfo=tz)
+    sunday_utc = sunday_local.astimezone(ZoneInfo("UTC"))
+    with patch("NightCityBot.utils.helpers.get_tz_now", return_value=sunday_utc):
         await economy.attend(ctx)
         msg = ctx.send.await_args[0][0]
         if "Please use" in msg:
@@ -35,11 +36,13 @@ async def run(suite, ctx) -> List[str]:
             logs.append("❌ attend allowed in wrong channel")
     ctx.send.reset_mock()
     ctx.channel = original_channel
+    ctx.channel.id = config.ATTENDANCE_CHANNEL_ID
 
     # Non-Sunday should be rejected
-    monday = datetime(2025, 6, 16)
+    monday_local = datetime(2025, 6, 16, 15, 0, tzinfo=tz)
+    monday_utc = monday_local.astimezone(ZoneInfo("UTC"))
     with (
-        patch("NightCityBot.utils.helpers.get_tz_now", return_value=monday),
+        patch("NightCityBot.utils.helpers.get_tz_now", return_value=monday_utc),
         patch("NightCityBot.cogs.economy.load_json_file", new=AsyncMock(return_value={})),
         patch("NightCityBot.cogs.economy.save_json_file", new=AsyncMock()),
     ):
@@ -52,13 +55,15 @@ async def run(suite, ctx) -> List[str]:
     ctx.send.reset_mock()
 
     # Already attended this event should be rejected
-    sunday = datetime(2025, 6, 15, 16)
-    prev = sunday - timedelta(hours=1)
+    sunday_event_local = datetime(2025, 6, 15, 16, 0, tzinfo=tz)
+    sunday_event_utc = sunday_event_local.astimezone(ZoneInfo("UTC"))
+    event_start_local = sunday_event_local.replace(hour=14, minute=0, second=0, microsecond=0)
+    prev_attend = (event_start_local + timedelta(minutes=30)).astimezone(ZoneInfo("UTC"))
     with (
-        patch("NightCityBot.utils.helpers.get_tz_now", return_value=sunday),
+        patch("NightCityBot.utils.helpers.get_tz_now", return_value=sunday_event_utc),
         patch(
             "NightCityBot.cogs.economy.load_json_file",
-            new=AsyncMock(return_value={str(mock_author.id): [prev.isoformat()]}),
+            new=AsyncMock(return_value={str(mock_author.id): [prev_attend.isoformat()]}),
         ),
         patch("NightCityBot.cogs.economy.save_json_file", new=AsyncMock()),
     ):
@@ -71,12 +76,12 @@ async def run(suite, ctx) -> List[str]:
     ctx.send.reset_mock()
 
     # Success on new event when last log was previous week
-    prev2 = sunday - timedelta(days=7)
+    prev_week = (sunday_event_local - timedelta(days=7)).astimezone(ZoneInfo("UTC"))
     with (
-        patch("NightCityBot.utils.helpers.get_tz_now", return_value=sunday),
+        patch("NightCityBot.utils.helpers.get_tz_now", return_value=sunday_event_utc),
         patch(
             "NightCityBot.cogs.economy.load_json_file",
-            new=AsyncMock(return_value={str(mock_author.id): [prev2.isoformat()]}),
+            new=AsyncMock(return_value={str(mock_author.id): [prev_week.isoformat()]}),
         ),
         patch("NightCityBot.cogs.economy.save_json_file", new=AsyncMock()),
         patch.object(economy.unbelievaboat, "update_balance", new=AsyncMock()),

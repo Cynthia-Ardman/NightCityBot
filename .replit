@@ -28,10 +28,9 @@ localPort = 5000
 externalPort = 80
 
 [deployment]
-deploymentTarget = "vm"
-run = ["python", "-m", "NightCityBot.bot"]
+deploymentTarget = "gce"
+run = ["sh", "-c", "python -m NightCityBot.bot"]
 ignorePorts = true
-build = ["pip", "install", "-r", "requirements.txt"]
 
 [nix]
 packages = ["lsof"]

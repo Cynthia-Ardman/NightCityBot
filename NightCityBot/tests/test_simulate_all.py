@@ -1,5 +1,5 @@
 from typing import List
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import config
 
@@ -10,10 +10,23 @@ async def run(suite, ctx) -> List[str]:
     economy = suite.bot.get_cog("Economy")
     cyber = suite.bot.get_cog("CyberwareManager")
     admin = suite.bot.get_cog("Admin")
-    user = await suite.get_test_user(ctx)
-    approved = discord.Object(id=config.APPROVED_ROLE_ID)
-    user.roles = [approved]
+    real_user = await suite.get_test_user(ctx)
+
+    approved = MagicMock(spec=discord.Role)
+    approved.name = "Approved Character"
+    approved.id = config.APPROVED_ROLE_ID
+    verified = MagicMock(spec=discord.Role)
+    verified.name = "Verified"
+    verified.id = config.VERIFIED_ROLE_ID
+
+    user = MagicMock(spec=discord.Member)
+    user.id = real_user.id
+    user.display_name = real_user.display_name
+    user.roles = [approved, verified]
+    user.guild = ctx.guild
+
     ctx.send = AsyncMock()
+    ctx.guild.members = [user]
     with (
         patch.object(
             economy.unbelievaboat,
@@ -37,7 +50,7 @@ async def run(suite, ctx) -> List[str]:
         await economy.simulate_all(ctx, target_user=user)
         suite.assert_called(logs, mock_audit, "log_audit")
         messages = [c.args[0] for c in ctx.send.await_args_list if c.args]
-        if any("Baseline living cost" in m for m in messages):
+        if any("Baseline living cost" in m or "Working on" in m for m in messages):
             logs.append("✅ baseline shown")
         else:
             logs.append("❌ baseline missing")

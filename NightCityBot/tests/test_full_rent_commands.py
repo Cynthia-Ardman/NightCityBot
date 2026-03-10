@@ -9,9 +9,15 @@ async def run(suite, ctx) -> List[str]:
     """Test all rent-related commands."""
     logs = []
     try:
-        user = await suite.get_test_user(ctx)
-        approved = discord.Object(id=config.APPROVED_ROLE_ID)
+        real_user = await suite.get_test_user(ctx)
+        approved = MagicMock(spec=discord.Role)
+        approved.name = "Approved Character"
+        approved.id = config.APPROVED_ROLE_ID
+        user = MagicMock(spec=discord.Member)
+        user.id = real_user.id
+        user.display_name = real_user.display_name
         user.roles = [approved]
+        user.guild = ctx.guild
         logs.append("→ Expected: All rent-related commands should complete without error.")
 
         if os.path.exists(config.LAST_RENT_FILE):
