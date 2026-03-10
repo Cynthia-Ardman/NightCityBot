@@ -20,9 +20,6 @@ author = "agent"
 task = "shell.exec"
 args = "pip install -r requirements.txt && python -m NightCityBot.bot"
 
-[workflows.workflow.metadata]
-outputType = "console"
-
 [[ports]]
 localPort = 5000
 externalPort = 80
