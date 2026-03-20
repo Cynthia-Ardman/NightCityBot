@@ -173,13 +173,15 @@ def home():
 @app.route("/healthz")
 def healthz():
     """Liveness endpoint for container platforms (Cloud Run, Autoscale)."""
-    return "ok", 200
+    from flask import jsonify
+    return jsonify({"status": "ok"}), 200
 
 
 @app.route("/readyz")
 def readyz():
     """Readiness endpoint for container platforms (Cloud Run, Autoscale)."""
-    return "ready", 200
+    from flask import jsonify
+    return jsonify({"status": "ready"}), 200
 
 
 def _resolve_keep_alive_port() -> int:

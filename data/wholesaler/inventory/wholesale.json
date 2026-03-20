@@ -1,4 +1,13 @@
 {
-  "wholesale_lots": [],
-  "updated_at": "2026-03-20T22:13:27.833559+00:00"
+  "wholesale_lots": [
+    {
+      "lot_id": "lot-001",
+      "gun_name": "Nue",
+      "gun_level": "M",
+      "unit_cost": 1300,
+      "weapon_type": "pistol",
+      "qty_available": 5
+    }
+  ],
+  "updated_at": "2026-03-20T22:22:45.477117+00:00"
 }

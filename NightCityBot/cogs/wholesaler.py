@@ -2282,7 +2282,9 @@ class WholesalerCog(commands.Cog):
             await ctx.send("❌ Admin role required.")
             return
 
-        txs = await helpers.load_json_file(self.tx_file, default=[])
+        txs = await db_load("wholesaler_tx", default=[])
+        if not isinstance(txs, list):
+            txs = []
         tx = next((t for t in txs if t.get("tx_id") == tx_id), None)
         if not tx:
             await ctx.send("Transaction not found.")

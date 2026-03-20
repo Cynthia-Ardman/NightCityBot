@@ -1,0 +1,16 @@
+{
+  "store_id": "111:2001",
+  "owner_id": 2001,
+  "lots": [
+    {
+      "lot_id": "lot-001",
+      "gun_name": "Nue",
+      "gun_level": "M",
+      "unit_cost": 1300,
+      "weapon_type": "pistol",
+      "qty_remaining": 3
+    }
+  ],
+  "controlled_buyers": [],
+  "updated_at": "2026-03-20T22:22:45.479646+00:00"
+}

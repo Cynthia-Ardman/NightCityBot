@@ -20,7 +20,7 @@ from NightCityBot.utils.constants import (
     TRAUMA_ROLE_COSTS,
 )
 from NightCityBot.utils import helpers
-from NightCityBot.utils.db import db_load, db_save
+from NightCityBot.utils.db import db_load, db_save, attendance_get_user, attendance_append
 
 safe_filename = helpers.safe_filename
 
@@ -312,17 +312,13 @@ class Economy(commands.Cog):
         now_str = now.isoformat()
 
         async with self.attend_lock:
-            data = await db_load("attend_log", default={}, seed_path=config.ATTEND_LOG_FILE)
-
-            all_logs = data.get(user_id, [])
+            all_logs = await attendance_get_user(user_id)
             parsed = [datetime.fromisoformat(ts) for ts in all_logs]
             if any(ts >= event_start for ts in parsed):
                 await ctx.send("❌ You've already logged attendance for this event.")
                 return
 
-            all_logs.append(now_str)
-            data[user_id] = all_logs
-            await db_save("attend_log", data)
+            await attendance_append(user_id, now_str)
 
         reward = ATTEND_REWARD
         await self.unbelievaboat.update_balance(

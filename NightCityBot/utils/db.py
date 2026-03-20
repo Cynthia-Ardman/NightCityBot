@@ -47,7 +47,16 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         )
         """
     )
-    logger.info("DB schema verified (json_store table ready).")
+    await pool.execute(
+        """
+        CREATE TABLE IF NOT EXISTS attendance_log (
+            user_id     TEXT NOT NULL,
+            logged_at   TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (user_id, logged_at)
+        )
+        """
+    )
+    logger.info("DB schema verified (json_store + attendance_log tables ready).")
 
 
 async def db_load(key: str, default=None, seed_path: Path | str | None = None):
@@ -81,7 +90,7 @@ async def db_load(key: str, default=None, seed_path: Path | str | None = None):
                     )
     except Exception as exc:
         logger.error("db_load failed for key '%s': %s", key, exc)
-    return default if default is not None else {}
+    return default
 
 
 async def db_save(key: str, value) -> bool:
@@ -102,6 +111,38 @@ async def db_save(key: str, value) -> bool:
         return True
     except Exception as exc:
         logger.error("db_save failed for key '%s': %s", key, exc)
+        return False
+
+
+async def attendance_get_user(user_id: str) -> list[str]:
+    """Return ISO timestamp strings for all attendance records for *user_id*."""
+    try:
+        pool = await get_pool()
+        rows = await pool.fetch(
+            "SELECT logged_at FROM attendance_log WHERE user_id = $1 ORDER BY logged_at",
+            user_id,
+        )
+        return [row["logged_at"].isoformat() for row in rows]
+    except Exception as exc:
+        logger.error("attendance_get_user failed for user '%s': %s", user_id, exc)
+        return []
+
+
+async def attendance_append(user_id: str, logged_at_iso: str) -> bool:
+    """Insert a single attendance record for *user_id* (idempotent on conflict)."""
+    from datetime import datetime
+
+    try:
+        pool = await get_pool()
+        dt = datetime.fromisoformat(logged_at_iso)
+        await pool.execute(
+            "INSERT INTO attendance_log (user_id, logged_at) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            user_id,
+            dt,
+        )
+        return True
+    except Exception as exc:
+        logger.error("attendance_append failed for user '%s': %s", user_id, exc)
         return False
 
 

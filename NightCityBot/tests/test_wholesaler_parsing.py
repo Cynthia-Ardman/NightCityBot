@@ -473,6 +473,7 @@ def test_migrate_legacy_files_does_not_overwrite_existing_destination(tmp_path: 
 
 def test_load_state_reads_store_inventory_from_separate_file(tmp_path: Path):
     import asyncio
+    from unittest.mock import AsyncMock, patch
 
     state_path = tmp_path / "state.json"
     stores_path = tmp_path / "stores.json"
@@ -487,7 +488,8 @@ def test_load_state_reads_store_inventory_from_separate_file(tmp_path: Path):
     async def _run():
         return await cog._load_state()
 
-    state = asyncio.run(_run())
+    with patch("NightCityBot.cogs.wholesaler.db_load", new=AsyncMock(return_value=None)):
+        state = asyncio.run(_run())
     assert state["wholesale_lots"][0]["lot_id"] == "lot-1"
     assert state["stores"]["g-1"]["lots"][0]["lot_id"] == "store-1"
 
@@ -495,6 +497,7 @@ def test_load_state_reads_store_inventory_from_separate_file(tmp_path: Path):
 def test_save_state_writes_wholesale_and_store_inventory_files(tmp_path: Path):
     import asyncio
     import json
+    from unittest.mock import AsyncMock, patch
 
     state_path = tmp_path / "state.json"
     stores_path = tmp_path / "stores.json"
@@ -517,7 +520,8 @@ def test_save_state_writes_wholesale_and_store_inventory_files(tmp_path: Path):
     async def _run():
         return await cog._save_state(payload)
 
-    assert asyncio.run(_run()) is True
+    with patch("NightCityBot.cogs.wholesaler.db_save", new=AsyncMock(return_value=True)):
+        assert asyncio.run(_run()) is True
 
     main = json.loads(state_path.read_text(encoding="utf-8"))
     stores_index = json.loads(stores_path.read_text(encoding="utf-8"))
@@ -569,6 +573,7 @@ def test_ensure_inventory_files_exist_bootstraps_missing_files(tmp_path: Path):
 
 def test_load_state_prefers_new_inventory_files(tmp_path: Path):
     import asyncio
+    from unittest.mock import AsyncMock, patch
 
     state_path = tmp_path / "state.json"
     stores_path = tmp_path / "stores.json"
@@ -592,7 +597,8 @@ def test_load_state_prefers_new_inventory_files(tmp_path: Path):
     async def _run():
         return await cog._load_state()
 
-    state = asyncio.run(_run())
+    with patch("NightCityBot.cogs.wholesaler.db_load", new=AsyncMock(return_value=None)):
+        state = asyncio.run(_run())
     assert state["wholesale_lots"][0]["lot_id"] == "new-lot"
     assert state["stores"]["1:222"]["lots"][0]["lot_id"] == "store-new"
     assert state["shop_registry"]["alpha"] == 222
@@ -600,6 +606,7 @@ def test_load_state_prefers_new_inventory_files(tmp_path: Path):
 
 def test_load_state_sanitizes_malformed_inventory_collections(tmp_path: Path):
     import asyncio
+    from unittest.mock import AsyncMock, patch
 
     state_path = tmp_path / "state.json"
     stores_path = tmp_path / "stores.json"
@@ -619,6 +626,7 @@ def test_load_state_sanitizes_malformed_inventory_collections(tmp_path: Path):
     async def _run():
         return await cog._load_state()
 
-    state = asyncio.run(_run())
+    with patch("NightCityBot.cogs.wholesaler.db_load", new=AsyncMock(return_value=None)):
+        state = asyncio.run(_run())
     assert state["wholesale_lots"] == []
     assert state["stores"]["1:222"]["lots"] == []

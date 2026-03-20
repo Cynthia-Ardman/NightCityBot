@@ -1,20 +1,45 @@
 {
-  "stores": {},
-  "settings": {
-    "restock": {
-      "lots_H": 1,
-      "lots_L": 14,
-      "lots_M": 5,
-      "qty_max_H": 2,
-      "qty_max_L": 10,
-      "qty_max_M": 5,
-      "qty_min_H": 1,
-      "qty_min_L": 3,
-      "qty_min_M": 1,
-      "total_lots": 20
+  "stores": {
+    "111:2001": {
+      "lots": [
+        {
+          "lot_id": "lot-001",
+          "gun_name": "Nue",
+          "gun_level": "M",
+          "unit_cost": 1300,
+          "weapon_type": "pistol",
+          "qty_remaining": 3
+        }
+      ],
+      "owner_id": 2001
     }
   },
-  "shop_registry": {},
-  "wholesale_lots": [],
+  "settings": {
+    "restock": {
+      "total_lots": 20,
+      "lots_L": 14,
+      "lots_M": 5,
+      "lots_H": 1,
+      "qty_min_L": 3,
+      "qty_max_L": 10,
+      "qty_min_M": 1,
+      "qty_max_M": 5,
+      "qty_min_H": 1,
+      "qty_max_H": 2
+    }
+  },
+  "shop_registry": {
+    "shop1": 2001
+  },
+  "wholesale_lots": [
+    {
+      "lot_id": "lot-001",
+      "gun_name": "Nue",
+      "gun_level": "M",
+      "unit_cost": 1300,
+      "weapon_type": "pistol",
+      "qty_available": 5
+    }
+  ],
   "pending_payouts": []
 }
