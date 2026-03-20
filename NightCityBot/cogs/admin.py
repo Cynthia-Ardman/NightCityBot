@@ -88,10 +88,32 @@ class Admin(commands.Cog):
 
     @staticmethod
     def _is_ticket_embed(message: discord.Message) -> bool:
-        """Return True only if this message looks like a Tickety ticket event."""
+        """Return True if this message looks like a Tickety ticket event.
+
+        Searches all embed text (title, description, fields, footer, author)
+        for ticket-related keywords so different Tickety embed formats are caught.
+        Also matches if the message author/webhook name contains 'tickety'.
+        """
+        # Check the author/webhook name first (fastest path)
+        author_name = (getattr(message.author, "display_name", "") or "").lower()
+        if "tickety" in author_name or "ticket" in author_name:
+            if message.embeds:
+                return True
+
+        # Match any embed that contains ticket/transcript keywords anywhere
+        keywords = ("ticket", "transcript")
         for embed in message.embeds:
-            title = (embed.title or "").lower()
-            if "ticket" in title:
+            parts = [
+                embed.title or "",
+                embed.description or "",
+                (embed.footer.text if embed.footer else "") or "",
+                (embed.author.name if embed.author else "") or "",
+            ]
+            for field in embed.fields:
+                parts.append(field.name or "")
+                parts.append(field.value or "")
+            combined = " ".join(parts).lower()
+            if any(kw in combined for kw in keywords):
                 return True
         return False
 
@@ -964,6 +986,30 @@ class Admin(commands.Cog):
         )
         embed.set_footer(text=f"Total index size: {len(self._ticket_index):,} entries")
         await ctx.send(embed=embed)
+
+    @commands.command(name="ticket_channel_preview", aliases=["ticketchannelpreview"])
+    @commands.has_permissions(administrator=True)
+    async def ticket_channel_preview(self, ctx, count: int = 5):
+        """Show embed info for the most recent messages in the ticket log channel.
+
+        Use this to diagnose why !reindex_tickets isn't finding entries — it shows
+        the raw author, embed titles, and whether each message would be indexed.
+        """
+        channel = ctx.guild.get_channel(config.TICKETY_LOG_CHANNEL_ID)
+        if channel is None:
+            await ctx.send("⚠️ TICKETY_LOG_CHANNEL_ID not set or channel not found.")
+            return
+        count = max(1, min(count, 20))
+        lines = [f"**Last {count} messages in {channel.mention}:**"]
+        async for msg in channel.history(limit=count, oldest_first=False):
+            would_index = self._is_ticket_embed(msg)
+            author_name = getattr(msg.author, "display_name", str(msg.author))
+            embed_titles = [f"`{e.title or '(no title)'}`" for e in msg.embeds] or ["*(no embeds)*"]
+            status = "✅ would index" if would_index else "❌ skipped"
+            lines.append(
+                f"• {status} | author=**{author_name}** | embeds={', '.join(embed_titles)}"
+            )
+        await ctx.send("\n".join(lines)[:1900])
 
     @commands.command(name="search_tickets", aliases=["searchtickets", "ticketsearch"])
     @commands.has_permissions(administrator=True)
