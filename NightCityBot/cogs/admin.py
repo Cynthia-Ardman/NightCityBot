@@ -811,17 +811,26 @@ class Admin(commands.Cog):
     ):
         """Search Tickety embed messages in the configured log channel.
 
-        Usage: !search_tickets <query> [in #channel]
+        Usage: !search_tickets <query> [--limit N] [in #channel]
         The query is matched case-insensitively against every embed field,
         title, and description in the channel's history.
+        Pass --limit N to scan more than the default 500 messages.
         """
+        # Parse --limit flag
+        scan_limit = 500
+        remaining_query = query
+        import re as _re
+        limit_match = _re.search(r'--limit\s+(\d+)', query)
+        if limit_match:
+            scan_limit = min(int(limit_match.group(1)), 10000)
+            remaining_query = (_re.sub(r'--limit\s+\d+', '', query)).strip()
+
         # Allow the caller to specify a channel at the end with "in #channel"
         channel = None
-        search_query = query
-        if " in " in query:
-            parts = query.rsplit(" in ", 1)
+        search_query = remaining_query
+        if " in " in remaining_query:
+            parts = remaining_query.rsplit(" in ", 1)
             candidate = parts[1].strip()
-            # Try to resolve the last word as a channel mention or ID
             try:
                 converter = commands.TextChannelConverter()
                 channel = await converter.convert(ctx, candidate)
@@ -839,12 +848,12 @@ class Admin(commands.Cog):
             )
             return
 
-        status_msg = await ctx.send(f"🔍 Searching `#{channel.name}` for **{search_query}**…")
+        status_msg = await ctx.send(f"🔍 Searching `#{channel.name}` for **{search_query}** (up to {scan_limit:,} messages)…")
         q = search_query.lower()
 
         results = []
         scanned = 0
-        async for message in channel.history(limit=5000, oldest_first=False):
+        async for message in channel.history(limit=scan_limit, oldest_first=False):
             scanned += 1
             if not message.embeds:
                 continue
@@ -861,7 +870,6 @@ class Admin(commands.Cog):
                     haystack_parts.append(embed.footer.text)
                 haystack = "\n".join(haystack_parts).lower()
                 if q in haystack:
-                    # Grab a short label from the embed for display
                     label = embed.title or embed.description or "(embed)"
                     label = label[:80].replace("\n", " ")
                     results.append((message.jump_url, label, message.created_at))
@@ -870,7 +878,11 @@ class Admin(commands.Cog):
             if len(results) >= 25:
                 break
 
-        await status_msg.delete()
+        if status_msg:
+            try:
+                await status_msg.delete()
+            except discord.HTTPException:
+                pass
 
         if not results:
             await ctx.send(f"❌ No Tickety embeds matched **{search_query}** in the last {scanned:,} messages.")
