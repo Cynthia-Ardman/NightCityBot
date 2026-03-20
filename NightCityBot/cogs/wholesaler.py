@@ -330,6 +330,7 @@ class WholesalerCog(commands.Cog):
             self.store_state_file.exists(),
             self.tx_file.exists(),
         )
+        await db_load("wholesaler_tx", default=[], seed_path=self.tx_file)
         await self.emit_inventory_snapshot_audit("BOT_READY")
 
     async def _ensure_inventory_files_exist(self) -> None:
@@ -2283,7 +2284,7 @@ class WholesalerCog(commands.Cog):
             await ctx.send("❌ Admin role required.")
             return
 
-        txs = await db_load("wholesaler_tx", default=[])
+        txs = await db_load("wholesaler_tx", default=[], seed_path=self.tx_file)
         if not isinstance(txs, list):
             txs = []
         tx = next((t for t in txs if t.get("tx_id") == tx_id), None)
