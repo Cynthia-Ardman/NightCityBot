@@ -306,6 +306,7 @@ class Admin(commands.Cog):
                     "`!test__bot [pattern]` – run the PyTest suite optionally filtering by pattern.",
                     "`!shutdown_bot` (aliases: !shutdownbot, !forceshutdown) – log an audit message and cleanly shut down the bot process.",
                     "`!backfill_logs [limit]` – rebuild attendance and business open logs from recent message history.",
+                    "`!search_tickets <query> [in #channel]` (aliases: !searchtickets, !ticketsearch) – search Tickety embed messages for a name, ticket ID, or any text.",
                 ]),
             ),
             (
@@ -799,6 +800,104 @@ class Admin(commands.Cog):
         parts.append("</script>")
         parts.append("</body></html>")
         return "\n".join(parts)
+
+    @commands.command(name="search_tickets", aliases=["searchtickets", "ticketsearch"])
+    @commands.has_permissions(administrator=True)
+    async def search_tickets(
+        self,
+        ctx,
+        *,
+        query: str,
+    ):
+        """Search Tickety embed messages in the configured log channel.
+
+        Usage: !search_tickets <query> [in #channel]
+        The query is matched case-insensitively against every embed field,
+        title, and description in the channel's history.
+        """
+        # Allow the caller to specify a channel at the end with "in #channel"
+        channel = None
+        search_query = query
+        if " in " in query:
+            parts = query.rsplit(" in ", 1)
+            candidate = parts[1].strip()
+            # Try to resolve the last word as a channel mention or ID
+            try:
+                converter = commands.TextChannelConverter()
+                channel = await converter.convert(ctx, candidate)
+                search_query = parts[0].strip()
+            except commands.BadArgument:
+                pass
+
+        if channel is None:
+            channel = ctx.guild.get_channel(config.TICKETY_LOG_CHANNEL_ID)
+
+        if channel is None:
+            await ctx.send(
+                "⚠️ No Tickety log channel configured. "
+                "Set `TICKETY_LOG_CHANNEL_ID` in config or use `!search_tickets <query> in #channel`."
+            )
+            return
+
+        status_msg = await ctx.send(f"🔍 Searching `#{channel.name}` for **{search_query}**…")
+        q = search_query.lower()
+
+        results = []
+        scanned = 0
+        async for message in channel.history(limit=5000, oldest_first=False):
+            scanned += 1
+            if not message.embeds:
+                continue
+            for embed in message.embeds:
+                haystack_parts = []
+                if embed.title:
+                    haystack_parts.append(embed.title)
+                if embed.description:
+                    haystack_parts.append(embed.description)
+                for field in embed.fields:
+                    haystack_parts.append(field.name or "")
+                    haystack_parts.append(field.value or "")
+                if embed.footer and embed.footer.text:
+                    haystack_parts.append(embed.footer.text)
+                haystack = "\n".join(haystack_parts).lower()
+                if q in haystack:
+                    # Grab a short label from the embed for display
+                    label = embed.title or embed.description or "(embed)"
+                    label = label[:80].replace("\n", " ")
+                    results.append((message.jump_url, label, message.created_at))
+                    break  # don't double-count a message with multiple matching embeds
+
+            if len(results) >= 25:
+                break
+
+        await status_msg.delete()
+
+        if not results:
+            await ctx.send(f"❌ No Tickety embeds matched **{search_query}** in the last {scanned:,} messages.")
+            return
+
+        embed = discord.Embed(
+            title=f"🎫 Ticket Search: {search_query}",
+            description=f"Found **{len(results)}** match{'es' if len(results) != 1 else ''} in `#{channel.name}` (scanned {scanned:,} messages)",
+            color=discord.Color.blurple(),
+        )
+        lines = []
+        for url, label, ts in results:
+            date_str = ts.strftime("%m/%d/%y")
+            lines.append(f"[{date_str}]({url}) — {label}")
+
+        # Split into chunks if needed
+        chunk = ""
+        for line in lines:
+            if len(chunk) + len(line) + 1 > 1024:
+                embed.add_field(name="Matches", value=chunk, inline=False)
+                chunk = line + "\n"
+            else:
+                chunk += line + "\n"
+        if chunk:
+            embed.add_field(name="Matches", value=chunk, inline=False)
+
+        await ctx.send(embed=embed)
 
     async def log_audit(self, user, action_desc):
         """Log an audit entry to the audit channel."""
