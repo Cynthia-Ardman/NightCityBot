@@ -20,7 +20,13 @@ from NightCityBot.utils.constants import (
     TRAUMA_ROLE_COSTS,
 )
 from NightCityBot.utils import helpers
-from NightCityBot.utils.db import db_load, db_save, attendance_get_user, attendance_append
+from NightCityBot.utils.db import (
+    db_load, db_save,
+    attendance_get_user, attendance_append,
+    open_log_exists_today, open_log_count_month, open_log_add, open_log_get_all,
+    last_payment_get, last_payment_set,
+    rent_run_get_last, rent_run_record,
+)
 
 safe_filename = helpers.safe_filename
 
@@ -134,21 +140,13 @@ class Economy(commands.Cog):
         self,
         member: discord.Member,
         applicable_roles: List[str],
-        business_open_log: Dict,
         log: List[str],
     ) -> tuple[Optional[int], Optional[int]]:
         """Apply passive income based on business opens and roles."""
         total_income = 0
 
-        member_id_str = str(member.id)
         now = helpers.get_tz_now()
-        opens_this_month = [
-            ts
-            for ts in business_open_log.get(member_id_str, [])
-            if datetime.fromisoformat(ts).month == now.month
-            and datetime.fromisoformat(ts).year == now.year
-        ]
-        open_count = min(len(opens_this_month), 4)
+        open_count = min(await open_log_count_month(str(member.id), now.year, now.month), 4)
 
         for role in applicable_roles:
             if "Housing Tier" in role:
@@ -217,27 +215,17 @@ class Economy(commands.Cog):
         now_str = now.isoformat()
 
         duplicate = False
+        open_count_before = 0
+        open_count_after = 0
+        open_count_total = 0
         async with self.open_log_lock:
-            data = await db_load("open_log", default={}, seed_path=config.OPEN_LOG_FILE)
-
-            all_opens = data.get(user_id, [])
-            this_month_opens = [
-                datetime.fromisoformat(ts)
-                for ts in all_opens
-                if datetime.fromisoformat(ts).month == now.month
-                and datetime.fromisoformat(ts).year == now.year
-            ]
-
-            if any(ts.date() == now.date() for ts in this_month_opens):
+            if await open_log_exists_today(user_id):
                 duplicate = True
             else:
-                open_count_before = min(len(this_month_opens), 4)
-                open_count_after = min(open_count_before + 1, 4)
-                open_count_total = len(this_month_opens) + 1
-
-                all_opens.append(now_str)
-                data[user_id] = all_opens
-                await db_save("open_log", data)
+                open_count_before = min(await open_log_count_month(user_id, now.year, now.month), 4)
+                await open_log_add(user_id, now)
+                open_count_total = open_count_before + 1
+                open_count_after = min(open_count_total, 4)
 
         if duplicate:
             await ctx.send("❌ You've already logged a business opening today.")
@@ -412,8 +400,7 @@ class Economy(commands.Cog):
     @commands.command(name="last_payment")
     async def last_payment(self, ctx):
         """Show the details of your last automated payment."""
-        data = await db_load("last_payment", default={}, seed_path=config.LAST_PAYMENT_FILE)
-        summary = data.get(str(ctx.author.id))
+        summary = await last_payment_get(str(ctx.author.id))
         if not summary:
             await ctx.send("❌ No payment record found.")
         else:
@@ -558,9 +545,7 @@ class Economy(commands.Cog):
 
     async def record_last_payment(self, member: discord.Member, summary: str) -> None:
         """Store the last payment summary for a member."""
-        data = await db_load("last_payment", default={}, seed_path=config.LAST_PAYMENT_FILE)
-        data[str(member.id)] = summary
-        await db_save("last_payment", data)
+        await last_payment_set(str(member.id), summary)
 
     async def _label_used_recently(
         self, member: discord.Member, label: str, days: int = 30
@@ -1289,33 +1274,16 @@ class Economy(commands.Cog):
                 except Exception:
                     logger.warning("Suppressed exception", exc_info=True)
         audit_lines: List[str] = []
-        business_open_log = await db_load(
-            "open_log", default={}, seed_path=config.OPEN_LOG_FILE
-        )
-        if not target_user and not dry_run:
-            month_key = f"open_log_history_{datetime.utcnow():%Y_%m}"
-            await db_save(month_key, business_open_log)
-            await db_save("open_log", {})
 
         if not force and not target_user:
-            try:
-                last_rent_data = await db_load(
-                    "last_rent", default=None, seed_path=config.LAST_RENT_FILE
-                )
-                last_run = (
-                    datetime.fromisoformat(last_rent_data["last_run"])
-                    if last_rent_data
-                    else None
-                )
-            except Exception:
-                last_run = None
+            last_run = await rent_run_get_last()
             if last_run and datetime.utcnow() - last_run < timedelta(days=30):
                 await ctx.send(
                     "⚠️ Rent already collected in the last 30 days. Use -force to override."
                 )
                 return
         if not target_user and not dry_run:
-            await db_save("last_rent", {"last_run": datetime.utcnow().isoformat()})
+            await rent_run_record(str(ctx.author))
 
         members_to_process: List[discord.Member] = []
         for m in ctx.guild.members:

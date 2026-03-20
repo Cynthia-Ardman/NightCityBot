@@ -27,21 +27,27 @@ async def run(suite, ctx) -> List[str]:
     mock_author.roles = [biz_role]
     ctx.author = mock_author
 
-    storage = {}
+    opened = set()
+    user_id = str(mock_author.id)
 
-    async def fake_load(*_, **__):
-        return storage.get("data", {})
+    async def fake_exists_today(uid):
+        return uid in opened
 
-    async def fake_save(path, data):
-        storage["data"] = data
+    async def fake_count_month(uid, year, month):
+        return len(opened)
+
+    async def fake_add(uid, ts):
+        opened.add(uid)
+        return True
 
     ctx.send = AsyncMock()
 
     sunday = datetime(2025, 6, 15)
     with (
         patch("NightCityBot.utils.helpers.get_tz_now", return_value=sunday),
-        patch("NightCityBot.cogs.economy.db_load", new=fake_load),
-        patch("NightCityBot.cogs.economy.db_save", new=fake_save),
+        patch("NightCityBot.cogs.economy.open_log_exists_today", new=fake_exists_today),
+        patch("NightCityBot.cogs.economy.open_log_count_month", new=fake_count_month),
+        patch("NightCityBot.cogs.economy.open_log_add", new=fake_add),
         patch.object(economy.unbelievaboat, "update_balance", new=AsyncMock()),
     ):
         await economy.open_shop(ctx)

@@ -9,7 +9,18 @@ import os
 
 import config
 from NightCityBot.utils.helpers import get_tz_now
-from NightCityBot.utils.db import db_load, db_save
+from NightCityBot.utils.db import (
+    cyberware_status_get_all,
+    cyberware_status_upsert,
+    cyberware_status_upsert_many,
+    cyberware_last_run_get,
+    cyberware_last_run_set,
+    cyberware_weekly_add,
+    cyberware_weekly_get_all,
+    cyberware_weekly_get_last_row,
+    cyberware_weekly_insert_empty,
+    cyberware_weekly_update_row,
+)
 from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
 
 logger = logging.getLogger(__name__)
@@ -34,27 +45,14 @@ class CyberwareManager(commands.Cog):
         self.weekly_check.start()
 
     async def load_data(self):
-        raw = await db_load("cyberware_log", default={}, seed_path=config.CYBERWARE_LOG_FILE)
-        if isinstance(raw, dict):
-            ts = raw.get("_last_run")
-            if ts:
-                try:
-                    self.last_run = datetime.fromisoformat(ts)
-                except Exception:
-                    self.last_run = None
-            self.data = {}
-            for k, v in raw.items():
-                if k == "_last_run":
-                    continue
-                if isinstance(v, dict):
-                    self.data[k] = {
-                        "weeks": int(v.get("weeks", 0)),
-                        "last": v.get("last"),
-                    }
-                else:
-                    self.data[k] = {"weeks": int(v), "last": None}
-        else:
-            self.data = {}
+        raw = await cyberware_status_get_all()
+        self.data = {}
+        for user_id, v in raw.items():
+            self.data[user_id] = {
+                "weeks": int(v.get("weeks", 0)),
+                "last": v.get("last"),
+            }
+        self.last_run = await cyberware_last_run_get()
 
     def cog_unload(self):
         self.weekly_check.cancel()
@@ -98,20 +96,13 @@ class CyberwareManager(commands.Cog):
         logs: List[str] = []
         results = await self.process_week(log=logs)
 
-        weekly_entries = await db_load(
-            "cyberware_weekly", default=[], seed_path=config.CYBERWARE_WEEKLY_FILE
+        run_at = datetime.utcnow()
+        await cyberware_weekly_add(
+            run_at=run_at,
+            checkup_ids=[str(x) for x in results.get("checkup", [])],
+            paid_ids=[str(x) for x in results.get("paid", [])],
+            unpaid_ids=[str(x) for x in results.get("unpaid", [])],
         )
-        if not isinstance(weekly_entries, list):
-            weekly_entries = []
-        weekly_entries.append(
-            {
-                "timestamp": datetime.utcnow().isoformat(),
-                "checkup": results.get("checkup", []),
-                "paid": results.get("paid", []),
-                "unpaid": results.get("unpaid", []),
-            }
-        )
-        await db_save("cyberware_weekly", weekly_entries)
 
         summary = "\n".join(logs) if logs else "✅ No actions performed."
         if notify_user:
@@ -137,6 +128,7 @@ class CyberwareManager(commands.Cog):
                         await notify_user.send("❌ Weekly wholesaler refresh errored.")
                     except Exception:
                         logger.warning("Suppressed exception", exc_info=True)
+
     async def process_week(
         self,
         *,
@@ -144,18 +136,16 @@ class CyberwareManager(commands.Cog):
         log: Optional[List[str]] = None,
         target_member: Optional[discord.Member] = None,
     ) -> Dict[str, List[int]]:
-        """Apply weekly check-up logic and deduct medication costs.
-
-        Returns a mapping with keys ``checkup`` (players who did a checkup),
-        ``paid`` (kept the role and paid) and ``unpaid`` (kept the role but
-        couldn't pay).
-        """
+        """Apply weekly check-up logic and deduct medication costs."""
         control = self.bot.get_cog("SystemControl")
         if control and not control.is_enabled("cyberware"):
-            return
+            if log is not None:
+                log.append("Cyberware system disabled.")
+            return {"checkup": [], "paid": [], "unpaid": []}
+
         guild = self.bot.get_guild(config.GUILD_ID)
         if not guild:
-            return
+            return {"checkup": [], "paid": [], "unpaid": []}
 
         checkup_role = guild.get_role(config.CYBER_CHECKUP_ROLE_ID)
         medium_role = guild.get_role(config.CYBER_MEDIUM_ROLE_ID)
@@ -169,7 +159,6 @@ class CyberwareManager(commands.Cog):
 
         week_inc = self._week_increment()
         members = [target_member] if target_member else guild.members
-        today = get_tz_now().date()
         for member in members:
             if not any(r.id == config.APPROVED_ROLE_ID for r in member.roles):
                 continue
@@ -201,11 +190,9 @@ class CyberwareManager(commands.Cog):
             has_checkup = checkup_role in member.roles if checkup_role else False
 
             if role_level is None:
-                # Keep streak data if the user temporarily loses the role
                 continue
 
             if not has_checkup:
-                # Give the checkup role without charging
                 if checkup_role:
                     if not dry_run:
                         await member.add_roles(
@@ -232,76 +219,45 @@ class CyberwareManager(commands.Cog):
             weeks += member_inc
             cost = self.calculate_cost(role_level, weeks)
             if log is not None:
-                log.append(f"Processing <@{member.id}> — week {weeks} cost ${cost}")
-            balance = await self.unbelievaboat.get_balance(member.id)
-            if not balance:
-                if log_channel and not dry_run:
-                    await log_channel.send(
-                        f"⚠️ Could not fetch balance for <@{member.id}> to process cyberware meds."
-                    )
-                if log is not None:
-                    if dry_run:
-                        log.append(f"Would notify missing balance for <@{member.id}>")
-                    else:
-                        log.append(f"⚠️ Could not fetch balance for <@{member.id}>")
-                continue
-
-            if dry_run:
-                check = await self.unbelievaboat.verify_balance_ops(member.id)
-                if log is not None:
-                    log.append(
-                        "🔄 Balance check passed."
-                        if check
-                        else "⚠️ Balance update check failed."
-                    )
-
-            total = balance.get("cash", 0) + balance.get("bank", 0)
-            if total < cost:
-                if log_channel and not dry_run:
-                    await log_channel.send(
-                        f"🚨 <@{member.id}> cannot pay ${cost} for immunosuppressants and is in danger of cyberpsychosis."
-                    )
-                if log is not None:
-                    if dry_run:
-                        log.append(
-                            f"Would warn insufficient funds for <@{member.id}> (${cost})"
+                log.append(
+                    f"Charging <@{member.id}> ${cost} for week {weeks} ({role_level})"
+                )
+            if not dry_run:
+                balance = await self.unbelievaboat.get_balance(member.id)
+                if balance:
+                    cash = int(balance.get("cash", 0))
+                    bank = int(balance.get("bank", 0))
+                    total = cash + bank
+                    if total >= cost:
+                        ok = await self.unbelievaboat.update_balance(
+                            member.id,
+                            {"cash": -min(cost, cash), "bank": -max(0, cost - cash)},
+                            reason=f"Cyberware meds week {weeks}",
                         )
-                    else:
-                        log.append(
-                            f"🚨 <@{member.id}> cannot pay ${cost} for immunosuppressants"
-                        )
-                results["unpaid"].append(member.id)
-            else:
-                success = True
-                if not dry_run:
-                    success = await self.unbelievaboat.update_balance(
-                        member.id, {"cash": -cost}, reason="Cyberware medication"
-                    )
-                if log_channel:
-                    if success and not dry_run:
-                        await log_channel.send(
-                            f"✅ Deducted ${cost} for cyberware meds from <@{member.id}> (week {weeks})."
-                        )
-                    elif not success and not dry_run:
-                        await log_channel.send(
-                            f"❌ Could not deduct ${cost} from <@{member.id}> for cyberware meds."
-                        )
-                if log is not None:
-                    if dry_run:
-                        log.append(
-                            f"✅ Would deduct ${cost} from <@{member.id}> for cyberware meds (week {weeks})."
-                        )
-                    else:
-                        if success:
-                            log.append(
-                                f"✅ Deducted ${cost} from <@{member.id}> for cyberware meds (week {weeks})."
-                            )
+                        if ok:
+                            if log is not None:
+                                log.append(
+                                    f"✅ Deducted ${cost} from <@{member.id}> for cyberware meds."
+                                )
                             results["paid"].append(member.id)
                         else:
+                            if log is not None:
+                                log.append(
+                                    f"❌ Could not deduct ${cost} from <@{member.id}> for cyberware meds."
+                                )
+                            results["unpaid"].append(member.id)
+                    else:
+                        if log is not None:
                             log.append(
                                 f"❌ Could not deduct ${cost} from <@{member.id}> for cyberware meds."
                             )
-                            results["unpaid"].append(member.id)
+                        results["unpaid"].append(member.id)
+                else:
+                    if log is not None:
+                        log.append(
+                            f"❌ Could not deduct ${cost} from <@{member.id}> for cyberware meds."
+                        )
+                    results["unpaid"].append(member.id)
 
             if not dry_run:
                 self.data[user_id] = {
@@ -312,13 +268,12 @@ class CyberwareManager(commands.Cog):
                     log.append(f"Streak is now {weeks} week(s) for <@{member.id}>")
             elif log is not None:
                 log.append(f"Streak would become {weeks} week(s) for <@{member.id}>")
+
         if not dry_run:
             if target_member is None:
                 self.last_run = datetime.utcnow()
-            save_payload = {**self.data}
-            if self.last_run:
-                save_payload["_last_run"] = self.last_run.isoformat()
-            await db_save("cyberware_log", save_payload)
+                await cyberware_last_run_set(self.last_run)
+            await cyberware_status_upsert_many(self.data)
             if log is not None:
                 log.append("✅ Data saved.")
         elif log is not None:
@@ -333,60 +288,46 @@ class CyberwareManager(commands.Cog):
     async def simulate_cyberware(
         self,
         ctx,
+        member: Optional[str] = None,
+        weeks: Optional[int] = None,
         *args: str,
     ):
-        """Simulate weekly cyberware costs.
-
-        With no arguments, performs a full dry-run of the weekly process. When
-        ``member`` and ``weeks`` are provided, it simply calculates how much that
-        user would owe on the given week.
-        """
-
-        member: Optional[str] = None
-        weeks: Optional[int] = None
+        """Simulate weekly cyberware costs."""
         verbose = False
-        remaining = []
+        remaining_args = []
         for arg in args:
             if arg.lower() in {"-v", "--verbose", "verbose"}:
                 verbose = True
-            elif arg.isdigit() and weeks is None:
-                weeks = int(arg)
             else:
-                remaining.append(arg)
-        if remaining:
-            member = remaining[0]
+                remaining_args.append(arg)
 
         resolved_member: Optional[discord.Member] = None
-        if member:
+        member_str = member
+        if member_str is None and remaining_args:
+            member_str = remaining_args.pop(0)
+        if member_str is not None:
             try:
-                resolved_member = await commands.MemberConverter().convert(ctx, member)
-            except commands.BadArgument:
-                await ctx.send("❌ Could not resolve user.")
-                return
-        if resolved_member and not any(
-            r.id == config.APPROVED_ROLE_ID for r in resolved_member.roles
-        ):
-            await ctx.send(
-                f"⏭️ {resolved_member.display_name} has no approved character."
-            )
-            return
+                member_id = int(str(member_str).strip("<@!>"))
+                resolved_member = ctx.guild.get_member(member_id)
+            except (ValueError, AttributeError):
+                pass
+        if weeks is None and remaining_args:
+            try:
+                weeks = int(remaining_args[0])
+            except ValueError:
+                pass
 
-        # Specific user/week cost preview
         if resolved_member and weeks is not None:
-            guild = ctx.guild
-            medium_role = guild.get_role(config.CYBER_MEDIUM_ROLE_ID)
-            high_role = guild.get_role(config.CYBER_HIGH_ROLE_ID)
-            extreme_role = guild.get_role(config.CYBER_EXTREME_ROLE_ID)
             level = None
-            if extreme_role and extreme_role in resolved_member.roles:
+            guild = ctx.guild
+            if guild.get_role(config.CYBER_EXTREME_ROLE_ID) in resolved_member.roles:
                 level = "extreme"
-            elif high_role and high_role in resolved_member.roles:
+            elif guild.get_role(config.CYBER_HIGH_ROLE_ID) in resolved_member.roles:
                 level = "high"
-            elif medium_role and medium_role in resolved_member.roles:
+            elif guild.get_role(config.CYBER_MEDIUM_ROLE_ID) in resolved_member.roles:
                 level = "medium"
-
             if level is None:
-                await ctx.send(f"{resolved_member.display_name} has no cyberware role.")
+                await ctx.send(f"❌ {resolved_member.display_name} has no cyberware role.")
                 return
 
             cost = self.calculate_cost(level, weeks)
@@ -395,7 +336,6 @@ class CyberwareManager(commands.Cog):
             )
             return
 
-        # Global dry-run simulation or single-user when member is provided
         logs: List[str] = []
         await self.process_week(dry_run=True, log=logs, target_member=resolved_member)
         summary = "\n".join(logs) if logs else "✅ Simulation complete."
@@ -435,10 +375,7 @@ class CyberwareManager(commands.Cog):
             )
 
         self.data[str(member.id)] = {"weeks": 0, "last": None}
-        payload = {**self.data}
-        if self.last_run:
-            payload["_last_run"] = self.last_run.isoformat()
-        await db_save("cyberware_log", payload)
+        await cyberware_status_upsert(str(member.id), 0, None)
 
     @commands.command(aliases=["weekswithoutcheckup", "wwocup", "wwc"])
     @commands.check_any(is_ripperdoc(), is_fixer())
@@ -501,7 +438,7 @@ class CyberwareManager(commands.Cog):
     )
     async def checkup_report(self, ctx: commands.Context) -> None:
         """Show who did a checkup and who paid or failed to pay this week."""
-        data = await db_load("cyberware_weekly", default=[], seed_path=config.CYBERWARE_WEEKLY_FILE)
+        data = await cyberware_weekly_get_all()
         if not data:
             await ctx.send("❌ No weekly data recorded yet.")
             return
@@ -509,7 +446,7 @@ class CyberwareManager(commands.Cog):
         last = data[-1]
         guild = ctx.guild
 
-        def mention_list(ids: List[int]) -> str:
+        def mention_list(ids: List) -> str:
             names = []
             for uid in ids:
                 member = guild.get_member(int(uid))
@@ -529,13 +466,7 @@ class CyberwareManager(commands.Cog):
     async def collect_cyberware(
         self, ctx: commands.Context, member: discord.Member, *args: str
     ) -> None:
-        """Manually collect cyberware medication from ``member``.
-
-        The command is ignored if the user already paid or had a checkup in the
-        latest weekly entry. Without ``-v`` only the final few log lines are
-        shown. Use ``-v`` for the complete processing log.
-        """
-
+        """Manually collect cyberware medication from ``member``."""
         verbose = any(a.lower() in {"-v", "--verbose", "verbose"} for a in args)
 
         if not any(r.id == config.APPROVED_ROLE_ID for r in ctx.author.roles):
@@ -546,20 +477,16 @@ class CyberwareManager(commands.Cog):
             await ctx.send(f"⏭️ {member.display_name} has no approved character.")
             return
 
-        weekly_data = await db_load(
-            "cyberware_weekly", default=[], seed_path=config.CYBERWARE_WEEKLY_FILE
-        )
-        last = weekly_data[-1] if weekly_data else None
-        if last and (
-            member.id in last.get("checkup", [])
-            or member.id in last.get("paid", [])
+        last_row_id, last_entry = await cyberware_weekly_get_last_row()
+        if last_entry and (
+            str(member.id) in last_entry.get("checkup", [])
+            or str(member.id) in last_entry.get("paid", [])
         ):
             await ctx.send("⏭️ Member already processed this week.")
             return
 
         log_lines: List[str] = [f"💊 Manual cyberware collection for <@{member.id}>"]
 
-        # Report whether the member already exists in cyberware_log.json
         user_key = str(member.id)
         if user_key in self.data:
             msg = f"Found existing entry for {member.display_name} ({member.id})"
@@ -570,27 +497,19 @@ class CyberwareManager(commands.Cog):
 
         result = await self.process_week(log=log_lines, target_member=member)
 
-        if not weekly_data:
-            weekly_data.append(
-                {
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "checkup": [],
-                    "paid": [],
-                    "unpaid": [],
-                }
-            )
+        # Ensure there's a current weekly run row to update
+        if last_row_id is None:
+            last_row_id = await cyberware_weekly_insert_empty()
 
-        last = weekly_data[-1]
-        paid_set = set(map(int, last.get("paid", [])))
-        unpaid_set = set(map(int, last.get("unpaid", [])))
-        if member.id in result.get("paid", []):
-            paid_set.add(member.id)
-            unpaid_set.discard(member.id)
-        elif member.id in result.get("unpaid", []):
-            unpaid_set.add(member.id)
-        last["paid"] = list(paid_set)
-        last["unpaid"] = list(unpaid_set)
-        await db_save("cyberware_weekly", weekly_data)
+        if last_row_id is not None:
+            paid_set = set(last_entry.get("paid", []))
+            unpaid_set = set(last_entry.get("unpaid", []))
+            if member.id in result.get("paid", []):
+                paid_set.add(str(member.id))
+                unpaid_set.discard(str(member.id))
+            elif member.id in result.get("unpaid", []):
+                unpaid_set.add(str(member.id))
+            await cyberware_weekly_update_row(last_row_id, list(paid_set), list(unpaid_set))
 
         summary = "\n".join(log_lines) if log_lines else "✅ Completed."
         display = summary if verbose else "\n".join(log_lines[-3:])
@@ -603,30 +522,19 @@ class CyberwareManager(commands.Cog):
     @commands.check_any(
         is_ripperdoc(), is_fixer(), commands.has_permissions(administrator=True)
     )
-    async def cyberware_status(self, ctx: commands.Context) -> None:
+    async def cyberware_status_cmd(self, ctx: commands.Context) -> None:
         """Display the current week status for all cyberware users."""
-
-        weekly_data = await db_load(
-            "cyberware_weekly", default=[], seed_path=config.CYBERWARE_WEEKLY_FILE
-        )
-        if weekly_data:
-            last = weekly_data[-1]
-            timestamp = last.get("timestamp")
-            checkup_set = set(map(int, last.get("checkup", [])))
-            paid_set = set(map(int, last.get("paid", [])))
-            unpaid_set = set(map(int, last.get("unpaid", [])))
+        _last_row_id, last_entry = await cyberware_weekly_get_last_row()
+        if last_entry:
+            timestamp = last_entry.get("timestamp")
+            checkup_set = set(str(x) for x in last_entry.get("checkup", []))
+            paid_set = set(str(x) for x in last_entry.get("paid", []))
+            unpaid_set = set(str(x) for x in last_entry.get("unpaid", []))
         else:
-            last = {}
-            timestamp = None
-            checkup_set: set[int] = set()
-            paid_set: set[int] = set()
-            unpaid_set: set[int] = set()
-            # Fall back to the last_run value so the status output is still
-            # meaningful even before the first weekly entry is created.
-            if self.last_run:
-                timestamp = self.last_run.isoformat()
-        if timestamp is None:
-            timestamp = "N/A"
+            timestamp = self.last_run.isoformat() if self.last_run else "N/A"
+            checkup_set: set[str] = set()
+            paid_set: set[str] = set()
+            unpaid_set: set[str] = set()
 
         guild = ctx.guild
         medium_role = guild.get_role(config.CYBER_MEDIUM_ROLE_ID)
@@ -645,38 +553,30 @@ class CyberwareManager(commands.Cog):
             )
             if not has_cyber:
                 continue
-            status: str
-            if member.id in checkup_set:
+            uid = str(member.id)
+            if uid in checkup_set:
                 status = "checkup"
-            elif member.id in paid_set:
+            elif uid in paid_set:
                 status = "paid"
-            elif member.id in unpaid_set:
+            elif uid in unpaid_set:
                 status = "unpaid"
             else:
                 status = "pending"
 
-            weeks = self.data.get(str(member.id), {}).get("weeks", 0)
+            weeks = self.data.get(uid, {}).get("weeks", 0)
             lines.append(f"{member.display_name}: {status} (week {weeks})")
 
         await ctx.send("\n".join(lines))
 
     @commands.command(name="paycyberware", aliases=["pay_cyberware"])
     async def pay_cyberware(self, ctx: commands.Context, *args: str) -> None:
-        """Pay your cyberware medication cost manually.
-
-        Works like ``!collect_cyberware`` but applies only to you. Use ``-v``
-        for a full processing log.
-        """
-
+        """Pay your cyberware medication cost manually."""
         verbose = any(a.lower() in {"-v", "--verbose", "verbose"} for a in args)
 
-        weekly_data = await db_load(
-            "cyberware_weekly", default=[], seed_path=config.CYBERWARE_WEEKLY_FILE
-        )
-        last = weekly_data[-1] if weekly_data else None
-        if last and (
-            ctx.author.id in last.get("checkup", [])
-            or ctx.author.id in last.get("paid", [])
+        last_row_id, last_entry = await cyberware_weekly_get_last_row()
+        if last_entry and (
+            str(ctx.author.id) in last_entry.get("checkup", [])
+            or str(ctx.author.id) in last_entry.get("paid", [])
         ):
             await ctx.send("⏭️ You already processed your cyberware this week.")
             return
@@ -686,27 +586,18 @@ class CyberwareManager(commands.Cog):
         ]
         result = await self.process_week(log=log_lines, target_member=ctx.author)
 
-        if not weekly_data:
-            weekly_data.append(
-                {
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "checkup": [],
-                    "paid": [],
-                    "unpaid": [],
-                }
-            )
+        if last_row_id is None:
+            last_row_id = await cyberware_weekly_insert_empty()
 
-        last = weekly_data[-1]
-        paid_set = set(map(int, last.get("paid", [])))
-        unpaid_set = set(map(int, last.get("unpaid", [])))
-        if ctx.author.id in result.get("paid", []):
-            paid_set.add(ctx.author.id)
-            unpaid_set.discard(ctx.author.id)
-        elif ctx.author.id in result.get("unpaid", []):
-            unpaid_set.add(ctx.author.id)
-        last["paid"] = list(paid_set)
-        last["unpaid"] = list(unpaid_set)
-        await db_save("cyberware_weekly", weekly_data)
+        if last_row_id is not None:
+            paid_set = set(last_entry.get("paid", []))
+            unpaid_set = set(last_entry.get("unpaid", []))
+            if ctx.author.id in result.get("paid", []):
+                paid_set.add(str(ctx.author.id))
+                unpaid_set.discard(str(ctx.author.id))
+            elif ctx.author.id in result.get("unpaid", []):
+                unpaid_set.add(str(ctx.author.id))
+            await cyberware_weekly_update_row(last_row_id, list(paid_set), list(unpaid_set))
 
         summary = "\n".join(log_lines) if log_lines else "✅ Completed."
         display = summary if verbose else "\n".join(log_lines[-3:])
@@ -714,3 +605,32 @@ class CyberwareManager(commands.Cog):
         admin_cog = self.bot.get_cog("Admin")
         if admin_cog:
             await admin_cog.log_audit(ctx.author, summary)
+
+    @commands.command(name="manual_cyberware_log", aliases=["manualcyberwarelog", "mcl"])
+    @commands.check_any(
+        is_ripperdoc(), is_fixer(), commands.has_permissions(administrator=True)
+    )
+    async def manual_cyberware_log(
+        self, ctx: commands.Context, member: discord.Member, weeks: int
+    ) -> None:
+        """Manually set a member's cyberware week count."""
+        if weeks < 0:
+            await ctx.send("❌ Weeks cannot be negative.")
+            return
+        user_id = str(member.id)
+        last_str = self.data.get(user_id, {}).get("last") if isinstance(self.data.get(user_id), dict) else None
+        last_dt = None
+        if last_str:
+            try:
+                last_dt = datetime.fromisoformat(last_str)
+            except Exception:
+                pass
+        self.data[user_id] = {"weeks": weeks, "last": last_str}
+        await cyberware_status_upsert(user_id, weeks, last_dt)
+        await ctx.send(f"✅ Set {member.display_name}'s cyberware streak to {weeks} week(s).")
+        admin_cog = self.bot.get_cog("Admin")
+        if admin_cog:
+            await admin_cog.log_audit(
+                ctx.author,
+                f"Manually set {member.display_name}'s cyberware streak to {weeks} week(s).",
+            )

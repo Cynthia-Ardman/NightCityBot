@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 import config
-from NightCityBot.utils.db import db_load, db_save
+from NightCityBot.utils.db import system_settings_get_all, system_settings_set
 
 SYSTEMS = [
     "cyberware",
@@ -15,6 +15,7 @@ SYSTEMS = [
     "dm",
 ]
 
+
 class SystemControl(commands.Cog):
     """Enable or disable major bot systems."""
 
@@ -24,16 +25,15 @@ class SystemControl(commands.Cog):
         self.bot.loop.create_task(self.load_status())
 
     async def load_status(self):
-        self.status = await db_load(
-            "system_status", default={}, seed_path=config.SYSTEM_STATUS_FILE
-        )
+        self.status = await system_settings_get_all()
         updated = False
         for system in SYSTEMS:
             if system not in self.status:
                 self.status[system] = system == "wholesaler"
                 updated = True
         if updated:
-            await db_save("system_status", self.status)
+            for name, val in self.status.items():
+                await system_settings_set(name, val)
 
     def is_enabled(self, system: str) -> bool:
         return self.status.get(system, False)
@@ -42,7 +42,7 @@ class SystemControl(commands.Cog):
         if system not in SYSTEMS:
             return False
         self.status[system] = value
-        await db_save("system_status", self.status)
+        await system_settings_set(system, value)
         return True
 
     @commands.command(aliases=["enablesystem", "es", "systemenable"])

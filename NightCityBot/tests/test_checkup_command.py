@@ -32,7 +32,7 @@ async def run(suite, ctx) -> List[str]:
     with (
         patch.object(ctx.guild, "get_role", return_value=checkup_role),
         patch.object(ctx.guild, "get_channel", return_value=log_channel),
-        patch("NightCityBot.cogs.cyberware.db_save", new=AsyncMock()),
+        patch("NightCityBot.cogs.cyberware.cyberware_status_upsert", new=AsyncMock()),
     ):
         await cyber.checkup.callback(cyber, ctx, member)
     suite.assert_send(logs, member.remove_roles, "remove_roles")

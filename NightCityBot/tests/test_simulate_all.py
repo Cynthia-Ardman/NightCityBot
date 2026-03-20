@@ -45,7 +45,8 @@ async def run(suite, ctx) -> List[str]:
             cyber.unbelievaboat, "update_balance", new=AsyncMock(return_value=True)
         ),
         patch.object(admin, "log_audit", new=AsyncMock()) as mock_audit,
-        patch("NightCityBot.cogs.cyberware.db_save", new=AsyncMock()),
+        patch("NightCityBot.cogs.cyberware.cyberware_status_upsert_many", new=AsyncMock()),
+        patch("NightCityBot.cogs.cyberware.cyberware_last_run_set", new=AsyncMock()),
     ):
         await economy.simulate_all(ctx, target_user=user)
         suite.assert_called(logs, mock_audit, "log_audit")

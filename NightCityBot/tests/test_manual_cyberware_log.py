@@ -39,17 +39,19 @@ async def run(suite, ctx) -> List[str]:
 
     ctx.send = AsyncMock()
     with (
-        patch('NightCityBot.cogs.cyberware.db_load', new=AsyncMock(return_value=[])),
-        patch('NightCityBot.cogs.cyberware.db_save', new=AsyncMock()) as mock_save,
+        patch('NightCityBot.cogs.cyberware.cyberware_weekly_get_last_row', new=AsyncMock(return_value=(None, {}))),
+        patch('NightCityBot.cogs.cyberware.cyberware_weekly_insert_empty', new=AsyncMock(return_value=1)) as mock_insert,
+        patch('NightCityBot.cogs.cyberware.cyberware_weekly_update_row', new=AsyncMock(return_value=True)),
+        patch('NightCityBot.cogs.cyberware.cyberware_status_upsert_many', new=AsyncMock()),
+        patch('NightCityBot.cogs.cyberware.cyberware_last_run_set', new=AsyncMock()),
         patch.object(cyber.unbelievaboat, 'get_balance', new=AsyncMock(return_value={"cash": 500, "bank": 0})),
         patch.object(cyber.unbelievaboat, 'update_balance', new=AsyncMock(return_value=True)),
     ):
         await cyber.collect_cyberware.callback(cyber, ctx, user)
-        suite.assert_called(logs, mock_save, 'db_save')
-        saved = mock_save.await_args_list[-1].args[1]
-        if isinstance(saved, list) and saved:
+        suite.assert_called(logs, mock_insert, 'cyberware_weekly_insert_empty')
+        if mock_insert.called:
             logs.append('✅ weekly entry created')
         else:
-            logs.append(f'❌ unexpected weekly data: {saved}')
+            logs.append('❌ weekly entry not created')
     ctx.author = original_author
     return logs

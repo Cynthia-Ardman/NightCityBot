@@ -42,6 +42,16 @@ def _make_cog(tmp_path: Path, monkeypatch):
 
     cog._audit_send = AsyncMock()
 
+    monkeypatch.setattr("NightCityBot.cogs.wholesaler.wh_lots_get_all", AsyncMock(return_value=[]))
+    monkeypatch.setattr("NightCityBot.cogs.wholesaler.wh_stores_get_all", AsyncMock(return_value={}))
+    monkeypatch.setattr("NightCityBot.cogs.wholesaler.wh_shops_get_all", AsyncMock(return_value={}))
+    monkeypatch.setattr("NightCityBot.cogs.wholesaler.wh_settings_get", AsyncMock(return_value={}))
+    monkeypatch.setattr("NightCityBot.cogs.wholesaler.wh_lots_replace_all", AsyncMock(return_value=True))
+    monkeypatch.setattr("NightCityBot.cogs.wholesaler.wh_stores_replace_all", AsyncMock(return_value=True))
+    monkeypatch.setattr("NightCityBot.cogs.wholesaler.wh_shops_replace_all", AsyncMock(return_value=True))
+    monkeypatch.setattr("NightCityBot.cogs.wholesaler.wh_settings_save", AsyncMock(return_value=True))
+    monkeypatch.setattr("NightCityBot.cogs.wholesaler.wh_tx_append", AsyncMock(return_value=True))
+
     return cog
 
 

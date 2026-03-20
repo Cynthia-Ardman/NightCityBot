@@ -26,20 +26,28 @@ async def run(suite, ctx) -> List[str]:
     mock_author.roles = [biz_role]
     ctx.author = mock_author
 
-    storage = {}
+    opened = set()
+    add_count = 0
 
-    async def fake_load(*_, **__):
-        return storage.get("data", {})
+    async def fake_exists_today(uid):
+        return uid in opened
 
-    async def fake_save(_, data):
-        storage["data"] = data
+    async def fake_count_month(uid, year, month):
+        return len(opened)
+
+    async def fake_add(uid, ts):
+        nonlocal add_count
+        opened.add(uid)
+        add_count += 1
+        return True
 
     ctx.send = AsyncMock()
     sunday = datetime(2025, 6, 15)
     with (
         patch("NightCityBot.utils.helpers.get_tz_now", return_value=sunday),
-        patch("NightCityBot.cogs.economy.db_load", new=fake_load),
-        patch("NightCityBot.cogs.economy.db_save", new=fake_save),
+        patch("NightCityBot.cogs.economy.open_log_exists_today", new=fake_exists_today),
+        patch("NightCityBot.cogs.economy.open_log_count_month", new=fake_count_month),
+        patch("NightCityBot.cogs.economy.open_log_add", new=fake_add),
         patch.object(economy.unbelievaboat, "update_balance", new=AsyncMock()),
     ):
         await asyncio.gather(
@@ -47,12 +55,11 @@ async def run(suite, ctx) -> List[str]:
             economy.open_shop(ctx),
         )
 
-    entries = storage.get("data", {}).get(str(mock_author.id), [])
     msgs = [c.args[0] for c in ctx.send.call_args_list]
-    if len(entries) == 1 and any("already" in m for m in msgs):
+    if add_count == 1 and any("already" in m for m in msgs):
         logs.append("✅ concurrent open_shop calls serialized")
     else:
-        logs.append("❌ concurrency issue in open_shop")
+        logs.append(f"❌ concurrency issue in open_shop (add_count={add_count})")
     ctx.channel = original_channel
     ctx.author = original_author
     return logs

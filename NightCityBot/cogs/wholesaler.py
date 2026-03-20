@@ -15,7 +15,15 @@ from openpyxl import load_workbook
 
 import config
 from NightCityBot.utils import helpers
-from NightCityBot.utils.db import db_load, db_save
+from NightCityBot.utils.db import (
+    db_load, db_save,
+    wh_lots_get_all, wh_lots_replace_all,
+    wh_stores_get_all, wh_stores_replace_all,
+    wh_shops_get_all, wh_shops_replace_all,
+    wh_pending_payouts_get,
+    wh_settings_get, wh_settings_save,
+    wh_tx_append, wh_tx_get_all,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -328,7 +336,7 @@ class WholesalerCog(commands.Cog):
             self.store_state_file.exists(),
             self.tx_file.exists(),
         )
-        await db_load("wholesaler_tx", default=[], seed_path=self.tx_file)
+        await wh_tx_get_all()
         await self.emit_inventory_snapshot_audit("BOT_READY")
 
     async def _ensure_inventory_files_exist(self) -> None:
@@ -627,14 +635,21 @@ class WholesalerCog(commands.Cog):
         store_file = getattr(self, "store_state_file", self.state_file)
         store_inventory_dir = getattr(self, "store_inventory_dir", Path(self.state_file).parent / "inventory" / "stores")
 
-        db_state = await db_load("wholesaler_state", default=None)
-        if db_state is not None and isinstance(db_state, dict):
-            state = db_state
-            state.setdefault("shop_registry", {})
-            state.setdefault("stores", {})
-            state.setdefault("wholesale_lots", [])
-            state.setdefault("pending_payouts", [])
-            state.setdefault("settings", {})
+        lots = await wh_lots_get_all()
+        stores_db = await wh_stores_get_all()
+        shops_db = await wh_shops_get_all()
+        pending = await wh_pending_payouts_get()
+        settings_db = await wh_settings_get()
+
+        if lots or stores_db or shops_db:
+            state = {
+                "wholesale_lots": lots,
+                "stores": stores_db,
+                "shop_registry": shops_db,
+                "pending_payouts": pending,
+                "settings": settings_db,
+                "transactions": 0,
+            }
             restock = state["settings"].setdefault("restock", {})
             for key, value in self.DEFAULT_RESTOCK_SETTINGS.items():
                 restock.setdefault(key, value)
@@ -645,6 +660,7 @@ class WholesalerCog(commands.Cog):
             )
             return state
 
+        # Fall back to file loading (first boot / migration not yet run)
         state = await helpers.load_json_file(
             self.state_file,
             default={
@@ -673,10 +689,10 @@ class WholesalerCog(commands.Cog):
             for store_id, payload in legacy_stores.items():
                 if not isinstance(payload, dict):
                     continue
-                lots = payload.get("lots", [])
+                lots_list = payload.get("lots", [])
                 stores[str(store_id)] = {
                     "owner_id": payload.get("owner_id"),
-                    "lots": lots if isinstance(lots, list) else [],
+                    "lots": lots_list if isinstance(lots_list, list) else [],
                     "controlled_buyers": payload.get("controlled_buyers", []),
                 }
 
@@ -690,11 +706,11 @@ class WholesalerCog(commands.Cog):
                 if not isinstance(payload, dict):
                     continue
                 store_id = str(payload.get("store_id") or store_file_path.stem)
-                lots = payload.get("lots", [])
-                if isinstance(lots, list):
+                lots_list = payload.get("lots", [])
+                if isinstance(lots_list, list):
                     owner_id = payload.get("owner_id")
                     controlled = payload.get("controlled_buyers", [])
-                    stores[store_id] = {"owner_id": owner_id, "lots": lots, "controlled_buyers": controlled}
+                    stores[store_id] = {"owner_id": owner_id, "lots": lots_list, "controlled_buyers": controlled}
 
         state["stores"] = stores
         state["shop_registry"] = shop_registry
@@ -924,7 +940,11 @@ class WholesalerCog(commands.Cog):
         if store_file != self.state_file:
             store_index_ok = await helpers.save_json_file(store_file, stores_payload)
 
-        db_ok = await db_save("wholesaler_state", state)
+        db_lots_ok = await wh_lots_replace_all(state.get("wholesale_lots", []))
+        db_stores_ok = await wh_stores_replace_all(state.get("stores", {}))
+        db_shops_ok = await wh_shops_replace_all(state.get("shop_registry", {}))
+        db_settings_ok = await wh_settings_save(state.get("settings", {}))
+        db_ok = db_lots_ok and db_stores_ok and db_shops_ok and db_settings_ok
         ok = main_ok and wholesale_ok and store_index_ok and store_files_ok and db_ok
         if not ok:
             logger.error(
@@ -943,12 +963,7 @@ class WholesalerCog(commands.Cog):
 
     async def _append_tx(self, tx: dict[str, Any]) -> bool:
         file_ok = await helpers.append_json_file(self.tx_file, tx)
-        tx_list = await db_load("wholesaler_tx", default=[], seed_path=self.tx_file)
-        if not isinstance(tx_list, list):
-            tx_list = []
-        if tx not in tx_list:
-            tx_list.append(tx)
-        db_ok = await db_save("wholesaler_tx", tx_list)
+        db_ok = await wh_tx_append(tx)
         return file_ok and db_ok
 
     @staticmethod

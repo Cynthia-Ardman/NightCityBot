@@ -30,7 +30,8 @@ async def run(suite, ctx) -> List[str]:
             patch.object(economy.unbelievaboat, "update_balance", new=AsyncMock(return_value=True)),
             patch.object(cyber.unbelievaboat, "get_balance", new=AsyncMock(return_value={"cash": 1000, "bank": 0})),
             patch.object(cyber.unbelievaboat, "update_balance", new=AsyncMock(return_value=True)),
-            patch("NightCityBot.cogs.cyberware.db_save", new=AsyncMock()),
+            patch("NightCityBot.cogs.cyberware.cyberware_status_upsert_many", new=AsyncMock()),
+            patch("NightCityBot.cogs.cyberware.cyberware_last_run_set", new=AsyncMock()),
         ):
             await economy.simulate_rent(ctx)
             logs.append("✅ simulate_rent (global) executed")
