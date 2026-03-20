@@ -944,10 +944,11 @@ class WholesalerCog(commands.Cog):
 
     async def _append_tx(self, tx: dict[str, Any]) -> bool:
         file_ok = await helpers.append_json_file(self.tx_file, tx)
-        tx_list = await db_load("wholesaler_tx", default=[])
+        tx_list = await db_load("wholesaler_tx", default=[], seed_path=self.tx_file)
         if not isinstance(tx_list, list):
             tx_list = []
-        tx_list.append(tx)
+        if tx not in tx_list:
+            tx_list.append(tx)
         db_ok = await db_save("wholesaler_tx", tx_list)
         return file_ok and db_ok
 
