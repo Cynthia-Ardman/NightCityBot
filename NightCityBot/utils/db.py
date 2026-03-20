@@ -221,6 +221,15 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
             created_at  TIMESTAMPTZ DEFAULT NOW()
         )
         """,
+        # ── Bot configuration (editable monetary constants) ───────────────
+        """
+        CREATE TABLE IF NOT EXISTS bot_config (
+            key         TEXT PRIMARY KEY,
+            value       TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            updated_at  TIMESTAMPTZ DEFAULT NOW()
+        )
+        """,
     ]
 
     async with pool.acquire() as conn:
@@ -1524,6 +1533,84 @@ async def wh_tx_get_all() -> list[dict]:
     except Exception:
         logger.error("wh_tx_get_all failed", exc_info=True)
         return []
+
+
+# ---------------------------------------------------------------------------
+# Bot config (editable monetary constants stored in DB)
+# ---------------------------------------------------------------------------
+
+async def bot_config_get_all() -> list[tuple[str, str, str]]:
+    """Return all bot_config rows as list of (key, value, description) tuples."""
+    try:
+        pool = await get_pool()
+        rows = await pool.fetch(
+            "SELECT key, value, COALESCE(description, '') AS description FROM bot_config ORDER BY key"
+        )
+        return [(row["key"], row["value"], row["description"]) for row in rows]
+    except Exception:
+        logger.error("bot_config_get_all failed", exc_info=True)
+        return []
+
+
+async def bot_config_get(key: str, default: str | None = None) -> str | None:
+    """Return a single bot_config value, or *default* if missing."""
+    try:
+        pool = await get_pool()
+        row = await pool.fetchrow("SELECT value FROM bot_config WHERE key = $1", key)
+        return row["value"] if row else default
+    except Exception:
+        logger.error("bot_config_get failed for key '%s'", key, exc_info=True)
+        return default
+
+
+async def bot_config_set(key: str, value: str, description: str = "") -> bool:
+    """Upsert a bot_config key-value pair."""
+    try:
+        pool = await get_pool()
+        await pool.execute(
+            """
+            INSERT INTO bot_config (key, value, description, updated_at)
+            VALUES ($1, $2, $3, NOW())
+            ON CONFLICT (key) DO UPDATE
+                SET value = EXCLUDED.value,
+                    description = CASE WHEN EXCLUDED.description = '' THEN bot_config.description
+                                       ELSE EXCLUDED.description END,
+                    updated_at = NOW()
+            """,
+            key, str(value), description,
+        )
+        return True
+    except Exception:
+        logger.error("bot_config_set failed for key '%s'", key, exc_info=True)
+        return False
+
+
+async def bot_config_seed(defaults: dict[str, tuple[Any, str]]) -> int:
+    """Insert defaults for any key not yet present.
+
+    *defaults* maps key → (default_value, description).
+    Returns the number of rows inserted.
+    """
+    inserted = 0
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            for key, (value, description) in defaults.items():
+                result = await conn.execute(
+                    """
+                    INSERT INTO bot_config (key, value, description, updated_at)
+                    VALUES ($1, $2, $3, NOW())
+                    ON CONFLICT (key) DO NOTHING
+                    """,
+                    key, str(value), description,
+                )
+                if result.endswith("1"):
+                    inserted += 1
+        if inserted:
+            logger.info("bot_config: seeded %d default rows", inserted)
+    except Exception:
+        logger.error("bot_config_seed failed", exc_info=True)
+    return inserted
 
 
 # ---------------------------------------------------------------------------

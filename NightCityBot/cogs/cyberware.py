@@ -22,15 +22,17 @@ from NightCityBot.utils.db import (
     cyberware_weekly_update_row,
 )
 from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
+from NightCityBot.utils import config_loader as _cfg
 
 logger = logging.getLogger(__name__)
 
+# Legacy module-level dicts kept as fallback defaults; runtime values come from
+# config_loader so server owners can edit them in the bot_config DB table.
 MAX_COST = {
     "medium": 2000,
     "high": 5000,
     "extreme": 10000,
 }
-BASE_FACTOR = {k: v / 128 for k, v in MAX_COST.items()}
 
 
 class CyberwareManager(commands.Cog):
@@ -59,9 +61,11 @@ class CyberwareManager(commands.Cog):
 
     def calculate_cost(self, level: str, weeks: int) -> int:
         """Return the medication cost for a given cyberware level and streak."""
-        base = BASE_FACTOR[level]
-        cost = int(base * (2 ** (weeks - 1)))
-        return min(cost, MAX_COST[level])
+        max_cost_map = _cfg.get_cyber_max_cost()
+        max_c = max_cost_map.get(level, MAX_COST.get(level, 2000))
+        base_factor = max_c / 128
+        cost = int(base_factor * (2 ** (weeks - 1)))
+        return min(cost, max_c)
 
     def _week_increment(self) -> int:
         """Return how many weeks have passed since the last full run."""

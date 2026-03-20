@@ -13,6 +13,7 @@ from NightCityBot.utils import startup_checks
 from NightCityBot.utils.helpers import load_json_file, save_json_file
 from NightCityBot.utils import db as _db
 from NightCityBot.utils.db import db_load, db_save, attendance_get_user, attendance_append, open_log_add_if_absent
+from NightCityBot.utils import config_loader as _cfg
 
 logger = logging.getLogger(__name__)
 
@@ -643,6 +644,74 @@ class Admin(commands.Cog):
             ctx.author,
             f"Backfilled logs: attend {attend_added}, open {open_added}",
         )
+
+    @commands.group(name="config", invoke_without_command=True)
+    @is_fixer()
+    async def config_group(self, ctx: commands.Context):
+        """Bot configuration commands. Use !config list/get/set/reload."""
+        await ctx.send(
+            "⚙️ **Config commands:**\n"
+            "`!config list` – list all settings\n"
+            "`!config get <key>` – get one setting\n"
+            "`!config set <key> <value>` – set a value (integer or float)\n"
+            "`!config reload` – reload cache from DB without changing values"
+        )
+
+    @config_group.command(name="list")
+    @is_fixer()
+    async def config_list(self, ctx: commands.Context):
+        """List all bot_config values."""
+        rows = await _db.bot_config_get_all()
+        if not rows:
+            await ctx.send("⚠️ No config values found in DB.")
+            return
+        lines = [f"`{k}` = **{v}** _{desc}_" for k, v, desc in rows]
+        chunks = []
+        chunk = []
+        length = 0
+        for line in lines:
+            if length + len(line) + 1 > 1900:
+                chunks.append("\n".join(chunk))
+                chunk = []
+                length = 0
+            chunk.append(line)
+            length += len(line) + 1
+        if chunk:
+            chunks.append("\n".join(chunk))
+        for i, text in enumerate(chunks, 1):
+            header = f"⚙️ **Bot Config** ({i}/{len(chunks)}):\n" if len(chunks) > 1 else "⚙️ **Bot Config:**\n"
+            await ctx.send(header + text)
+
+    @config_group.command(name="get")
+    @is_fixer()
+    async def config_get(self, ctx: commands.Context, key: str):
+        """Get a single config value by key."""
+        val = await _db.bot_config_get(key)
+        if val is None:
+            await ctx.send(f"❌ Key `{key}` not found in bot_config.")
+        else:
+            await ctx.send(f"⚙️ `{key}` = **{val}**")
+
+    @config_group.command(name="set")
+    @is_fixer()
+    async def config_set(self, ctx: commands.Context, key: str, value: str):
+        """Set a config value and reload the in-memory cache."""
+        existing = await _db.bot_config_get(key)
+        if existing is None:
+            await ctx.send(f"❌ Key `{key}` not found. Use `!config list` to see valid keys.")
+            return
+        await _db.bot_config_set(key, value)
+        await _cfg.reload_config()
+        await ctx.send(f"✅ `{key}` updated to **{value}** and cache reloaded.")
+        await self.log_audit(ctx.author, f"config set {key}={value}")
+
+    @config_group.command(name="reload")
+    @is_fixer()
+    async def config_reload(self, ctx: commands.Context):
+        """Reload the config cache from DB without changing any values."""
+        await _cfg.reload_config()
+        await ctx.send("✅ Config cache reloaded from DB.")
+        await self.log_audit(ctx.author, "config reload")
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):

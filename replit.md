@@ -15,6 +15,12 @@ A Discord bot for NCRP (Cyberpunk-themed RP server) managing economy, roleplay u
 
 Operational state is now persisted to **PostgreSQL** via the `json_store` table (key TEXT PK, value JSONB). File-based JSON storage is retained only for per-member balance backups.
 
+### `bot_config` table — runtime-editable economy constants
+
+All hardcoded dollar amounts (baseline living cost, housing/business/trauma rent tiers, attendance reward, cyberware max costs, tier-0 income scale, open-shop percent) are seeded into the `bot_config` table at startup and read via `NightCityBot/utils/config_loader.py`. Values in the DB override code defaults without requiring a redeploy. Admins can change values at runtime using `!config set <key> <value>` (fixer-only).
+
+`config_loader.py` public getters: `get_baseline_living_cost`, `get_attend_reward`, `get_role_costs_housing`, `get_role_costs_business`, `get_trauma_role_costs`, `get_tier0_income_scale`, `get_open_percent`, `get_cyber_max_cost`. Lifecycle: `seed_and_reload()` at startup, `reload_config()` on demand.
+
 ### PostgreSQL `json_store` keys
 
 | Key | Cog | Description |

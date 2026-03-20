@@ -10,15 +10,7 @@ import discord
 from discord.ext import commands
 from pathlib import Path
 from NightCityBot.utils.permissions import is_fixer
-from NightCityBot.utils.constants import (
-    ROLE_COSTS_BUSINESS,
-    ROLE_COSTS_HOUSING,
-    BASELINE_LIVING_COST,
-    TIER_0_INCOME_SCALE,
-    OPEN_PERCENT,
-    ATTEND_REWARD,
-    TRAUMA_ROLE_COSTS,
-)
+from NightCityBot.utils import config_loader as _cfg
 from NightCityBot.utils import helpers
 from NightCityBot.utils.db import (
     db_load, db_save,
@@ -131,10 +123,10 @@ class Economy(commands.Cog):
     def calculate_passive_income(self, role: str, open_count: int) -> int:
         """Calculate passive income based on role and number of shop opens."""
         if role == "Business Tier 0":
-            return TIER_0_INCOME_SCALE.get(open_count, 0)
+            return _cfg.get_tier0_income_scale().get(open_count, 0)
 
-        base_rent = ROLE_COSTS_BUSINESS.get(role, 500)
-        return int(base_rent * OPEN_PERCENT[open_count])
+        base_rent = _cfg.get_role_costs_business().get(role, 500)
+        return int(base_rent * _cfg.get_open_percent().get(open_count, 0))
 
     async def apply_passive_income(
         self,
@@ -233,15 +225,18 @@ class Economy(commands.Cog):
 
         reward = 0
         role_names = [r.name for r in ctx.author.roles]
+        t0_scale = _cfg.get_tier0_income_scale()
+        biz_costs = _cfg.get_role_costs_business()
+        open_pct = _cfg.get_open_percent()
         for role in role_names:
             if "Business Tier" in role:
                 if role == "Business Tier 0":
-                    total_after = TIER_0_INCOME_SCALE.get(open_count_after, 0)
-                    total_before = TIER_0_INCOME_SCALE.get(open_count_before, 0)
+                    total_after = t0_scale.get(open_count_after, 0)
+                    total_before = t0_scale.get(open_count_before, 0)
                 else:
-                    base = ROLE_COSTS_BUSINESS.get(role, 500)
-                    total_after = int(base * OPEN_PERCENT[open_count_after])
-                    total_before = int(base * OPEN_PERCENT.get(open_count_before, 0))
+                    base = biz_costs.get(role, 500)
+                    total_after = int(base * open_pct.get(open_count_after, 0))
+                    total_before = int(base * open_pct.get(open_count_before, 0))
                 reward += total_after - total_before
 
         if reward > 0:
@@ -304,7 +299,7 @@ class Economy(commands.Cog):
 
             await attendance_append(user_id, now_str)
 
-        reward = ATTEND_REWARD
+        reward = _cfg.get_attend_reward()
         await self.unbelievaboat.update_balance(
             ctx.author.id, {"cash": reward}, reason="Attendance reward"
         )
@@ -321,26 +316,30 @@ class Economy(commands.Cog):
         if on_loa:
             details.append("LOA active: baseline, housing, and Trauma Team skipped")
         else:
-            total += BASELINE_LIVING_COST
-            details.append(f"Baseline living cost: ${BASELINE_LIVING_COST}")
+            baseline = _cfg.get_baseline_living_cost()
+            total += baseline
+            details.append(f"Baseline living cost: ${baseline}")
+            housing_costs = _cfg.get_role_costs_housing()
             for role in role_names:
                 if "Housing Tier" in role:
-                    amount = ROLE_COSTS_HOUSING.get(role, 0)
+                    amount = housing_costs.get(role, 0)
                     total += amount
                     details.append(f"{role}: ${amount}")
 
+        biz_costs = _cfg.get_role_costs_business()
         for role in role_names:
             if "Business Tier" in role:
-                amount = ROLE_COSTS_BUSINESS.get(role, 0)
+                amount = biz_costs.get(role, 0)
                 total += amount
                 details.append(f"{role}: ${amount}")
 
         if not on_loa:
+            trauma_costs = _cfg.get_trauma_role_costs()
             trauma_role = next(
-                (r for r in member.roles if r.name in TRAUMA_ROLE_COSTS), None
+                (r for r in member.roles if r.name in trauma_costs), None
             )
             if trauma_role:
-                cost = TRAUMA_ROLE_COSTS[trauma_role.name]
+                cost = trauma_costs[trauma_role.name]
                 total += cost
                 details.append(f"{trauma_role.name}: ${cost}")
 
@@ -415,24 +414,27 @@ class Economy(commands.Cog):
         on_loa = loa_role in member.roles if loa_role else False
 
         if not on_loa:
-            obligations.append(("Baseline living cost", BASELINE_LIVING_COST))
+            obligations.append(("Baseline living cost", _cfg.get_baseline_living_cost()))
+            housing_costs = _cfg.get_role_costs_housing()
             for role in role_names:
                 if "Housing Tier" in role:
-                    amount = ROLE_COSTS_HOUSING.get(role, 0)
+                    amount = housing_costs.get(role, 0)
                     obligations.append((role, amount))
 
+        biz_costs = _cfg.get_role_costs_business()
         for role in role_names:
             if "Business Tier" in role:
-                amount = ROLE_COSTS_BUSINESS.get(role, 0)
+                amount = biz_costs.get(role, 0)
                 obligations.append((role, amount))
 
         if not on_loa:
+            trauma_costs = _cfg.get_trauma_role_costs()
             trauma_role = next(
-                (r for r in member.roles if r.name in TRAUMA_ROLE_COSTS), None
+                (r for r in member.roles if r.name in trauma_costs), None
             )
             if trauma_role:
                 obligations.append(
-                    (trauma_role.name, TRAUMA_ROLE_COSTS[trauma_role.name])
+                    (trauma_role.name, trauma_costs[trauma_role.name])
                 )
 
             cyber = self.bot.get_cog("CyberwareManager")
@@ -781,10 +783,12 @@ class Economy(commands.Cog):
         cash: int,
         bank: int,
         log: List[str],
-        amount: int = BASELINE_LIVING_COST,
+        amount: int | None = None,
         *,
         dry_run: bool = False,
     ) -> tuple[bool, int, int]:
+        if amount is None:
+            amount = _cfg.get_baseline_living_cost()
         total = (cash or 0) + (bank or 0)
         if total < amount:
             log.append(
@@ -832,9 +836,10 @@ class Economy(commands.Cog):
             log.append("⚠️ Housing rent system disabled.")
             return cash, bank
         housing_total = 0
+        housing_costs = _cfg.get_role_costs_housing()
         for role in roles:
             if "Housing Tier" in role:
-                amount = ROLE_COSTS_HOUSING.get(role, 0)
+                amount = housing_costs.get(role, 0)
                 housing_total += amount
                 log.append(f"🔎 Housing Role {role} → Rent: ${amount}")
 
@@ -904,9 +909,10 @@ class Economy(commands.Cog):
             log.append("⚠️ Business rent system disabled.")
             return cash, bank
         business_total = 0
+        biz_costs = _cfg.get_role_costs_business()
         for role in roles:
             if "Business Tier" in role:
-                amount = ROLE_COSTS_BUSINESS.get(role, 0)
+                amount = biz_costs.get(role, 0)
                 business_total += amount
                 log.append(f"🔎 Business Role {role} → Rent: ${amount}")
 
@@ -1401,13 +1407,14 @@ class Economy(commands.Cog):
 
                 if not on_loa:
                     start = len(log)
+                    _baseline = _cfg.get_baseline_living_cost()
                     base_ok, cash, bank = await self.deduct_flat_fee(
-                        member, cash, bank, log, BASELINE_LIVING_COST, dry_run=dry_run
+                        member, cash, bank, log, _baseline, dry_run=dry_run
                     )
                     if not base_ok:
                         if eviction_channel and not dry_run:
                             await eviction_channel.send(
-                                f"⚠️ <@{member.id}> could not pay baseline living cost (${BASELINE_LIVING_COST})."
+                                f"⚠️ <@{member.id}> could not pay baseline living cost (${_baseline})."
                             )
                         log.append(
                             "⚠️ Baseline living cost unpaid. Continuing with rent steps."
@@ -1537,7 +1544,7 @@ class Economy(commands.Cog):
                     if baseline_only:
                         has_housing = any("Housing Tier" in r.name for r in m.roles)
                         has_business = any("Business Tier" in r.name for r in m.roles)
-                        has_trauma = any(r.name in TRAUMA_ROLE_COSTS for r in m.roles)
+                        has_trauma = any(r.name in _cfg.get_trauma_role_costs() for r in m.roles)
                         if not (has_housing or has_business or has_trauma):
                             continue
                     items = [item.split(" ($")[0] for item in unpaid]
@@ -1786,7 +1793,7 @@ class Economy(commands.Cog):
 
             if not on_loa:
                 _ok, cash, bank = await self.deduct_flat_fee(
-                    member, cash, bank, log, BASELINE_LIVING_COST, dry_run=True
+                    member, cash, bank, log, _cfg.get_baseline_living_cost(), dry_run=True
                 )
                 if not _ok:
                     log.append(

@@ -30,6 +30,7 @@ from NightCityBot.cogs.trauma_team import TraumaTeam
 from NightCityBot.cogs.wholesaler import WholesalerCog
 from NightCityBot.utils.startup_checks import perform_startup_checks
 from NightCityBot.services.unbelievaboat import UnbelievaBoatAPI
+from NightCityBot.utils import config_loader as _cfg
 
 from flask import Flask
 from threading import Thread
@@ -53,6 +54,11 @@ class NightCityBot(commands.Bot):
 
     async def setup_hook(self):
         self.unbelievaboat = UnbelievaBoatAPI(config.UNBELIEVABOAT_API_TOKEN)
+        # Seed + load bot_config cache before cogs start so constants are ready
+        try:
+            await _cfg.seed_and_reload()
+        except Exception:
+            logger.warning("bot_config seed/reload failed at startup — using hardcoded defaults", exc_info=True)
         await self.add_cog(DMHandler(self))
         await self.add_cog(SystemControl(self))
         await self.add_cog(Economy(self))
