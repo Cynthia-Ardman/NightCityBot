@@ -24,21 +24,27 @@ class Admin(commands.Cog):
         self.bot = bot
         self._ticket_index: list = []
         self._ticket_index_ids: set = set()
-        config.TICKET_INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     @commands.Cog.listener()
     async def on_ready(self):
-        """Load the ticket index from disk once the bot is connected."""
+        """Load the ticket index from the database once the bot is connected."""
         await self._load_ticket_index()
 
     async def _load_ticket_index(self):
-        data = await load_json_file(config.TICKET_INDEX_FILE, default=[])
-        if isinstance(data, list):
-            self._ticket_index = data
-            self._ticket_index_ids = {e["id"] for e in data if "id" in e}
-
-    async def _save_ticket_index(self):
-        await save_json_file(config.TICKET_INDEX_FILE, self._ticket_index)
+        try:
+            pool = await _db.get_pool()
+            rows = await pool.fetch(
+                "SELECT message_id, url, ts::text, title, body FROM ticket_index ORDER BY ts ASC"
+            )
+            self._ticket_index = [
+                {"id": r["message_id"], "url": r["url"], "ts": r["ts"],
+                 "title": r["title"], "text": r["body"]}
+                for r in rows
+            ]
+            self._ticket_index_ids = {r["message_id"] for r in rows}
+            logger.info("Loaded %d ticket index entries from database.", len(self._ticket_index))
+        except Exception as e:
+            logger.error("Failed to load ticket index from database: %s", e)
 
     @staticmethod
     def _embed_to_text(embed: discord.Embed) -> str:
@@ -78,8 +84,8 @@ class Admin(commands.Cog):
                 return True
         return False
 
-    async def _index_message(self, message: discord.Message, save: bool = True):
-        """Add a Tickety ticket message to the index if not already present."""
+    async def _index_message(self, message: discord.Message, pool=None) -> bool:
+        """Add a Tickety ticket message to the database index if not already present."""
         if str(message.id) in self._ticket_index_ids:
             return False
         if not message.embeds:
@@ -95,10 +101,21 @@ class Admin(commands.Cog):
             "title": title[:120],
             "text": text.lower(),
         }
+        try:
+            p = pool or await _db.get_pool()
+            await p.execute(
+                """
+                INSERT INTO ticket_index (message_id, url, ts, title, body)
+                VALUES ($1, $2, $3::timestamptz, $4, $5)
+                ON CONFLICT (message_id) DO NOTHING
+                """,
+                entry["id"], entry["url"], entry["ts"], entry["title"], entry["text"],
+            )
+        except Exception as e:
+            logger.error("DB insert failed for message %s: %s", message.id, e)
+            return False
         self._ticket_index.append(entry)
-        self._ticket_index_ids.add(str(message.id))
-        if save:
-            await self._save_ticket_index()
+        self._ticket_index_ids.add(entry["id"])
         return True
 
     @commands.Cog.listener()
@@ -910,19 +927,16 @@ class Admin(commands.Cog):
         )
         added = 0
         scanned = 0
+        pool = await _db.get_pool()
         # Fetch oldest-first so the index is in chronological order.
         # Sleep 2 s every 100 messages (one API batch) to stay well under rate limits.
-        # Save every 200 new entries so a connection drop doesn't lose all progress.
+        # Each _index_message call writes directly to the database via the shared pool.
         async for message in channel.history(limit=limit, oldest_first=True):
             scanned += 1
-            if await self._index_message(message, save=False):
+            if await self._index_message(message, pool=pool):
                 added += 1
-                if added % 200 == 0:
-                    await self._save_ticket_index()
             if scanned % 100 == 0:
                 await asyncio.sleep(2)
-
-        await self._save_ticket_index()
 
         if status_msg:
             try:
