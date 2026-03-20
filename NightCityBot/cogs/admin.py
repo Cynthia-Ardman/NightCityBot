@@ -68,11 +68,22 @@ class Admin(commands.Cog):
             raw += " " + " ".join(ids)
         return raw
 
+    @staticmethod
+    def _is_ticket_embed(message: discord.Message) -> bool:
+        """Return True only if this message looks like a Tickety ticket event."""
+        for embed in message.embeds:
+            title = (embed.title or "").lower()
+            if "ticket" in title:
+                return True
+        return False
+
     async def _index_message(self, message: discord.Message, save: bool = True):
-        """Add a message's embeds to the ticket index if not already present."""
+        """Add a Tickety ticket message to the index if not already present."""
         if str(message.id) in self._ticket_index_ids:
             return False
         if not message.embeds:
+            return False
+        if not self._is_ticket_embed(message):
             return False
         text = " ".join(self._embed_to_text(e) for e in message.embeds)
         title = message.embeds[0].title or "(embed)"
@@ -91,10 +102,10 @@ class Admin(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """Auto-index Tickety embed messages as they arrive."""
+        """Auto-index Tickety ticket messages as they arrive."""
         if message.channel.id != config.TICKETY_LOG_CHANNEL_ID:
             return
-        if not message.embeds:
+        if not self._is_ticket_embed(message):
             return
         await self._index_message(message)
 
@@ -898,14 +909,17 @@ class Admin(commands.Cog):
         )
         added = 0
         scanned = 0
-        # Fetch newest-first so most recent tickets land in the index first.
-        # Sleep 1 s every 100 messages (= every API call) to stay well under rate limits.
-        async for message in channel.history(limit=limit, oldest_first=False):
+        # Fetch oldest-first so the index is in chronological order.
+        # Sleep 2 s every 100 messages (one API batch) to stay well under rate limits.
+        # Save every 200 new entries so a connection drop doesn't lose all progress.
+        async for message in channel.history(limit=limit, oldest_first=True):
             scanned += 1
             if await self._index_message(message, save=False):
                 added += 1
+                if added % 200 == 0:
+                    await self._save_ticket_index()
             if scanned % 100 == 0:
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
 
         await self._save_ticket_index()
 
