@@ -20,6 +20,72 @@ class Admin(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         """Initialize the admin cog."""
         self.bot = bot
+        self._ticket_index: list = []
+        self._ticket_index_ids: set = set()
+        config.TICKET_INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Load the ticket index from disk once the bot is connected."""
+        await self._load_ticket_index()
+
+    async def _load_ticket_index(self):
+        data = await load_json_file(config.TICKET_INDEX_FILE, default=[])
+        if isinstance(data, list):
+            self._ticket_index = data
+            self._ticket_index_ids = {e["id"] for e in data if "id" in e}
+
+    async def _save_ticket_index(self):
+        await save_json_file(config.TICKET_INDEX_FILE, self._ticket_index)
+
+    @staticmethod
+    def _embed_to_text(embed: discord.Embed) -> str:
+        """Flatten all text in an embed into a single searchable string."""
+        parts = []
+        if embed.title:
+            parts.append(embed.title)
+        if embed.description:
+            parts.append(embed.description)
+        for field in embed.fields:
+            if field.name:
+                parts.append(field.name)
+            if field.value:
+                parts.append(field.value)
+        if embed.footer and embed.footer.text:
+            parts.append(embed.footer.text)
+        if embed.author and embed.author.name:
+            parts.append(embed.author.name)
+        return " ".join(parts)
+
+    async def _index_message(self, message: discord.Message, save: bool = True):
+        """Add a message's embeds to the ticket index if not already present."""
+        if str(message.id) in self._ticket_index_ids:
+            return False
+        if not message.embeds:
+            return False
+        text = " ".join(self._embed_to_text(e) for e in message.embeds)
+        title = message.embeds[0].title or "(embed)"
+        entry = {
+            "id": str(message.id),
+            "url": message.jump_url,
+            "ts": message.created_at.isoformat(),
+            "title": title[:120],
+            "text": text.lower(),
+        }
+        self._ticket_index.append(entry)
+        self._ticket_index_ids.add(str(message.id))
+        if save:
+            await self._save_ticket_index()
+        return True
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """Auto-index Tickety embed messages as they arrive."""
+        if message.channel.id != config.TICKETY_LOG_CHANNEL_ID:
+            return
+        if not message.embeds:
+            return
+        await self._index_message(message)
 
     @commands.command()
     @is_fixer()
@@ -306,7 +372,8 @@ class Admin(commands.Cog):
                     "`!test__bot [pattern]` – run the PyTest suite optionally filtering by pattern.",
                     "`!shutdown_bot` (aliases: !shutdownbot, !forceshutdown) – log an audit message and cleanly shut down the bot process.",
                     "`!backfill_logs [limit]` – rebuild attendance and business open logs from recent message history.",
-                    "`!search_tickets <query> [in #channel]` (aliases: !searchtickets, !ticketsearch) – search Tickety embed messages for a name, ticket ID, or any text.",
+                    "`!reindex_tickets [limit]` (alias: !reindextickets) – scan the bot-logs channel and build a local ticket search index. Run once to seed history; new tickets index automatically.",
+                    "`!search_tickets <query>` (aliases: !searchtickets, !ticketsearch) – instantly search the local ticket index by name, user, ticket ID, reason, or any text.",
                 ]),
             ),
             (
@@ -801,82 +868,28 @@ class Admin(commands.Cog):
         parts.append("</body></html>")
         return "\n".join(parts)
 
-    @commands.command(name="search_tickets", aliases=["searchtickets", "ticketsearch"])
+    @commands.command(name="reindex_tickets", aliases=["reindextickets"])
     @commands.has_permissions(administrator=True)
-    async def search_tickets(
-        self,
-        ctx,
-        *,
-        query: str,
-    ):
-        """Search Tickety embed messages in the configured log channel.
+    async def reindex_tickets(self, ctx, limit: int = 10000):
+        """Scan the Tickety log channel and rebuild the local search index.
 
-        Usage: !search_tickets <query> [--limit N] [in #channel]
-        The query is matched case-insensitively against every embed field,
-        title, and description in the channel's history.
-        Pass --limit N to scan more than the default 500 messages.
+        Run this once to seed the index from history. New tickets are indexed
+        automatically going forward. Pass a limit to cap how many messages to scan.
         """
-        # Parse --limit flag
-        scan_limit = 500
-        remaining_query = query
-        import re as _re
-        limit_match = _re.search(r'--limit\s+(\d+)', query)
-        if limit_match:
-            scan_limit = min(int(limit_match.group(1)), 10000)
-            remaining_query = (_re.sub(r'--limit\s+\d+', '', query)).strip()
-
-        # Allow the caller to specify a channel at the end with "in #channel"
-        channel = None
-        search_query = remaining_query
-        if " in " in remaining_query:
-            parts = remaining_query.rsplit(" in ", 1)
-            candidate = parts[1].strip()
-            try:
-                converter = commands.TextChannelConverter()
-                channel = await converter.convert(ctx, candidate)
-                search_query = parts[0].strip()
-            except commands.BadArgument:
-                pass
-
+        channel = ctx.guild.get_channel(config.TICKETY_LOG_CHANNEL_ID)
         if channel is None:
-            channel = ctx.guild.get_channel(config.TICKETY_LOG_CHANNEL_ID)
-
-        if channel is None:
-            await ctx.send(
-                "⚠️ No Tickety log channel configured. "
-                "Set `TICKETY_LOG_CHANNEL_ID` in config or use `!search_tickets <query> in #channel`."
-            )
+            await ctx.send("⚠️ TICKETY_LOG_CHANNEL_ID is not set or channel not found.")
             return
 
-        status_msg = await ctx.send(f"🔍 Searching `#{channel.name}` for **{search_query}** (up to {scan_limit:,} messages)…")
-        q = search_query.lower()
-
-        results = []
+        status_msg = await ctx.send(f"⏳ Reindexing up to {limit:,} messages from `#{channel.name}`…")
+        added = 0
         scanned = 0
-        async for message in channel.history(limit=scan_limit, oldest_first=False):
+        async for message in channel.history(limit=limit, oldest_first=True):
             scanned += 1
-            if not message.embeds:
-                continue
-            for embed in message.embeds:
-                haystack_parts = []
-                if embed.title:
-                    haystack_parts.append(embed.title)
-                if embed.description:
-                    haystack_parts.append(embed.description)
-                for field in embed.fields:
-                    haystack_parts.append(field.name or "")
-                    haystack_parts.append(field.value or "")
-                if embed.footer and embed.footer.text:
-                    haystack_parts.append(embed.footer.text)
-                haystack = "\n".join(haystack_parts).lower()
-                if q in haystack:
-                    label = embed.title or embed.description or "(embed)"
-                    label = label[:80].replace("\n", " ")
-                    results.append((message.jump_url, label, message.created_at))
-                    break  # don't double-count a message with multiple matching embeds
+            if await self._index_message(message, save=False):
+                added += 1
 
-            if len(results) >= 25:
-                break
+        await self._save_ticket_index()
 
         if status_msg:
             try:
@@ -884,21 +897,61 @@ class Admin(commands.Cog):
             except discord.HTTPException:
                 pass
 
-        if not results:
-            await ctx.send(f"❌ No Tickety embeds matched **{search_query}** in the last {scanned:,} messages.")
+        await ctx.send(
+            f"✅ Reindex complete — scanned {scanned:,} messages, "
+            f"added {added:,} new entries ({len(self._ticket_index):,} total in index)."
+        )
+
+    @commands.command(name="search_tickets", aliases=["searchtickets", "ticketsearch"])
+    @commands.has_permissions(administrator=True)
+    async def search_tickets(self, ctx, *, query: str):
+        """Search the local Tickety index instantly.
+
+        Usage: !search_tickets <query>
+        Searches ticket names, user names, ticket IDs, reasons — anything
+        Tickety puts in its embeds. Run !reindex_tickets first to build the index
+        from history; new tickets are indexed automatically.
+        """
+        q = query.strip().lower()
+        if not q:
+            await ctx.send("Please provide a search term.")
             return
 
+        if not self._ticket_index:
+            await ctx.send(
+                "⚠️ The ticket index is empty. Run `!reindex_tickets` to build it from channel history."
+            )
+            return
+
+        # Search newest-first (index is oldest-first, so reverse it)
+        matches = [
+            e for e in reversed(self._ticket_index)
+            if q in e.get("text", "")
+        ]
+
+        if not matches:
+            await ctx.send(
+                f"❌ No tickets matched **{query}** in the index "
+                f"({len(self._ticket_index):,} entries searched)."
+            )
+            return
+
+        shown = matches[:25]
         embed = discord.Embed(
-            title=f"🎫 Ticket Search: {search_query}",
-            description=f"Found **{len(results)}** match{'es' if len(results) != 1 else ''} in `#{channel.name}` (scanned {scanned:,} messages)",
+            title=f"🎫 Ticket Search: {query}",
+            description=(
+                f"Found **{len(matches)}** match{'es' if len(matches) != 1 else ''}  "
+                f"({len(self._ticket_index):,} tickets indexed)"
+                + (f" — showing newest 25" if len(matches) > 25 else "")
+            ),
             color=discord.Color.blurple(),
         )
         lines = []
-        for url, label, ts in results:
-            date_str = ts.strftime("%m/%d/%y")
-            lines.append(f"[{date_str}]({url}) — {label}")
+        for e in shown:
+            ts_str = e["ts"][:10]  # YYYY-MM-DD
+            title = e["title"][:60]
+            lines.append(f"[{ts_str}]({e['url']}) — {title}")
 
-        # Split into chunks if needed
         chunk = ""
         for line in lines:
             if len(chunk) + len(line) + 1 > 1024:
