@@ -1,8 +1,7 @@
 import discord
 from discord.ext import commands
-from pathlib import Path
 import config
-from NightCityBot.utils.helpers import load_json_file, save_json_file
+from NightCityBot.utils.db import db_load, db_save
 
 SYSTEMS = [
     "cyberware",
@@ -25,15 +24,16 @@ class SystemControl(commands.Cog):
         self.bot.loop.create_task(self.load_status())
 
     async def load_status(self):
-        path = Path(config.SYSTEM_STATUS_FILE)
-        self.status = await load_json_file(path, default={})
+        self.status = await db_load(
+            "system_status", default={}, seed_path=config.SYSTEM_STATUS_FILE
+        )
         updated = False
         for system in SYSTEMS:
             if system not in self.status:
                 self.status[system] = system == "wholesaler"
                 updated = True
         if updated:
-            await save_json_file(path, self.status)
+            await db_save("system_status", self.status)
 
     def is_enabled(self, system: str) -> bool:
         return self.status.get(system, False)
@@ -42,7 +42,7 @@ class SystemControl(commands.Cog):
         if system not in SYSTEMS:
             return False
         self.status[system] = value
-        await save_json_file(Path(config.SYSTEM_STATUS_FILE), self.status)
+        await db_save("system_status", self.status)
         return True
 
     @commands.command(aliases=["enablesystem", "es", "systemenable"])

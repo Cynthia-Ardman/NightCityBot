@@ -13,18 +13,38 @@ A Discord bot for NCRP (Cyberpunk-themed RP server) managing economy, roleplay u
 
 ## Data Storage
 
-All state is persisted as JSON files in the workspace:
-- Root-level: `system_status.json`, `thread_map.json`, `business_open_log.json`, etc.
-- **Wholesaler data**: `data/wholesaler/` directory containing:
-  - `state.json` — main wholesaler state (lots, settings, pending payouts)
-  - `stores.json` — store registry and owner mappings
-  - `inventory/wholesale.json` — current wholesale stock available for purchase
-  - `inventory/stores/<store_id>.json` — individual store inventories (created when stores buy stock)
-  - `transactions.json` — append-only transaction log
+Operational state is now persisted to **PostgreSQL** via the `json_store` table (key TEXT PK, value JSONB). File-based JSON storage is retained only for per-member balance backups.
+
+### PostgreSQL `json_store` keys
+
+| Key | Cog | Description |
+|-----|-----|-------------|
+| `open_log` | Economy | Business opening timestamps per user |
+| `attend_log` | Economy | Attendance event timestamps per user |
+| `last_rent` | Economy | Timestamp of last full rent collection |
+| `last_payment` | Economy | Last payment summary per user |
+| `cyberware_log` | Cyberware | Weekly streak data per member |
+| `cyberware_weekly` | Cyberware | Append-only list of weekly processing results |
+| `thread_map` | DMHandler | DM user ID → forum thread ID map |
+| `system_status` | SystemControl | Enable/disable flags for each subsystem |
+| `wholesaler_state` | Wholesaler | Full assembled wholesaler state (lots, stores, settings) |
+| `wholesaler_tx` | Wholesaler | Append-only transaction log |
+| `open_log_history_YYYY_MM` | Economy | Monthly archive of open_log before reset |
+
+DB helpers: `NightCityBot/utils/db.py` — `get_pool()`, `db_load(key, default, seed_path)`, `db_save(key, value)`, `close_pool()`. On first `db_load` for a key not yet in DB, seeds automatically from the legacy JSON file on disk (one-time migration).
+
+### Balance backup files (still file-based)
+
+- `BALANCE_BACKUP_DIR/<member_id>.json` — per-member balance history
+- `CHARACTER_BACKUP_DIR/` — character thread archive files
+
+### Wholesaler data files (still written for audit reference)
+
+- `data/wholesaler/state.json`, `stores.json`, `inventory/wholesale.json`, `inventory/stores/<store_id>.json`, `transactions.json`
 
 ## Key Dependencies
 
-- discord.py, aiohttp, Flask, openpyxl, aiofiles, python-dotenv, rapidfuzz
+- discord.py, aiohttp, Flask, openpyxl, aiofiles, python-dotenv, rapidfuzz, asyncpg
 
 ## Wholesaler System Flow
 

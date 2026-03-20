@@ -57,7 +57,7 @@ async def run(suite, ctx) -> List[str]:
         patch.object(suite.bot, "get_guild", return_value=guild),
         patch.object(manager.unbelievaboat, "get_balance", new=AsyncMock(return_value={"cash": 5000, "bank": 0})),
         patch.object(manager.unbelievaboat, "update_balance", new=AsyncMock(return_value=True)),
-        patch("NightCityBot.cogs.cyberware.save_json_file", new=AsyncMock()),
+        patch("NightCityBot.cogs.cyberware.db_save", new=AsyncMock()),
     ):
         await manager.process_week()
     entry = manager.data.get(str(member.id))

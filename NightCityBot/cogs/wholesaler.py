@@ -16,6 +16,7 @@ from openpyxl import load_workbook
 import config
 from NightCityBot.services.unbelievaboat import UnbelievaBoatAPI
 from NightCityBot.utils import helpers
+from NightCityBot.utils.db import db_load, db_save
 
 logger = logging.getLogger(__name__)
 
@@ -627,6 +628,24 @@ class WholesalerCog(commands.Cog):
         store_file = getattr(self, "store_state_file", self.state_file)
         store_inventory_dir = getattr(self, "store_inventory_dir", Path(self.state_file).parent / "inventory" / "stores")
 
+        db_state = await db_load("wholesaler_state", default=None)
+        if db_state is not None and isinstance(db_state, dict):
+            state = db_state
+            state.setdefault("shop_registry", {})
+            state.setdefault("stores", {})
+            state.setdefault("wholesale_lots", [])
+            state.setdefault("pending_payouts", [])
+            state.setdefault("settings", {})
+            restock = state["settings"].setdefault("restock", {})
+            for key, value in self.DEFAULT_RESTOCK_SETTINGS.items():
+                restock.setdefault(key, value)
+            logger.debug(
+                "_load_state: loaded from DB wholesale_lots=%d stores=%d",
+                len(state["wholesale_lots"]),
+                len(state["stores"]),
+            )
+            return state
+
         state = await helpers.load_json_file(
             self.state_file,
             default={
@@ -906,7 +925,8 @@ class WholesalerCog(commands.Cog):
         if store_file != self.state_file:
             store_index_ok = await helpers.save_json_file(store_file, stores_payload)
 
-        ok = main_ok and wholesale_ok and store_index_ok and store_files_ok
+        db_ok = await db_save("wholesaler_state", state)
+        ok = main_ok and wholesale_ok and store_index_ok and store_files_ok and db_ok
         if not ok:
             logger.error(
                 "Wholesaler persistence failure main_ok=%s wholesale_ok=%s store_index_ok=%s store_files_ok=%s "
@@ -923,7 +943,13 @@ class WholesalerCog(commands.Cog):
         return ok
 
     async def _append_tx(self, tx: dict[str, Any]) -> bool:
-        return await helpers.append_json_file(self.tx_file, tx)
+        file_ok = await helpers.append_json_file(self.tx_file, tx)
+        tx_list = await db_load("wholesaler_tx", default=[])
+        if not isinstance(tx_list, list):
+            tx_list = []
+        tx_list.append(tx)
+        db_ok = await db_save("wholesaler_tx", tx_list)
+        return file_ok and db_ok
 
     @staticmethod
     def _coerce_role_ids(value: Any) -> set[int]:

@@ -43,8 +43,8 @@ async def run(suite, ctx) -> List[str]:
     monday_utc = monday_local.astimezone(ZoneInfo("UTC"))
     with (
         patch("NightCityBot.utils.helpers.get_tz_now", return_value=monday_utc),
-        patch("NightCityBot.cogs.economy.load_json_file", new=AsyncMock(return_value={})),
-        patch("NightCityBot.cogs.economy.save_json_file", new=AsyncMock()),
+        patch("NightCityBot.cogs.economy.db_load", new=AsyncMock(return_value={})),
+        patch("NightCityBot.cogs.economy.db_save", new=AsyncMock()),
     ):
         await economy.attend(ctx)
         msg = ctx.send.await_args[0][0]
@@ -62,10 +62,10 @@ async def run(suite, ctx) -> List[str]:
     with (
         patch("NightCityBot.utils.helpers.get_tz_now", return_value=sunday_event_utc),
         patch(
-            "NightCityBot.cogs.economy.load_json_file",
+            "NightCityBot.cogs.economy.db_load",
             new=AsyncMock(return_value={str(mock_author.id): [prev_attend.isoformat()]}),
         ),
-        patch("NightCityBot.cogs.economy.save_json_file", new=AsyncMock()),
+        patch("NightCityBot.cogs.economy.db_save", new=AsyncMock()),
     ):
         await economy.attend(ctx)
         msg = ctx.send.await_args[0][0]
@@ -80,10 +80,10 @@ async def run(suite, ctx) -> List[str]:
     with (
         patch("NightCityBot.utils.helpers.get_tz_now", return_value=sunday_event_utc),
         patch(
-            "NightCityBot.cogs.economy.load_json_file",
+            "NightCityBot.cogs.economy.db_load",
             new=AsyncMock(return_value={str(mock_author.id): [prev_week.isoformat()]}),
         ),
-        patch("NightCityBot.cogs.economy.save_json_file", new=AsyncMock()),
+        patch("NightCityBot.cogs.economy.db_save", new=AsyncMock()),
         patch.object(economy.unbelievaboat, "update_balance", new=AsyncMock()),
     ):
         await economy.attend(ctx)

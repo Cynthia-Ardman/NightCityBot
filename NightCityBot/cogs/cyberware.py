@@ -7,12 +7,8 @@ from pathlib import Path
 import os
 
 import config
-from NightCityBot.utils.helpers import (
-    load_json_file,
-    save_json_file,
-    append_json_file,
-    get_tz_now,
-)
+from NightCityBot.utils.helpers import get_tz_now
+from NightCityBot.utils.db import db_load, db_save
 from NightCityBot.services.unbelievaboat import UnbelievaBoatAPI
 from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
 
@@ -36,8 +32,7 @@ class CyberwareManager(commands.Cog):
         self.weekly_check.start()
 
     async def load_data(self):
-        path = Path(config.CYBERWARE_LOG_FILE)
-        raw = await load_json_file(path, default={})
+        raw = await db_load("cyberware_log", default={}, seed_path=config.CYBERWARE_LOG_FILE)
         if isinstance(raw, dict):
             ts = raw.get("_last_run")
             if ts:
@@ -102,15 +97,20 @@ class CyberwareManager(commands.Cog):
         logs: List[str] = []
         results = await self.process_week(log=logs)
 
-        await append_json_file(
-            Path(config.CYBERWARE_WEEKLY_FILE),
+        weekly_entries = await db_load(
+            "cyberware_weekly", default=[], seed_path=config.CYBERWARE_WEEKLY_FILE
+        )
+        if not isinstance(weekly_entries, list):
+            weekly_entries = []
+        weekly_entries.append(
             {
                 "timestamp": datetime.utcnow().isoformat(),
                 "checkup": results.get("checkup", []),
                 "paid": results.get("paid", []),
                 "unpaid": results.get("unpaid", []),
-            },
+            }
         )
+        await db_save("cyberware_weekly", weekly_entries)
 
         summary = "\n".join(logs) if logs else "✅ No actions performed."
         if notify_user:
@@ -320,7 +320,7 @@ class CyberwareManager(commands.Cog):
             save_payload = {**self.data}
             if self.last_run:
                 save_payload["_last_run"] = self.last_run.isoformat()
-            await save_json_file(Path(config.CYBERWARE_LOG_FILE), save_payload)
+            await db_save("cyberware_log", save_payload)
             if log is not None:
                 log.append("✅ Data saved.")
         elif log is not None:
@@ -440,7 +440,7 @@ class CyberwareManager(commands.Cog):
         payload = {**self.data}
         if self.last_run:
             payload["_last_run"] = self.last_run.isoformat()
-        await save_json_file(Path(config.CYBERWARE_LOG_FILE), payload)
+        await db_save("cyberware_log", payload)
 
     @commands.command(aliases=["weekswithoutcheckup", "wwocup", "wwc"])
     @commands.check_any(is_ripperdoc(), is_fixer())
@@ -503,7 +503,7 @@ class CyberwareManager(commands.Cog):
     )
     async def checkup_report(self, ctx: commands.Context) -> None:
         """Show who did a checkup and who paid or failed to pay this week."""
-        data = await load_json_file(Path(config.CYBERWARE_WEEKLY_FILE), default=[])
+        data = await db_load("cyberware_weekly", default=[], seed_path=config.CYBERWARE_WEEKLY_FILE)
         if not data:
             await ctx.send("❌ No weekly data recorded yet.")
             return
@@ -548,8 +548,8 @@ class CyberwareManager(commands.Cog):
             await ctx.send(f"⏭️ {member.display_name} has no approved character.")
             return
 
-        weekly_data = await load_json_file(
-            Path(config.CYBERWARE_WEEKLY_FILE), default=[]
+        weekly_data = await db_load(
+            "cyberware_weekly", default=[], seed_path=config.CYBERWARE_WEEKLY_FILE
         )
         last = weekly_data[-1] if weekly_data else None
         if last and (
@@ -592,7 +592,7 @@ class CyberwareManager(commands.Cog):
             unpaid_set.add(member.id)
         last["paid"] = list(paid_set)
         last["unpaid"] = list(unpaid_set)
-        await save_json_file(Path(config.CYBERWARE_WEEKLY_FILE), weekly_data)
+        await db_save("cyberware_weekly", weekly_data)
 
         summary = "\n".join(log_lines) if log_lines else "✅ Completed."
         display = summary if verbose else "\n".join(log_lines[-3:])
@@ -608,8 +608,8 @@ class CyberwareManager(commands.Cog):
     async def cyberware_status(self, ctx: commands.Context) -> None:
         """Display the current week status for all cyberware users."""
 
-        weekly_data = await load_json_file(
-            Path(config.CYBERWARE_WEEKLY_FILE), default=[]
+        weekly_data = await db_load(
+            "cyberware_weekly", default=[], seed_path=config.CYBERWARE_WEEKLY_FILE
         )
         if weekly_data:
             last = weekly_data[-1]
@@ -672,8 +672,8 @@ class CyberwareManager(commands.Cog):
 
         verbose = any(a.lower() in {"-v", "--verbose", "verbose"} for a in args)
 
-        weekly_data = await load_json_file(
-            Path(config.CYBERWARE_WEEKLY_FILE), default=[]
+        weekly_data = await db_load(
+            "cyberware_weekly", default=[], seed_path=config.CYBERWARE_WEEKLY_FILE
         )
         last = weekly_data[-1] if weekly_data else None
         if last and (
@@ -708,7 +708,7 @@ class CyberwareManager(commands.Cog):
             unpaid_set.add(ctx.author.id)
         last["paid"] = list(paid_set)
         last["unpaid"] = list(unpaid_set)
-        await save_json_file(Path(config.CYBERWARE_WEEKLY_FILE), weekly_data)
+        await db_save("cyberware_weekly", weekly_data)
 
         summary = "\n".join(log_lines) if log_lines else "✅ Completed."
         display = summary if verbose else "\n".join(log_lines[-3:])

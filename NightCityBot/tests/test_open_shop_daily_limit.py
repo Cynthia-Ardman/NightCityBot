@@ -40,8 +40,8 @@ async def run(suite, ctx) -> List[str]:
     sunday = datetime(2025, 6, 15)
     with (
         patch("NightCityBot.utils.helpers.get_tz_now", return_value=sunday),
-        patch("NightCityBot.cogs.economy.load_json_file", new=fake_load),
-        patch("NightCityBot.cogs.economy.save_json_file", new=fake_save),
+        patch("NightCityBot.cogs.economy.db_load", new=fake_load),
+        patch("NightCityBot.cogs.economy.db_save", new=fake_save),
         patch.object(economy.unbelievaboat, "update_balance", new=AsyncMock()),
     ):
         await economy.open_shop(ctx)

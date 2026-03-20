@@ -20,10 +20,11 @@ from NightCityBot.utils.constants import (
     TRAUMA_ROLE_COSTS,
 )
 from NightCityBot.utils import helpers
+from NightCityBot.utils.db import db_load, db_save
 
 safe_filename = helpers.safe_filename
 
-# Expose helper functions for tests that patch them directly
+# Expose helper functions for tests that patch them directly (backup/restore still file-backed)
 load_json_file = helpers.load_json_file
 save_json_file = helpers.save_json_file
 append_json_file = helpers.append_json_file
@@ -221,7 +222,7 @@ class Economy(commands.Cog):
 
         duplicate = False
         async with self.open_log_lock:
-            data = await load_json_file(config.OPEN_LOG_FILE, default={})
+            data = await db_load("open_log", default={}, seed_path=config.OPEN_LOG_FILE)
 
             all_opens = data.get(user_id, [])
             this_month_opens = [
@@ -240,7 +241,7 @@ class Economy(commands.Cog):
 
                 all_opens.append(now_str)
                 data[user_id] = all_opens
-                await save_json_file(config.OPEN_LOG_FILE, data)
+                await db_save("open_log", data)
 
         if duplicate:
             await ctx.send("❌ You've already logged a business opening today.")
@@ -311,7 +312,7 @@ class Economy(commands.Cog):
         now_str = now.isoformat()
 
         async with self.attend_lock:
-            data = await load_json_file(config.ATTEND_LOG_FILE, default={})
+            data = await db_load("attend_log", default={}, seed_path=config.ATTEND_LOG_FILE)
 
             all_logs = data.get(user_id, [])
             parsed = [datetime.fromisoformat(ts) for ts in all_logs]
@@ -321,7 +322,7 @@ class Economy(commands.Cog):
 
             all_logs.append(now_str)
             data[user_id] = all_logs
-            await save_json_file(config.ATTEND_LOG_FILE, data)
+            await db_save("attend_log", data)
 
         reward = ATTEND_REWARD
         await self.unbelievaboat.update_balance(
@@ -419,7 +420,7 @@ class Economy(commands.Cog):
     @commands.command(name="last_payment")
     async def last_payment(self, ctx):
         """Show the details of your last automated payment."""
-        data = await load_json_file(config.LAST_PAYMENT_FILE, default={})
+        data = await db_load("last_payment", default={}, seed_path=config.LAST_PAYMENT_FILE)
         summary = data.get(str(ctx.author.id))
         if not summary:
             await ctx.send("❌ No payment record found.")
@@ -565,9 +566,9 @@ class Economy(commands.Cog):
 
     async def record_last_payment(self, member: discord.Member, summary: str) -> None:
         """Store the last payment summary for a member."""
-        data = await load_json_file(config.LAST_PAYMENT_FILE, default={})
+        data = await db_load("last_payment", default={}, seed_path=config.LAST_PAYMENT_FILE)
         data[str(member.id)] = summary
-        await save_json_file(config.LAST_PAYMENT_FILE, data)
+        await db_save("last_payment", data)
 
     async def _label_used_recently(
         self, member: discord.Member, label: str, days: int = 30
@@ -1297,36 +1298,24 @@ class Economy(commands.Cog):
                     pass
 
         audit_lines: List[str] = []
-        if not target_user:
-            if Path(config.OPEN_LOG_FILE).exists():
-                business_open_log = await load_json_file(
-                    config.OPEN_LOG_FILE, default={}
-                )
-                if not dry_run:
-                    backup_base = f"open_history_{datetime.utcnow():%B_%Y}.json"
-                    backup_path = Path(backup_base)
-                    counter = 1
-                    while backup_path.exists():
-                        backup_path = Path(f"{backup_base}_{counter}")
-                        counter += 1
-                    Path(config.OPEN_LOG_FILE).rename(backup_path)
-            else:
-                business_open_log = {}
+        business_open_log = await db_load(
+            "open_log", default={}, seed_path=config.OPEN_LOG_FILE
+        )
+        if not target_user and not dry_run:
+            month_key = f"open_log_history_{datetime.utcnow():%Y_%m}"
+            await db_save(month_key, business_open_log)
+            await db_save("open_log", {})
 
-            if not dry_run:
-                await save_json_file(config.OPEN_LOG_FILE, {})
-        else:
-            if Path(config.OPEN_LOG_FILE).exists():
-                business_open_log = await load_json_file(
-                    config.OPEN_LOG_FILE, default={}
-                )
-            else:
-                business_open_log = {}
-
-        if not force and not target_user and Path(config.LAST_RENT_FILE).exists():
+        if not force and not target_user:
             try:
-                data = await load_json_file(config.LAST_RENT_FILE, default=None)
-                last_run = datetime.fromisoformat(data["last_run"])
+                last_rent_data = await db_load(
+                    "last_rent", default=None, seed_path=config.LAST_RENT_FILE
+                )
+                last_run = (
+                    datetime.fromisoformat(last_rent_data["last_run"])
+                    if last_rent_data
+                    else None
+                )
             except Exception:
                 last_run = None
             if last_run and datetime.utcnow() - last_run < timedelta(days=30):
@@ -1335,8 +1324,7 @@ class Economy(commands.Cog):
                 )
                 return
         if not target_user and not dry_run:
-            with open(config.LAST_RENT_FILE, "w") as f:
-                json.dump({"last_run": datetime.utcnow().isoformat()}, f)
+            await db_save("last_rent", {"last_run": datetime.utcnow().isoformat()})
 
         members_to_process: List[discord.Member] = []
         for m in ctx.guild.members:

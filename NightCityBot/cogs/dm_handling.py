@@ -8,7 +8,7 @@ from discord.abc import Messageable
 
 import config
 from NightCityBot.utils.permissions import is_fixer
-from NightCityBot.utils.helpers import load_json_file, save_json_file
+from NightCityBot.utils.db import db_load, db_save
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ class DMHandler(commands.Cog):
 
     async def load_thread_cache(self) -> None:
         """Load the thread mapping cache on startup."""
-        self.dm_threads = await load_json_file(config.THREAD_MAP_FILE, default={})
+        self.dm_threads = await db_load("thread_map", default={}, seed_path=config.THREAD_MAP_FILE)
         self.load_event.set()
 
     async def get_or_create_dm_thread(
@@ -63,7 +63,7 @@ class DMHandler(commands.Cog):
                 for t in log_channel.threads:
                     if t.name == expected_name:
                         self.dm_threads[user_id] = t.id
-                        await save_json_file(config.THREAD_MAP_FILE, self.dm_threads)
+                        await db_save("thread_map", self.dm_threads)
                         return t
 
             thread_name = f"{user.name}-{user.id}".replace(" ", "-").lower()[:100]
@@ -85,7 +85,7 @@ class DMHandler(commands.Cog):
                 raise RuntimeError("DM inbox must be a TextChannel or ForumChannel")
 
             self.dm_threads[user_id] = thread.id
-            await save_json_file(config.THREAD_MAP_FILE, self.dm_threads)
+            await db_save("thread_map", self.dm_threads)
 
             return thread
 
@@ -123,7 +123,7 @@ class DMHandler(commands.Cog):
             if match:
                 user_id = match.group(1)
                 self.dm_threads[user_id] = message.channel.id
-                await save_json_file(config.THREAD_MAP_FILE, self.dm_threads)
+                await db_save("thread_map", self.dm_threads)
 
         if user_id is None:
             return
@@ -137,7 +137,7 @@ class DMHandler(commands.Cog):
         except discord.NotFound:
             logger.warning("DM relay failed: unknown user %s", user_id)
             self.dm_threads.pop(user_id, None)
-            await save_json_file(config.THREAD_MAP_FILE, self.dm_threads)
+            await db_save("thread_map", self.dm_threads)
             return
         if not target_user:
             return

@@ -24,9 +24,8 @@ async def run(suite, ctx) -> List[str]:
         patch.object(economy.unbelievaboat, 'get_balance', new=AsyncMock(return_value={'cash': BASELINE_LIVING_COST, 'bank': 0})),
         patch.object(economy.unbelievaboat, 'update_balance', new=AsyncMock(return_value=True)) as mock_update,
         patch.object(economy, 'backup_balances', new=AsyncMock()),
-        patch('NightCityBot.cogs.economy.load_json_file', new=AsyncMock(return_value={})),
-        patch('NightCityBot.cogs.economy.save_json_file', new=AsyncMock()),
-        patch('pathlib.Path.exists', return_value=False),
+        patch('NightCityBot.cogs.economy.db_load', new=AsyncMock(return_value={})),
+        patch('NightCityBot.cogs.economy.db_save', new=AsyncMock()),
     ):
         await economy.collect_rent(ctx, target_user=user)
         suite.assert_called(logs, mock_update, 'update_balance')
