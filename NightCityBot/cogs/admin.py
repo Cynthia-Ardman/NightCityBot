@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import io
 import contextlib
@@ -881,13 +882,20 @@ class Admin(commands.Cog):
             await ctx.send("⚠️ TICKETY_LOG_CHANNEL_ID is not set or channel not found.")
             return
 
-        status_msg = await ctx.send(f"⏳ Reindexing up to {limit:,} messages from `#{channel.name}`…")
+        status_msg = await ctx.send(
+            f"⏳ Reindexing `#{channel.name}` (up to {limit:,} messages) — "
+            f"this runs in the background, I'll report when done."
+        )
         added = 0
         scanned = 0
-        async for message in channel.history(limit=limit, oldest_first=True):
+        # Fetch newest-first so most recent tickets land in the index first.
+        # Sleep 1 s every 100 messages (= every API call) to stay well under rate limits.
+        async for message in channel.history(limit=limit, oldest_first=False):
             scanned += 1
             if await self._index_message(message, save=False):
                 added += 1
+            if scanned % 100 == 0:
+                await asyncio.sleep(1)
 
         await self._save_ticket_index()
 
