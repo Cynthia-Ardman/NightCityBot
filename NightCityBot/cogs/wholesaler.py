@@ -14,7 +14,6 @@ from discord.ext import commands, tasks
 from openpyxl import load_workbook
 
 import config
-from NightCityBot.services.unbelievaboat import UnbelievaBoatAPI
 from NightCityBot.utils import helpers
 from NightCityBot.utils.db import db_load, db_save
 
@@ -71,7 +70,7 @@ class WholesalerCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self.unbelievaboat = UnbelievaBoatAPI(config.UNBELIEVABOAT_API_TOKEN)
+        self.unbelievaboat = bot.unbelievaboat
 
         base_dir = Path(getattr(config, "BASE_DIR", Path(__file__).resolve().parents[1]))
         self.base_dir = base_dir
@@ -191,7 +190,6 @@ class WholesalerCog(commands.Cog):
 
     def cog_unload(self):
         self.weekly_sunday_restock.cancel()
-        self.bot.loop.create_task(self.unbelievaboat.close())
 
     @tasks.loop(hours=1)
     async def weekly_sunday_restock(self) -> None:
@@ -1526,7 +1524,7 @@ class WholesalerCog(commands.Cog):
             try:
                 await msg.edit(embed=embed.set_footer(text="EXPIRED — no admin response."))
             except Exception:
-                pass
+                logger.warning("Suppressed exception", exc_info=True)
             return False
 
         if str(reaction.emoji) == "✅":
@@ -1534,7 +1532,7 @@ class WholesalerCog(commands.Cog):
             try:
                 await msg.edit(embed=embed.set_footer(text=f"APPROVED by {admin_user.display_name}"))
             except Exception:
-                pass
+                logger.warning("Suppressed exception", exc_info=True)
             await self._audit_send(
                 f"[RESTRICTED_SALE_APPROVED] admin={admin_user.mention} seller={seller.mention} buyer={buyer.mention} gun={lot['gun_name']} qty={qty} price={total_price}"
             )
@@ -1544,7 +1542,7 @@ class WholesalerCog(commands.Cog):
             try:
                 await msg.edit(embed=embed.set_footer(text=f"DENIED by {admin_user.display_name}"))
             except Exception:
-                pass
+                logger.warning("Suppressed exception", exc_info=True)
             await self._audit_send(
                 f"[RESTRICTED_SALE_DENIED] admin={admin_user.mention} seller={seller.mention} buyer={buyer.mention} gun={lot['gun_name']} qty={qty} price={total_price}"
             )

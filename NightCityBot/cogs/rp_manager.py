@@ -35,7 +35,7 @@ class RPManager(commands.Cog):
                     if admin:
                         await admin.log_audit(message.author, f"🗑️ Deleted message in RP: {message.content}")
                 except Exception:
-                    pass
+                    logger.warning("Suppressed exception", exc_info=True)
                 return
 
     @commands.command(
@@ -66,7 +66,7 @@ class RPManager(commands.Cog):
                 if admin:
                     await admin.log_audit(ctx.author, f"🗑️ Deleted command: {ctx.message.content}")
             except Exception:
-                pass
+                logger.warning("Suppressed exception", exc_info=True)
             return
 
         target_category = ctx.guild.get_channel(getattr(config, "RP_IC_CATEGORY_ID", ctx.channel.category.id))
@@ -83,7 +83,7 @@ class RPManager(commands.Cog):
                 if admin:
                     await admin.log_audit(ctx.author, f"🗑️ Deleted command: {ctx.message.content}")
             except Exception:
-                pass
+                logger.warning("Suppressed exception", exc_info=True)
             return None
 
         mentions = " ".join(user.mention for user in users)
@@ -100,7 +100,7 @@ class RPManager(commands.Cog):
             if admin:
                 await admin.log_audit(ctx.author, f"🗑️ Deleted command: {ctx.message.content}")
         except Exception:
-            pass
+            logger.warning("Suppressed exception", exc_info=True)
         return channel
 
     @commands.command(

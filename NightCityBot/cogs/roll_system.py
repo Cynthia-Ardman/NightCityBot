@@ -7,6 +7,10 @@ from discord.ext import commands
 
 logger = logging.getLogger(__name__)
 
+MAX_DICE = 100
+MAX_SIDES = 1_000_000
+MAX_MOD = 1_000_000
+
 
 class RollSystem(commands.Cog):
     """Cog providing dice rolling utilities."""
@@ -81,6 +85,16 @@ class RollSystem(commands.Cog):
         sides = int(sides)
         mod = int(mod) if mod else 0
 
+        if n_dice > MAX_DICE:
+            await channel.send(f"❌ Too many dice (max {MAX_DICE}).")
+            return
+        if sides > MAX_SIDES:
+            await channel.send(f"❌ Too many sides (max {MAX_SIDES:,}).")
+            return
+        if abs(mod) > MAX_MOD:
+            await channel.send(f"❌ Modifier too large (max ±{MAX_MOD:,}).")
+            return
+
         rolls = [random.randint(1, sides) for _ in range(n_dice)]
         total = sum(rolls) + mod
 
@@ -91,10 +105,8 @@ class RollSystem(commands.Cog):
 
         await channel.send(result)
 
-        # Determine which user's thread should receive the log
         log_target = log_user or author
 
-        # Log to DM thread if actual DM, or if relayed with original_sender
         if skip_log:
             return
         if isinstance(channel, discord.DMChannel) and not original_sender:

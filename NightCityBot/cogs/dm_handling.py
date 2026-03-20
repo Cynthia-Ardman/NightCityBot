@@ -161,7 +161,7 @@ class DMHandler(commands.Cog):
                 if admin:
                     await admin.log_audit(message.author, f"🗑️ Deleted DM relay: {_relay_description(message)}")
             except Exception:
-                pass
+                logger.warning("Suppressed exception", exc_info=True)
             return
 
         # Handle start-rp command relay
@@ -181,7 +181,7 @@ class DMHandler(commands.Cog):
                 if admin:
                     await admin.log_audit(message.author, f"🗑️ Deleted DM relay: {_relay_description(message)}")
             except Exception:
-                pass
+                logger.warning("Suppressed exception", exc_info=True)
             return
 
         if message.content.strip().startswith("!"):
@@ -198,7 +198,7 @@ class DMHandler(commands.Cog):
                 if admin:
                     await admin.log_audit(message.author, f"🗑️ Deleted DM relay: {_relay_description(message)}")
             except Exception:
-                pass
+                logger.warning("Suppressed exception", exc_info=True)
             return
 
         # Handle normal message relay
@@ -227,8 +227,7 @@ class DMHandler(commands.Cog):
             if admin:
                 await admin.log_audit(message.author, f"🗑️ Deleted DM relay: {_relay_description(message)}")
         except Exception:
-            pass
-
+            logger.warning("Suppressed exception", exc_info=True)
     async def handle_dm_message(self, message: discord.Message):
         """Handle incoming DMs from users."""
         control = self.bot.get_cog('SystemControl')
@@ -264,7 +263,7 @@ class DMHandler(commands.Cog):
                 if admin:
                     await admin.log_audit(ctx.author, f"🗑️ Deleted command: {ctx.message.content}")
             except Exception:
-                pass
+                logger.warning("Suppressed exception", exc_info=True)
             return
         try:
             if not user:
@@ -280,7 +279,7 @@ class DMHandler(commands.Cog):
                 if admin:
                     await admin.log_audit(ctx.author, f"🗑️ Deleted command: {ctx.message.content}")
             except Exception:
-                pass
+                logger.warning("Suppressed exception", exc_info=True)
             return
         except Exception as e:
             await ctx.send(f"⚠️ Unexpected error: {str(e)}")
@@ -293,7 +292,7 @@ class DMHandler(commands.Cog):
                 if admin:
                     await admin.log_audit(ctx.author, f"🗑️ Deleted command: {ctx.message.content}")
             except Exception:
-                pass
+                logger.warning("Suppressed exception", exc_info=True)
             return
 
         file_links = [attachment.url for attachment in ctx.message.attachments]
@@ -315,7 +314,7 @@ class DMHandler(commands.Cog):
                                 ctx.author,
                                 f"🗑️ Deleted command: {ctx.message.content}")
                     except Exception:
-                        pass
+                        logger.warning("Suppressed exception", exc_info=True)
                     return
                 member = ctx.guild.get_member(user.id) or user
                 fake_ctx = await self.bot.get_context(ctx.message)
@@ -337,7 +336,7 @@ class DMHandler(commands.Cog):
                 if admin:
                     await admin.log_audit(ctx.author, f"🗑️ Deleted command: {ctx.message.content}")
             except Exception:
-                pass
+                logger.warning("Suppressed exception", exc_info=True)
             return
 
         # Handle normal DM
@@ -374,4 +373,4 @@ class DMHandler(commands.Cog):
                 if admin:
                     await admin.log_audit(ctx.author, f"🗑️ Deleted command: {ctx.message.content}")
             except Exception:
-                pass
+                logger.warning("Suppressed exception", exc_info=True)

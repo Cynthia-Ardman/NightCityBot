@@ -11,6 +11,7 @@ class DummyBot:
     def __init__(self):
         self.cogs = {}
         self.loop = asyncio.new_event_loop()
+        self.unbelievaboat = MagicMock()
     def add_cog(self, cog):
         self.cogs[cog.__class__.__name__] = cog
         for attr in dir(cog):

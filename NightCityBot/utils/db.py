@@ -12,6 +12,30 @@ _pool: asyncpg.Pool | None = None
 _pool_lock: asyncio.Lock | None = None
 
 
+class _DBLoadFailed:
+    """Sentinel returned by db_load when a database error occurs.
+
+    Callers that need to distinguish between *key not found* and *DB error*
+    can test ``result is DB_LOAD_FAILED``.  Code that simply uses the value
+    as a dict/list can continue to treat it like any other falsy return.
+    """
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __bool__(self):
+        return False
+
+    def __repr__(self):
+        return "DB_LOAD_FAILED"
+
+
+DB_LOAD_FAILED = _DBLoadFailed()
+
+
 def _get_pool_lock() -> asyncio.Lock:
     global _pool_lock
     if _pool_lock is None:
@@ -56,7 +80,18 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         )
         """
     )
-    logger.info("DB schema verified (json_store + attendance_log tables ready).")
+    await pool.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ticket_index (
+            message_id  TEXT PRIMARY KEY,
+            url         TEXT NOT NULL,
+            ts          TIMESTAMPTZ NOT NULL,
+            title       TEXT NOT NULL DEFAULT '',
+            body        TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+    logger.info("DB schema verified (json_store, attendance_log, ticket_index tables ready).")
     await _seed_attendance_log_from_file(pool)
 
 
@@ -105,19 +140,23 @@ async def _seed_attendance_log_from_file(pool: asyncpg.Pool) -> None:
                             )
                             inserted += 1
                         except Exception:
-                            pass
+                            logger.warning("Failed to seed attendance row user=%s ts=%s", user_id, ts, exc_info=True)
         if inserted:
             logger.info("Seeded attendance_log with %d rows from %s", inserted, attend_file)
-    except Exception as exc:
-        logger.error("_seed_attendance_log_from_file failed: %s", exc)
+    except Exception:
+        logger.error("_seed_attendance_log_from_file failed", exc_info=True)
 
 
 async def db_load(key: str, default=None, seed_path: Path | str | None = None):
     """Load a JSONB blob from the database by key.
 
+    Returns *default* when the key is absent.
+    Returns ``DB_LOAD_FAILED`` (falsy sentinel) when a database error occurs,
+    allowing callers to distinguish an outage from a missing key via
+    ``result is DB_LOAD_FAILED``.
+
     If the key is absent and *seed_path* points to an existing JSON file the
-    file is read once, stored in the database, and returned.  This provides a
-    one-time migration from the old JSON-file storage so no data is lost.
+    file is read once, stored in the database, and returned.
     """
     try:
         pool = await get_pool()
@@ -137,12 +176,11 @@ async def db_load(key: str, default=None, seed_path: Path | str | None = None):
                         await db_save(key, data)
                         logger.info("Seeded DB key '%s' from %s", key, path)
                         return data
-                except Exception as exc:
-                    logger.error(
-                        "Failed to seed DB key '%s' from %s: %s", key, path, exc
-                    )
-    except Exception as exc:
-        logger.error("db_load failed for key '%s': %s", key, exc)
+                except Exception:
+                    logger.error("Failed to seed DB key '%s' from %s", key, path, exc_info=True)
+    except Exception:
+        logger.error("db_load failed for key '%s'", key, exc_info=True)
+        return DB_LOAD_FAILED
     return default
 
 
@@ -162,8 +200,8 @@ async def db_save(key: str, value) -> bool:
             json.dumps(value),
         )
         return True
-    except Exception as exc:
-        logger.error("db_save failed for key '%s': %s", key, exc)
+    except Exception:
+        logger.error("db_save failed for key '%s'", key, exc_info=True)
         return False
 
 
@@ -176,8 +214,8 @@ async def attendance_get_user(user_id: str) -> list[str]:
             user_id,
         )
         return [row["logged_at"].isoformat() for row in rows]
-    except Exception as exc:
-        logger.error("attendance_get_user failed for user '%s': %s", user_id, exc)
+    except Exception:
+        logger.error("attendance_get_user failed for user '%s'", user_id, exc_info=True)
         return []
 
 
@@ -194,8 +232,8 @@ async def attendance_append(user_id: str, logged_at_iso: str) -> bool:
             dt,
         )
         return True
-    except Exception as exc:
-        logger.error("attendance_append failed for user '%s': %s", user_id, exc)
+    except Exception:
+        logger.error("attendance_append failed for user '%s'", user_id, exc_info=True)
         return False
 
 

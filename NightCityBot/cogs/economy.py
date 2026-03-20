@@ -29,7 +29,6 @@ load_json_file = helpers.load_json_file
 save_json_file = helpers.save_json_file
 append_json_file = helpers.append_json_file
 import config
-from NightCityBot.services.unbelievaboat import UnbelievaBoatAPI
 from NightCityBot.services.trauma_team import TraumaTeamService
 
 logger = logging.getLogger(__name__)
@@ -41,7 +40,7 @@ class Economy(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         """Initialize the economy cog."""
         self.bot = bot
-        self.unbelievaboat = UnbelievaBoatAPI(config.UNBELIEVABOAT_API_TOKEN)
+        self.unbelievaboat = bot.unbelievaboat
         self.trauma_service = TraumaTeamService(bot)
         self.open_log_lock = asyncio.Lock()
         self.attend_lock = asyncio.Lock()
@@ -99,7 +98,7 @@ class Economy(commands.Cog):
                 try:
                     await message.delete()
                 except Exception:
-                    pass
+                    logger.warning("Suppressed exception", exc_info=True)
                 admin = self.bot.get_cog("Admin")
                 if admin:
                     await admin.log_audit(
@@ -115,16 +114,13 @@ class Economy(commands.Cog):
                 try:
                     await message.delete()
                 except Exception:
-                    pass
+                    logger.warning("Suppressed exception", exc_info=True)
                 admin = self.bot.get_cog("Admin")
                 if admin:
                     await admin.log_audit(
                         message.author,
                         f"🗑️ Deleted message in {message.channel.mention}: {message.content}",
                     )
-
-    def cog_unload(self):
-        self.bot.loop.create_task(self.unbelievaboat.close())
 
     def calculate_passive_income(self, role: str, open_count: int) -> int:
         """Calculate passive income based on role and number of shop opens."""
@@ -1291,8 +1287,7 @@ class Economy(commands.Cog):
                 try:
                     await notify_user.send("🚦 Rent collection starting...")
                 except Exception:
-                    pass
-
+                    logger.warning("Suppressed exception", exc_info=True)
         audit_lines: List[str] = []
         business_open_log = await db_load(
             "open_log", default={}, seed_path=config.OPEN_LOG_FILE
@@ -1587,8 +1582,7 @@ class Economy(commands.Cog):
                         f"✅ Rent collection completed.\n{summary_text}"
                     )
                 except Exception:
-                    pass
-
+                    logger.warning("Suppressed exception", exc_info=True)
     @commands.command(aliases=["collectrent"])
     @commands.has_permissions(administrator=True)
     async def collect_rent(

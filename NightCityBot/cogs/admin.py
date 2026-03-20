@@ -17,6 +17,16 @@ from NightCityBot.utils.db import db_load, db_save, attendance_get_user, attenda
 logger = logging.getLogger(__name__)
 
 
+def _embed_len(e: discord.Embed) -> int:
+    """Return the total character count of an embed's text fields."""
+    total = len(e.title or "") + len(e.description or "")
+    if e.footer and e.footer.text:
+        total += len(e.footer.text)
+    for f in e.fields:
+        total += len(f.name) + len(str(f.value))
+    return total
+
+
 class Admin(commands.Cog):
     """Administrative commands and global error handler."""
 
@@ -190,8 +200,7 @@ class Admin(commands.Cog):
                 ctx.author, f"🗑️ Deleted command: {ctx.message.content}"
             )
         except Exception:
-            pass
-
+            logger.warning("Suppressed exception", exc_info=True)
     @commands.command(name="help")
     async def block_help(self, ctx):
         await ctx.send("❌ `!help` is disabled. Use `!helpme` or `!helpfixer` instead.")
@@ -281,14 +290,6 @@ class Admin(commands.Cog):
     async def helpfixer(self, ctx):
         """Display help for fixers."""
 
-        def embed_len(e: discord.Embed) -> int:
-            total = len(e.title or "") + len(e.description or "")
-            if e.footer and e.footer.text:
-                total += len(e.footer.text)
-            for f in e.fields:
-                total += len(f.name) + len(str(f.value))
-            return total
-
         fields = [
             (
                 "✉️ Messaging Tools",
@@ -370,7 +371,7 @@ class Admin(commands.Cog):
             chunks = [value[i : i + 1024] for i in range(0, len(value), 1024)] or [""]
             for i, chunk in enumerate(chunks):
                 field_name = name if i == 0 else "\u200b"
-                if embed_len(current) + len(field_name) + len(chunk) > 5800:
+                if _embed_len(current) + len(field_name) + len(chunk) > 5800:
                     current.set_footer(text="Fixer tools by MedusaCascade | v1.2")
                     embeds.append(current)
                     current = discord.Embed(
@@ -388,14 +389,6 @@ class Admin(commands.Cog):
     @commands.command(name="helpadmin")
     async def helpadmin(self, ctx):
         """Display help for administrators."""
-
-        def embed_len(e: discord.Embed) -> int:
-            total = len(e.title or "") + len(e.description or "")
-            if e.footer and e.footer.text:
-                total += len(e.footer.text)
-            for f in e.fields:
-                total += len(f.name) + len(str(f.value))
-            return total
 
         fields = [
             (
@@ -441,7 +434,7 @@ class Admin(commands.Cog):
             chunks = [value[i : i + 1024] for i in range(0, len(value), 1024)] or [""]
             for i, chunk in enumerate(chunks):
                 field_name = name if i == 0 else "\u200b"
-                if embed_len(current) + len(field_name) + len(chunk) > 5800:
+                if _embed_len(current) + len(field_name) + len(chunk) > 5800:
                     current.set_footer(text="Admin tools by MedusaCascade | v1.2")
                     embeds.append(current)
                     current = discord.Embed(
@@ -705,8 +698,7 @@ class Admin(commands.Cog):
                 try:
                     await status_msg.edit(content=content)
                 except Exception:
-                    pass
-
+                    logger.warning("Suppressed exception", exc_info=True)
         threads = []
         if is_forum:
             for t in channel.threads:

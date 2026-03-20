@@ -1,3 +1,4 @@
+import logging
 import discord
 from discord.ext import commands, tasks
 from datetime import datetime, time, timedelta
@@ -9,8 +10,9 @@ import os
 import config
 from NightCityBot.utils.helpers import get_tz_now
 from NightCityBot.utils.db import db_load, db_save
-from NightCityBot.services.unbelievaboat import UnbelievaBoatAPI
 from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
+
+logger = logging.getLogger(__name__)
 
 MAX_COST = {
     "medium": 2000,
@@ -25,7 +27,7 @@ class CyberwareManager(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.unbelievaboat = UnbelievaBoatAPI(config.UNBELIEVABOAT_API_TOKEN)
+        self.unbelievaboat = bot.unbelievaboat
         self.data: Dict[str, Dict[str, Optional[str] | int]] = {}
         self.last_run: Optional[datetime] = None
         self.bot.loop.create_task(self.load_data())
@@ -92,8 +94,7 @@ class CyberwareManager(commands.Cog):
             try:
                 await notify_user.send("🚦 Weekly cyberware processing starting...")
             except Exception:
-                pass
-
+                logger.warning("Suppressed exception", exc_info=True)
         logs: List[str] = []
         results = await self.process_week(log=logs)
 
@@ -119,8 +120,7 @@ class CyberwareManager(commands.Cog):
                     f"✅ Weekly cyberware processing complete:\n{summary}"
                 )
             except Exception:
-                pass
-
+                logger.warning("Suppressed exception", exc_info=True)
         wholesaler = self.bot.get_cog("WholesalerCog")
         if wholesaler and hasattr(wholesaler, "auto_refresh_weekly_after_cyberware"):
             try:
@@ -136,8 +136,7 @@ class CyberwareManager(commands.Cog):
                     try:
                         await notify_user.send("❌ Weekly wholesaler refresh errored.")
                     except Exception:
-                        pass
-
+                        logger.warning("Suppressed exception", exc_info=True)
     async def process_week(
         self,
         *,
@@ -198,8 +197,7 @@ class CyberwareManager(commands.Cog):
                     if inc > 0:
                         member_inc = max(member_inc, inc)
                 except Exception:
-                    pass
-
+                    logger.warning("Suppressed exception", exc_info=True)
             has_checkup = checkup_role in member.roles if checkup_role else False
 
             if role_level is None:
