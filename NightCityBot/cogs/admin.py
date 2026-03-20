@@ -41,7 +41,12 @@ class Admin(commands.Cog):
 
     @staticmethod
     def _embed_to_text(embed: discord.Embed) -> str:
-        """Flatten all text in an embed into a single searchable string."""
+        """Flatten all text in an embed into a single searchable string.
+
+        Discord mentions like <@123456> are kept as-is so user IDs are
+        searchable, and the <@> wrapper is also stripped so bare IDs match.
+        """
+        import re as _re
         parts = []
         if embed.title:
             parts.append(embed.title)
@@ -56,7 +61,12 @@ class Admin(commands.Cog):
             parts.append(embed.footer.text)
         if embed.author and embed.author.name:
             parts.append(embed.author.name)
-        return " ".join(parts)
+        raw = " ".join(parts)
+        # Also add bare user/role IDs so searching by ID works
+        ids = _re.findall(r'<[@&#!&]*(\d+)>', raw)
+        if ids:
+            raw += " " + " ".join(ids)
+        return raw
 
     async def _index_message(self, message: discord.Message, save: bool = True):
         """Add a message's embeds to the ticket index if not already present."""
@@ -909,6 +919,31 @@ class Admin(commands.Cog):
             f"✅ Reindex complete — scanned {scanned:,} messages, "
             f"added {added:,} new entries ({len(self._ticket_index):,} total in index)."
         )
+
+    @commands.command(name="ticket_debug", aliases=["ticketdebug"])
+    @commands.has_permissions(administrator=True)
+    async def ticket_debug(self, ctx, index: int = 0):
+        """Show the raw stored text for a ticket index entry.
+
+        Pass an index (0 = most recent, 1 = second most recent, etc.).
+        Useful for diagnosing why searches aren't matching.
+        """
+        if not self._ticket_index:
+            await ctx.send("Index is empty. Run `!reindex_tickets` first.")
+            return
+        entries = list(reversed(self._ticket_index))
+        if index >= len(entries):
+            await ctx.send(f"Index only has {len(entries)} entries.")
+            return
+        e = entries[index]
+        text_preview = e.get("text", "")[:800]
+        embed = discord.Embed(
+            title=f"🔍 Index entry [{index}] — {e.get('title', '?')}",
+            description=f"**URL:** {e.get('url')}\n**Date:** {e.get('ts', '')[:10]}\n\n**Stored text:**\n```\n{text_preview}\n```",
+            color=discord.Color.orange(),
+        )
+        embed.set_footer(text=f"Total index size: {len(self._ticket_index):,} entries")
+        await ctx.send(embed=embed)
 
     @commands.command(name="search_tickets", aliases=["searchtickets", "ticketsearch"])
     @commands.has_permissions(administrator=True)
