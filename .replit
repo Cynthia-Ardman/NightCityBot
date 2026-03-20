@@ -1,4 +1,4 @@
-modules = ["python-3.11"]
+modules = ["python-3.11", "postgresql-16"]
 
 [workflows]
 runButton = "Project"
@@ -31,6 +31,7 @@ ignorePorts = true
 
 [nix]
 packages = ["lsof"]
+channel = "stable-25_05"
 
 
 [agent]

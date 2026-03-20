@@ -11,6 +11,7 @@ from NightCityBot.utils.permissions import is_fixer
 from NightCityBot.utils import constants
 from NightCityBot.utils import startup_checks
 from NightCityBot.utils.helpers import load_json_file, save_json_file
+from NightCityBot.utils import db as _db
 
 logger = logging.getLogger(__name__)
 

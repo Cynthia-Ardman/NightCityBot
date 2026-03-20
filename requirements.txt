@@ -8,3 +8,4 @@ discord
 python-dotenv
 rapidfuzz
 openpyxl
+asyncpg
