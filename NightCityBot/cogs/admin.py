@@ -12,6 +12,7 @@ from NightCityBot.utils import constants
 from NightCityBot.utils import startup_checks
 from NightCityBot.utils.helpers import load_json_file, save_json_file
 from NightCityBot.utils import db as _db
+from NightCityBot.utils.db import db_load, db_save, attendance_get_user, attendance_append
 
 logger = logging.getLogger(__name__)
 
@@ -566,8 +567,7 @@ class Admin(commands.Cog):
         attend_channel = ctx.guild.get_channel(config.ATTENDANCE_CHANNEL_ID)
         open_channel = ctx.guild.get_channel(config.BUSINESS_ACTIVITY_CHANNEL_ID)
 
-        attend_data = await load_json_file(config.ATTEND_LOG_FILE, default={})
-        open_data = await load_json_file(config.OPEN_LOG_FILE, default={})
+        open_data = await db_load("open_log", default={})
 
         attend_added = 0
         open_added = 0
@@ -593,9 +593,9 @@ class Admin(commands.Cog):
                     if success:
                         uid = str(msg.author.id)
                         ts = msg.created_at.replace(microsecond=0).isoformat()
-                        entries = attend_data.setdefault(uid, [])
-                        if ts not in entries:
-                            entries.append(ts)
+                        existing = await attendance_get_user(uid)
+                        if ts not in existing:
+                            await attendance_append(uid, ts)
                             attend_added += 1
 
         if isinstance(open_channel, discord.TextChannel):
@@ -624,8 +624,7 @@ class Admin(commands.Cog):
                             entries.append(ts)
                             open_added += 1
 
-        await save_json_file(config.ATTEND_LOG_FILE, attend_data)
-        await save_json_file(config.OPEN_LOG_FILE, open_data)
+        await db_save("open_log", open_data)
 
         await ctx.send(
             f"✅ Backfilled {attend_added} attendance entries and {open_added} business opens."

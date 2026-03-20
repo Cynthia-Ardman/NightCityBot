@@ -57,6 +57,59 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         """
     )
     logger.info("DB schema verified (json_store + attendance_log tables ready).")
+    await _seed_attendance_log_from_file(pool)
+
+
+async def _seed_attendance_log_from_file(pool: asyncpg.Pool) -> None:
+    """One-time import of the legacy attend_log JSON blob into attendance_log rows."""
+    from datetime import datetime as _dt
+
+    try:
+        row_count = await pool.fetchval("SELECT COUNT(*) FROM attendance_log")
+        if row_count and row_count > 0:
+            return
+
+        try:
+            import config as _config
+            attend_file = Path(getattr(_config, "ATTEND_LOG_FILE", ""))
+        except Exception:
+            return
+
+        if not attend_file.exists():
+            return
+
+        content = attend_file.read_text(encoding="utf-8").strip()
+        if not content:
+            return
+
+        attend_data = json.loads(content)
+        if not isinstance(attend_data, dict):
+            return
+
+        inserted = 0
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                for user_id, timestamps in attend_data.items():
+                    if not isinstance(timestamps, list):
+                        continue
+                    for ts in timestamps:
+                        if not isinstance(ts, str):
+                            continue
+                        try:
+                            dt = _dt.fromisoformat(ts)
+                            await conn.execute(
+                                "INSERT INTO attendance_log (user_id, logged_at)"
+                                " VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                                str(user_id),
+                                dt,
+                            )
+                            inserted += 1
+                        except Exception:
+                            pass
+        if inserted:
+            logger.info("Seeded attendance_log with %d rows from %s", inserted, attend_file)
+    except Exception as exc:
+        logger.error("_seed_attendance_log_from_file failed: %s", exc)
 
 
 async def db_load(key: str, default=None, seed_path: Path | str | None = None):
