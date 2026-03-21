@@ -18,6 +18,7 @@ from NightCityBot.utils.db import (
     open_log_exists_today, open_log_count_month, open_log_add, open_log_get_all,
     last_payment_get, last_payment_set,
     rent_run_get_last, rent_run_record,
+    warn_db_failure,
 )
 
 safe_filename = helpers.safe_filename
@@ -215,7 +216,12 @@ class Economy(commands.Cog):
                 duplicate = True
             else:
                 open_count_before = min(await open_log_count_month(user_id, now.year, now.month), 4)
-                await open_log_add(user_id, now)
+                ok = await open_log_add(user_id, now)
+                if not ok:
+                    await warn_db_failure(
+                        self.bot, "open_log_add",
+                        f"user {user_id} — opening not recorded",
+                    )
                 open_count_total = open_count_before + 1
                 open_count_after = min(open_count_total, 4)
 
@@ -297,7 +303,12 @@ class Economy(commands.Cog):
                 await ctx.send("❌ You've already logged attendance for this event.")
                 return
 
-            await attendance_append(user_id, now_str)
+            ok = await attendance_append(user_id, now_str)
+            if not ok:
+                await warn_db_failure(
+                    self.bot, "attendance_append",
+                    f"user {user_id} — attendance not recorded",
+                )
 
         reward = _cfg.get_attend_reward()
         await self.unbelievaboat.update_balance(
@@ -547,7 +558,12 @@ class Economy(commands.Cog):
 
     async def record_last_payment(self, member: discord.Member, summary: str) -> None:
         """Store the last payment summary for a member."""
-        await last_payment_set(str(member.id), summary)
+        ok = await last_payment_set(str(member.id), summary)
+        if not ok:
+            await warn_db_failure(
+                self.bot, "last_payment_set",
+                f"user {member.id} — payment summary not persisted",
+            )
 
     async def _label_used_recently(
         self, member: discord.Member, label: str, days: int = 30
@@ -1289,7 +1305,12 @@ class Economy(commands.Cog):
                 )
                 return
         if not target_user and not dry_run:
-            await rent_run_record(str(ctx.author))
+            ok = await rent_run_record(str(ctx.author))
+            if not ok:
+                await warn_db_failure(
+                    self.bot, "rent_run_record",
+                    f"initiated by {ctx.author} — rent run timestamp not persisted",
+                )
 
         members_to_process: List[discord.Member] = []
         for m in ctx.guild.members:

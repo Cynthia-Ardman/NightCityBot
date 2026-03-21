@@ -20,6 +20,7 @@ from NightCityBot.utils.db import (
     cyberware_weekly_get_last_row,
     cyberware_weekly_insert_empty,
     cyberware_weekly_update_row,
+    warn_db_failure,
 )
 from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
 from NightCityBot.utils import config_loader as _cfg
@@ -101,12 +102,17 @@ class CyberwareManager(commands.Cog):
         results = await self.process_week(log=logs)
 
         run_at = datetime.utcnow()
-        await cyberware_weekly_add(
+        ok = await cyberware_weekly_add(
             run_at=run_at,
             checkup_ids=[str(x) for x in results.get("checkup", [])],
             paid_ids=[str(x) for x in results.get("paid", [])],
             unpaid_ids=[str(x) for x in results.get("unpaid", [])],
         )
+        if not ok:
+            await warn_db_failure(
+                self.bot, "cyberware_weekly_add",
+                "weekly run results not persisted",
+            )
 
         summary = "\n".join(logs) if logs else "✅ No actions performed."
         if notify_user:
@@ -276,8 +282,18 @@ class CyberwareManager(commands.Cog):
         if not dry_run:
             if target_member is None:
                 self.last_run = datetime.utcnow()
-                await cyberware_last_run_set(self.last_run)
-            await cyberware_status_upsert_many(self.data)
+                ok = await cyberware_last_run_set(self.last_run)
+                if not ok:
+                    await warn_db_failure(
+                        self.bot, "cyberware_last_run_set",
+                        "last-run timestamp not persisted",
+                    )
+            ok = await cyberware_status_upsert_many(self.data)
+            if not ok:
+                await warn_db_failure(
+                    self.bot, "cyberware_status_upsert_many",
+                    "cyberware status data not persisted",
+                )
             if log is not None:
                 log.append("✅ Data saved.")
         elif log is not None:

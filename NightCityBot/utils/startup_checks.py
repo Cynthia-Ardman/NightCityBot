@@ -174,7 +174,7 @@ async def check_db_health(bot: discord.Client) -> None:
     try:
         latency = await db_ping()
         if latency is None:
-            logger.error("\u274c DB startup health check FAILED — could not connect.")
+            logger.critical("\u274c DB startup health check FAILED — could not connect.")
             admin = bot.get_cog("Admin")
             if admin:
                 await admin.log_audit(
