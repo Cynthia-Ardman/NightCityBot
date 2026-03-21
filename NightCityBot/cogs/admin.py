@@ -1161,10 +1161,10 @@ class Admin(commands.Cog):
         added = 0
         scanned = 0
         pool = await _db.get_pool()
-        # Fetch oldest-first so the index is in chronological order.
+        # Fetch newest-first so we always index recent tickets even on large channels.
+        # The DB uses INSERT ... ON CONFLICT DO NOTHING so insertion order doesn't matter.
         # Sleep 2 s every 100 messages (one API batch) to stay well under rate limits.
-        # Each _index_message call writes directly to the database via the shared pool.
-        async for message in channel.history(limit=limit, oldest_first=True):
+        async for message in channel.history(limit=limit, oldest_first=False):
             scanned += 1
             if await self._index_message(message, pool=pool):
                 added += 1
