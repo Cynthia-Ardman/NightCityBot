@@ -10,13 +10,15 @@ Usage:
 
     --section SECTION   Only run one section: attendance, open_shop, rent,
                         cyberware, dm_threads, trauma_team
-    --dry-run           Fetch and parse but write nothing to the database
-    --limit N           Cap pages fetched per channel (100 msgs/page); for
-                        quick smoke tests use --limit 2
+    --dry-run           Fetch and parse but write nothing to the database;
+                        prints every record that would be written
+    --limit N           Cap pages fetched per channel (100 msgs/page); use
+                        --limit 2 for a 200-message smoke test
 
 The script saves a checkpoint file (.restore_checkpoint.json) after every
-page so it can resume exactly where it left off if interrupted. Delete the
-checkpoint file to start over from the beginning.
+page. If interrupted, the next run resumes exactly from the last cursor.
+Checkpoint stores only the cursor and accumulated parsed records — no raw
+Discord message objects are ever written to it.
 """
 
 import argparse
@@ -37,6 +39,7 @@ import asyncpg
 # ---------------------------------------------------------------------------
 
 DISCORD_API = "https://discord.com/api/v10"
+CHECKPOINT_FILE = Path(".restore_checkpoint.json")
 
 CHANNEL_IDS = {
     "attendance":   1384001117125345280,
@@ -47,9 +50,10 @@ CHANNEL_IDS = {
     "trauma_team":  1351070651313557545,
 }
 
-CHECKPOINT_FILE = Path(".restore_checkpoint.json")
-
 ALL_SECTIONS = list(CHANNEL_IDS.keys())
+
+_CLUSTER_GAP_RENT  = timedelta(minutes=5)
+_RUN_GAP_CYBER     = timedelta(minutes=30)
 
 # ---------------------------------------------------------------------------
 # Checkpoint helpers
@@ -76,15 +80,16 @@ def delete_checkpoint() -> None:
 # Discord API helpers
 # ---------------------------------------------------------------------------
 
-async def discord_get(session: aiohttp.ClientSession, url: str, params: dict = None) -> Any:
-    """GET a Discord endpoint, retrying forever on 429."""
+async def discord_get(session: aiohttp.ClientSession, url: str,
+                      params: Optional[dict] = None) -> Any:
+    """GET a Discord endpoint, retrying forever on 429 with exact sleep."""
     while True:
         async with session.get(url, params=params) as resp:
             if resp.status == 429:
                 data = await resp.json()
                 wait = float(data.get("retry_after", 1.0))
-                print(f"    [rate-limited] sleeping {wait:.2f}s …")
-                await asyncio.sleep(wait + 0.1)
+                print(f"    [rate-limited] sleeping {wait:.3f}s …")
+                await asyncio.sleep(wait)
                 continue
             if resp.status >= 400:
                 text = await resp.text()
@@ -92,147 +97,64 @@ async def discord_get(session: aiohttp.ClientSession, url: str, params: dict = N
             return await resp.json()
 
 
-async def fetch_channel_messages(
+async def stream_pages(
     session: aiohttp.ClientSession,
     channel_id: int,
+    cp_key: str,
     checkpoint: dict,
     limit_pages: Optional[int],
     label: str,
-) -> list[dict]:
+):
     """
-    Fetch all messages from a channel, oldest-first.
+    Async generator that yields pages of messages in chronological order
+    (oldest-first) using the Discord ``after`` cursor.
 
-    Uses the checkpoint to resume after interruption. Returns the full
-    chronological list of messages.
+    After every page the checkpoint is updated with the new cursor and the
+    caller's accumulated state — raw message objects are never stored in
+    the checkpoint file.
     """
-    key = f"ch_{channel_id}"
-    cp_entry = checkpoint.get(key, {})
+    cp_entry = checkpoint.get(cp_key, {})
     if cp_entry.get("done"):
-        print(f"  [{label}] already complete (checkpoint) — skipping fetch")
-        return cp_entry.get("messages", [])
+        return  # Already fully fetched; caller loads its state from checkpoint
 
-    before_cursor = cp_entry.get("cursor")
-    pages: list[list[dict]] = cp_entry.get("pages", [])
-    page_num = cp_entry.get("page_num", 0)
-
+    after_cursor: str = cp_entry.get("after_cursor", "0")
+    page_num: int = cp_entry.get("page_num", 0)
     url = f"{DISCORD_API}/channels/{channel_id}/messages"
 
     while True:
-        params = {"limit": 100}
-        if before_cursor:
-            params["before"] = before_cursor
-
-        page = await discord_get(session, url, params)
+        params: dict = {"limit": 100, "after": after_cursor}
+        page: list = await discord_get(session, url, params)
 
         if not page:
-            break
+            # Merge with current checkpoint so parser_state is not lost
+            checkpoint[cp_key] = {**checkpoint.get(cp_key, {}), "done": True}
+            save_checkpoint(checkpoint)
+            return
 
+        # Discord returns messages in ascending (oldest-first) order for after=
         page_num += 1
-        pages.append(page)
+        after_cursor = page[-1]["id"]   # newest message in this page
 
-        oldest_id = page[-1]["id"]
-        before_cursor = oldest_id
+        print(f"  [{label}] page {page_num}: {len(page)} messages  cursor={after_cursor}")
 
-        print(f"  [{label}] page {page_num}: {len(page)} messages  cursor={before_cursor}")
+        # Update cursor in checkpoint entry (caller merges parser_state after yield)
+        cp_entry = {**cp_entry, "after_cursor": after_cursor, "page_num": page_num, "done": False}
+        checkpoint[cp_key] = cp_entry
 
-        checkpoint[key] = {
-            "cursor": before_cursor,
-            "page_num": page_num,
-            "pages": pages,
-            "done": False,
-        }
-        save_checkpoint(checkpoint)
+        yield page
+        # After yield, run_channel_section has already merged parser_state into
+        # checkpoint[cp_key].  Any further writes below must preserve that.
 
         if len(page) < 100:
-            break
+            # Merge with current state so parser_state written by caller is kept
+            checkpoint[cp_key] = {**checkpoint.get(cp_key, {}), "done": True}
+            save_checkpoint(checkpoint)
+            return
+
         if limit_pages and page_num >= limit_pages:
-            print(f"  [{label}] --limit {limit_pages} reached, stopping early")
-            break
-
-    # Mark complete, flatten chronological
-    messages = []
-    for p in reversed(pages):
-        messages.extend(reversed(p))
-
-    checkpoint[key] = {"done": True, "messages": messages}
-    save_checkpoint(checkpoint)
-
-    print(f"  [{label}] total messages fetched: {len(messages)}")
-    return messages
-
-
-async def fetch_threads_for_channel(
-    session: aiohttp.ClientSession,
-    channel_id: int,
-    checkpoint: dict,
-    limit_pages: Optional[int],
-    label: str,
-) -> list[dict]:
-    """
-    Enumerate all threads (active + archived) for a channel or forum.
-    Returns list of thread objects.
-    """
-    key = f"threads_{channel_id}"
-    cp_entry = checkpoint.get(key, {})
-    if cp_entry.get("done"):
-        print(f"  [{label}] threads already fetched (checkpoint)")
-        return cp_entry.get("threads", [])
-
-    threads: list[dict] = []
-
-    # Active threads
-    active_url = f"{DISCORD_API}/channels/{channel_id}/threads/active"
-    active_data = await discord_get(session, active_url)
-    active = active_data.get("threads", [])
-    threads.extend(active)
-    print(f"  [{label}] active threads: {len(active)}")
-
-    # Archived public threads (paginated)
-    arch_url = f"{DISCORD_API}/channels/{channel_id}/threads/archived/public"
-    before_ts = None
-    arch_page = 0
-    while True:
-        params = {"limit": 100}
-        if before_ts:
-            params["before"] = before_ts
-        data = await discord_get(session, arch_url, params)
-        batch = data.get("threads", [])
-        threads.extend(batch)
-        arch_page += 1
-        print(f"  [{label}] archived-public page {arch_page}: {len(batch)} threads")
-        if not data.get("has_more") or not batch:
-            break
-        if limit_pages and arch_page >= limit_pages:
-            break
-        before_ts = batch[-1].get("thread_metadata", {}).get("archive_timestamp")
-
-    # Archived private threads (paginated — DM inbox threads are all private)
-    arch_priv_url = f"{DISCORD_API}/channels/{channel_id}/threads/archived/private"
-    before_priv_ts = None
-    priv_page = 0
-    try:
-        while True:
-            params_priv: dict = {"limit": 100}
-            if before_priv_ts:
-                params_priv["before"] = before_priv_ts
-            priv_data = await discord_get(session, arch_priv_url, params_priv)
-            priv = priv_data.get("threads", [])
-            threads.extend(priv)
-            priv_page += 1
-            print(f"  [{label}] archived-private page {priv_page}: {len(priv)} threads")
-            if not priv_data.get("has_more") or not priv:
-                break
-            if limit_pages and priv_page >= limit_pages:
-                break
-            before_priv_ts = priv[-1].get("thread_metadata", {}).get("archive_timestamp")
-    except RuntimeError:
-        # Bot may not have MANAGE_THREADS; skip silently
-        pass
-
-    print(f"  [{label}] total threads: {len(threads)}")
-    checkpoint[key] = {"done": True, "threads": threads}
-    save_checkpoint(checkpoint)
-    return threads
+            print(f"  [{label}] --limit {limit_pages} reached, stopping")
+            save_checkpoint(checkpoint)
+            return
 
 # ---------------------------------------------------------------------------
 # Parsing utilities
@@ -240,297 +162,424 @@ async def fetch_threads_for_channel(
 
 MENTION_RE = re.compile(r"<@!?(\d+)>")
 
-def parse_ts(iso: str) -> datetime:
-    """Parse Discord ISO timestamp to UTC datetime."""
-    dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-    return dt.astimezone(timezone.utc)
+def _parse_ts(iso: str) -> datetime:
+    return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(timezone.utc)
 
-def is_bot(msg: dict) -> bool:
+def _is_bot(msg: dict) -> bool:
     return msg.get("author", {}).get("bot", False)
 
-def extract_mentions(content: str) -> list[str]:
+def _mentions(content: str) -> list[str]:
     return MENTION_RE.findall(content)
 
+# Cyberware patterns — covers both old and current bot message formats
+_CY_PAID_OLD  = re.compile(r"Deducted \$[\d,]+ for cyberware meds from <@!?(\d+)> \(week (\d+)\)")
+_CY_PAID_NEW  = re.compile(r"Deducted \$[\d,]+ from <@!?(\d+)> for cyberware meds")
+_CY_UNPA_OLD  = re.compile(r"<@!?(\d+)> cannot pay \$[\d,]+ for immunosuppressants")
+_CY_UNPA_NEW  = re.compile(r"Could not deduct \$[\d,]+ from <@!?(\d+)> for cyberware meds")
+_CY_CHECKUP   = re.compile(r"checkup on <@!?(\d+)>")
+
 # ---------------------------------------------------------------------------
-# Section parsers
+# Stateful per-page parsers
+# Each parser class:
+#   • __init__(state)     — restore from checkpoint state dict (or None)
+#   • process_page(page)  — consume one chronological page, update state
+#   • to_state()          — return JSON-serialisable dict for checkpoint
+#   • get_results()       — return final parsed records
 # ---------------------------------------------------------------------------
 
-def parse_attendance(messages: list[dict]) -> list[tuple[str, datetime]]:
-    """
-    Find successful !attend pairs: [user command, bot '✅ Attendance logged!'].
-    Returns list of (user_id, logged_at).
-    """
-    records: list[tuple[str, datetime]] = []
-    pending_user: Optional[str] = None
+class AttendanceParser:
+    def __init__(self, state: Optional[dict] = None):
+        s = state or {}
+        self._pending: Optional[str] = s.get("pending_user")
+        self._records: list[list] = s.get("records", [])
 
-    for msg in messages:
-        if is_bot(msg):
-            if pending_user and "Attendance logged" in msg.get("content", ""):
-                records.append((pending_user, parse_ts(msg["timestamp"])))
-            pending_user = None
-        else:
-            content = msg.get("content", "").strip()
-            if content.lower().startswith("!attend"):
-                pending_user = str(msg["author"]["id"])
+    def process_page(self, page: list[dict]) -> None:
+        for msg in page:
+            if _is_bot(msg):
+                if self._pending and "Attendance logged" in msg.get("content", ""):
+                    self._records.append([self._pending, msg["timestamp"]])
+                self._pending = None
             else:
-                pending_user = None
+                content = msg.get("content", "").strip()
+                if content.lower().startswith("!attend"):
+                    self._pending = str(msg["author"]["id"])
+                else:
+                    self._pending = None
 
-    return records
+    def to_state(self) -> dict:
+        return {"pending_user": self._pending, "records": self._records}
+
+    def get_results(self) -> list[tuple[str, datetime]]:
+        return [(_r[0], _parse_ts(_r[1])) for _r in self._records]
 
 
-def parse_open_shop(messages: list[dict]) -> list[tuple[str, datetime]]:
-    """
-    Find successful !open_shop pairs: [user command, bot '✅ Business opening logged!'].
-    Returns list of (user_id, opened_at).
-    """
-    records: list[tuple[str, datetime]] = []
-    pending_user: Optional[str] = None
+class OpenShopParser:
+    def __init__(self, state: Optional[dict] = None):
+        s = state or {}
+        self._pending: Optional[str] = s.get("pending_user")
+        self._records: list[list] = s.get("records", [])
 
-    for msg in messages:
-        if is_bot(msg):
-            if pending_user and "Business opening logged" in msg.get("content", ""):
-                records.append((pending_user, parse_ts(msg["timestamp"])))
-            pending_user = None
-        else:
-            content = msg.get("content", "").strip().lower()
-            if content.startswith(("!open_shop", "!openshop", "!os")):
-                pending_user = str(msg["author"]["id"])
+    def process_page(self, page: list[dict]) -> None:
+        for msg in page:
+            if _is_bot(msg):
+                if self._pending and "Business opening logged" in msg.get("content", ""):
+                    self._records.append([self._pending, msg["timestamp"]])
+                self._pending = None
             else:
-                pending_user = None
+                content = msg.get("content", "").strip().lower()
+                if content.startswith(("!open_shop", "!openshop", "!os")):
+                    self._pending = str(msg["author"]["id"])
+                else:
+                    self._pending = None
 
-    return records
+    def to_state(self) -> dict:
+        return {"pending_user": self._pending, "records": self._records}
+
+    def get_results(self) -> list[tuple[str, datetime]]:
+        return [(_r[0], _parse_ts(_r[1])) for _r in self._records]
 
 
-def parse_rent(messages: list[dict]) -> tuple[list[dict], dict[str, str]]:
-    """
-    Find rent run clusters from bot messages.
-    Returns:
-        rent_runs: list of {run_at, initiated_by, users}
-        last_payment: {user_id: summary_str}  (most recent payment per user)
-    """
-    CLUSTER_GAP = timedelta(minutes=5)
+class RentParser:
     PAY_RE = re.compile(r"(Housing|Business) Rent paid")
 
-    rent_events: list[tuple[datetime, str, str]] = []  # (ts, user_id, raw_line)
-    for msg in messages:
-        if not is_bot(msg):
-            continue
-        content = msg.get("content", "")
-        if not PAY_RE.search(content):
-            continue
-        ts = parse_ts(msg["timestamp"])
-        for uid in extract_mentions(content):
-            rent_events.append((ts, uid, content.strip()))
+    def __init__(self, state: Optional[dict] = None):
+        s = state or {}
+        # current_cluster: list of [ts_iso, uid, line]
+        self._cluster: list[list] = s.get("current_cluster", [])
+        self._runs: list[dict] = s.get("runs", [])
+        self._last_payment: dict[str, str] = s.get("last_payment", {})
 
-    if not rent_events:
-        return [], {}
+    def process_page(self, page: list[dict]) -> None:
+        for msg in page:
+            if not _is_bot(msg):
+                continue
+            content = msg.get("content", "")
+            if not self.PAY_RE.search(content):
+                continue
+            ts = msg["timestamp"]
+            for uid in _mentions(content):
+                self._add_event(ts, uid, content.strip())
 
-    # Cluster by 5-minute gaps
-    rent_runs: list[dict] = []
-    current_run: list[tuple[datetime, str, str]] = []
-    for event in rent_events:
-        if current_run and (event[0] - current_run[-1][0]) > CLUSTER_GAP:
-            rent_runs.append(_finalize_rent_run(current_run))
-            current_run = []
-        current_run.append(event)
-    if current_run:
-        rent_runs.append(_finalize_rent_run(current_run))
+    def _add_event(self, ts_iso: str, uid: str, line: str) -> None:
+        ts = _parse_ts(ts_iso)
+        if self._cluster:
+            last_ts = _parse_ts(self._cluster[-1][0])
+            if (ts - last_ts) > _CLUSTER_GAP_RENT:
+                self._flush_cluster()
+        self._cluster.append([ts_iso, uid, line])
 
-    # Build last_payment: most recent cluster per user
-    last_payment: dict[str, str] = {}
-    for run in rent_runs:
-        for uid, summary in run["per_user"].items():
-            last_payment[uid] = summary  # later runs overwrite earlier
+    def _flush_cluster(self) -> None:
+        if not self._cluster:
+            return
+        run_at = self._cluster[0][0]
+        per_user: dict[str, str] = {}
+        for ts_iso, uid, line in self._cluster:
+            per_user[uid] = line
+            self._last_payment[uid] = line
+        self._runs.append({"run_at": run_at, "initiated_by": "restored",
+                           "per_user": per_user})
+        self._cluster = []
 
-    return rent_runs, last_payment
+    def to_state(self) -> dict:
+        return {
+            "current_cluster": self._cluster,
+            "runs": self._runs,
+            "last_payment": self._last_payment,
+        }
 
-
-def _finalize_rent_run(events: list[tuple[datetime, str, str]]) -> dict:
-    run_at = events[0][0]
-    per_user: dict[str, str] = {}
-    for ts, uid, line in events:
-        per_user[uid] = line
-    return {"run_at": run_at, "initiated_by": "restored", "per_user": per_user}
-
-
-# Cyberware message patterns — old format and current format
-# Old paid: "✅ Deducted $2000 for cyberware meds from <@ID> (week 36)."
-_CYBER_OLD_RE = re.compile(
-    r"Deducted \$[\d,]+ for cyberware meds from <@!?(\d+)> \(week (\d+)\)"
-)
-# Current paid: "✅ Deducted $X from <@ID> for cyberware meds."
-_CYBER_NEW_RE = re.compile(
-    r"Deducted \$[\d,]+ from <@!?(\d+)> for cyberware meds"
-)
-# Old unpaid: "🚨 <@ID> cannot pay $X for immunosuppressants and is in danger…"
-_CYBER_UNPAID_OLD_RE = re.compile(
-    r"<@!?(\d+)> cannot pay \$[\d,]+ for immunosuppressants"
-)
-# Current unpaid: "❌ Could not deduct $X from <@ID> for cyberware meds."
-_CYBER_UNPAID_NEW_RE = re.compile(
-    r"Could not deduct \$[\d,]+ from <@!?(\d+)> for cyberware meds"
-)
-# Checkup (both old and new): "Ripperdoc checkup on <@ID>. No money deducted."
-_CYBER_CHECKUP_RE = re.compile(
-    r"checkup on <@!?(\d+)>"
-)
+    def get_results(self) -> tuple[list[dict], dict[str, str]]:
+        # Flush any open cluster before returning
+        self._flush_cluster()
+        return self._runs, self._last_payment
 
 
-def parse_cyberware(
-    messages: list[dict],
-) -> tuple[list[dict], dict[str, tuple[int, datetime]]]:
-    """
-    Parse weekly cyberware runs from the ripperdoc-checkups channel.
-    Returns:
-        weekly_runs: list of {run_at, paid, unpaid, checkup}
-            paid: list of {user_id, weeks}
-            unpaid: list of user_id
-            checkup: list of user_id
-        cyberware_status: {user_id: (weeks, last_processed_dt)}
-            — only the most recent entry per user across all runs
-    """
-    RUN_GAP = timedelta(minutes=30)
+class CyberwareParser:
+    def __init__(self, state: Optional[dict] = None):
+        s = state or {}
+        # current_run: list of event dicts with JSON-serialisable values
+        self._run: list[dict] = s.get("current_run", [])
+        self._runs: list[dict] = s.get("runs", [])
+        # cyber_status: {uid: [weeks_int, last_processed_iso]}
+        self._status: dict[str, list] = s.get("cyber_status", {})
 
-    # Collect raw events from bot messages
-    events: list[dict] = []
-    for msg in messages:
-        if not is_bot(msg):
-            continue
-        content = msg.get("content", "")
-        ts = parse_ts(msg["timestamp"])
+    def process_page(self, page: list[dict]) -> None:
+        for msg in page:
+            if not _is_bot(msg):
+                continue
+            content = msg.get("content", "")
+            ts_iso = msg["timestamp"]
 
-        m = _CYBER_OLD_RE.search(content)
-        if m:
-            events.append({"ts": ts, "type": "paid", "user_id": m.group(1), "weeks": int(m.group(2))})
-            continue
+            m = _CY_PAID_OLD.search(content)
+            if m:
+                self._add(ts_iso, "paid", m.group(1), int(m.group(2)))
+                continue
+            m = _CY_PAID_NEW.search(content)
+            if m:
+                self._add(ts_iso, "paid_noweek", m.group(1), None)
+                continue
+            m = _CY_UNPA_OLD.search(content)
+            if m:
+                self._add(ts_iso, "unpaid", m.group(1), None)
+                continue
+            m = _CY_UNPA_NEW.search(content)
+            if m:
+                self._add(ts_iso, "unpaid", m.group(1), None)
+                continue
+            m = _CY_CHECKUP.search(content)
+            if m:
+                self._add(ts_iso, "checkup", m.group(1), None)
 
-        m = _CYBER_NEW_RE.search(content)
-        if m:
-            events.append({"ts": ts, "type": "paid_noweek", "user_id": m.group(1), "weeks": None})
-            continue
+    def _add(self, ts_iso: str, kind: str, uid: str, weeks: Optional[int]) -> None:
+        ts = _parse_ts(ts_iso)
+        if self._run:
+            last_ts = _parse_ts(self._run[-1]["ts"])
+            if (ts - last_ts) > _RUN_GAP_CYBER:
+                self._flush_run()
+        self._run.append({"ts": ts_iso, "type": kind, "user_id": uid, "weeks": weeks})
 
-        m = _CYBER_UNPAID_OLD_RE.search(content)
-        if m:
-            events.append({"ts": ts, "type": "unpaid", "user_id": m.group(1)})
-            continue
-
-        m = _CYBER_UNPAID_NEW_RE.search(content)
-        if m:
-            events.append({"ts": ts, "type": "unpaid", "user_id": m.group(1)})
-            continue
-
-        m = _CYBER_CHECKUP_RE.search(content)
-        if m:
-            events.append({"ts": ts, "type": "checkup", "user_id": m.group(1)})
-            continue
-
-    if not events:
-        return [], {}
-
-    # Cluster into runs by 30-minute gaps
-    runs: list[list[dict]] = []
-    current: list[dict] = []
-    for ev in events:
-        if current and (ev["ts"] - current[-1]["ts"]) > RUN_GAP:
-            runs.append(current)
-            current = []
-        current.append(ev)
-    if current:
-        runs.append(current)
-
-    weekly_runs = []
-    # Track highest week count seen per user (from most recent run)
-    cyber_status: dict[str, tuple[int, datetime]] = {}
-
-    for run_events in runs:
-        run_at = run_events[0]["ts"]
-        paid: list[dict] = []
-        unpaid: list[str] = []
-        checkup: list[str] = []
-
-        for ev in run_events:
-            uid = ev["user_id"]
-            if ev["type"] == "paid":
-                paid.append({"user_id": uid, "weeks": ev["weeks"]})
-                # Track per-user: take the highest week count from most recent run
-                existing = cyber_status.get(uid)
-                if existing is None or run_at > existing[1]:
-                    cyber_status[uid] = (ev["weeks"], run_at)
-            elif ev["type"] == "paid_noweek":
+    def _flush_run(self) -> None:
+        if not self._run:
+            return
+        run_at = self._run[0]["ts"]
+        paid, unpaid, checkup = [], [], []
+        for ev in self._run:
+            uid, kind, weeks = ev["user_id"], ev["type"], ev["weeks"]
+            if kind == "paid":
+                paid.append({"user_id": uid, "weeks": weeks})
+                existing = self._status.get(uid)
+                if not existing or _parse_ts(run_at) > _parse_ts(existing[1]):
+                    self._status[uid] = [weeks, run_at]
+            elif kind == "paid_noweek":
                 paid.append({"user_id": uid, "weeks": None})
-                # Can't determine week count from new format — only update ts
-                existing = cyber_status.get(uid)
-                if existing is None or run_at > existing[1]:
-                    cyber_status[uid] = (existing[0] if existing else 0, run_at)
-            elif ev["type"] == "unpaid":
+                existing = self._status.get(uid)
+                if not existing or _parse_ts(run_at) > _parse_ts(existing[1]):
+                    self._status[uid] = [existing[0] if existing else 0, run_at]
+            elif kind == "unpaid":
                 unpaid.append(uid)
-            elif ev["type"] == "checkup":
+            elif kind == "checkup":
                 checkup.append(uid)
+        self._runs.append({"run_at": run_at, "paid": paid, "unpaid": unpaid, "checkup": checkup})
+        self._run = []
 
-        weekly_runs.append({
-            "run_at": run_at,
-            "paid": paid,
-            "unpaid": unpaid,
-            "checkup": checkup,
-        })
+    def to_state(self) -> dict:
+        return {"current_run": self._run, "runs": self._runs, "cyber_status": self._status}
 
-    return weekly_runs, cyber_status
+    def get_results(self) -> tuple[list[dict], dict[str, tuple[int, datetime]]]:
+        self._flush_run()
+        status: dict[str, tuple[int, datetime]] = {
+            uid: (v[0], _parse_ts(v[1])) for uid, v in self._status.items()
+        }
+        return self._runs, status
 
+# ---------------------------------------------------------------------------
+# Thread enumeration — with per-batch checkpointing
+# ---------------------------------------------------------------------------
+
+async def fetch_threads_checkpointed(
+    session: aiohttp.ClientSession,
+    channel_id: int,
+    cp_key: str,
+    checkpoint: dict,
+    limit_pages: Optional[int],
+    label: str,
+) -> list[dict]:
+    """
+    Enumerate all threads (active + archived public + archived private) for a
+    channel, saving the checkpoint after every batch to allow resume.
+    Returns the complete list of thread objects.
+    """
+    cp = checkpoint.get(cp_key, {})
+    if cp.get("all_done"):
+        print(f"  [{label}] thread enumeration already complete (checkpoint)")
+        return cp.get("threads", [])
+
+    threads: list[dict] = list(cp.get("threads", []))
+
+    # ── Active threads ─────────────────────────────────────────────────────
+    if not cp.get("active_done"):
+        active_data = await discord_get(
+            session, f"{DISCORD_API}/channels/{channel_id}/threads/active"
+        )
+        active = active_data.get("threads", [])
+        threads.extend(active)
+        print(f"  [{label}] active threads: {len(active)}")
+        cp = {**cp, "active_done": True, "threads": threads}
+        checkpoint[cp_key] = cp
+        save_checkpoint(checkpoint)
+
+    # ── Archived public threads (paginated) ────────────────────────────────
+    if not cp.get("public_done"):
+        arch_url = f"{DISCORD_API}/channels/{channel_id}/threads/archived/public"
+        before_ts: Optional[str] = cp.get("public_cursor")
+        pub_page = cp.get("public_page", 0)
+
+        while True:
+            params: dict = {"limit": 100}
+            if before_ts:
+                params["before"] = before_ts
+            data = await discord_get(session, arch_url, params)
+            batch = data.get("threads", [])
+            threads.extend(batch)
+            pub_page += 1
+            print(f"  [{label}] archived-public page {pub_page}: {len(batch)} threads")
+            before_ts = (
+                batch[-1].get("thread_metadata", {}).get("archive_timestamp")
+                if batch else None
+            )
+            cp = {**cp, "threads": threads, "public_cursor": before_ts,
+                  "public_page": pub_page}
+            checkpoint[cp_key] = cp
+            save_checkpoint(checkpoint)  # checkpoint after every batch
+            if not data.get("has_more") or not batch:
+                break
+            if limit_pages and pub_page >= limit_pages:
+                break
+
+        cp = {**cp, "public_done": True}
+        checkpoint[cp_key] = cp
+        save_checkpoint(checkpoint)
+
+    # ── Archived private threads (paginated) ───────────────────────────────
+    if not cp.get("private_done"):
+        priv_url = f"{DISCORD_API}/channels/{channel_id}/threads/archived/private"
+        before_ts = cp.get("private_cursor")
+        priv_page = cp.get("private_page", 0)
+        try:
+            while True:
+                params = {"limit": 100}
+                if before_ts:
+                    params["before"] = before_ts
+                data = await discord_get(session, priv_url, params)
+                batch = data.get("threads", [])
+                threads.extend(batch)
+                priv_page += 1
+                print(f"  [{label}] archived-private page {priv_page}: {len(batch)} threads")
+                before_ts = (
+                    batch[-1].get("thread_metadata", {}).get("archive_timestamp")
+                    if batch else None
+                )
+                cp = {**cp, "threads": threads, "private_cursor": before_ts,
+                      "private_page": priv_page}
+                checkpoint[cp_key] = cp
+                save_checkpoint(checkpoint)
+                if not data.get("has_more") or not batch:
+                    break
+                if limit_pages and priv_page >= limit_pages:
+                    break
+        except RuntimeError:
+            pass  # Bot may lack MANAGE_THREADS; skip silently
+
+        cp = {**cp, "private_done": True, "all_done": True, "threads": threads}
+        checkpoint[cp_key] = cp
+        save_checkpoint(checkpoint)
+
+    print(f"  [{label}] total threads: {len(threads)}")
+    return threads
+
+# ---------------------------------------------------------------------------
+# DM thread parser (name-only — no message reading required)
+# ---------------------------------------------------------------------------
 
 def parse_dm_threads(threads: list[dict]) -> dict[str, int]:
-    """
-    Extract user_id → thread_id from thread name suffix.
-    Thread names follow the pattern: 'anything-{user_id}'
-    """
+    """Extract user_id → thread_id from thread name suffix (e.g. 'name-12345678')."""
     mapping: dict[str, int] = {}
     for t in threads:
-        name = t.get("name", "")
-        m = re.search(r"(\d{15,20})$", name)
+        m = re.search(r"(\d{15,20})$", t.get("name", ""))
         if m:
-            user_id = m.group(1)
-            thread_id = int(t["id"])
-            mapping[user_id] = thread_id
+            mapping[m.group(1)] = int(t["id"])
     return mapping
 
+# ---------------------------------------------------------------------------
+# Trauma team parser (forum threads)
+# ---------------------------------------------------------------------------
 
-def parse_trauma_team(
+async def fetch_and_parse_trauma_team(
+    session: aiohttp.ClientSession,
     threads: list[dict],
-    thread_messages: dict[int, list[dict]],
+    checkpoint: dict,
+    limit_pages: Optional[int],
 ) -> dict[str, str]:
     """
-    For each forum thread, find the most recent "✅ Payment Successful" bot message.
-    Thread title format: "Character Name - userid"
-    Returns: {user_id: summary_string}
+    For each forum thread, stream its messages and find the most recent
+    '✅ Payment Successful' bot message.  Thread title: 'Name - user_id'.
+    Returns {user_id: summary_string}.
     """
     PAYMENT_RE = re.compile(r"Payment Successful")
     result: dict[str, str] = {}
 
     for t in threads:
-        name = t.get("name", "")
-        m = re.search(r"\s*-\s*(\d{15,20})\s*$", name)
+        m = re.search(r"\s*-\s*(\d{15,20})\s*$", t.get("name", ""))
         if not m:
             continue
         user_id = m.group(1)
-        thread_id = int(t["id"])
-        msgs = thread_messages.get(thread_id, [])
+        tid = int(t["id"])
+        cp_key = f"tt_{tid}"
+        label = f"trauma/{t.get('name', tid)[:28]}"
 
-        # Find the most recent bot payment message
-        latest_ts: Optional[datetime] = None
-        latest_summary: Optional[str] = None
-        for msg in msgs:
-            if not is_bot(msg):
-                continue
-            content = msg.get("content", "")
-            if PAYMENT_RE.search(content):
-                ts = parse_ts(msg["timestamp"])
-                if latest_ts is None or ts > latest_ts:
-                    latest_ts = ts
-                    latest_summary = content.strip()
+        cp_entry = checkpoint.get(cp_key, {})
+        # Load any already-found payment from checkpoint
+        best_ts: Optional[str] = cp_entry.get("best_ts")
+        best_summary: Optional[str] = cp_entry.get("best_summary")
 
-        if latest_summary:
-            result[user_id] = latest_summary
+        if not cp_entry.get("done"):
+            async for page in stream_pages(session, tid, cp_key, checkpoint, limit_pages, label):
+                for msg in page:
+                    if not _is_bot(msg):
+                        continue
+                    content = msg.get("content", "")
+                    if PAYMENT_RE.search(content):
+                        ts = msg["timestamp"]
+                        if best_ts is None or ts > best_ts:
+                            best_ts = ts
+                            best_summary = content.strip()
+                # Save after each page
+                checkpoint[cp_key] = {
+                    **checkpoint.get(cp_key, {}),
+                    "best_ts": best_ts,
+                    "best_summary": best_summary,
+                }
+                save_checkpoint(checkpoint)
+
+        if best_summary:
+            result[user_id] = best_summary
 
     return result
+
+# ---------------------------------------------------------------------------
+# Generic channel fetch-and-parse driver
+# ---------------------------------------------------------------------------
+
+async def run_channel_section(
+    session: aiohttp.ClientSession,
+    channel_id: int,
+    cp_key: str,
+    parser,
+    checkpoint: dict,
+    limit_pages: Optional[int],
+    label: str,
+) -> None:
+    """
+    Stream channel pages and feed them to a stateful parser, saving the
+    parser's state to checkpoint after every page.
+    Loads existing state from checkpoint on startup (for resume).
+    """
+    cp_entry = checkpoint.get(cp_key, {})
+    # Restore parser state from checkpoint
+    parser_state = cp_entry.get("parser_state")
+    parser.__init__(parser_state)  # re-initialize with saved state
+
+    if cp_entry.get("done"):
+        print(f"  [{label}] already complete (checkpoint) — skipping fetch")
+        return
+
+    async for page in stream_pages(session, channel_id, cp_key, checkpoint, limit_pages, label):
+        parser.process_page(page)
+        # After every page, flush parser state to checkpoint (no raw messages)
+        checkpoint[cp_key] = {
+            **checkpoint.get(cp_key, {}),
+            "parser_state": parser.to_state(),
+        }
+        save_checkpoint(checkpoint)
 
 # ---------------------------------------------------------------------------
 # Database writer
@@ -546,200 +595,158 @@ async def write_to_db(
     cyber_status: dict[str, tuple[int, datetime]],
     dm_threads: dict[str, int],
     last_payment_trauma: dict[str, str],
-    dry_run: bool,
 ) -> dict[str, dict]:
-    summary = {
-        "attendance_log": {"found": 0, "inserted": 0, "skipped": 0},
-        "business_open_log": {"found": 0, "inserted": 0, "skipped": 0},
-        "rent_runs": {"found": 0, "inserted": 0, "skipped": 0},
-        "last_payment": {"found": 0, "inserted": 0, "skipped": 0},
+    summary: dict[str, dict] = {
+        "attendance_log":        {"found": 0, "inserted": 0, "skipped": 0},
+        "business_open_log":     {"found": 0, "inserted": 0, "skipped": 0},
+        "rent_runs":             {"found": 0, "inserted": 0, "skipped": 0},
+        "last_payment":          {"found": 0, "inserted": 0, "skipped": 0},
         "cyberware_weekly_runs": {"found": 0, "inserted": 0, "skipped": 0},
-        "cyberware_status": {"found": 0, "inserted": 0, "skipped": 0},
-        "dm_threads": {"found": 0, "inserted": 0, "skipped": 0},
+        "cyberware_status":      {"found": 0, "inserted": 0, "skipped": 0},
+        "dm_threads":            {"found": 0, "inserted": 0, "skipped": 0},
     }
 
-    def count(res: str, s: dict) -> None:
+    def _tally(tag: str, res: str) -> None:
         n = int(res.split()[-1])
-        s["found"] += 1
-        s["inserted"] += n
-        s["skipped"] += 1 - n
-
-    if dry_run:
-        _print_dry_run(
-            attendance, open_shop, rent_runs, last_payment_rent,
-            cyber_runs, cyber_status, dm_threads, last_payment_trauma,
-        )
-        return summary
+        summary[tag]["found"]    += 1
+        summary[tag]["inserted"] += n
+        summary[tag]["skipped"]  += 1 - n
 
     async with pool.acquire() as conn:
-        # attendance_log
-        for user_id, logged_at in attendance:
-            summary["attendance_log"]["found"] += 1
+        for uid, ts in attendance:
             res = await conn.execute(
-                "INSERT INTO attendance_log (user_id, logged_at) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                str(user_id), logged_at,
+                "INSERT INTO attendance_log (user_id, logged_at) VALUES ($1,$2)"
+                " ON CONFLICT DO NOTHING",
+                str(uid), ts,
             )
-            n = int(res.split()[-1])
-            summary["attendance_log"]["inserted"] += n
-            summary["attendance_log"]["skipped"] += 1 - n
+            _tally("attendance_log", res)
 
-        # business_open_log
-        for user_id, opened_at in open_shop:
-            summary["business_open_log"]["found"] += 1
+        for uid, ts in open_shop:
             res = await conn.execute(
-                "INSERT INTO business_open_log (user_id, opened_at) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                str(user_id), opened_at,
+                "INSERT INTO business_open_log (user_id, opened_at) VALUES ($1,$2)"
+                " ON CONFLICT DO NOTHING",
+                str(uid), ts,
             )
-            n = int(res.split()[-1])
-            summary["business_open_log"]["inserted"] += n
-            summary["business_open_log"]["skipped"] += 1 - n
+            _tally("business_open_log", res)
 
-        # rent_runs (check for existing run within 5-min window to avoid duplicates)
         for run in rent_runs:
+            run_at = _parse_ts(run["run_at"]) if isinstance(run["run_at"], str) else run["run_at"]
             summary["rent_runs"]["found"] += 1
-            existing = await conn.fetchval(
+            exists = await conn.fetchval(
                 "SELECT id FROM rent_runs WHERE run_at BETWEEN $1 AND $2 LIMIT 1",
-                run["run_at"] - timedelta(minutes=5),
-                run["run_at"] + timedelta(minutes=5),
+                run_at - timedelta(minutes=5), run_at + timedelta(minutes=5),
             )
-            if existing:
+            if exists:
                 summary["rent_runs"]["skipped"] += 1
             else:
                 await conn.execute(
-                    "INSERT INTO rent_runs (run_at, initiated_by) VALUES ($1, $2)",
-                    run["run_at"], run["initiated_by"],
+                    "INSERT INTO rent_runs (run_at, initiated_by) VALUES ($1,$2)",
+                    run_at, run["initiated_by"],
                 )
                 summary["rent_runs"]["inserted"] += 1
 
-        # last_payment from rent (upsert — trauma team can overwrite later if more recent)
-        all_last_payment: dict[str, str] = dict(last_payment_rent)
-        # Trauma team last_payment — only overwrite if more recent
-        for uid, summary_str in last_payment_trauma.items():
-            all_last_payment[uid] = summary_str  # trauma team entries are used as-is
-
-        for user_id, lp_summary in all_last_payment.items():
-            summary["last_payment"]["found"] += 1
+        # Merge last_payment: rent first, trauma_team overwrites where present
+        all_lp: dict[str, str] = {**last_payment_rent, **last_payment_trauma}
+        for uid, lp_summary in all_lp.items():
             res = await conn.execute(
-                """INSERT INTO last_payment (user_id, summary)
-                   VALUES ($1, $2)
-                   ON CONFLICT (user_id) DO UPDATE SET summary = EXCLUDED.summary""",
-                str(user_id), lp_summary,
+                "INSERT INTO last_payment (user_id, summary) VALUES ($1,$2)"
+                " ON CONFLICT (user_id) DO UPDATE SET summary = EXCLUDED.summary",
+                str(uid), lp_summary,
             )
-            n = int(res.split()[-1])
-            summary["last_payment"]["inserted"] += n
-            summary["last_payment"]["skipped"] += 1 - n
+            _tally("last_payment", res)
 
-        # cyberware_weekly_runs
         for run in cyber_runs:
+            run_at = _parse_ts(run["run_at"]) if isinstance(run["run_at"], str) else run["run_at"]
             summary["cyberware_weekly_runs"]["found"] += 1
-            existing = await conn.fetchval(
+            exists = await conn.fetchval(
                 "SELECT id FROM cyberware_weekly_runs WHERE run_at BETWEEN $1 AND $2 LIMIT 1",
-                run["run_at"] - timedelta(minutes=30),
-                run["run_at"] + timedelta(minutes=30),
+                run_at - timedelta(minutes=30), run_at + timedelta(minutes=30),
             )
-            if existing:
+            if exists:
                 summary["cyberware_weekly_runs"]["skipped"] += 1
             else:
                 paid_ids = [p["user_id"] for p in run["paid"]]
                 await conn.execute(
-                    """INSERT INTO cyberware_weekly_runs (run_at, paid_ids, unpaid_ids, checkup_ids)
-                       VALUES ($1, $2, $3, $4)""",
-                    run["run_at"], paid_ids, run["unpaid"], run["checkup"],
+                    "INSERT INTO cyberware_weekly_runs (run_at, paid_ids, unpaid_ids, checkup_ids)"
+                    " VALUES ($1,$2,$3,$4)",
+                    run_at, paid_ids, run["unpaid"], run["checkup"],
                 )
                 summary["cyberware_weekly_runs"]["inserted"] += 1
 
-        # cyberware_status
-        for user_id, (weeks, last_processed) in cyber_status.items():
-            summary["cyberware_status"]["found"] += 1
+        for uid, (weeks, last_processed) in cyber_status.items():
             res = await conn.execute(
                 """INSERT INTO cyberware_status (user_id, weeks, last_processed)
-                   VALUES ($1, $2, $3)
+                   VALUES ($1,$2,$3)
                    ON CONFLICT (user_id) DO UPDATE
                      SET weeks = EXCLUDED.weeks,
                          last_processed = EXCLUDED.last_processed
                    WHERE cyberware_status.last_processed IS NULL
                       OR EXCLUDED.last_processed > cyberware_status.last_processed""",
-                str(user_id), weeks, last_processed,
+                str(uid), weeks, last_processed,
             )
-            n = int(res.split()[-1])
-            summary["cyberware_status"]["inserted"] += n
-            summary["cyberware_status"]["skipped"] += 1 - n
+            _tally("cyberware_status", res)
 
-        # dm_threads
-        for user_id, thread_id in dm_threads.items():
-            summary["dm_threads"]["found"] += 1
+        for uid, thread_id in dm_threads.items():
             res = await conn.execute(
-                """INSERT INTO dm_threads (user_id, thread_id)
-                   VALUES ($1, $2)
-                   ON CONFLICT (user_id) DO UPDATE SET thread_id = EXCLUDED.thread_id""",
-                str(user_id), thread_id,
+                "INSERT INTO dm_threads (user_id, thread_id) VALUES ($1,$2)"
+                " ON CONFLICT (user_id) DO UPDATE SET thread_id = EXCLUDED.thread_id",
+                str(uid), thread_id,
             )
-            n = int(res.split()[-1])
-            summary["dm_threads"]["inserted"] += n
-            summary["dm_threads"]["skipped"] += 1 - n
+            _tally("dm_threads", res)
 
     return summary
 
+# ---------------------------------------------------------------------------
+# Dry-run preview — every record, no truncation
+# ---------------------------------------------------------------------------
 
 def _print_dry_run(
-    attendance, open_shop, rent_runs, last_payment_rent,
-    cyber_runs, cyber_status, dm_threads, last_payment_trauma,
+    attendance: list,
+    open_shop: list,
+    rent_runs: list,
+    last_payment_rent: dict,
+    cyber_runs: list,
+    cyber_status: dict,
+    dm_threads: dict,
+    last_payment_trauma: dict,
 ) -> None:
-    print("\n" + "=" * 60)
-    print("DRY RUN PREVIEW — nothing will be written")
-    print("=" * 60)
+    sep = "=" * 64
+    print(f"\n{sep}\nDRY RUN PREVIEW — nothing will be written\n{sep}")
 
-    print(f"\n[attendance_log] {len(attendance)} records")
-    for uid, ts in attendance[:10]:
+    print(f"\n[attendance_log] {len(attendance)} record(s)")
+    for uid, ts in attendance:
         print(f"  user={uid}  logged_at={ts.isoformat()}")
-    if len(attendance) > 10:
-        print(f"  … and {len(attendance) - 10} more")
 
-    print(f"\n[business_open_log] {len(open_shop)} records")
-    for uid, ts in open_shop[:10]:
+    print(f"\n[business_open_log] {len(open_shop)} record(s)")
+    for uid, ts in open_shop:
         print(f"  user={uid}  opened_at={ts.isoformat()}")
-    if len(open_shop) > 10:
-        print(f"  … and {len(open_shop) - 10} more")
 
-    print(f"\n[rent_runs] {len(rent_runs)} runs")
-    for run in rent_runs[:5]:
-        print(f"  run_at={run['run_at'].isoformat()}  users={len(run['per_user'])}")
-    if len(rent_runs) > 5:
-        print(f"  … and {len(rent_runs) - 5} more")
+    print(f"\n[rent_runs] {len(rent_runs)} run(s)")
+    for run in rent_runs:
+        print(f"  run_at={run['run_at']}  users={len(run['per_user'])}")
 
-    print(f"\n[last_payment from rent] {len(last_payment_rent)} users")
-    for uid, s in list(last_payment_rent.items())[:5]:
-        print(f"  user={uid}  summary={s[:80]}")
-    if len(last_payment_rent) > 5:
-        print(f"  … and {len(last_payment_rent) - 5} more")
+    print(f"\n[last_payment — rent] {len(last_payment_rent)} user(s)")
+    for uid, s in last_payment_rent.items():
+        print(f"  user={uid}  summary={s[:120]}")
 
-    print(f"\n[cyberware_weekly_runs] {len(cyber_runs)} runs")
-    for run in cyber_runs[:5]:
-        print(f"  run_at={run['run_at'].isoformat()}  paid={len(run['paid'])}  unpaid={len(run['unpaid'])}  checkup={len(run['checkup'])}")
-    if len(cyber_runs) > 5:
-        print(f"  … and {len(cyber_runs) - 5} more")
+    print(f"\n[cyberware_weekly_runs] {len(cyber_runs)} run(s)")
+    for run in cyber_runs:
+        print(f"  run_at={run['run_at']}  paid={len(run['paid'])}  "
+              f"unpaid={len(run['unpaid'])}  checkup={len(run['checkup'])}")
 
-    print(f"\n[cyberware_status] {len(cyber_status)} users")
-    for uid, (weeks, ts) in list(cyber_status.items())[:10]:
+    print(f"\n[cyberware_status] {len(cyber_status)} user(s)")
+    for uid, (weeks, ts) in cyber_status.items():
         print(f"  user={uid}  weeks={weeks}  last_processed={ts.isoformat()}")
-    if len(cyber_status) > 10:
-        print(f"  … and {len(cyber_status) - 10} more")
 
-    print(f"\n[dm_threads] {len(dm_threads)} mappings")
-    for uid, tid in list(dm_threads.items())[:10]:
+    print(f"\n[dm_threads] {len(dm_threads)} mapping(s)")
+    for uid, tid in dm_threads.items():
         print(f"  user={uid}  thread={tid}")
-    if len(dm_threads) > 10:
-        print(f"  … and {len(dm_threads) - 10} more")
 
-    print(f"\n[last_payment from trauma_team] {len(last_payment_trauma)} users")
-    for uid, s in list(last_payment_trauma.items())[:5]:
-        print(f"  user={uid}  summary={s[:80]}")
-    if len(last_payment_trauma) > 5:
-        print(f"  … and {len(last_payment_trauma) - 5} more")
+    print(f"\n[last_payment — trauma_team] {len(last_payment_trauma)} user(s)")
+    for uid, s in last_payment_trauma.items():
+        print(f"  user={uid}  summary={s[:120]}")
 
-    print("\n" + "=" * 60)
-    print("DRY RUN — nothing written")
-    print("=" * 60)
+    print(f"\n{sep}\nDRY RUN — nothing written\n{sep}")
 
 # ---------------------------------------------------------------------------
 # Main
@@ -768,7 +775,7 @@ async def main() -> None:
     )
     args = parser.parse_args()
 
-    sections = [args.section] if args.section else ALL_SECTIONS
+    sections: list[str] = [args.section] if args.section else ALL_SECTIONS
     dry_run: bool = args.dry_run
 
     token = os.environ.get("TOKEN") or os.environ.get("DISCORD_TOKEN")
@@ -788,125 +795,127 @@ async def main() -> None:
         print("ERROR: DATABASE_URL not set")
         sys.exit(1)
 
+    checkpoint = load_checkpoint()
+
+    print("\nNightCityBot — Discord history restoration")
+    print(f"Sections : {', '.join(sections)}")
+    print(f"Dry run  : {dry_run}")
+    print(f"Limit    : {args.limit} page(s) per channel" if args.limit else "Limit    : none (full history)")
+    if checkpoint:
+        print(f"Checkpoint: resuming from {CHECKPOINT_FILE}")
+    print()
+
     headers = {
         "Authorization": f"Bot {token}",
         "Content-Type": "application/json",
     }
 
-    checkpoint = load_checkpoint()
-
-    print(f"\nNightCityBot — Discord history restoration")
-    print(f"Sections: {', '.join(sections)}")
-    print(f"Dry run:  {dry_run}")
-    print(f"Limit:    {args.limit} page(s) per channel" if args.limit else "Limit:    none (full history)")
-    if checkpoint:
-        print(f"Checkpoint: resuming from {CHECKPOINT_FILE}")
-    print()
-
-    # Collect results
-    attendance_records: list[tuple[str, datetime]] = []
-    open_shop_records: list[tuple[str, datetime]] = []
-    rent_run_list: list[dict] = []
-    last_payment_rent: dict[str, str] = {}
-    cyber_run_list: list[dict] = []
-    cyber_status_map: dict[str, tuple[int, datetime]] = {}
-    dm_thread_map: dict[str, int] = {}
-    last_payment_trauma: dict[str, str] = {}
+    # --- Result accumulators -------------------------------------------------
+    attendance_parser  = AttendanceParser()
+    open_shop_parser   = OpenShopParser()
+    rent_parser        = RentParser()
+    cyber_parser       = CyberwareParser()
+    dm_thread_map:     dict[str, int] = {}
+    last_pay_trauma:   dict[str, str] = {}
 
     async with aiohttp.ClientSession(headers=headers) as session:
 
         if "attendance" in sections:
             print("--- Section: attendance ---")
-            msgs = await fetch_channel_messages(
-                session, CHANNEL_IDS["attendance"], checkpoint,
-                args.limit, "attendance",
+            await run_channel_section(
+                session, CHANNEL_IDS["attendance"], "ch_attendance",
+                attendance_parser, checkpoint, args.limit, "attendance",
             )
-            attendance_records = parse_attendance(msgs)
-            print(f"  Parsed {len(attendance_records)} successful attendance records")
+            results = attendance_parser.get_results()
+            print(f"  Parsed {len(results)} attendance records")
 
         if "open_shop" in sections:
             print("\n--- Section: open_shop ---")
-            msgs = await fetch_channel_messages(
-                session, CHANNEL_IDS["open_shop"], checkpoint,
-                args.limit, "open_shop",
+            await run_channel_section(
+                session, CHANNEL_IDS["open_shop"], "ch_open_shop",
+                open_shop_parser, checkpoint, args.limit, "open_shop",
             )
-            open_shop_records = parse_open_shop(msgs)
-            print(f"  Parsed {len(open_shop_records)} successful shop-opening records")
+            results = open_shop_parser.get_results()
+            print(f"  Parsed {len(results)} shop-opening records")
 
         if "rent" in sections:
             print("\n--- Section: rent ---")
-            msgs = await fetch_channel_messages(
-                session, CHANNEL_IDS["rent"], checkpoint,
-                args.limit, "rent",
+            await run_channel_section(
+                session, CHANNEL_IDS["rent"], "ch_rent",
+                rent_parser, checkpoint, args.limit, "rent",
             )
-            rent_run_list, last_payment_rent = parse_rent(msgs)
-            print(f"  Parsed {len(rent_run_list)} rent runs, {len(last_payment_rent)} users with last_payment")
+            rr, lp = rent_parser.get_results()
+            print(f"  Parsed {len(rr)} rent runs, {len(lp)} last_payment entries")
 
         if "cyberware" in sections:
             print("\n--- Section: cyberware ---")
-            msgs = await fetch_channel_messages(
-                session, CHANNEL_IDS["cyberware"], checkpoint,
-                args.limit, "cyberware",
+            await run_channel_section(
+                session, CHANNEL_IDS["cyberware"], "ch_cyberware",
+                cyber_parser, checkpoint, args.limit, "cyberware",
             )
-            cyber_run_list, cyber_status_map = parse_cyberware(msgs)
-            print(f"  Parsed {len(cyber_run_list)} weekly runs, {len(cyber_status_map)} unique users")
+            cr, cs = cyber_parser.get_results()
+            print(f"  Parsed {len(cr)} cyberware runs, {len(cs)} unique users")
 
         if "dm_threads" in sections:
             print("\n--- Section: dm_threads ---")
-            threads = await fetch_threads_for_channel(
-                session, CHANNEL_IDS["dm_threads"], checkpoint,
-                args.limit, "dm_threads",
+            threads = await fetch_threads_checkpointed(
+                session, CHANNEL_IDS["dm_threads"], "th_dm_threads",
+                checkpoint, args.limit, "dm_threads",
             )
             dm_thread_map = parse_dm_threads(threads)
             print(f"  Found {len(dm_thread_map)} user→thread mappings")
 
         if "trauma_team" in sections:
             print("\n--- Section: trauma_team ---")
-            threads = await fetch_threads_for_channel(
-                session, CHANNEL_IDS["trauma_team"], checkpoint,
-                args.limit, "trauma_team",
+            threads = await fetch_threads_checkpointed(
+                session, CHANNEL_IDS["trauma_team"], "th_trauma_team",
+                checkpoint, args.limit, "trauma_team",
             )
-            # Fetch messages for each thread
-            thread_messages: dict[int, list[dict]] = {}
-            for t in threads:
-                tid = int(t["id"])
-                tmsgs = await fetch_channel_messages(
-                    session, tid, checkpoint, args.limit,
-                    f"trauma/{t.get('name', tid)[:30]}",
-                )
-                thread_messages[tid] = tmsgs
-            last_payment_trauma = parse_trauma_team(threads, thread_messages)
-            print(f"  Found {len(last_payment_trauma)} trauma team payment records")
+            last_pay_trauma = await fetch_and_parse_trauma_team(
+                session, threads, checkpoint, args.limit,
+            )
+            print(f"  Found {len(last_pay_trauma)} trauma team payment records")
 
-    # Database write pass
-    print("\n--- Writing to database ---" if not dry_run else "\n--- Dry run preview ---")
+    # Collect final results from parsers
+    attendance_results = attendance_parser.get_results()
+    open_shop_results  = open_shop_parser.get_results()
+    rent_runs, last_pay_rent = rent_parser.get_results()
+    cyber_runs, cyber_status = cyber_parser.get_results()
 
+    # --- Write pass (or dry-run preview) -------------------------------------
+    if dry_run:
+        print("\n--- Dry-run preview ---")
+        _print_dry_run(
+            attendance_results, open_shop_results,
+            rent_runs, last_pay_rent,
+            cyber_runs, cyber_status,
+            dm_thread_map, last_pay_trauma,
+        )
+        return
+
+    print("\n--- Writing to database ---")
     pool = await asyncpg.create_pool(db_url, min_size=1, max_size=3)
     try:
-        summary = await write_to_db(
+        db_summary = await write_to_db(
             pool,
-            attendance_records,
-            open_shop_records,
-            rent_run_list,
-            last_payment_rent,
-            cyber_run_list,
-            cyber_status_map,
-            dm_thread_map,
-            last_payment_trauma,
-            dry_run=dry_run,
+            attendance_results, open_shop_results,
+            rent_runs, last_pay_rent,
+            cyber_runs, cyber_status,
+            dm_thread_map, last_pay_trauma,
         )
     finally:
         await pool.close()
 
-    if not dry_run:
-        print("\n=== Summary ===")
-        for table, counts in summary.items():
-            if counts["found"] > 0:
-                print(f"  {table:<30} found={counts['found']:>5}  inserted={counts['inserted']:>5}  skipped={counts['skipped']:>5}")
-        print("\nSafe to re-run — all inserts use ON CONFLICT DO NOTHING or upsert.")
-        if not args.section:
-            delete_checkpoint()
-            print(f"Checkpoint file deleted.")
+    print("\n=== Summary ===")
+    for table, counts in db_summary.items():
+        if counts["found"] > 0:
+            print(f"  {table:<30} found={counts['found']:>5}  "
+                  f"inserted={counts['inserted']:>5}  skipped={counts['skipped']:>5}")
+    print("\nSafe to re-run — all inserts use ON CONFLICT DO NOTHING or upsert.")
+
+    if not args.section:
+        delete_checkpoint()
+        print("Checkpoint file deleted.")
 
 
 if __name__ == "__main__":
