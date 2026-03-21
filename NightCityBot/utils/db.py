@@ -150,9 +150,13 @@ async def get_pool() -> asyncpg.Pool:
     async with _get_pool_lock():
         if _pool is not None:
             return _pool
-        dsn = os.environ.get("DATABASE_URL")
+        # PROD_DATABASE_URL takes priority when set (production deployment uses
+        # a separate database from the dev Replit PostgreSQL instance).
+        dsn = os.environ.get("PROD_DATABASE_URL") or os.environ.get("DATABASE_URL")
         if not dsn:
-            raise RuntimeError("DATABASE_URL environment variable is not set.")
+            raise RuntimeError(
+                "Neither PROD_DATABASE_URL nor DATABASE_URL environment variable is set."
+            )
         _pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
         logger.info("PostgreSQL connection pool created.")
         await _ensure_schema(_pool)
