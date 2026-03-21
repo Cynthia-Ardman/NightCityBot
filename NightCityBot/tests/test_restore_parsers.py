@@ -321,26 +321,27 @@ class TestOrchestrationAttributes:
         p.process_page(page)
         return p
 
-    def test_attendance_parser_has_records_attr(self):
-        """main() logs `len(attendance_parser._records)` — must not AttributeError."""
+    def test_attendance_parser_has_record_count_property(self):
+        """main() uses attendance_parser.record_count — must not AttributeError."""
         page = [
             _bot("Attendance logged.", _ts(2)),
             _user("111", "!attend", _ts(1)),
         ]
         p = self._run_attendance(page)
-        # Must be subscriptable and len-able (list)
-        assert isinstance(p._records, list)
-        _ = len(p._records)   # must not raise
+        count = p.record_count   # must not raise
+        assert isinstance(count, int)
+        assert count == 1
 
-    def test_open_shop_parser_has_records_attr(self):
-        """main() logs `len(open_shop_parser._records)` — must not AttributeError."""
+    def test_open_shop_parser_has_record_count_property(self):
+        """main() uses open_shop_parser.record_count — must not AttributeError."""
         page = [
             _bot("Business opening logged.", _ts(2)),
             _user("111", "!open_shop", _ts(1)),
         ]
         p = self._run_open_shop(page)
-        assert isinstance(p._records, list)
-        _ = len(p._records)
+        count = p.record_count   # must not raise
+        assert isinstance(count, int)
+        assert count == 1
 
     def test_attendance_parser_no_bot_acks_attr(self):
         """The old _bot_acks attribute must no longer exist (guard against revert)."""
@@ -382,8 +383,8 @@ class TestOrchestrationAttributes:
         # Simulate checkpoint round-trip (as done in run_channel_section)
         p = AttendanceParser(p.to_state())
         p.process_page(page2)
-        # main() logging line
-        count = len(p._records)     # must not raise
+        # main() logging line — uses public property
+        count = p.record_count      # must not raise
         assert count == 2
         results = p.get_results()   # must not raise
         assert len(results) == 2

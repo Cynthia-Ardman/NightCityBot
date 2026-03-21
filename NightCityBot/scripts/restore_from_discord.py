@@ -254,6 +254,11 @@ class AttendanceParser:
                 # Any intervening message invalidates the pending ACK.
                 self._pending_bot_ts = None
 
+    @property
+    def record_count(self) -> int:
+        """Number of confirmed pairs collected so far."""
+        return len(self._records)
+
     def to_state(self) -> dict:
         return {"pending_bot_ts": self._pending_bot_ts, "records": self._records}
 
@@ -284,6 +289,11 @@ class OpenShopParser:
                 self._pending_bot_ts = None
             else:
                 self._pending_bot_ts = None
+
+    @property
+    def record_count(self) -> int:
+        """Number of confirmed pairs collected so far."""
+        return len(self._records)
 
     def to_state(self) -> dict:
         return {"pending_bot_ts": self._pending_bot_ts, "records": self._records}
@@ -989,8 +999,8 @@ async def main() -> None:
         sys.exit(1)
 
     db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        print("ERROR: DATABASE_URL not set")
+    if not db_url and not dry_run:
+        print("ERROR: DATABASE_URL not set (required when not using --dry-run)")
         sys.exit(1)
 
     checkpoint = load_checkpoint()
@@ -1024,7 +1034,7 @@ async def main() -> None:
                 session, CHANNEL_IDS["attendance"], "ch_attendance",
                 attendance_parser, checkpoint, args.limit, "attendance",
             )
-            print(f"  Confirmed {len(attendance_parser._records)} attendance pair(s)")
+            print(f"  Confirmed {attendance_parser.record_count} attendance pair(s)")
 
         if "open_shop" in sections:
             print("\n--- Section: open_shop ---")
@@ -1032,7 +1042,7 @@ async def main() -> None:
                 session, CHANNEL_IDS["open_shop"], "ch_open_shop",
                 open_shop_parser, checkpoint, args.limit, "open_shop",
             )
-            print(f"  Confirmed {len(open_shop_parser._records)} open-shop pair(s)")
+            print(f"  Confirmed {open_shop_parser.record_count} open-shop pair(s)")
 
         if "rent" in sections:
             print("\n--- Section: rent ---")
