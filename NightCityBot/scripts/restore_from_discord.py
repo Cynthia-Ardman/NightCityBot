@@ -99,7 +99,14 @@ def delete_checkpoint() -> None:
 
 async def discord_get(session: aiohttp.ClientSession, url: str,
                       params: Optional[dict] = None) -> Any:
-    """GET a Discord endpoint, retrying on 429 with the exact retry_after sleep."""
+    """GET a Discord endpoint.
+
+    Retries automatically on:
+      - 429  — waits exactly ``retry_after`` seconds as instructed by Discord.
+      - 5xx  — transient server errors; up to 3 retries with exponential backoff
+               (2 s, 4 s, 8 s).  Raises after the third failure.
+    """
+    _5xx_attempts = 0
     while True:
         async with session.get(url, params=params) as resp:
             if resp.status == 429:
@@ -108,9 +115,19 @@ async def discord_get(session: aiohttp.ClientSession, url: str,
                 print(f"    [rate-limited] sleeping {wait:.3f}s …")
                 await asyncio.sleep(wait)
                 continue
+            if resp.status >= 500:
+                _5xx_attempts += 1
+                if _5xx_attempts > 3:
+                    text = await resp.text()
+                    raise RuntimeError(f"Discord API {resp.status} (gave up after 3 retries): {text[:200]}")
+                wait = 2 ** _5xx_attempts   # 2 s, 4 s, 8 s
+                print(f"    [server error {resp.status}] retry {_5xx_attempts}/3 in {wait}s …")
+                await asyncio.sleep(wait)
+                continue
             if resp.status >= 400:
                 text = await resp.text()
                 raise RuntimeError(f"Discord API {resp.status}: {text[:200]}")
+            _5xx_attempts = 0   # reset on success
             return await resp.json()
 
 
