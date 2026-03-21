@@ -700,19 +700,31 @@ class Admin(commands.Cog):
         if existing is None:
             await ctx.send(f"❌ Key `{key}` not found. Use `!config list` to see valid keys.")
             return
-        # Type-safe validation: value must parse as int or float
-        try:
-            int(value)
-        except ValueError:
+        # Per-key type-safe validation using the type metadata in config_loader
+        expected_type = _cfg.key_value_type(key)
+        if expected_type == "int":
+            try:
+                int(value)
+            except ValueError:
+                await ctx.send(
+                    f"❌ `{key}` requires an **integer** value (e.g. `500`). "
+                    f"`{value}` is not valid."
+                )
+                return
+        else:  # "float"
             try:
                 float(value)
             except ValueError:
                 await ctx.send(
-                    f"❌ `{value}` is not a valid number. "
-                    "Config values must be integers or decimals (e.g. `500` or `25.5`)."
+                    f"❌ `{key}` requires a **decimal** value (e.g. `0.25`). "
+                    f"`{value}` is not valid."
                 )
                 return
-        await _db.bot_config_set(key, value)
+        ok = await _db.bot_config_set(key, value)
+        if not ok:
+            await ctx.send(f"⚠️ Database write failed for `{key}`. Value was **not** changed.")
+            await self.log_audit(ctx.author, f"config set FAILED {key}={value}")
+            return
         await _cfg.reload_config()
         await ctx.send(f"✅ `{key}` updated to **{value}** and cache reloaded.")
         await self.log_audit(ctx.author, f"config set {key}={value}")
