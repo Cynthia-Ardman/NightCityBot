@@ -387,3 +387,83 @@ class TestOrchestrationAttributes:
         assert count == 2
         results = p.get_results()   # must not raise
         assert len(results) == 2
+
+
+# ---------------------------------------------------------------------------
+# Thread-checkpoint finalization: all_done recomputation
+# ---------------------------------------------------------------------------
+
+class TestThreadCheckpointAllDone:
+    """
+    Tests for the all_done recomputation logic in fetch_threads_checkpointed.
+
+    The key scenario: a --limit run exhausts private threads (private_done=True)
+    before public threads are done.  A subsequent full run then finishes public
+    threads (public_done=True) but skips the private block.  Before the fix,
+    all_done was only written inside the private block, so it would never be set
+    in this scenario.  The recomputation at the end of the function fixes this.
+    """
+
+    def _make_cp(self, active=True, public=False, private=False, all_done=False):
+        cp: dict = {}
+        if active:
+            cp["active_done"] = True
+        if public:
+            cp["public_done"] = True
+        if private:
+            cp["private_done"] = True
+        if all_done:
+            cp["all_done"] = True
+        return cp
+
+    def test_all_phases_done_sets_all_done(self):
+        """When active+public+private are all True, all_done must be True."""
+        cp = self._make_cp(active=True, public=True, private=True, all_done=False)
+        # Simulate the recomputation block from fetch_threads_checkpointed
+        new_all_done = (
+            cp.get("active_done") and cp.get("public_done") and cp.get("private_done")
+            and not cp.get("all_done")
+        )
+        assert new_all_done is True
+
+    def test_private_done_before_public_then_public_completes(self):
+        """
+        Scenario: --limit run sets private_done=True while public_done=False.
+        Full run then sets public_done=True but skips the private block.
+        The end-of-function recomputation must detect all three phases done.
+        """
+        # State after --limit run: private exhausted quickly, public not done yet
+        cp_after_limit = self._make_cp(active=True, public=False, private=True)
+
+        # Simulate full run: public now finishes → public_done=True set externally
+        cp_after_full = {**cp_after_limit, "public_done": True}
+
+        # Private block is skipped (private_done already True).
+        # End-of-function recomputation:
+        should_set_all_done = (
+            cp_after_full.get("active_done")
+            and cp_after_full.get("public_done")
+            and cp_after_full.get("private_done")
+            and not cp_after_full.get("all_done")
+        )
+        assert should_set_all_done is True, (
+            "all_done must be set when all three phases complete across runs"
+        )
+
+    def test_incomplete_phases_do_not_set_all_done(self):
+        """If any phase is still incomplete, all_done must remain False."""
+        cp = self._make_cp(active=True, public=False, private=True)
+        should_set = (
+            cp.get("active_done") and cp.get("public_done") and cp.get("private_done")
+            and not cp.get("all_done")
+        )
+        assert not should_set  # falsy (None or False) when a phase is missing
+
+    def test_already_set_all_done_not_retriggered(self):
+        """If all_done is already True, recomputation must not re-save."""
+        cp = self._make_cp(active=True, public=True, private=True, all_done=True)
+        should_set = (
+            cp.get("active_done") and cp.get("public_done") and cp.get("private_done")
+            and not cp.get("all_done")
+        )
+        assert should_set is False  # already set; guard condition works

@@ -462,10 +462,12 @@ async def fetch_threads_checkpointed(
     Enumerate all threads (active + archived public + archived private) for a
     channel, saving the checkpoint after every pagination batch.
 
-    `public_done`, `private_done`, and `all_done` are only set when the API
-    signals exhaustion (``has_more=false`` or empty batch).  They are NOT set
-    when the loop stops due to ``--limit``, so a later full run will resume
-    from the saved cursor.
+    ``public_done`` and ``private_done`` are set only when the API signals
+    exhaustion (``has_more=false`` or empty batch); they are NOT set when a
+    loop stops due to ``--limit``.  ``all_done`` is (re-)computed after every
+    invocation from the current values of all three phase flags so that a
+    subsequent full run that completes a previously ``--limit``-capped phase
+    correctly marks the enumeration as fully complete.
     """
     cp = checkpoint.get(cp_key, {})
     if cp.get("all_done"):
@@ -552,10 +554,19 @@ async def fetch_threads_checkpointed(
             priv_exhausted = True  # Bot lacks MANAGE_THREADS; skip silently
 
         if priv_exhausted:
-            all_done = cp.get("public_done", False) and priv_exhausted
-            cp = {**cp, "private_done": True, "all_done": all_done, "threads": threads}
+            cp = {**cp, "private_done": True, "threads": threads}
             checkpoint[cp_key] = cp
             save_checkpoint(checkpoint)
+
+    # Recompute all_done from current phase flags after every invocation.
+    # This ensures that a full run which completes a previously --limit-capped
+    # phase (e.g. public finished in run-2, private was already done in run-1)
+    # correctly transitions to all_done=True.
+    if (cp.get("active_done") and cp.get("public_done") and cp.get("private_done")
+            and not cp.get("all_done")):
+        cp = {**cp, "all_done": True}
+        checkpoint[cp_key] = cp
+        save_checkpoint(checkpoint)
 
     print(f"  [{label}] total threads: {len(threads)}")
     return threads
