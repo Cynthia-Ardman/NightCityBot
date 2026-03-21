@@ -203,6 +203,14 @@ def _parse_ts(iso: str) -> datetime:
     return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
+_DISCORD_EPOCH = 1420070400000  # Discord snowflake epoch: 2015-01-01T00:00:00Z (ms)
+
+def _snowflake_to_ts(snowflake: str) -> datetime:
+    """Decode a Discord snowflake ID to the UTC datetime it was created."""
+    ms = (int(snowflake) >> 22) + _DISCORD_EPOCH
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+
+
 def _is_bot(msg: dict) -> bool:
     return msg.get("author", {}).get("bot", False)
 
@@ -729,8 +737,14 @@ async def build_dm_thread_map(
     checkpoint[CP_KEY] = {uid: [tid, lm] for uid, (tid, lm) in mapping.items()}
     save_checkpoint(checkpoint)
 
-    # Return {uid: thread_id (int)} — the form needed by the DB writer
-    return {uid: tid for uid, (tid, _lm) in mapping.items()}
+    # Return {uid: (thread_id, last_active_ts)} — the form needed by the DB writer.
+    # last_message_id is a snowflake; decode it to an actual datetime.
+    # Fall back to the thread's own creation time (thread ID is also a snowflake)
+    # when last_message_id is missing ("0").
+    return {
+        uid: (tid, _snowflake_to_ts(lm if lm != "0" else str(tid)))
+        for uid, (tid, lm) in mapping.items()
+    }
 
 # ---------------------------------------------------------------------------
 # Trauma team parser (forum threads) — cross-thread global best_ts
@@ -844,9 +858,10 @@ async def write_to_db(
     open_shop: list[tuple[str, datetime]],
     rent_runs: list[dict],
     last_payment: dict[str, str],
+    last_payment_ts: dict[str, str],
     cyber_runs: list[dict],
     cyber_status: dict[str, tuple[int, datetime]],
-    dm_threads: dict[str, int],
+    dm_threads: dict[str, tuple[int, datetime]],
 ) -> dict[str, dict]:
     summary: dict[str, dict] = {
         "attendance_log":        {"found": 0, "inserted": 0, "skipped": 0},
@@ -898,10 +913,13 @@ async def write_to_db(
                 summary["rent_runs"]["inserted"] += 1
 
         for uid, lp_summary in last_payment.items():
+            lp_ts = _parse_ts(last_payment_ts[uid]) if last_payment_ts.get(uid) else None
             res = await conn.execute(
-                "INSERT INTO last_payment (user_id, summary) VALUES ($1,$2)"
-                " ON CONFLICT (user_id) DO UPDATE SET summary = EXCLUDED.summary",
-                str(uid), lp_summary,
+                "INSERT INTO last_payment (user_id, summary, updated_at)"
+                " VALUES ($1, $2, COALESCE($3, NOW()))"
+                " ON CONFLICT (user_id) DO UPDATE"
+                " SET summary = EXCLUDED.summary, updated_at = EXCLUDED.updated_at",
+                str(uid), lp_summary, lp_ts,
             )
             _tally("last_payment", res)
 
@@ -925,22 +943,24 @@ async def write_to_db(
 
         for uid, (weeks, last_processed) in cyber_status.items():
             res = await conn.execute(
-                """INSERT INTO cyberware_status (user_id, weeks, last_processed)
-                   VALUES ($1,$2,$3)
+                """INSERT INTO cyberware_status (user_id, weeks, last_processed, updated_at)
+                   VALUES ($1, $2, $3, $3)
                    ON CONFLICT (user_id) DO UPDATE
-                     SET weeks = EXCLUDED.weeks,
-                         last_processed = EXCLUDED.last_processed
+                     SET weeks          = EXCLUDED.weeks,
+                         last_processed = EXCLUDED.last_processed,
+                         updated_at     = EXCLUDED.updated_at
                    WHERE cyberware_status.last_processed IS NULL
-                      OR EXCLUDED.last_processed > cyberware_status.last_processed""",
+                      OR EXCLUDED.last_processed >= cyberware_status.last_processed""",
                 str(uid), weeks, last_processed,
             )
             _tally("cyberware_status", res)
 
-        for uid, thread_id in dm_threads.items():
+        for uid, (thread_id, thread_ts) in dm_threads.items():
             res = await conn.execute(
-                "INSERT INTO dm_threads (user_id, thread_id) VALUES ($1,$2)"
-                " ON CONFLICT (user_id) DO UPDATE SET thread_id = EXCLUDED.thread_id",
-                str(uid), int(thread_id),  # always ensure int
+                "INSERT INTO dm_threads (user_id, thread_id, updated_at) VALUES ($1, $2, $3)"
+                " ON CONFLICT (user_id) DO UPDATE"
+                " SET thread_id = EXCLUDED.thread_id, updated_at = EXCLUDED.updated_at",
+                str(uid), thread_id, thread_ts,
             )
             _tally("dm_threads", res)
 
@@ -988,8 +1008,8 @@ def _print_dry_run(
         print(f"  user={uid}  weeks={weeks}  last_processed={ts.isoformat()}")
 
     print(f"\n[dm_threads] {len(dm_threads)} mapping(s)")
-    for uid, tid in dm_threads.items():
-        print(f"  user={uid}  thread={tid}")
+    for uid, (tid, ts) in dm_threads.items():
+        print(f"  user={uid}  thread={tid}  last_active={ts.isoformat()}")
 
     print(f"\n{sep}\nDRY RUN — nothing written\n{sep}")
 
@@ -1127,20 +1147,25 @@ async def main() -> None:
     # Merge last_payment by recency: for each user take whichever source has
     # the later timestamp (ISO strings compare lexicographically = chronologically)
     trauma_global_best: dict[str, list] = checkpoint.get("tt_global_best", {})
-    merged_last_payment: dict[str, str] = {}
+    merged_last_payment:    dict[str, str] = {}
+    merged_last_payment_ts: dict[str, str] = {}
     all_uids = set(last_pay_rent.keys()) | set(last_pay_trauma.keys())
     for uid in all_uids:
-        rent_ts     = last_pay_rent_ts.get(uid, "")
-        trauma_ts   = trauma_global_best.get(uid, ["", ""])[0]
+        rent_ts   = last_pay_rent_ts.get(uid, "")
+        trauma_ts = trauma_global_best.get(uid, ["", ""])[0]
         if uid in last_pay_rent and uid in last_pay_trauma:
             if trauma_ts > rent_ts:
-                merged_last_payment[uid] = last_pay_trauma[uid]
+                merged_last_payment[uid]    = last_pay_trauma[uid]
+                merged_last_payment_ts[uid] = trauma_ts
             else:
-                merged_last_payment[uid] = last_pay_rent[uid]
+                merged_last_payment[uid]    = last_pay_rent[uid]
+                merged_last_payment_ts[uid] = rent_ts
         elif uid in last_pay_rent:
-            merged_last_payment[uid] = last_pay_rent[uid]
+            merged_last_payment[uid]    = last_pay_rent[uid]
+            merged_last_payment_ts[uid] = rent_ts
         else:
-            merged_last_payment[uid] = last_pay_trauma[uid]
+            merged_last_payment[uid]    = last_pay_trauma[uid]
+            merged_last_payment_ts[uid] = trauma_ts
 
     print(f"\nParsed: {len(attendance_results)} attendance, "
           f"{len(open_shop_results)} shop-opens, "
@@ -1167,7 +1192,7 @@ async def main() -> None:
         db_summary = await write_to_db(
             pool,
             attendance_results, open_shop_results,
-            rent_runs, merged_last_payment,
+            rent_runs, merged_last_payment, merged_last_payment_ts,
             cyber_runs, cyber_status,
             dm_thread_map,
         )
