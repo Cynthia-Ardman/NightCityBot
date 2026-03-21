@@ -432,6 +432,7 @@ class Admin(commands.Cog):
                     "`!reindex_tickets [limit]` (alias: !reindextickets) – scan the bot-logs channel and build a local ticket search index. Run once to seed history; new tickets index automatically.",
                     "`!search_tickets <query>` (aliases: !searchtickets, !ticketsearch) – instantly search the local ticket index by name, user, ticket ID, reason, or any text.",
                     "`!db_health` – show database ping, pool stats, write-failure count, and last failure timestamp.",
+                    "`!migrate_json_store` – one-time migration: copy all json_store blobs into normalized tables. Idempotent — safe to re-run. json_store is NOT dropped.",
                 ]),
             ),
             (
@@ -753,6 +754,70 @@ class Admin(commands.Cog):
         await _cfg.reload_config()
         await ctx.send("✅ Config cache reloaded from DB.")
         await self.log_audit(ctx.author, "reload_config")
+
+    @commands.command(name="migrate_json_store")
+    @commands.has_permissions(administrator=True)
+    async def migrate_json_store(self, ctx: commands.Context):
+        """Migrate all json_store blobs into normalized tables (idempotent, safe to re-run)."""
+        from NightCityBot.utils.db import migrate_json_store_blobs
+
+        await ctx.send("⏳ Running `json_store` migration — this may take a moment…")
+        try:
+            summary = await migrate_json_store_blobs()
+        except Exception as exc:
+            await ctx.send(f"❌ Migration failed with an unexpected error: `{exc}`")
+            logger.error("migrate_json_store command failed", exc_info=True)
+            return
+
+        if not summary:
+            await ctx.send("ℹ️ `json_store` is empty — nothing to migrate.")
+            return
+
+        lines = []
+        unknown = []
+        total_found = total_inserted = total_skipped = total_errors = 0
+
+        for key, stats in sorted(summary.items()):
+            target = stats.get("target")
+            if target is None:
+                unknown.append(key)
+                continue
+            found = stats.get("found") or 0
+            ins = stats.get("inserted", 0)
+            skipped = stats.get("skipped", 0)
+            errors = stats.get("errors", 0)
+            total_found += found
+            total_inserted += ins
+            total_skipped += skipped
+            total_errors += errors
+            status = "✅" if errors == 0 else "⚠️"
+            lines.append(
+                f"{status} **{key}** → `{target}`: "
+                f"{found} found, {ins} inserted, {skipped} skipped"
+                + (f", {errors} errors" if errors else "")
+            )
+
+        if unknown:
+            lines.append(f"⚠️ Unknown keys (skipped): `{'`, `'.join(sorted(unknown))}`")
+
+        lines.append(
+            f"\n**Totals** — found: {total_found} | inserted: {total_inserted} | "
+            f"skipped: {total_skipped} | errors: {total_errors}"
+        )
+        lines.append(
+            "ℹ️ `json_store` has **not** been dropped — it is kept as an archive. "
+            "You may drop it manually once satisfied with the migration."
+        )
+
+        text = "\n".join(lines)
+        for chunk in [text[i:i+1900] for i in range(0, len(text), 1900)]:
+            await ctx.send(chunk)
+
+        await self.log_audit(
+            ctx.author,
+            f"migrate_json_store: {total_inserted} rows inserted, {total_skipped} skipped, "
+            f"{total_errors} errors across {len(summary)} keys",
+        )
 
     @commands.command(name="db_health")
     @commands.has_permissions(administrator=True)

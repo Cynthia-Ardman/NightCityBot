@@ -1789,6 +1789,453 @@ async def bot_config_seed(defaults: dict[str, tuple[Any, str]]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Admin-triggered json_store migration
+# ---------------------------------------------------------------------------
+
+def _mig_result(target: str, found: int, inserted: int, errors: int) -> dict:
+    return {"target": target, "found": found, "inserted": inserted,
+            "skipped": max(0, found - inserted - errors), "errors": errors}
+
+
+def _count_inserted(result_str: str) -> int:
+    """Parse asyncpg execute() result string 'INSERT 0 N' → N."""
+    try:
+        return int(result_str.split()[-1])
+    except Exception:
+        return 0
+
+
+async def migrate_json_store_blobs(pool: asyncpg.Pool | None = None) -> dict[str, dict]:
+    """Read every key from json_store and upsert records into the corresponding table.
+
+    Returns a dict mapping each blob key to stats:
+      {found, inserted, skipped, errors, target}
+
+    Unknown keys are logged as warnings and appear with target=None.
+    Fully idempotent — all inserts use ON CONFLICT DO NOTHING semantics.
+    """
+    if pool is None:
+        pool = await get_pool()
+
+    summary: dict[str, dict] = {}
+
+    try:
+        rows = await pool.fetch("SELECT key, value FROM json_store ORDER BY key")
+    except Exception:
+        logger.error("migrate_json_store_blobs: failed to query json_store", exc_info=True)
+        return summary
+
+    known_keys = {
+        "attendance", "open_log", "last_payment", "rent_run", "last_rent",
+        "cyberware_status", "cyberware_log", "cyberware_last_run", "cyberware_weekly",
+        "system_status", "wholesaler_lots", "wholesaler_stores", "wholesaler_shops",
+        "wholesaler_settings", "wholesaler_state", "thread_map",
+    }
+
+    for row in rows:
+        key = row["key"]
+        raw = row["value"]
+        data = json.loads(raw) if isinstance(raw, str) else raw
+
+        if key not in known_keys:
+            logger.warning("migrate_json_store_blobs: unknown key '%s' — skipping", key)
+            summary[key] = {"target": None, "found": None, "inserted": 0, "skipped": 0, "errors": 0}
+            continue
+
+        try:
+            result = await _mig_dispatch(pool, key, data)
+        except Exception:
+            logger.error("migrate_json_store_blobs: handler for '%s' raised", key, exc_info=True)
+            result = _mig_result("(error)", 0, 0, 1)
+
+        summary[key] = result
+        logger.info(
+            "migrate_json_store[%s] → %s: found=%s inserted=%d skipped=%d errors=%d",
+            key, result["target"], result["found"], result["inserted"],
+            result["skipped"], result["errors"],
+        )
+
+    return summary
+
+
+async def _mig_dispatch(pool: asyncpg.Pool, key: str, data) -> dict:
+    """Route a json_store key to the appropriate migration handler."""
+    if key == "attendance":
+        return await _mig_attendance(pool, data)
+    if key == "open_log":
+        return await _mig_open_log(pool, data)
+    if key == "last_payment":
+        return await _mig_last_payment(pool, data)
+    if key in ("rent_run", "last_rent"):
+        return await _mig_rent_run(pool, data)
+    if key in ("cyberware_status", "cyberware_log"):
+        return await _mig_cyberware_status(pool, data)
+    if key == "cyberware_last_run":
+        return await _mig_cyberware_last_run(pool, data)
+    if key == "cyberware_weekly":
+        return await _mig_cyberware_weekly(pool, data)
+    if key == "system_status":
+        return await _mig_system_status(pool, data)
+    if key == "wholesaler_lots":
+        return await _mig_wholesaler_lots(pool, data)
+    if key == "wholesaler_stores":
+        return await _mig_wholesaler_stores(pool, data)
+    if key == "wholesaler_shops":
+        return await _mig_wholesaler_shops(pool, data)
+    if key == "wholesaler_settings":
+        return await _mig_wholesaler_settings(pool, data)
+    if key == "wholesaler_state":
+        return await _mig_wholesaler_state(pool, data)
+    if key == "thread_map":
+        return await _mig_thread_map(pool, data)
+    return _mig_result("(unhandled)", 0, 0, 0)
+
+
+async def _mig_attendance(pool: asyncpg.Pool, data) -> dict:
+    target = "attendance_log"
+    if not isinstance(data, dict):
+        return _mig_result(target, 0, 0, 1)
+    found = inserted = errors = 0
+    async with pool.acquire() as conn:
+        for user_id, timestamps in data.items():
+            if not isinstance(timestamps, list):
+                continue
+            for ts in timestamps:
+                if not isinstance(ts, str):
+                    continue
+                found += 1
+                try:
+                    dt = datetime.fromisoformat(ts)
+                    res = await conn.execute(
+                        "INSERT INTO attendance_log (user_id, logged_at)"
+                        " VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                        str(user_id), dt,
+                    )
+                    inserted += _count_inserted(res)
+                except Exception:
+                    errors += 1
+                    logger.warning("_mig_attendance: row error user=%s ts=%s", user_id, ts, exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
+async def _mig_open_log(pool: asyncpg.Pool, data) -> dict:
+    target = "business_open_log"
+    if not isinstance(data, dict):
+        return _mig_result(target, 0, 0, 1)
+    found = inserted = errors = 0
+    async with pool.acquire() as conn:
+        for user_id, timestamps in data.items():
+            if not isinstance(timestamps, list):
+                continue
+            for ts in timestamps:
+                if not isinstance(ts, str):
+                    continue
+                found += 1
+                try:
+                    dt = datetime.fromisoformat(ts)
+                    res = await conn.execute(
+                        "INSERT INTO business_open_log (user_id, opened_at)"
+                        " VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                        str(user_id), dt,
+                    )
+                    inserted += _count_inserted(res)
+                except Exception:
+                    errors += 1
+                    logger.warning("_mig_open_log: row error user=%s ts=%s", user_id, ts, exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
+async def _mig_last_payment(pool: asyncpg.Pool, data) -> dict:
+    target = "last_payment"
+    if not isinstance(data, dict):
+        return _mig_result(target, 0, 0, 1)
+    found = inserted = errors = 0
+    async with pool.acquire() as conn:
+        for user_id, summary in data.items():
+            found += 1
+            if not isinstance(summary, str):
+                summary = str(summary)
+            try:
+                res = await conn.execute(
+                    "INSERT INTO last_payment (user_id, summary)"
+                    " VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    str(user_id), summary,
+                )
+                inserted += _count_inserted(res)
+            except Exception:
+                errors += 1
+                logger.warning("_mig_last_payment: row error user=%s", user_id, exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
+async def _mig_rent_run(pool: asyncpg.Pool, data) -> dict:
+    target = "rent_runs"
+    # Legacy format: {"last_run": "<iso>", ...}  OR a direct ISO string
+    found = inserted = errors = 0
+    ts_str = None
+    if isinstance(data, dict):
+        ts_str = data.get("last_run") or data.get("run_at")
+    elif isinstance(data, str):
+        ts_str = data
+    if ts_str:
+        found = 1
+        try:
+            dt = datetime.fromisoformat(ts_str)
+            res = await pool.execute(
+                "INSERT INTO rent_runs (run_at, initiated_by) VALUES ($1, $2)"
+                " ON CONFLICT DO NOTHING",
+                dt, "migrated",
+            )
+            inserted += _count_inserted(res)
+        except Exception:
+            errors = 1
+            logger.warning("_mig_rent_run: row error", exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
+async def _mig_cyberware_status(pool: asyncpg.Pool, data) -> dict:
+    target = "cyberware_status"
+    if not isinstance(data, dict):
+        return _mig_result(target, 0, 0, 1)
+    found = inserted = errors = 0
+    async with pool.acquire() as conn:
+        for user_id, v in data.items():
+            if user_id == "_last_run":
+                continue
+            found += 1
+            try:
+                if isinstance(v, dict):
+                    weeks = int(v.get("weeks", 0))
+                    last_str = v.get("last")
+                else:
+                    weeks = int(v)
+                    last_str = None
+                last_dt = None
+                if last_str:
+                    try:
+                        last_dt = datetime.fromisoformat(last_str)
+                    except Exception:
+                        pass
+                res = await conn.execute(
+                    "INSERT INTO cyberware_status (user_id, weeks, last_processed)"
+                    " VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                    str(user_id), weeks, last_dt,
+                )
+                inserted += _count_inserted(res)
+            except Exception:
+                errors += 1
+                logger.warning("_mig_cyberware_status: row error user=%s", user_id, exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
+async def _mig_cyberware_last_run(pool: asyncpg.Pool, data) -> dict:
+    target = "cyberware_meta"
+    # data may be an ISO string or {"last_run": "<iso>"}
+    found = inserted = errors = 0
+    ts_str = None
+    if isinstance(data, str):
+        ts_str = data
+    elif isinstance(data, dict):
+        ts_str = data.get("last_run") or data.get("value")
+    if ts_str:
+        found = 1
+        try:
+            res = await pool.execute(
+                "INSERT INTO cyberware_meta (key, value)"
+                " VALUES ('last_full_run', $1) ON CONFLICT DO NOTHING",
+                str(ts_str),
+            )
+            inserted += _count_inserted(res)
+        except Exception:
+            errors = 1
+            logger.warning("_mig_cyberware_last_run: row error", exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
+async def _mig_cyberware_weekly(pool: asyncpg.Pool, data) -> dict:
+    target = "cyberware_weekly_runs"
+    if not isinstance(data, list):
+        return _mig_result(target, 0, 0, 1)
+    found = inserted = errors = 0
+    async with pool.acquire() as conn:
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            ts_str = entry.get("timestamp") or entry.get("run_at")
+            if not ts_str:
+                continue
+            found += 1
+            try:
+                run_at = datetime.fromisoformat(ts_str)
+                checkup = [str(x) for x in entry.get("checkup", [])]
+                paid = [str(x) for x in entry.get("paid", [])]
+                unpaid = [str(x) for x in entry.get("unpaid", [])]
+                res = await conn.execute(
+                    "INSERT INTO cyberware_weekly_runs (run_at, checkup_ids, paid_ids, unpaid_ids)"
+                    " VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+                    run_at, checkup, paid, unpaid,
+                )
+                inserted += _count_inserted(res)
+            except Exception:
+                errors += 1
+                logger.warning("_mig_cyberware_weekly: row error", exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
+async def _mig_system_status(pool: asyncpg.Pool, data) -> dict:
+    target = "system_settings"
+    if not isinstance(data, dict):
+        return _mig_result(target, 0, 0, 1)
+    found = inserted = errors = 0
+    async with pool.acquire() as conn:
+        for system_name, enabled in data.items():
+            found += 1
+            try:
+                res = await conn.execute(
+                    "INSERT INTO system_settings (system_name, enabled)"
+                    " VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    str(system_name), bool(enabled),
+                )
+                inserted += _count_inserted(res)
+            except Exception:
+                errors += 1
+                logger.warning("_mig_system_status: row error system=%s", system_name, exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
+async def _mig_wholesaler_lots(pool: asyncpg.Pool, data) -> dict:
+    target = "wholesale_lots"
+    if not isinstance(data, list):
+        return _mig_result(target, 0, 0, 1)
+    found = inserted = errors = 0
+    async with pool.acquire() as conn:
+        for lot in data:
+            if not isinstance(lot, dict):
+                continue
+            lot_id = lot.get("lot_id")
+            if not lot_id:
+                continue
+            found += 1
+            try:
+                extra = {k: v for k, v in lot.items()
+                         if k not in ("lot_id", "gun_name", "gun_level", "unit_cost", "qty_available")}
+                res = await conn.execute(
+                    "INSERT INTO wholesale_lots (lot_id, gun_name, gun_level, unit_cost, qty_available, data)"
+                    " VALUES ($1, $2, $3, $4, $5, $6::jsonb) ON CONFLICT DO NOTHING",
+                    lot_id, str(lot.get("gun_name", "")), str(lot.get("gun_level", "")),
+                    int(lot.get("unit_cost", 0)), int(lot.get("qty_available", 0)),
+                    json.dumps(extra),
+                )
+                inserted += _count_inserted(res)
+            except Exception:
+                errors += 1
+                logger.warning("_mig_wholesaler_lots: row error lot=%s", lot_id, exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
+async def _mig_wholesaler_stores(pool: asyncpg.Pool, data) -> dict:
+    target = "wholesaler_stores"
+    if not isinstance(data, dict):
+        return _mig_result(target, 0, 0, 1)
+    found = inserted = errors = 0
+    async with pool.acquire() as conn:
+        for store_id, store in data.items():
+            if not isinstance(store, dict):
+                continue
+            found += 1
+            try:
+                owner_id = store.get("owner_id")
+                extra = {k: v for k, v in store.items() if k != "owner_id"}
+                res = await conn.execute(
+                    "INSERT INTO wholesaler_stores (store_id, owner_id, data)"
+                    " VALUES ($1, $2, $3::jsonb) ON CONFLICT DO NOTHING",
+                    str(store_id), str(owner_id) if owner_id is not None else None, json.dumps(extra),
+                )
+                inserted += _count_inserted(res)
+            except Exception:
+                errors += 1
+                logger.warning("_mig_wholesaler_stores: row error store=%s", store_id, exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
+async def _mig_wholesaler_shops(pool: asyncpg.Pool, data) -> dict:
+    target = "wholesaler_shops"
+    if not isinstance(data, dict):
+        return _mig_result(target, 0, 0, 1)
+    found = inserted = errors = 0
+    async with pool.acquire() as conn:
+        for shop_key, shop_data in data.items():
+            found += 1
+            try:
+                res = await conn.execute(
+                    "INSERT INTO wholesaler_shops (shop_key, data)"
+                    " VALUES ($1, $2::jsonb) ON CONFLICT DO NOTHING",
+                    str(shop_key), json.dumps(shop_data),
+                )
+                inserted += _count_inserted(res)
+            except Exception:
+                errors += 1
+                logger.warning("_mig_wholesaler_shops: row error shop=%s", shop_key, exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
+async def _mig_wholesaler_settings(pool: asyncpg.Pool, data) -> dict:
+    target = "wholesaler_settings"
+    if not isinstance(data, dict):
+        return _mig_result(target, 0, 0, 1)
+    found = 1
+    inserted = errors = 0
+    try:
+        res = await pool.execute(
+            "INSERT INTO wholesaler_settings (key, value)"
+            " VALUES ('main', $1::jsonb) ON CONFLICT DO NOTHING",
+            json.dumps(data),
+        )
+        inserted += _count_inserted(res)
+    except Exception:
+        errors = 1
+        logger.warning("_mig_wholesaler_settings: row error", exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
+async def _mig_wholesaler_state(pool: asyncpg.Pool, data) -> dict:
+    """Legacy combined wholesaler blob — dispatches sub-keys to individual handlers."""
+    if not isinstance(data, dict):
+        return _mig_result("wholesale_lots/stores/shops", 0, 0, 1)
+    lots_res = await _mig_wholesaler_lots(pool, data.get("wholesale_lots", []))
+    stores_res = await _mig_wholesaler_stores(pool, data.get("stores", {}))
+    shops_res = await _mig_wholesaler_shops(pool, data.get("shop_registry", {}))
+    settings = data.get("settings")
+    if settings:
+        await _mig_wholesaler_settings(pool, settings)
+    total_found = (lots_res["found"] or 0) + (stores_res["found"] or 0) + (shops_res["found"] or 0)
+    total_inserted = lots_res["inserted"] + stores_res["inserted"] + shops_res["inserted"]
+    total_errors = lots_res["errors"] + stores_res["errors"] + shops_res["errors"]
+    return _mig_result("wholesale_lots+stores+shops", total_found, total_inserted, total_errors)
+
+
+async def _mig_thread_map(pool: asyncpg.Pool, data) -> dict:
+    target = "dm_threads"
+    if not isinstance(data, dict):
+        return _mig_result(target, 0, 0, 1)
+    found = inserted = errors = 0
+    async with pool.acquire() as conn:
+        for user_id, thread_id in data.items():
+            found += 1
+            try:
+                res = await conn.execute(
+                    "INSERT INTO dm_threads (user_id, thread_id)"
+                    " VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    str(user_id), int(thread_id),
+                )
+                inserted += _count_inserted(res)
+            except Exception:
+                errors += 1
+                logger.warning("_mig_thread_map: row error user=%s", user_id, exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
+# ---------------------------------------------------------------------------
 # Pool teardown
 # ---------------------------------------------------------------------------
 
