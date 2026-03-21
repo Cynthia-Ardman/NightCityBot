@@ -128,10 +128,11 @@ class Admin(commands.Cog):
             return False
         text = " ".join(self._embed_to_text(e) for e in message.embeds)
         title = message.embeds[0].title or "(embed)"
+        ts_dt = message.created_at  # keep as datetime for asyncpg
         entry = {
             "id": str(message.id),
             "url": message.jump_url,
-            "ts": message.created_at.isoformat(),
+            "ts": ts_dt.isoformat(),
             "title": title[:120],
             "text": text.lower(),
         }
@@ -140,10 +141,10 @@ class Admin(commands.Cog):
             await p.execute(
                 """
                 INSERT INTO ticket_index (message_id, url, ts, title, body)
-                VALUES ($1, $2, $3::timestamptz, $4, $5)
+                VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (message_id) DO NOTHING
                 """,
-                entry["id"], entry["url"], entry["ts"], entry["title"], entry["text"],
+                entry["id"], entry["url"], ts_dt, entry["title"], entry["text"],
             )
         except Exception as e:
             logger.error("DB insert failed for message %s: %s", message.id, e)
