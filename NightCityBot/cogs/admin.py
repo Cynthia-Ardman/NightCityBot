@@ -1231,6 +1231,60 @@ class Admin(commands.Cog):
             )
         await ctx.send("\n".join(lines)[:1900])
 
+    @commands.command(name="ticket_scan", aliases=["ticketscan"])
+    @commands.has_permissions(administrator=True)
+    async def ticket_scan(self, ctx, scan_limit: int = 2000):
+        """Scan back through the log channel and show the first embed from each unique bot.
+
+        Searches up to scan_limit messages (default 2000) and shows one sample embed
+        per unique author so you can identify the Tickety embed format.
+        Usage: !ticket_scan [limit]
+        """
+        channel = ctx.guild.get_channel(config.TICKETY_LOG_CHANNEL_ID)
+        if channel is None:
+            await ctx.send("⚠️ TICKETY_LOG_CHANNEL_ID not set or channel not found.")
+            return
+
+        await ctx.send(
+            f"🔍 Scanning up to {scan_limit:,} messages in {channel.mention} for embeds…"
+        )
+
+        seen_authors: dict = {}  # author_name -> first embed sample
+        scanned = 0
+        async for msg in channel.history(limit=scan_limit, oldest_first=False):
+            scanned += 1
+            if not msg.embeds:
+                continue
+            author_name = getattr(msg.author, "display_name", str(msg.author))
+            if author_name in seen_authors:
+                continue
+            e = msg.embeds[0]
+            # Build a compact sample of the embed's text content
+            parts = []
+            if e.title:
+                parts.append(f"title=`{e.title[:60]}`")
+            if e.description:
+                parts.append(f"desc=`{e.description[:80]}`")
+            if e.author and e.author.name:
+                parts.append(f"embed_author=`{e.author.name[:60]}`")
+            if e.fields:
+                parts.append(f"fields=[{', '.join(f.name[:30] for f in e.fields[:3])}]")
+            if e.footer and e.footer.text:
+                parts.append(f"footer=`{e.footer.text[:60]}`")
+            seen_authors[author_name] = " | ".join(parts) or "*(empty embed)*"
+
+        if not seen_authors:
+            await ctx.send(f"No embed messages found in the last {scanned:,} messages.")
+            return
+
+        lines = [f"**Unique embed authors in last {scanned:,} messages of {channel.mention}:**"]
+        for author, sample in seen_authors.items():
+            would = "✅" if any(
+                kw in sample.lower() for kw in ("ticket", "transcript")
+            ) else "❌"
+            lines.append(f"{would} **{author}**: {sample}")
+        await ctx.send("\n".join(lines)[:1900])
+
     @commands.command(name="search_tickets", aliases=["searchtickets", "ticketsearch"])
     @commands.has_permissions(administrator=True)
     async def search_tickets(self, ctx, *, query: str):
