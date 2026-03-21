@@ -685,10 +685,18 @@ class Admin(commands.Cog):
     @config_group.command(name="get")
     @commands.has_permissions(administrator=True)
     async def config_get(self, ctx: commands.Context, key: str):
-        """Get a single config value by key."""
+        """Get a single config value by key, showing the effective (fallback) value if not in DB."""
         val = await _db.bot_config_get(key)
         if val is None:
-            await ctx.send(f"❌ Key `{key}` not found in bot_config.")
+            # Show effective fallback from config_loader defaults if available
+            all_defaults = _cfg.get_all_defaults()
+            if key in all_defaults:
+                fallback = all_defaults[key][0]
+                await ctx.send(
+                    f"⚙️ `{key}` is not in DB — effective value (fallback default): **{fallback}**"
+                )
+            else:
+                await ctx.send(f"❌ Key `{key}` not found in bot_config or defaults.")
         else:
             await ctx.send(f"⚙️ `{key}` = **{val}**")
 
