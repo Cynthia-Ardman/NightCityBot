@@ -1144,33 +1144,40 @@ class Admin(commands.Cog):
 
     @commands.command(name="reindex_tickets", aliases=["reindextickets"])
     @commands.has_permissions(administrator=True)
-    async def reindex_tickets(self, ctx, limit: int = 10000):
+    async def reindex_tickets(self, ctx, limit: int = 500000):
         """Scan the Tickety log channel and rebuild the local search index.
 
         Run this once to seed the index from history. New tickets are indexed
-        automatically going forward. Pass a limit to cap how many messages to scan.
+        automatically going forward. Pass a limit to cap how many messages to scan,
+        or pass 0 for no limit (full history sweep).
         """
         channel = ctx.guild.get_channel(config.TICKETY_LOG_CHANNEL_ID)
         if channel is None:
             await ctx.send("⚠️ TICKETY_LOG_CHANNEL_ID is not set or channel not found.")
             return
 
+        actual_limit = limit if limit > 0 else None
+        limit_str = f"up to {limit:,}" if actual_limit else "all"
         status_msg = await ctx.send(
-            f"⏳ Reindexing `#{channel.name}` (up to {limit:,} messages) — "
-            f"this runs in the background, I'll report when done."
+            f"⏳ Reindexing `#{channel.name}` ({limit_str} messages, newest-first) — "
+            f"this runs in the background. I'll post progress every 10,000 messages."
         )
         added = 0
         scanned = 0
         pool = await _db.get_pool()
-        # Fetch newest-first so we always index recent tickets even on large channels.
+        # Fetch newest-first so recent tickets are always indexed even on huge channels.
         # The DB uses INSERT ... ON CONFLICT DO NOTHING so insertion order doesn't matter.
-        # Sleep 2 s every 100 messages (one API batch) to stay well under rate limits.
-        async for message in channel.history(limit=limit, oldest_first=False):
+        # Sleep 1 s every 100 messages to stay well under Discord rate limits.
+        async for message in channel.history(limit=actual_limit, oldest_first=False):
             scanned += 1
             if await self._index_message(message, pool=pool):
                 added += 1
             if scanned % 100 == 0:
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
+            if scanned % 10000 == 0:
+                await ctx.send(
+                    f"⏳ Still going… scanned {scanned:,} messages, found {added:,} tickets so far."
+                )
 
         if status_msg:
             try:
