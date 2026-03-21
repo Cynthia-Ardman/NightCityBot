@@ -1327,33 +1327,43 @@ class Admin(commands.Cog):
             )
             return
 
-        shown = matches[:25]
-        embed = discord.Embed(
-            title=f"🎫 Ticket Search: {query}",
-            description=(
-                f"Found **{len(matches)}** match{'es' if len(matches) != 1 else ''}  "
-                f"({len(self._ticket_index):,} tickets indexed)"
-                + (f" — showing newest 25" if len(matches) > 25 else "")
-            ),
-            color=discord.Color.blurple(),
+        total = len(matches)
+        header = (
+            f"Found **{total}** match{'es' if total != 1 else ''} "
+            f"({len(self._ticket_index):,} tickets indexed)"
         )
+
+        # Build all result lines then paginate into embeds (max ~4000 chars each).
         lines = []
-        for e in shown:
+        for e in matches:
             ts_str = e["ts"][:10]  # YYYY-MM-DD
-            title = e["title"][:60]
+            title = e["title"][:80]
             lines.append(f"[{ts_str}]({e['url']}) — {title}")
 
+        # Split lines into field-sized chunks (≤1024 chars each).
+        fields: list[str] = []
         chunk = ""
         for line in lines:
             if len(chunk) + len(line) + 1 > 1024:
-                embed.add_field(name="Matches", value=chunk, inline=False)
+                fields.append(chunk.rstrip("\n"))
                 chunk = line + "\n"
             else:
                 chunk += line + "\n"
         if chunk:
-            embed.add_field(name="Matches", value=chunk, inline=False)
+            fields.append(chunk.rstrip("\n"))
 
-        await ctx.send(embed=embed)
+        # Pack fields into embeds (≤5 fields each to stay safely under the 6000-char limit).
+        FIELDS_PER_EMBED = 5
+        pages = [fields[i:i + FIELDS_PER_EMBED] for i in range(0, len(fields), FIELDS_PER_EMBED)]
+        for page_num, page_fields in enumerate(pages, 1):
+            embed = discord.Embed(
+                title=f"🎫 Ticket Search: {query}" + (f" (page {page_num}/{len(pages)})" if len(pages) > 1 else ""),
+                description=header if page_num == 1 else f"*(continued — page {page_num}/{len(pages)})*",
+                color=discord.Color.blurple(),
+            )
+            for field_text in page_fields:
+                embed.add_field(name="Matches", value=field_text, inline=False)
+            await ctx.send(embed=embed)
 
     async def log_audit(self, user, action_desc):
         """Log an audit entry to the audit channel."""
