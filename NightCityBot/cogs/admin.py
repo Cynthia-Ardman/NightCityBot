@@ -646,7 +646,7 @@ class Admin(commands.Cog):
         )
 
     @commands.group(name="config", invoke_without_command=True)
-    @is_fixer()
+    @commands.has_permissions(administrator=True)
     async def config_group(self, ctx: commands.Context):
         """Bot configuration commands. Use !config list/get/set/reload."""
         await ctx.send(
@@ -658,7 +658,7 @@ class Admin(commands.Cog):
         )
 
     @config_group.command(name="list")
-    @is_fixer()
+    @commands.has_permissions(administrator=True)
     async def config_list(self, ctx: commands.Context):
         """List all bot_config values."""
         rows = await _db.bot_config_get_all()
@@ -683,7 +683,7 @@ class Admin(commands.Cog):
             await ctx.send(header + text)
 
     @config_group.command(name="get")
-    @is_fixer()
+    @commands.has_permissions(administrator=True)
     async def config_get(self, ctx: commands.Context, key: str):
         """Get a single config value by key."""
         val = await _db.bot_config_get(key)
@@ -693,25 +693,45 @@ class Admin(commands.Cog):
             await ctx.send(f"⚙️ `{key}` = **{val}**")
 
     @config_group.command(name="set")
-    @is_fixer()
+    @commands.has_permissions(administrator=True)
     async def config_set(self, ctx: commands.Context, key: str, value: str):
         """Set a config value and reload the in-memory cache."""
         existing = await _db.bot_config_get(key)
         if existing is None:
             await ctx.send(f"❌ Key `{key}` not found. Use `!config list` to see valid keys.")
             return
+        # Type-safe validation: value must parse as int or float
+        try:
+            int(value)
+        except ValueError:
+            try:
+                float(value)
+            except ValueError:
+                await ctx.send(
+                    f"❌ `{value}` is not a valid number. "
+                    "Config values must be integers or decimals (e.g. `500` or `25.5`)."
+                )
+                return
         await _db.bot_config_set(key, value)
         await _cfg.reload_config()
         await ctx.send(f"✅ `{key}` updated to **{value}** and cache reloaded.")
         await self.log_audit(ctx.author, f"config set {key}={value}")
 
     @config_group.command(name="reload")
-    @is_fixer()
+    @commands.has_permissions(administrator=True)
     async def config_reload(self, ctx: commands.Context):
         """Reload the config cache from DB without changing any values."""
         await _cfg.reload_config()
         await ctx.send("✅ Config cache reloaded from DB.")
         await self.log_audit(ctx.author, "config reload")
+
+    @commands.command(name="reload_config")
+    @commands.has_permissions(administrator=True)
+    async def reload_config_cmd(self, ctx: commands.Context):
+        """Standalone alias: reload the bot config cache from DB."""
+        await _cfg.reload_config()
+        await ctx.send("✅ Config cache reloaded from DB.")
+        await self.log_audit(ctx.author, "reload_config")
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):

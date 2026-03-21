@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from NightCityBot.utils.constants import TRAUMA_ROLE_COSTS
+from NightCityBot.utils import config_loader as _cfg
 import config
 
 
@@ -18,7 +18,7 @@ class TraumaTeam(commands.Cog):
             await ctx.send("⚠️ Trauma Team channel not found.")
             return
 
-        plan_role = next((r for r in ctx.author.roles if r.name in TRAUMA_ROLE_COSTS), None)
+        plan_role = next((r for r in ctx.author.roles if r.name in _cfg.get_trauma_role_costs()), None)
         if not plan_role:
             await ctx.send("⚠️ You don't have a Trauma Team plan role.")
             return

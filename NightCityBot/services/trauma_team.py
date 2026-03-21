@@ -1,6 +1,6 @@
 from typing import Optional, List
 import discord
-from NightCityBot.utils.constants import TRAUMA_ROLE_COSTS
+from NightCityBot.utils import config_loader as _cfg
 import config
 
 
@@ -47,14 +47,15 @@ class TraumaTeamService:
         cash = balance["cash"]
         bank = balance["bank"]
 
+        trauma_costs = _cfg.get_trauma_role_costs()
         trauma_role = next(
-            (r for r in member.roles if r.name in TRAUMA_ROLE_COSTS),
+            (r for r in member.roles if r.name in trauma_costs),
             None
-                )
+        )
         if not trauma_role:
             return  # no subscription
 
-        cost = TRAUMA_ROLE_COSTS[trauma_role.name]
+        cost = trauma_costs[trauma_role.name]
         if log is not None:
             log.append(f"🔎 {trauma_role.name} → Subscription: ${cost}")
             log.append(f"💊 Deducting ${cost} for Trauma Team plan: {trauma_role.name}")

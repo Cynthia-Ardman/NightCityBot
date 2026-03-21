@@ -2,7 +2,7 @@ from typing import List
 import discord
 from unittest.mock import AsyncMock, MagicMock, patch
 import config
-from NightCityBot.utils.constants import BASELINE_LIVING_COST
+from NightCityBot.utils import config_loader as _cfg
 
 async def run(suite, ctx) -> List[str]:
     """Eviction notices should post even when baseline deduction fails."""
@@ -26,7 +26,7 @@ async def run(suite, ctx) -> List[str]:
     logs.append('→ Expected: baseline failure should still trigger eviction notices.')
 
     with (
-        patch.object(economy.unbelievaboat, 'get_balance', new=AsyncMock(return_value={'cash': BASELINE_LIVING_COST - 400, 'bank': 0})),
+        patch.object(economy.unbelievaboat, 'get_balance', new=AsyncMock(return_value={'cash': _cfg.get_baseline_living_cost() - 400, 'bank': 0})),
         patch.object(economy.unbelievaboat, 'update_balance', new=AsyncMock(return_value=True)),
         patch.object(economy, 'backup_balances', new=AsyncMock()),
         patch.object(economy.trauma_service, 'process_trauma_team_payment', new=AsyncMock()),

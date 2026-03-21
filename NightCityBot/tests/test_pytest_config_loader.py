@@ -1,0 +1,192 @@
+"""
+Pytest tests verifying that config_loader getters return correct defaults
+and that economy/cyberware calculations read values from the config cache.
+"""
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+import discord
+from discord.ext import commands
+
+import config
+from NightCityBot.utils import config_loader as _cfg
+from NightCityBot.utils.constants import (
+    BASELINE_LIVING_COST,
+    ATTEND_REWARD,
+    ROLE_COSTS_BUSINESS,
+    ROLE_COSTS_HOUSING,
+    TRAUMA_ROLE_COSTS,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+class DummyBot:
+    def __init__(self):
+        self.cogs = {}
+        self.loop = asyncio.new_event_loop()
+        self.unbelievaboat = MagicMock()
+
+    def add_cog(self, cog):
+        self.cogs[cog.__class__.__name__] = cog
+        for attr in dir(cog):
+            cmd = getattr(cog, attr)
+            if isinstance(cmd, commands.Command):
+                cmd.cog = cog
+
+    def get_cog(self, name):
+        return self.cogs.get(name)
+
+
+def _make_economy():
+    from NightCityBot.cogs.economy import Economy
+    bot = DummyBot()
+    with patch("NightCityBot.services.unbelievaboat.aiohttp.ClientSession", new=MagicMock()):
+        econ = Economy(bot)
+    bot.add_cog(econ)
+    return econ
+
+
+def _make_cyberware():
+    from NightCityBot.cogs.cyberware import CyberwareManager
+    bot = DummyBot()
+    with (
+        patch("NightCityBot.services.unbelievaboat.aiohttp.ClientSession", new=MagicMock()),
+        patch("asyncio.create_task", lambda *a, **k: None),
+    ):
+        cyber = CyberwareManager(bot)
+    bot.add_cog(cyber)
+    return cyber
+
+
+# ---------------------------------------------------------------------------
+# Config-loader default value tests
+# ---------------------------------------------------------------------------
+
+def test_default_baseline_living_cost():
+    """get_baseline_living_cost() returns the hardcoded default when cache is empty."""
+    with patch.dict(_cfg._cache, {}, clear=True):
+        assert _cfg.get_baseline_living_cost() == BASELINE_LIVING_COST
+
+
+def test_default_attend_reward():
+    """get_attend_reward() returns the hardcoded default when cache is empty."""
+    with patch.dict(_cfg._cache, {}, clear=True):
+        assert _cfg.get_attend_reward() == ATTEND_REWARD
+
+
+def test_default_role_costs_business():
+    """get_role_costs_business() returns the same mapping as the constant."""
+    with patch.dict(_cfg._cache, {}, clear=True):
+        assert _cfg.get_role_costs_business() == ROLE_COSTS_BUSINESS
+
+
+def test_default_role_costs_housing():
+    """get_role_costs_housing() returns the same mapping as the constant."""
+    with patch.dict(_cfg._cache, {}, clear=True):
+        assert _cfg.get_role_costs_housing() == ROLE_COSTS_HOUSING
+
+
+def test_default_trauma_role_costs():
+    """get_trauma_role_costs() returns the same mapping as the constant."""
+    with patch.dict(_cfg._cache, {}, clear=True):
+        assert _cfg.get_trauma_role_costs() == TRAUMA_ROLE_COSTS
+
+
+def test_default_cyber_max_cost():
+    """get_cyber_max_cost() returns expected defaults for medium/high/extreme."""
+    with patch.dict(_cfg._cache, {}, clear=True):
+        mc = _cfg.get_cyber_max_cost()
+    assert mc["medium"] == 2000
+    assert mc["high"] == 5000
+    assert mc["extreme"] == 10000
+
+
+# ---------------------------------------------------------------------------
+# Overriding via cache
+# ---------------------------------------------------------------------------
+
+def test_baseline_override_via_cache():
+    """Setting baseline_living_cost in cache changes what the getter returns."""
+    with patch.dict(_cfg._cache, {"baseline_living_cost": "999"}, clear=False):
+        assert _cfg.get_baseline_living_cost() == 999
+
+
+def test_attend_reward_override_via_cache():
+    with patch.dict(_cfg._cache, {"attend_reward": "200"}, clear=False):
+        assert _cfg.get_attend_reward() == 200
+
+
+# ---------------------------------------------------------------------------
+# Cyberware calculate_cost reads from config_loader
+# ---------------------------------------------------------------------------
+
+def test_cyberware_calculate_cost_defaults():
+    """calculate_cost uses config_loader defaults when cache is empty."""
+    cyber = _make_cyberware()
+    with patch.dict(_cfg._cache, {}, clear=True):
+        cost_w1 = cyber.calculate_cost("medium", 1)
+        cost_cap = cyber.calculate_cost("extreme", 8)
+    assert cost_w1 == int(2000 / 128 * 1)
+    assert cost_cap == 10000
+
+
+def test_cyberware_calculate_cost_respects_override():
+    """calculate_cost uses the overridden max cost from the DB cache."""
+    cyber = _make_cyberware()
+    # Override extreme max cost to 20000
+    override_cache = {
+        "cyber_max_cost_extreme": "20000",
+        "cyber_max_cost_medium": "2000",
+        "cyber_max_cost_high": "5000",
+    }
+    with patch.dict(_cfg._cache, override_cache, clear=False):
+        cost_cap = cyber.calculate_cost("extreme", 8)
+    assert cost_cap == 20000
+
+
+# ---------------------------------------------------------------------------
+# Economy calculate_due reads from config_loader
+# ---------------------------------------------------------------------------
+
+def _make_member_with_roles(*role_names):
+    guild = MagicMock()
+    loa_role = MagicMock(spec=discord.Role)
+    loa_role.id = config.LOA_ROLE_ID
+    guild.get_role.return_value = loa_role
+
+    roles = []
+    for name in role_names:
+        r = MagicMock(spec=discord.Role)
+        r.name = name
+        r.id = 9999
+        roles.append(r)
+
+    member = MagicMock(spec=discord.Member)
+    member.roles = roles
+    member.guild = guild
+    return member
+
+
+def test_calculate_due_uses_baseline_from_cache():
+    """calculate_due() picks up baseline_living_cost from config cache."""
+    econ = _make_economy()
+    member = _make_member_with_roles()  # no tier roles, no LOA
+
+    with patch.dict(_cfg._cache, {"baseline_living_cost": "750"}, clear=False):
+        total, _ = econ.calculate_due(member)
+
+    assert total >= 750, f"Expected baseline ≥ 750, got {total}"
+
+
+def test_calculate_due_uses_housing_cost_from_cache():
+    """calculate_due() picks up housing tier cost from config cache."""
+    econ = _make_economy()
+    member = _make_member_with_roles("Housing Tier 1")
+
+    baseline = _cfg.get_baseline_living_cost()
+    with patch.dict(_cfg._cache, {"housing_tier_1_rent": "300"}, clear=False):
+        total, _ = econ.calculate_due(member)
+
+    assert total >= baseline + 300, f"Expected at least baseline+300, got {total}"
