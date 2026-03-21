@@ -18,6 +18,84 @@ logger = logging.getLogger(__name__)
 _pool: asyncpg.Pool | None = None
 _pool_lock: asyncio.Lock | None = None
 
+# ---------------------------------------------------------------------------
+# Retry / resilience helpers
+# ---------------------------------------------------------------------------
+
+_db_failures: int = 0  # cumulative count of write-path retry exhaustions
+
+_TRANSIENT_ERRORS = (
+    asyncpg.PostgresConnectionError,
+    asyncpg.InterfaceError,
+    asyncpg.TooManyConnectionsError,
+)
+
+
+async def _with_retry(coro_factory, *, label: str = "", retries: int = 2, delay: float = 0.5):
+    """Call coro_factory() up to retries+1 times on transient DB errors.
+
+    Non-transient exceptions (constraint violations, etc.) propagate immediately.
+    On final failure the module-level _db_failures counter is incremented.
+    """
+    global _db_failures
+    for attempt in range(retries + 1):
+        try:
+            return await coro_factory()
+        except _TRANSIENT_ERRORS as exc:
+            if attempt < retries:
+                logger.warning(
+                    "Transient DB error on '%s' (attempt %d/%d): %s",
+                    label, attempt + 1, retries + 1, exc,
+                )
+                await asyncio.sleep(delay * (2 ** attempt))
+            else:
+                _db_failures += 1
+                logger.error(
+                    "DB operation '%s' failed after %d attempt(s)",
+                    label, retries + 1, exc_info=True,
+                )
+                raise
+        except Exception:
+            raise
+
+
+def get_failure_count() -> int:
+    """Return the cumulative number of write-path retry exhaustions since startup."""
+    return _db_failures
+
+
+async def db_ping() -> float | None:
+    """Run SELECT 1 and return latency in ms, or None on error."""
+    import time
+    try:
+        pool = await get_pool()
+        t0 = time.monotonic()
+        await pool.fetchval("SELECT 1")
+        return (time.monotonic() - t0) * 1000
+    except Exception:
+        logger.error("db_ping failed", exc_info=True)
+        return None
+
+
+async def warn_db_failure(bot, operation: str, detail: str) -> None:
+    """Post a DB failure alert to the audit channel.
+
+    Call this from cog-level code when a write operation fails and the bot
+    object is available.  Does *not* modify the failure counter — that is
+    tracked separately by _with_retry.
+    """
+    try:
+        import config as _config
+        ch_id = getattr(_config, "AUDIT_LOG_CHANNEL_ID", 0)
+        channel = bot.get_channel(ch_id)
+        if channel:
+            await channel.send(
+                f"\U0001f534 **DB failure** in `{operation}`: {detail[:400]}"
+            )
+    except Exception:
+        logger.warning("warn_db_failure: could not send Discord alert", exc_info=True)
+    logger.error("DB failure alert: %s — %s", operation, detail)
+
 
 # ---------------------------------------------------------------------------
 # Sentinel
@@ -289,15 +367,19 @@ async def db_save(key: str, value) -> bool:
     """Persist a JSON-serialisable value under key in json_store."""
     try:
         pool = await get_pool()
-        await pool.execute(
-            """
-            INSERT INTO json_store (key, value, updated_at)
-            VALUES ($1, $2::jsonb, NOW())
-            ON CONFLICT (key) DO UPDATE
-                SET value = EXCLUDED.value, updated_at = NOW()
-            """,
-            key,
-            json.dumps(value),
+        serialized = json.dumps(value)
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO json_store (key, value, updated_at)
+                VALUES ($1, $2::jsonb, NOW())
+                ON CONFLICT (key) DO UPDATE
+                    SET value = EXCLUDED.value, updated_at = NOW()
+                """,
+                key,
+                serialized,
+            ),
+            label="db_save",
         )
         return True
     except Exception:
@@ -326,9 +408,12 @@ async def attendance_append(user_id: str, logged_at_iso: str) -> bool:
     try:
         pool = await get_pool()
         dt = datetime.fromisoformat(logged_at_iso)
-        await pool.execute(
-            "INSERT INTO attendance_log (user_id, logged_at) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            user_id, dt,
+        await _with_retry(
+            lambda: pool.execute(
+                "INSERT INTO attendance_log (user_id, logged_at) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                user_id, dt,
+            ),
+            label="attendance_append",
         )
         return True
     except Exception:
@@ -869,9 +954,12 @@ async def open_log_add(user_id: str, opened_at: datetime) -> bool:
     """Insert a business opening event (idempotent)."""
     try:
         pool = await get_pool()
-        await pool.execute(
-            "INSERT INTO business_open_log (user_id, opened_at) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            user_id, opened_at,
+        await _with_retry(
+            lambda: pool.execute(
+                "INSERT INTO business_open_log (user_id, opened_at) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                user_id, opened_at,
+            ),
+            label="open_log_add",
         )
         return True
     except Exception:
@@ -919,9 +1007,12 @@ async def open_log_add_if_absent(user_id: str, opened_at_iso: str) -> bool:
     try:
         pool = await get_pool()
         dt = datetime.fromisoformat(opened_at_iso)
-        await pool.execute(
-            "INSERT INTO business_open_log (user_id, opened_at) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            user_id, dt,
+        await _with_retry(
+            lambda: pool.execute(
+                "INSERT INTO business_open_log (user_id, opened_at) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                user_id, dt,
+            ),
+            label="open_log_add_if_absent",
         )
         return True
     except Exception:
@@ -948,13 +1039,16 @@ async def last_payment_set(user_id: str, summary: str) -> bool:
     """Store or update the last payment summary for a user."""
     try:
         pool = await get_pool()
-        await pool.execute(
-            """
-            INSERT INTO last_payment (user_id, summary, updated_at)
-            VALUES ($1, $2, NOW())
-            ON CONFLICT (user_id) DO UPDATE SET summary = EXCLUDED.summary, updated_at = NOW()
-            """,
-            user_id, summary,
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO last_payment (user_id, summary, updated_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (user_id) DO UPDATE SET summary = EXCLUDED.summary, updated_at = NOW()
+                """,
+                user_id, summary,
+            ),
+            label="last_payment_set",
         )
         return True
     except Exception:
@@ -981,9 +1075,12 @@ async def rent_run_record(initiated_by: Optional[str] = None) -> bool:
     """Record that a rent run just completed."""
     try:
         pool = await get_pool()
-        await pool.execute(
-            "INSERT INTO rent_runs (run_at, initiated_by) VALUES (NOW(), $1)",
-            initiated_by,
+        await _with_retry(
+            lambda: pool.execute(
+                "INSERT INTO rent_runs (run_at, initiated_by) VALUES (NOW(), $1)",
+                initiated_by,
+            ),
+            label="rent_run_record",
         )
         return True
     except Exception:
@@ -1010,13 +1107,16 @@ async def system_settings_set(system_name: str, enabled: bool) -> bool:
     """Enable or disable a named system."""
     try:
         pool = await get_pool()
-        await pool.execute(
-            """
-            INSERT INTO system_settings (system_name, enabled, updated_at)
-            VALUES ($1, $2, NOW())
-            ON CONFLICT (system_name) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = NOW()
-            """,
-            system_name, enabled,
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO system_settings (system_name, enabled, updated_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (system_name) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = NOW()
+                """,
+                system_name, enabled,
+            ),
+            label="system_settings_set",
         )
         return True
     except Exception:
@@ -1050,16 +1150,19 @@ async def cyberware_status_upsert(user_id: str, weeks: int, last_processed: Opti
     """Insert or update a single user's cyberware record."""
     try:
         pool = await get_pool()
-        await pool.execute(
-            """
-            INSERT INTO cyberware_status (user_id, weeks, last_processed, updated_at)
-            VALUES ($1, $2, $3, NOW())
-            ON CONFLICT (user_id) DO UPDATE
-                SET weeks = EXCLUDED.weeks,
-                    last_processed = EXCLUDED.last_processed,
-                    updated_at = NOW()
-            """,
-            user_id, weeks, last_processed,
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO cyberware_status (user_id, weeks, last_processed, updated_at)
+                VALUES ($1, $2, $3, NOW())
+                ON CONFLICT (user_id) DO UPDATE
+                    SET weeks = EXCLUDED.weeks,
+                        last_processed = EXCLUDED.last_processed,
+                        updated_at = NOW()
+                """,
+                user_id, weeks, last_processed,
+            ),
+            label="cyberware_status_upsert",
         )
         return True
     except Exception:
@@ -1071,28 +1174,35 @@ async def cyberware_status_upsert_many(data: dict[str, dict]) -> bool:
     """Bulk upsert cyberware status for all users."""
     try:
         pool = await get_pool()
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                for user_id, v in data.items():
-                    weeks = int(v.get("weeks", 0))
-                    last_str = v.get("last")
-                    last_dt = None
-                    if last_str:
-                        try:
-                            last_dt = datetime.fromisoformat(last_str)
-                        except Exception:
-                            pass
-                    await conn.execute(
-                        """
-                        INSERT INTO cyberware_status (user_id, weeks, last_processed, updated_at)
-                        VALUES ($1, $2, $3, NOW())
-                        ON CONFLICT (user_id) DO UPDATE
-                            SET weeks = EXCLUDED.weeks,
-                                last_processed = EXCLUDED.last_processed,
-                                updated_at = NOW()
-                        """,
-                        user_id, weeks, last_dt,
-                    )
+        rows = []
+        for user_id, v in data.items():
+            weeks = int(v.get("weeks", 0))
+            last_str = v.get("last")
+            last_dt = None
+            if last_str:
+                try:
+                    last_dt = datetime.fromisoformat(last_str)
+                except Exception:
+                    pass
+            rows.append((user_id, weeks, last_dt))
+
+        async def _do():
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    for user_id, weeks, last_dt in rows:
+                        await conn.execute(
+                            """
+                            INSERT INTO cyberware_status (user_id, weeks, last_processed, updated_at)
+                            VALUES ($1, $2, $3, NOW())
+                            ON CONFLICT (user_id) DO UPDATE
+                                SET weeks = EXCLUDED.weeks,
+                                    last_processed = EXCLUDED.last_processed,
+                                    updated_at = NOW()
+                            """,
+                            user_id, weeks, last_dt,
+                        )
+
+        await _with_retry(_do, label="cyberware_status_upsert_many")
         return True
     except Exception:
         logger.error("cyberware_status_upsert_many failed", exc_info=True)
@@ -1116,12 +1226,16 @@ async def cyberware_last_run_set(dt: datetime) -> bool:
     """Record the timestamp of the most recent full cyberware weekly run."""
     try:
         pool = await get_pool()
-        await pool.execute(
-            """
-            INSERT INTO cyberware_meta (key, value, updated_at) VALUES ('last_full_run', $1, NOW())
-            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-            """,
-            dt.isoformat(),
+        iso = dt.isoformat()
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO cyberware_meta (key, value, updated_at) VALUES ('last_full_run', $1, NOW())
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                """,
+                iso,
+            ),
+            label="cyberware_last_run_set",
         )
         return True
     except Exception:
@@ -1138,12 +1252,15 @@ async def cyberware_weekly_add(
     """Record the results of a weekly cyberware run."""
     try:
         pool = await get_pool()
-        await pool.execute(
-            """
-            INSERT INTO cyberware_weekly_runs (run_at, checkup_ids, paid_ids, unpaid_ids)
-            VALUES ($1, $2, $3, $4)
-            """,
-            run_at, checkup_ids, paid_ids, unpaid_ids,
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO cyberware_weekly_runs (run_at, checkup_ids, paid_ids, unpaid_ids)
+                VALUES ($1, $2, $3, $4)
+                """,
+                run_at, checkup_ids, paid_ids, unpaid_ids,
+            ),
+            label="cyberware_weekly_add",
         )
         return True
     except Exception:
@@ -1194,8 +1311,11 @@ async def cyberware_weekly_insert_empty() -> Optional[int]:
     """Insert a new empty weekly run row and return its ID."""
     try:
         pool = await get_pool()
-        row_id = await pool.fetchval(
-            "INSERT INTO cyberware_weekly_runs (run_at) VALUES (NOW()) RETURNING id"
+        row_id = await _with_retry(
+            lambda: pool.fetchval(
+                "INSERT INTO cyberware_weekly_runs (run_at) VALUES (NOW()) RETURNING id"
+            ),
+            label="cyberware_weekly_insert_empty",
         )
         return row_id
     except Exception:
@@ -1211,9 +1331,12 @@ async def cyberware_weekly_update_row(
     """Update the paid/unpaid arrays for a specific weekly run row."""
     try:
         pool = await get_pool()
-        await pool.execute(
-            "UPDATE cyberware_weekly_runs SET paid_ids = $2, unpaid_ids = $3 WHERE id = $1",
-            row_id, paid_ids, unpaid_ids,
+        await _with_retry(
+            lambda: pool.execute(
+                "UPDATE cyberware_weekly_runs SET paid_ids = $2, unpaid_ids = $3 WHERE id = $1",
+                row_id, paid_ids, unpaid_ids,
+            ),
+            label="cyberware_weekly_update_row",
         )
         return True
     except Exception:
@@ -1240,12 +1363,15 @@ async def dm_thread_set(user_id: str, thread_id: int) -> bool:
     """Upsert a user→thread mapping."""
     try:
         pool = await get_pool()
-        await pool.execute(
-            """
-            INSERT INTO dm_threads (user_id, thread_id, updated_at) VALUES ($1, $2, NOW())
-            ON CONFLICT (user_id) DO UPDATE SET thread_id = EXCLUDED.thread_id, updated_at = NOW()
-            """,
-            user_id, thread_id,
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO dm_threads (user_id, thread_id, updated_at) VALUES ($1, $2, NOW())
+                ON CONFLICT (user_id) DO UPDATE SET thread_id = EXCLUDED.thread_id, updated_at = NOW()
+                """,
+                user_id, thread_id,
+            ),
+            label="dm_thread_set",
         )
         return True
     except Exception:
@@ -1257,7 +1383,10 @@ async def dm_thread_delete(user_id: str) -> bool:
     """Remove a user→thread mapping."""
     try:
         pool = await get_pool()
-        await pool.execute("DELETE FROM dm_threads WHERE user_id = $1", user_id)
+        await _with_retry(
+            lambda: pool.execute("DELETE FROM dm_threads WHERE user_id = $1", user_id),
+            label="dm_thread_delete",
+        )
         return True
     except Exception:
         logger.error("dm_thread_delete failed for user '%s'", user_id, exc_info=True)
@@ -1295,29 +1424,33 @@ async def wh_lots_replace_all(lots: list[dict]) -> bool:
     """Atomically replace all wholesale lots."""
     try:
         pool = await get_pool()
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                await conn.execute("DELETE FROM wholesale_lots")
-                for lot in lots:
-                    if not isinstance(lot, dict):
-                        continue
-                    lot_id = lot.get("lot_id")
-                    if not lot_id:
-                        continue
-                    extra = {k: v for k, v in lot.items()
-                             if k not in ("lot_id", "gun_name", "gun_level", "unit_cost", "qty_available")}
-                    await conn.execute(
-                        """
-                        INSERT INTO wholesale_lots (lot_id, gun_name, gun_level, unit_cost, qty_available, data)
-                        VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-                        """,
-                        lot_id,
-                        str(lot.get("gun_name", "")),
-                        str(lot.get("gun_level", "")),
-                        int(lot.get("unit_cost", 0)),
-                        int(lot.get("qty_available", 0)),
-                        json.dumps(extra),
-                    )
+
+        async def _do():
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute("DELETE FROM wholesale_lots")
+                    for lot in lots:
+                        if not isinstance(lot, dict):
+                            continue
+                        lot_id = lot.get("lot_id")
+                        if not lot_id:
+                            continue
+                        extra = {k: v for k, v in lot.items()
+                                 if k not in ("lot_id", "gun_name", "gun_level", "unit_cost", "qty_available")}
+                        await conn.execute(
+                            """
+                            INSERT INTO wholesale_lots (lot_id, gun_name, gun_level, unit_cost, qty_available, data)
+                            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+                            """,
+                            lot_id,
+                            str(lot.get("gun_name", "")),
+                            str(lot.get("gun_level", "")),
+                            int(lot.get("unit_cost", 0)),
+                            int(lot.get("qty_available", 0)),
+                            json.dumps(extra),
+                        )
+
+        await _with_retry(_do, label="wh_lots_replace_all")
         return True
     except Exception:
         logger.error("wh_lots_replace_all failed", exc_info=True)
@@ -1344,23 +1477,27 @@ async def wh_stores_replace_all(stores: dict[str, dict]) -> bool:
     """Atomically replace all wholesaler stores."""
     try:
         pool = await get_pool()
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                await conn.execute("DELETE FROM wholesaler_stores")
-                for store_id, store in stores.items():
-                    if not isinstance(store, dict):
-                        continue
-                    owner_id = store.get("owner_id")
-                    extra = {k: v for k, v in store.items() if k != "owner_id"}
-                    await conn.execute(
-                        """
-                        INSERT INTO wholesaler_stores (store_id, owner_id, data)
-                        VALUES ($1, $2, $3::jsonb)
-                        """,
-                        str(store_id),
-                        str(owner_id) if owner_id is not None else None,
-                        json.dumps(extra),
-                    )
+
+        async def _do():
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute("DELETE FROM wholesaler_stores")
+                    for store_id, store in stores.items():
+                        if not isinstance(store, dict):
+                            continue
+                        owner_id = store.get("owner_id")
+                        extra = {k: v for k, v in store.items() if k != "owner_id"}
+                        await conn.execute(
+                            """
+                            INSERT INTO wholesaler_stores (store_id, owner_id, data)
+                            VALUES ($1, $2, $3::jsonb)
+                            """,
+                            str(store_id),
+                            str(owner_id) if owner_id is not None else None,
+                            json.dumps(extra),
+                        )
+
+        await _with_retry(_do, label="wh_stores_replace_all")
         return True
     except Exception:
         logger.error("wh_stores_replace_all failed", exc_info=True)
@@ -1386,14 +1523,18 @@ async def wh_shops_replace_all(shops: dict[str, Any]) -> bool:
     """Atomically replace all wholesaler shop registry entries."""
     try:
         pool = await get_pool()
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                await conn.execute("DELETE FROM wholesaler_shops")
-                for shop_key, data in shops.items():
-                    await conn.execute(
-                        "INSERT INTO wholesaler_shops (shop_key, data) VALUES ($1, $2::jsonb)",
-                        str(shop_key), json.dumps(data),
-                    )
+
+        async def _do():
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute("DELETE FROM wholesaler_shops")
+                    for shop_key, data in shops.items():
+                        await conn.execute(
+                            "INSERT INTO wholesaler_shops (shop_key, data) VALUES ($1, $2::jsonb)",
+                            str(shop_key), json.dumps(data),
+                        )
+
+        await _with_retry(_do, label="wh_shops_replace_all")
         return True
     except Exception:
         logger.error("wh_shops_replace_all failed", exc_info=True)
@@ -1421,9 +1562,12 @@ async def wh_pending_payouts_add(user_id: str, amount: int, reason: str = "") ->
     """Add a new pending payout record."""
     try:
         pool = await get_pool()
-        await pool.execute(
-            "INSERT INTO wholesaler_pending_payouts (user_id, amount, reason) VALUES ($1, $2, $3)",
-            user_id, amount, reason,
+        await _with_retry(
+            lambda: pool.execute(
+                "INSERT INTO wholesaler_pending_payouts (user_id, amount, reason) VALUES ($1, $2, $3)",
+                user_id, amount, reason,
+            ),
+            label="wh_pending_payouts_add",
         )
         return True
     except Exception:
@@ -1435,7 +1579,12 @@ async def wh_pending_payouts_delete(payout_id: int) -> bool:
     """Remove a specific pending payout by its DB row id."""
     try:
         pool = await get_pool()
-        await pool.execute("DELETE FROM wholesaler_pending_payouts WHERE id = $1", payout_id)
+        await _with_retry(
+            lambda: pool.execute(
+                "DELETE FROM wholesaler_pending_payouts WHERE id = $1", payout_id
+            ),
+            label="wh_pending_payouts_delete",
+        )
         return True
     except Exception:
         logger.error("wh_pending_payouts_delete failed", exc_info=True)
@@ -1446,7 +1595,10 @@ async def wh_pending_payouts_clear() -> bool:
     """Remove all pending payouts."""
     try:
         pool = await get_pool()
-        await pool.execute("DELETE FROM wholesaler_pending_payouts")
+        await _with_retry(
+            lambda: pool.execute("DELETE FROM wholesaler_pending_payouts"),
+            label="wh_pending_payouts_clear",
+        )
         return True
     except Exception:
         logger.error("wh_pending_payouts_clear failed", exc_info=True)
@@ -1471,12 +1623,16 @@ async def wh_settings_save(settings: dict) -> bool:
     """Persist the wholesaler settings dict."""
     try:
         pool = await get_pool()
-        await pool.execute(
-            """
-            INSERT INTO wholesaler_settings (key, value, updated_at) VALUES ('main', $1::jsonb, NOW())
-            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-            """,
-            json.dumps(settings),
+        serialized = json.dumps(settings)
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO wholesaler_settings (key, value, updated_at) VALUES ('main', $1::jsonb, NOW())
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                """,
+                serialized,
+            ),
+            label="wh_settings_save",
         )
         return True
     except Exception:
@@ -1495,19 +1651,23 @@ async def wh_tx_append(tx: dict) -> bool:
         ts_str = tx.get("timestamp")
         ts = datetime.fromisoformat(ts_str) if ts_str else datetime.utcnow()
         actor = str(tx.get("seller_id", tx.get("buyer_id", tx.get("actor_id", "")))) or None
-        await pool.execute(
-            """
-            INSERT INTO wholesaler_transactions (tx_id, tx_type, ts, status, actor_id, lot_id, data)
-            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
-            ON CONFLICT (tx_id) DO NOTHING
-            """,
-            tx_id,
-            str(tx.get("type", "")),
-            ts,
-            str(tx.get("status", "SUCCESS")),
-            actor,
-            tx.get("lot_id"),
-            json.dumps(tx),
+        serialized = json.dumps(tx)
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO wholesaler_transactions (tx_id, tx_type, ts, status, actor_id, lot_id, data)
+                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+                ON CONFLICT (tx_id) DO NOTHING
+                """,
+                tx_id,
+                str(tx.get("type", "")),
+                ts,
+                str(tx.get("status", "SUCCESS")),
+                actor,
+                tx.get("lot_id"),
+                serialized,
+            ),
+            label="wh_tx_append",
         )
         return True
     except Exception:
@@ -1567,17 +1727,21 @@ async def bot_config_set(key: str, value: str, description: str = "") -> bool:
     """Upsert a bot_config key-value pair."""
     try:
         pool = await get_pool()
-        await pool.execute(
-            """
-            INSERT INTO bot_config (key, value, description, updated_at)
-            VALUES ($1, $2, $3, NOW())
-            ON CONFLICT (key) DO UPDATE
-                SET value = EXCLUDED.value,
-                    description = CASE WHEN EXCLUDED.description = '' THEN bot_config.description
-                                       ELSE EXCLUDED.description END,
-                    updated_at = NOW()
-            """,
-            key, str(value), description,
+        str_value = str(value)
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO bot_config (key, value, description, updated_at)
+                VALUES ($1, $2, $3, NOW())
+                ON CONFLICT (key) DO UPDATE
+                    SET value = EXCLUDED.value,
+                        description = CASE WHEN EXCLUDED.description = '' THEN bot_config.description
+                                           ELSE EXCLUDED.description END,
+                        updated_at = NOW()
+                """,
+                key, str_value, description,
+            ),
+            label="bot_config_set",
         )
         return True
     except Exception:

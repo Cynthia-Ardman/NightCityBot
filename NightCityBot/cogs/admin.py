@@ -431,6 +431,7 @@ class Admin(commands.Cog):
                     "`!backfill_logs [limit]` – rebuild attendance and business open logs from recent message history.",
                     "`!reindex_tickets [limit]` (alias: !reindextickets) – scan the bot-logs channel and build a local ticket search index. Run once to seed history; new tickets index automatically.",
                     "`!search_tickets <query>` (aliases: !searchtickets, !ticketsearch) – instantly search the local ticket index by name, user, ticket ID, reason, or any text.",
+                    "`!db_health` – show database ping, pool stats, and cumulative write-failure count since startup.",
                 ]),
             ),
             (
@@ -752,6 +753,51 @@ class Admin(commands.Cog):
         await _cfg.reload_config()
         await ctx.send("✅ Config cache reloaded from DB.")
         await self.log_audit(ctx.author, "reload_config")
+
+    @commands.command(name="db_health")
+    @commands.has_permissions(administrator=True)
+    async def db_health(self, ctx: commands.Context):
+        """Show database pool health, ping time, and failure count."""
+        from NightCityBot.utils.db import get_pool, db_ping, get_failure_count
+
+        ping_ms = await db_ping()
+        failures = get_failure_count()
+
+        try:
+            pool = await get_pool()
+            pool_size = pool.get_size()
+            pool_idle = pool.get_idle_size()
+            pool_min = pool.get_min_size()
+            pool_max = pool.get_max_size()
+            pool_info = (
+                f"Size: {pool_size} (idle: {pool_idle}) | "
+                f"Min/Max: {pool_min}/{pool_max}"
+            )
+        except Exception:
+            pool_info = "unavailable"
+
+        if ping_ms is None:
+            ping_str = "❌ FAILED"
+            status = "🔴"
+        elif ping_ms < 50:
+            ping_str = f"✅ {ping_ms:.1f} ms"
+            status = "🟢"
+        else:
+            ping_str = f"⚠️ {ping_ms:.1f} ms"
+            status = "🟡"
+
+        embed = discord.Embed(
+            title=f"{status} Database Health",
+            color=(
+                discord.Color.green() if ping_ms is not None and ping_ms < 50
+                else discord.Color.red() if ping_ms is None
+                else discord.Color.gold()
+            ),
+        )
+        embed.add_field(name="Ping", value=ping_str, inline=True)
+        embed.add_field(name="Write failures (since startup)", value=str(failures), inline=True)
+        embed.add_field(name="Pool", value=pool_info, inline=False)
+        await ctx.send(embed=embed)
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):

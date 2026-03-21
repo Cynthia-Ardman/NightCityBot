@@ -39,6 +39,20 @@ All hardcoded dollar amounts (baseline living cost, housing/business/trauma rent
 
 DB helpers: `NightCityBot/utils/db.py` — `get_pool()`, `db_load(key, default, seed_path)`, `db_save(key, value)`, `close_pool()`. On first `db_load` for a key not yet in DB, seeds automatically from the legacy JSON file on disk (one-time migration).
 
+### DB Resilience (Task #3)
+
+All write-path helpers in `db.py` are wrapped with `_with_retry()` — 2 automatic retries with exponential backoff on transient errors (`PostgresConnectionError`, `InterfaceError`, `TooManyConnectionsError`). Non-transient errors (constraint violations, etc.) propagate immediately.
+
+Key utilities:
+- `_with_retry(coro_factory, *, label, retries=2, delay=0.5)` — internal retry loop; increments `_db_failures` counter on exhaustion
+- `get_failure_count() -> int` — cumulative write-failure counter since startup
+- `db_ping() -> float | None` — runs `SELECT 1` and returns latency in ms (None on error)
+- `warn_db_failure(bot, operation, detail)` — sends a Discord alert to the audit channel; call from cog code when the bot object is available
+
+Startup health check: `startup_checks.py::check_db_health()` runs `db_ping()` after `wait_until_ready()` and posts an audit-channel alert if it fails.
+
+Admin command: `!db_health` — shows DB ping, write-failure count, and pool stats (size/idle/min/max).
+
 ### Balance backup files (still file-based)
 
 - `BALANCE_BACKUP_DIR/<member_id>.json` — per-member balance history

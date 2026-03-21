@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 import config
 from .helpers import load_json_file, save_json_file
 from NightCityBot.services.unbelievaboat import UnbelievaBoatAPI
+from NightCityBot.utils.db import db_ping
 
 # Role and channel identifiers to verify
 ROLE_ID_FIELDS: Iterable[str] = [
@@ -168,9 +169,29 @@ async def check_unbelievaboat(bot: discord.Client) -> None:
     finally:
         await api.close()
 
+async def check_db_health(bot: discord.Client) -> None:
+    """Verify the PostgreSQL connection with SELECT 1 and alert on failure."""
+    try:
+        latency = await db_ping()
+        if latency is None:
+            logger.error("\u274c DB startup health check FAILED — could not connect.")
+            admin = bot.get_cog("Admin")
+            if admin:
+                await admin.log_audit(
+                    bot.user,
+                    "\U0001f534 **DB startup health check FAILED** — SELECT 1 returned no result. "
+                    "Write operations may be unreliable.",
+                )
+        else:
+            logger.info("\u2705 DB health check OK (%.1f ms)", latency)
+    except Exception:
+        logger.error("check_db_health raised unexpectedly", exc_info=True)
+
+
 async def perform_startup_checks(bot: discord.Client) -> None:
     await bot.wait_until_ready()
     await verify_config(bot)
+    await check_db_health(bot)
     await check_unbelievaboat(bot)
     await cleanup_logs(bot)
     admin = bot.get_cog('Admin')
