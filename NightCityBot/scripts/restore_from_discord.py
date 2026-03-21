@@ -15,10 +15,17 @@ Usage:
     --limit N           Cap pages fetched per channel (100 msgs/page); use
                         --limit 2 for a 200-message smoke test
 
-The script saves a checkpoint file (.restore_checkpoint.json) after every
-page. If interrupted, the next run resumes exactly from the last cursor.
-Checkpoint stores only the cursor and accumulated parsed records — no raw
-Discord message objects are ever written to it.
+Implementation notes:
+    • Pages are fetched using the standard `before=` (newest-first) cursor so
+      that snapshot behaviour is stable on active channels.
+    • Each page is parsed immediately on arrival.  Only lightweight extracted
+      events (timestamps, user IDs, short strings) are kept in memory and
+      written to the checkpoint — raw Discord message objects are never stored.
+    • Final clustering/matching is deferred to `get_results()` which sorts the
+      collected events and applies time-window rules in chronological order.
+    • The checkpoint file (.restore_checkpoint.json) stores cursor + parser
+      state after every page; interrupted runs resume exactly from the last
+      cursor without re-fetching.
 """
 
 import argparse
@@ -54,6 +61,7 @@ ALL_SECTIONS = list(CHANNEL_IDS.keys())
 
 _CLUSTER_GAP_RENT  = timedelta(minutes=5)
 _RUN_GAP_CYBER     = timedelta(minutes=30)
+_PAIR_WINDOW_SECS  = 60   # max seconds between user command and bot ACK
 
 # ---------------------------------------------------------------------------
 # Checkpoint helpers
@@ -82,7 +90,7 @@ def delete_checkpoint() -> None:
 
 async def discord_get(session: aiohttp.ClientSession, url: str,
                       params: Optional[dict] = None) -> Any:
-    """GET a Discord endpoint, retrying forever on 429 with exact sleep."""
+    """GET a Discord endpoint, retrying on 429 with the exact retry_after sleep."""
     while True:
         async with session.get(url, params=params) as resp:
             if resp.status == 429:
@@ -106,53 +114,55 @@ async def stream_pages(
     label: str,
 ):
     """
-    Async generator that yields pages of messages in chronological order
-    (oldest-first) using the Discord ``after`` cursor.
+    Async generator that streams channel message pages using the standard
+    backward (newest-first) `before=` cursor.
 
     After every page the checkpoint is updated with the new cursor and the
-    caller's accumulated state — raw message objects are never stored in
-    the checkpoint file.
+    caller's accumulated parser state.  Raw Discord message objects are
+    never written to the checkpoint file.
     """
     cp_entry = checkpoint.get(cp_key, {})
     if cp_entry.get("done"):
-        return  # Already fully fetched; caller loads its state from checkpoint
+        return  # Already fully fetched; caller loads state from checkpoint
 
-    after_cursor: str = cp_entry.get("after_cursor", "0")
+    before_cursor: Optional[str] = cp_entry.get("before_cursor")  # None = start from newest
     page_num: int = cp_entry.get("page_num", 0)
     url = f"{DISCORD_API}/channels/{channel_id}/messages"
 
     while True:
-        params: dict = {"limit": 100, "after": after_cursor}
+        params: dict = {"limit": 100}
+        if before_cursor:
+            params["before"] = before_cursor
+
         page: list = await discord_get(session, url, params)
 
         if not page:
-            # Merge with current checkpoint so parser_state is not lost
             checkpoint[cp_key] = {**checkpoint.get(cp_key, {}), "done": True}
             save_checkpoint(checkpoint)
             return
 
-        # Discord returns messages in ascending (oldest-first) order for after=
+        # Discord returns messages newest-first; page[-1] is the oldest in this batch
         page_num += 1
-        after_cursor = page[-1]["id"]   # newest message in this page
+        before_cursor = page[-1]["id"]   # cursor for the next (older) page
 
-        print(f"  [{label}] page {page_num}: {len(page)} messages  cursor={after_cursor}")
+        print(f"  [{label}] page {page_num}: {len(page)} messages  cursor={before_cursor}")
 
-        # Update cursor in checkpoint entry (caller merges parser_state after yield)
-        cp_entry = {**cp_entry, "after_cursor": after_cursor, "page_num": page_num, "done": False}
+        # Update cursor in checkpoint (caller merges parser_state after yield)
+        cp_entry = {**cp_entry, "before_cursor": before_cursor, "page_num": page_num, "done": False}
         checkpoint[cp_key] = cp_entry
 
         yield page
-        # After yield, run_channel_section has already merged parser_state into
-        # checkpoint[cp_key].  Any further writes below must preserve that.
+        # After yield, run_channel_section has merged parser_state into checkpoint[cp_key]
 
         if len(page) < 100:
-            # Merge with current state so parser_state written by caller is kept
+            # Merge with current entry so parser_state written by caller is preserved
             checkpoint[cp_key] = {**checkpoint.get(cp_key, {}), "done": True}
             save_checkpoint(checkpoint)
             return
 
         if limit_pages and page_num >= limit_pages:
             print(f"  [{label}] --limit {limit_pages} reached, stopping")
+            # Not marking done — a full run should resume from before_cursor
             save_checkpoint(checkpoint)
             return
 
@@ -162,14 +172,18 @@ async def stream_pages(
 
 MENTION_RE = re.compile(r"<@!?(\d+)>")
 
+
 def _parse_ts(iso: str) -> datetime:
     return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(timezone.utc)
+
 
 def _is_bot(msg: dict) -> bool:
     return msg.get("author", {}).get("bot", False)
 
+
 def _mentions(content: str) -> list[str]:
     return MENTION_RE.findall(content)
+
 
 # Cyberware patterns — covers both old and current bot message formats
 _CY_PAID_OLD  = re.compile(r"Deducted \$[\d,]+ for cyberware meds from <@!?(\d+)> \(week (\d+)\)")
@@ -179,75 +193,122 @@ _CY_UNPA_NEW  = re.compile(r"Could not deduct \$[\d,]+ from <@!?(\d+)> for cyber
 _CY_CHECKUP   = re.compile(r"checkup on <@!?(\d+)>")
 
 # ---------------------------------------------------------------------------
-# Stateful per-page parsers
-# Each parser class:
-#   • __init__(state)     — restore from checkpoint state dict (or None)
-#   • process_page(page)  — consume one chronological page, update state
-#   • to_state()          — return JSON-serialisable dict for checkpoint
-#   • get_results()       — return final parsed records
+# Stateful per-page parsers — collect-and-sort design
+#
+# Each parser:
+#   • Accumulates lightweight parsed events (timestamps + IDs) as pages arrive.
+#     Raw message objects are never stored.
+#   • Defers clustering/matching to get_results(), where events are sorted
+#     into chronological order before window rules are applied.
+#   • State is JSON-serialisable for checkpoint persistence.
+#
+# Interface:
+#   __init__(state)     — restore from checkpoint state dict (or None)
+#   process_page(page)  — extract events from one (newest-first) page
+#   to_state()          — return JSON-serialisable dict for checkpoint
+#   get_results()       — return final parsed records (called once, at end)
 # ---------------------------------------------------------------------------
 
 class AttendanceParser:
-    def __init__(self, state: Optional[dict] = None):
+    """
+    Collects "Attendance logged" bot-ACK timestamps and !attend user commands
+    separately, then matches them by proximity in get_results().
+    """
+
+    def __init__(self, state: Optional[dict] = None) -> None:
         s = state or {}
-        self._pending: Optional[str] = s.get("pending_user")
-        self._records: list[list] = s.get("records", [])
+        # [ts_iso, ...]  — timestamps of bot "Attendance logged" messages
+        self._bot_acks: list[str] = s.get("bot_acks", [])
+        # [[uid, ts_iso], ...]  — !attend commands
+        self._cmds: list[list] = s.get("cmds", [])
 
     def process_page(self, page: list[dict]) -> None:
         for msg in page:
             if _is_bot(msg):
-                if self._pending and "Attendance logged" in msg.get("content", ""):
-                    self._records.append([self._pending, msg["timestamp"]])
-                self._pending = None
+                if "Attendance logged" in msg.get("content", ""):
+                    self._bot_acks.append(msg["timestamp"])
             else:
-                content = msg.get("content", "").strip()
-                if content.lower().startswith("!attend"):
-                    self._pending = str(msg["author"]["id"])
-                else:
-                    self._pending = None
+                if msg.get("content", "").strip().lower().startswith("!attend"):
+                    self._cmds.append([str(msg["author"]["id"]), msg["timestamp"]])
 
     def to_state(self) -> dict:
-        return {"pending_user": self._pending, "records": self._records}
+        return {"bot_acks": self._bot_acks, "cmds": self._cmds}
 
     def get_results(self) -> list[tuple[str, datetime]]:
-        return [(_r[0], _parse_ts(_r[1])) for _r in self._records]
+        sorted_cmds = sorted(self._cmds, key=lambda x: x[1])
+        sorted_acks = sorted(self._bot_acks)
+        results: list[tuple[str, datetime]] = []
+        used: set[int] = set()
+        for uid, cmd_ts_iso in sorted_cmds:
+            cmd_dt = _parse_ts(cmd_ts_iso)
+            best_i, best_diff = None, float("inf")
+            for i, ack_ts_iso in enumerate(sorted_acks):
+                if i in used:
+                    continue
+                diff = (_parse_ts(ack_ts_iso) - cmd_dt).total_seconds()
+                if 0 <= diff <= _PAIR_WINDOW_SECS and diff < best_diff:
+                    best_i, best_diff = i, diff
+            if best_i is not None:
+                used.add(best_i)
+                results.append((uid, _parse_ts(sorted_acks[best_i])))
+        return results
 
 
 class OpenShopParser:
-    def __init__(self, state: Optional[dict] = None):
+    """
+    Same collect-and-match pattern as AttendanceParser, for !open_shop commands.
+    """
+
+    def __init__(self, state: Optional[dict] = None) -> None:
         s = state or {}
-        self._pending: Optional[str] = s.get("pending_user")
-        self._records: list[list] = s.get("records", [])
+        self._bot_acks: list[str] = s.get("bot_acks", [])
+        self._cmds: list[list] = s.get("cmds", [])
 
     def process_page(self, page: list[dict]) -> None:
         for msg in page:
             if _is_bot(msg):
-                if self._pending and "Business opening logged" in msg.get("content", ""):
-                    self._records.append([self._pending, msg["timestamp"]])
-                self._pending = None
+                if "Business opening logged" in msg.get("content", ""):
+                    self._bot_acks.append(msg["timestamp"])
             else:
                 content = msg.get("content", "").strip().lower()
                 if content.startswith(("!open_shop", "!openshop", "!os")):
-                    self._pending = str(msg["author"]["id"])
-                else:
-                    self._pending = None
+                    self._cmds.append([str(msg["author"]["id"]), msg["timestamp"]])
 
     def to_state(self) -> dict:
-        return {"pending_user": self._pending, "records": self._records}
+        return {"bot_acks": self._bot_acks, "cmds": self._cmds}
 
     def get_results(self) -> list[tuple[str, datetime]]:
-        return [(_r[0], _parse_ts(_r[1])) for _r in self._records]
+        sorted_cmds = sorted(self._cmds, key=lambda x: x[1])
+        sorted_acks = sorted(self._bot_acks)
+        results: list[tuple[str, datetime]] = []
+        used: set[int] = set()
+        for uid, cmd_ts_iso in sorted_cmds:
+            cmd_dt = _parse_ts(cmd_ts_iso)
+            best_i, best_diff = None, float("inf")
+            for i, ack_ts_iso in enumerate(sorted_acks):
+                if i in used:
+                    continue
+                diff = (_parse_ts(ack_ts_iso) - cmd_dt).total_seconds()
+                if 0 <= diff <= _PAIR_WINDOW_SECS and diff < best_diff:
+                    best_i, best_diff = i, diff
+            if best_i is not None:
+                used.add(best_i)
+                results.append((uid, _parse_ts(sorted_acks[best_i])))
+        return results
 
 
 class RentParser:
+    """
+    Collects rent payment events per page (newest-first order fine since we
+    sort in get_results before clustering).
+    """
+
     PAY_RE = re.compile(r"(Housing|Business) Rent paid")
 
-    def __init__(self, state: Optional[dict] = None):
+    def __init__(self, state: Optional[dict] = None) -> None:
         s = state or {}
-        # current_cluster: list of [ts_iso, uid, line]
-        self._cluster: list[list] = s.get("current_cluster", [])
-        self._runs: list[dict] = s.get("runs", [])
-        self._last_payment: dict[str, str] = s.get("last_payment", {})
+        # [[ts_iso, uid, line], ...]
+        self._events: list[list] = s.get("events", [])
 
     def process_page(self, page: list[dict]) -> None:
         for msg in page:
@@ -258,118 +319,124 @@ class RentParser:
                 continue
             ts = msg["timestamp"]
             for uid in _mentions(content):
-                self._add_event(ts, uid, content.strip())
-
-    def _add_event(self, ts_iso: str, uid: str, line: str) -> None:
-        ts = _parse_ts(ts_iso)
-        if self._cluster:
-            last_ts = _parse_ts(self._cluster[-1][0])
-            if (ts - last_ts) > _CLUSTER_GAP_RENT:
-                self._flush_cluster()
-        self._cluster.append([ts_iso, uid, line])
-
-    def _flush_cluster(self) -> None:
-        if not self._cluster:
-            return
-        run_at = self._cluster[0][0]
-        per_user: dict[str, str] = {}
-        for ts_iso, uid, line in self._cluster:
-            per_user[uid] = line
-            self._last_payment[uid] = line
-        self._runs.append({"run_at": run_at, "initiated_by": "restored",
-                           "per_user": per_user})
-        self._cluster = []
+                self._events.append([ts, uid, content.strip()])
 
     def to_state(self) -> dict:
-        return {
-            "current_cluster": self._cluster,
-            "runs": self._runs,
-            "last_payment": self._last_payment,
-        }
+        return {"events": self._events}
 
     def get_results(self) -> tuple[list[dict], dict[str, str]]:
-        # Flush any open cluster before returning
-        self._flush_cluster()
-        return self._runs, self._last_payment
+        if not self._events:
+            return [], {}
+        # Sort chronologically before clustering
+        sorted_evs = sorted(self._events, key=lambda x: x[0])
+        runs: list[dict] = []
+        last_payment: dict[str, str] = {}
+        cluster: list[list] = []
+
+        def flush() -> None:
+            if not cluster:
+                return
+            per_user: dict[str, str] = {}
+            for _, uid, line in cluster:
+                per_user[uid] = line
+                last_payment[uid] = line
+            runs.append({"run_at": cluster[0][0], "initiated_by": "restored",
+                         "per_user": per_user})
+            cluster.clear()
+
+        for ev in sorted_evs:
+            if cluster:
+                prev_ts = _parse_ts(cluster[-1][0])
+                if (_parse_ts(ev[0]) - prev_ts) > _CLUSTER_GAP_RENT:
+                    flush()
+            cluster.append(ev)
+        flush()
+        return runs, last_payment
 
 
 class CyberwareParser:
-    def __init__(self, state: Optional[dict] = None):
+    """
+    Collects cyberware events per page; sorts and clusters in get_results().
+    """
+
+    def __init__(self, state: Optional[dict] = None) -> None:
         s = state or {}
-        # current_run: list of event dicts with JSON-serialisable values
-        self._run: list[dict] = s.get("current_run", [])
-        self._runs: list[dict] = s.get("runs", [])
-        # cyber_status: {uid: [weeks_int, last_processed_iso]}
-        self._status: dict[str, list] = s.get("cyber_status", {})
+        # [[ts_iso, type, uid, weeks_or_null], ...]
+        self._events: list[list] = s.get("events", [])
 
     def process_page(self, page: list[dict]) -> None:
         for msg in page:
             if not _is_bot(msg):
                 continue
             content = msg.get("content", "")
-            ts_iso = msg["timestamp"]
-
+            ts = msg["timestamp"]
             m = _CY_PAID_OLD.search(content)
             if m:
-                self._add(ts_iso, "paid", m.group(1), int(m.group(2)))
+                self._events.append([ts, "paid", m.group(1), int(m.group(2))])
                 continue
             m = _CY_PAID_NEW.search(content)
             if m:
-                self._add(ts_iso, "paid_noweek", m.group(1), None)
+                self._events.append([ts, "paid_noweek", m.group(1), None])
                 continue
             m = _CY_UNPA_OLD.search(content)
             if m:
-                self._add(ts_iso, "unpaid", m.group(1), None)
+                self._events.append([ts, "unpaid", m.group(1), None])
                 continue
             m = _CY_UNPA_NEW.search(content)
             if m:
-                self._add(ts_iso, "unpaid", m.group(1), None)
+                self._events.append([ts, "unpaid", m.group(1), None])
                 continue
             m = _CY_CHECKUP.search(content)
             if m:
-                self._add(ts_iso, "checkup", m.group(1), None)
-
-    def _add(self, ts_iso: str, kind: str, uid: str, weeks: Optional[int]) -> None:
-        ts = _parse_ts(ts_iso)
-        if self._run:
-            last_ts = _parse_ts(self._run[-1]["ts"])
-            if (ts - last_ts) > _RUN_GAP_CYBER:
-                self._flush_run()
-        self._run.append({"ts": ts_iso, "type": kind, "user_id": uid, "weeks": weeks})
-
-    def _flush_run(self) -> None:
-        if not self._run:
-            return
-        run_at = self._run[0]["ts"]
-        paid, unpaid, checkup = [], [], []
-        for ev in self._run:
-            uid, kind, weeks = ev["user_id"], ev["type"], ev["weeks"]
-            if kind == "paid":
-                paid.append({"user_id": uid, "weeks": weeks})
-                existing = self._status.get(uid)
-                if not existing or _parse_ts(run_at) > _parse_ts(existing[1]):
-                    self._status[uid] = [weeks, run_at]
-            elif kind == "paid_noweek":
-                paid.append({"user_id": uid, "weeks": None})
-                existing = self._status.get(uid)
-                if not existing or _parse_ts(run_at) > _parse_ts(existing[1]):
-                    self._status[uid] = [existing[0] if existing else 0, run_at]
-            elif kind == "unpaid":
-                unpaid.append(uid)
-            elif kind == "checkup":
-                checkup.append(uid)
-        self._runs.append({"run_at": run_at, "paid": paid, "unpaid": unpaid, "checkup": checkup})
-        self._run = []
+                self._events.append([ts, "checkup", m.group(1), None])
 
     def to_state(self) -> dict:
-        return {"current_run": self._run, "runs": self._runs, "cyber_status": self._status}
+        return {"events": self._events}
 
     def get_results(self) -> tuple[list[dict], dict[str, tuple[int, datetime]]]:
-        self._flush_run()
+        if not self._events:
+            return [], {}
+        sorted_evs = sorted(self._events, key=lambda x: x[0])
+        runs: list[dict] = []
+        cyber_status: dict[str, list] = {}  # {uid: [weeks, ts_iso]}
+        run_buf: list[list] = []
+
+        def flush_run() -> None:
+            if not run_buf:
+                return
+            run_at = run_buf[0][0]
+            paid, unpaid, checkup = [], [], []
+            for ts_iso, kind, uid, weeks in run_buf:
+                if kind == "paid":
+                    paid.append({"user_id": uid, "weeks": weeks})
+                    existing = cyber_status.get(uid)
+                    if not existing or ts_iso > existing[1]:
+                        cyber_status[uid] = [weeks, ts_iso]
+                elif kind == "paid_noweek":
+                    paid.append({"user_id": uid, "weeks": None})
+                    existing = cyber_status.get(uid)
+                    if not existing or ts_iso > existing[1]:
+                        prev_weeks = existing[0] if existing else 0
+                        cyber_status[uid] = [prev_weeks, ts_iso]
+                elif kind == "unpaid":
+                    unpaid.append(uid)
+                elif kind == "checkup":
+                    checkup.append(uid)
+            runs.append({"run_at": run_at, "paid": paid, "unpaid": unpaid, "checkup": checkup})
+            run_buf.clear()
+
+        for ev in sorted_evs:
+            if run_buf:
+                prev_ts = _parse_ts(run_buf[-1][0])
+                if (_parse_ts(ev[0]) - prev_ts) > _RUN_GAP_CYBER:
+                    flush_run()
+            run_buf.append(ev)
+        flush_run()
+
         status: dict[str, tuple[int, datetime]] = {
-            uid: (v[0], _parse_ts(v[1])) for uid, v in self._status.items()
+            uid: (v[0], _parse_ts(v[1])) for uid, v in cyber_status.items()
         }
-        return self._runs, status
+        return runs, status
 
 # ---------------------------------------------------------------------------
 # Thread enumeration — with per-batch checkpointing
@@ -385,8 +452,12 @@ async def fetch_threads_checkpointed(
 ) -> list[dict]:
     """
     Enumerate all threads (active + archived public + archived private) for a
-    channel, saving the checkpoint after every batch to allow resume.
-    Returns the complete list of thread objects.
+    channel, saving the checkpoint after every pagination batch.
+
+    `public_done`, `private_done`, and `all_done` are only set when the API
+    signals exhaustion (``has_more=false`` or empty batch).  They are NOT set
+    when the loop stops due to ``--limit``, so a later full run will resume
+    from the saved cursor.
     """
     cp = checkpoint.get(cp_key, {})
     if cp.get("all_done"):
@@ -395,7 +466,7 @@ async def fetch_threads_checkpointed(
 
     threads: list[dict] = list(cp.get("threads", []))
 
-    # ── Active threads ─────────────────────────────────────────────────────
+    # ── Active threads (single request, no pagination) ─────────────────────
     if not cp.get("active_done"):
         active_data = await discord_get(
             session, f"{DISCORD_API}/channels/{channel_id}/threads/active"
@@ -411,7 +482,7 @@ async def fetch_threads_checkpointed(
     if not cp.get("public_done"):
         arch_url = f"{DISCORD_API}/channels/{channel_id}/threads/archived/public"
         before_ts: Optional[str] = cp.get("public_cursor")
-        pub_page = cp.get("public_page", 0)
+        pub_page: int = cp.get("public_page", 0)
         pub_exhausted = False
 
         while True:
@@ -427,8 +498,7 @@ async def fetch_threads_checkpointed(
                 batch[-1].get("thread_metadata", {}).get("archive_timestamp")
                 if batch else None
             )
-            cp = {**cp, "threads": threads, "public_cursor": before_ts,
-                  "public_page": pub_page}
+            cp = {**cp, "threads": threads, "public_cursor": before_ts, "public_page": pub_page}
             checkpoint[cp_key] = cp
             save_checkpoint(checkpoint)  # checkpoint after every batch
             if not data.get("has_more") or not batch:
@@ -437,7 +507,6 @@ async def fetch_threads_checkpointed(
             if limit_pages and pub_page >= limit_pages:
                 break  # stopped by --limit; NOT exhausted
 
-        # Only mark done when API is truly exhausted, not when stopped by --limit
         if pub_exhausted:
             cp = {**cp, "public_done": True}
             checkpoint[cp_key] = cp
@@ -447,7 +516,7 @@ async def fetch_threads_checkpointed(
     if not cp.get("private_done"):
         priv_url = f"{DISCORD_API}/channels/{channel_id}/threads/archived/private"
         before_ts = cp.get("private_cursor")
-        priv_page = cp.get("private_page", 0)
+        priv_page: int = cp.get("private_page", 0)
         priv_exhausted = False
         try:
             while True:
@@ -463,8 +532,7 @@ async def fetch_threads_checkpointed(
                     batch[-1].get("thread_metadata", {}).get("archive_timestamp")
                     if batch else None
                 )
-                cp = {**cp, "threads": threads, "private_cursor": before_ts,
-                      "private_page": priv_page}
+                cp = {**cp, "threads": threads, "private_cursor": before_ts, "private_page": priv_page}
                 checkpoint[cp_key] = cp
                 save_checkpoint(checkpoint)
                 if not data.get("has_more") or not batch:
@@ -473,9 +541,8 @@ async def fetch_threads_checkpointed(
                 if limit_pages and priv_page >= limit_pages:
                     break  # stopped by --limit; NOT exhausted
         except RuntimeError:
-            priv_exhausted = True  # Bot lacks MANAGE_THREADS; nothing more to fetch
+            priv_exhausted = True  # Bot lacks MANAGE_THREADS; skip silently
 
-        # Only mark private_done (and all_done) when truly exhausted
         if priv_exhausted:
             all_done = cp.get("public_done", False) and priv_exhausted
             cp = {**cp, "private_done": True, "all_done": all_done, "threads": threads}
@@ -486,12 +553,13 @@ async def fetch_threads_checkpointed(
     return threads
 
 # ---------------------------------------------------------------------------
-# DM thread parser — name-based + relay-message fallback
+# DM thread mapping — name-based (primary) + relay-message fallback
 # ---------------------------------------------------------------------------
 
-# Relay message patterns written by dm_handling.py into each thread:
-#   📥 **Received from DisplayName (USER_ID)**:  (incoming user DM)
-#   📤 **Sent to DisplayName (USER_ID) by …:**   (outgoing fixer DM)
+# Relay log patterns written by dm_handling.py into each thread:
+#   📥 **Received from DisplayName (USER_ID)**:   (incoming DM)
+#   📤 **Sent to DisplayName (USER_ID) by …:**    (outgoing DM via !dm)
+#   📤 **Sent to DisplayName (USER_ID) by …:**    (outgoing via thread reply)
 _RELAY_UID_RE = re.compile(
     r"(?:Received from|Sent to)\s+.{0,80}\((\d{15,20})\)"
 )
@@ -504,47 +572,58 @@ async def build_dm_thread_map(
     limit_pages: Optional[int],
 ) -> dict[str, int]:
     """
-    Build user_id → thread_id mapping via two strategies:
+    Build user_id → thread_id mapping with two strategies:
 
-    1. Name-based (primary): thread name ends with the numeric user ID,
-       e.g. ``username-123456789012345678``.
-    2. Relay-message fallback: for threads whose names cannot be parsed,
-       stream the thread's messages and extract the user ID from the first
-       relay log line (``Received from … (ID)`` or ``Sent to … (ID)``).
+    1. **Name-based (primary)**: thread name ends with the numeric user ID
+       (``username-123456789012345678``).  When multiple threads match the
+       same user_id, the one with the higher ``last_message_id`` (snowflake =
+       chronologically most recent) wins.
 
-    Both strategies are idempotent and checkpointed.  The mapping stored
-    in the checkpoint is used on resume to avoid re-reading threads whose
-    user ID was already resolved.
+    2. **Relay-message fallback**: for threads whose names cannot be parsed,
+       stream thread messages and match the first bot relay log line.  Again,
+       the most-recently-active thread wins for a given user.
+
+    All resolved mappings are persisted in the checkpoint (``dm_thread_map_cache``)
+    so resumed runs skip already-resolved threads.  Thread IDs are stored and
+    reloaded as integers.
     """
     CP_KEY = "dm_thread_map_cache"
-    # Load any previously resolved mappings from checkpoint
-    mapping: dict[str, int] = dict(checkpoint.get(CP_KEY, {}))
+    # Load previously resolved mappings; values stored as ints
+    raw_cache: dict = checkpoint.get(CP_KEY, {})
+    # mapping: {uid_str: (thread_id_int, last_msg_id_str)}
+    mapping: dict[str, tuple[int, str]] = {
+        uid: (int(v[0]), str(v[1])) for uid, v in raw_cache.items()
+    }
 
-    # Build reverse lookup: thread_id → user_id (already resolved)
-    resolved_tids: set[int] = {int(tid_str) for tid_str in
-                                {str(v) for v in mapping.values()}}
+    resolved_tids: set[int] = {t for t, _ in mapping.values()}
 
     name_hits = 0
     relay_hits = 0
 
     for t in threads:
         tid = int(t["id"])
-        if tid in resolved_tids:
-            continue  # Already resolved on a previous run
+        last_msg = t.get("last_message_id") or "0"
 
-        # ── Strategy 1: name suffix ────────────────────────────────────
+        # ── Strategy 1: name suffix ────────────────────────────────────────
         m = re.search(r"(\d{15,20})$", t.get("name", ""))
         if m:
             uid = m.group(1)
-            mapping[uid] = tid
+            existing = mapping.get(uid)
+            # Keep the thread with the higher last_message_id (more recent)
+            if existing is None or last_msg > existing[1]:
+                mapping[uid] = (tid, last_msg)
+                name_hits += 1
             resolved_tids.add(tid)
-            name_hits += 1
             continue
 
-        # ── Strategy 2: relay message scan ────────────────────────────
+        # ── Strategy 2: relay message scan ────────────────────────────────
+        if tid in resolved_tids:
+            continue  # Already resolved via a previous fallback pass
+
         cp_key = f"dm_scan_{tid}"
         cp_entry = checkpoint.get(cp_key, {})
         found_uid: Optional[str] = cp_entry.get("found_uid")
+        found_ts:  Optional[str] = cp_entry.get("found_ts")
 
         if not cp_entry.get("done") and found_uid is None:
             label = f"dm-scan/{t.get('name', tid)[:28]}"
@@ -556,29 +635,36 @@ async def build_dm_thread_map(
                         continue
                     rm = _RELAY_UID_RE.search(msg.get("content", ""))
                     if rm:
-                        found_uid = rm.group(1)
-                        break
-                # Save per-page in case we're interrupted
+                        # Take the newest (highest-timestamp) relay match
+                        candidate_ts = msg["timestamp"]
+                        if found_ts is None or candidate_ts > found_ts:
+                            found_uid = rm.group(1)
+                            found_ts  = candidate_ts
+                # Persist per-page so interruption doesn't lose progress
                 checkpoint[cp_key] = {
                     **checkpoint.get(cp_key, {}),
                     "found_uid": found_uid,
+                    "found_ts":  found_ts,
                 }
                 save_checkpoint(checkpoint)
-                if found_uid:
-                    break  # No need to read further messages in this thread
 
         if found_uid:
-            mapping[found_uid] = tid
+            existing = mapping.get(found_uid)
+            # Prefer most-recently-active thread (highest last_message_id)
+            if existing is None or last_msg > existing[1]:
+                mapping[found_uid] = (tid, last_msg)
+                relay_hits += 1
             resolved_tids.add(tid)
-            relay_hits += 1
 
     print(f"  [dm_threads] name-based: {name_hits}  relay-fallback: {relay_hits}  "
           f"total: {len(mapping)}")
-    # Persist resolved mapping to checkpoint
-    checkpoint[CP_KEY] = {uid: str(tid) for uid, tid in mapping.items()}
-    save_checkpoint(checkpoint)
-    return mapping
 
+    # Persist resolved mapping to checkpoint (store as [int, str] pairs for JSON)
+    checkpoint[CP_KEY] = {uid: [tid, lm] for uid, (tid, lm) in mapping.items()}
+    save_checkpoint(checkpoint)
+
+    # Return {uid: thread_id (int)} — the form needed by the DB writer
+    return {uid: tid for uid, (tid, _lm) in mapping.items()}
 
 # ---------------------------------------------------------------------------
 # Trauma team parser (forum threads) — cross-thread global best_ts
@@ -592,17 +678,16 @@ async def fetch_and_parse_trauma_team(
 ) -> dict[str, str]:
     """
     For each forum thread, stream messages and find payment confirmations.
-    Thread title format: 'Character Name - userid'.
+    Thread title format: ``Character Name - userid``.
 
-    Tracks the most recent payment per user ACROSS ALL THREADS using a
-    global checkpoint key so that, when a user has multiple threads, only
-    the latest payment is returned regardless of iteration order.
+    Maintains a **global** per-user best (``tt_global_best``) across all threads
+    so that users with multiple threads always get their most recent payment
+    regardless of thread iteration order.
 
-    Returns {user_id: summary_string}.
+    Returns ``{user_id: summary_string}``.
     """
     PAYMENT_RE = re.compile(r"Payment Successful")
-    # Global per-user best: {user_id: [best_ts_iso, best_summary]}
-    # Loaded from checkpoint so progress survives interruption.
+    # {user_id: [best_ts_iso, best_summary]}  — persisted in checkpoint
     global_best: dict[str, list] = checkpoint.get("tt_global_best", {})
 
     for t in threads:
@@ -615,8 +700,7 @@ async def fetch_and_parse_trauma_team(
         label = f"trauma/{t.get('name', tid)[:28]}"
 
         cp_entry = checkpoint.get(cp_key, {})
-        # Per-thread best (within this thread only)
-        thread_best_ts: Optional[str]      = cp_entry.get("best_ts")
+        thread_best_ts:      Optional[str] = cp_entry.get("best_ts")
         thread_best_summary: Optional[str] = cp_entry.get("best_summary")
 
         if not cp_entry.get("done"):
@@ -626,13 +710,12 @@ async def fetch_and_parse_trauma_team(
                 for msg in page:
                     if not _is_bot(msg):
                         continue
-                    content = msg.get("content", "")
-                    if PAYMENT_RE.search(content):
+                    if PAYMENT_RE.search(msg.get("content", "")):
                         ts = msg["timestamp"]
                         if thread_best_ts is None or ts > thread_best_ts:
                             thread_best_ts     = ts
-                            thread_best_summary = content.strip()
-                # Save per-thread state after every page
+                            thread_best_summary = msg["content"].strip()
+                # Save per-thread best after every page
                 checkpoint[cp_key] = {
                     **checkpoint.get(cp_key, {}),
                     "best_ts": thread_best_ts,
@@ -658,20 +741,19 @@ async def run_channel_section(
     session: aiohttp.ClientSession,
     channel_id: int,
     cp_key: str,
-    parser,
+    parser: Any,
     checkpoint: dict,
     limit_pages: Optional[int],
     label: str,
 ) -> None:
     """
-    Stream channel pages and feed them to a stateful parser, saving the
-    parser's state to checkpoint after every page.
-    Loads existing state from checkpoint on startup (for resume).
+    Stream channel pages (newest-first, backward cursor) and feed them to a
+    stateful parser, saving the parser's state to checkpoint after every page.
+    Restores parser state from checkpoint on entry to support seamless resume.
     """
     cp_entry = checkpoint.get(cp_key, {})
-    # Restore parser state from checkpoint
     parser_state = cp_entry.get("parser_state")
-    parser.__init__(parser_state)  # re-initialize with saved state
+    parser.__init__(parser_state)  # re-initialise with saved state (or fresh)
 
     if cp_entry.get("done"):
         print(f"  [{label}] already complete (checkpoint) — skipping fetch")
@@ -679,7 +761,7 @@ async def run_channel_section(
 
     async for page in stream_pages(session, channel_id, cp_key, checkpoint, limit_pages, label):
         parser.process_page(page)
-        # After every page, flush parser state to checkpoint (no raw messages)
+        # Merge parser state into checkpoint after every page (no raw messages)
         checkpoint[cp_key] = {
             **checkpoint.get(cp_key, {}),
             "parser_state": parser.to_state(),
@@ -750,7 +832,7 @@ async def write_to_db(
                 )
                 summary["rent_runs"]["inserted"] += 1
 
-        # Merge last_payment: rent first, trauma_team overwrites where present
+        # Merge last_payment: rent first, trauma_team overwrites where newer
         all_lp: dict[str, str] = {**last_payment_rent, **last_payment_trauma}
         for uid, lp_summary in all_lp.items():
             res = await conn.execute(
@@ -795,7 +877,7 @@ async def write_to_db(
             res = await conn.execute(
                 "INSERT INTO dm_threads (user_id, thread_id) VALUES ($1,$2)"
                 " ON CONFLICT (user_id) DO UPDATE SET thread_id = EXCLUDED.thread_id",
-                str(uid), thread_id,
+                str(uid), int(thread_id),  # always ensure int
             )
             _tally("dm_threads", res)
 
@@ -828,7 +910,7 @@ def _print_dry_run(
 
     print(f"\n[rent_runs] {len(rent_runs)} run(s)")
     for run in rent_runs:
-        print(f"  run_at={run['run_at']}  users={len(run['per_user'])}")
+        print(f"  run_at={run['run_at']}  users={len(run.get('per_user',{}))}")
 
     print(f"\n[last_payment — rent] {len(last_payment_rent)} user(s)")
     for uid, s in last_payment_rent.items():
@@ -915,13 +997,13 @@ async def main() -> None:
         "Content-Type": "application/json",
     }
 
-    # --- Result accumulators -------------------------------------------------
-    attendance_parser  = AttendanceParser()
-    open_shop_parser   = OpenShopParser()
-    rent_parser        = RentParser()
-    cyber_parser       = CyberwareParser()
-    dm_thread_map:     dict[str, int] = {}
-    last_pay_trauma:   dict[str, str] = {}
+    # --- Result accumulators ------------------------------------------------
+    attendance_parser = AttendanceParser()
+    open_shop_parser  = OpenShopParser()
+    rent_parser       = RentParser()
+    cyber_parser      = CyberwareParser()
+    dm_thread_map:    dict[str, int] = {}
+    last_pay_trauma:  dict[str, str] = {}
 
     async with aiohttp.ClientSession(headers=headers) as session:
 
@@ -931,8 +1013,8 @@ async def main() -> None:
                 session, CHANNEL_IDS["attendance"], "ch_attendance",
                 attendance_parser, checkpoint, args.limit, "attendance",
             )
-            results = attendance_parser.get_results()
-            print(f"  Parsed {len(results)} attendance records")
+            print(f"  Collected {len(attendance_parser._bot_acks)} bot-acks "
+                  f"and {len(attendance_parser._cmds)} commands")
 
         if "open_shop" in sections:
             print("\n--- Section: open_shop ---")
@@ -940,8 +1022,8 @@ async def main() -> None:
                 session, CHANNEL_IDS["open_shop"], "ch_open_shop",
                 open_shop_parser, checkpoint, args.limit, "open_shop",
             )
-            results = open_shop_parser.get_results()
-            print(f"  Parsed {len(results)} shop-opening records")
+            print(f"  Collected {len(open_shop_parser._bot_acks)} bot-acks "
+                  f"and {len(open_shop_parser._cmds)} commands")
 
         if "rent" in sections:
             print("\n--- Section: rent ---")
@@ -949,8 +1031,7 @@ async def main() -> None:
                 session, CHANNEL_IDS["rent"], "ch_rent",
                 rent_parser, checkpoint, args.limit, "rent",
             )
-            rr, lp = rent_parser.get_results()
-            print(f"  Parsed {len(rr)} rent runs, {len(lp)} last_payment entries")
+            print(f"  Collected {len(rent_parser._events)} rent events")
 
         if "cyberware" in sections:
             print("\n--- Section: cyberware ---")
@@ -958,8 +1039,7 @@ async def main() -> None:
                 session, CHANNEL_IDS["cyberware"], "ch_cyberware",
                 cyber_parser, checkpoint, args.limit, "cyberware",
             )
-            cr, cs = cyber_parser.get_results()
-            print(f"  Parsed {len(cr)} cyberware runs, {len(cs)} unique users")
+            print(f"  Collected {len(cyber_parser._events)} cyberware events")
 
         if "dm_threads" in sections:
             print("\n--- Section: dm_threads ---")
@@ -982,13 +1062,20 @@ async def main() -> None:
             )
             print(f"  Found {len(last_pay_trauma)} trauma team payment records")
 
-    # Collect final results from parsers
+    # Derive final results (clustering/matching happens here)
     attendance_results = attendance_parser.get_results()
     open_shop_results  = open_shop_parser.get_results()
     rent_runs, last_pay_rent = rent_parser.get_results()
     cyber_runs, cyber_status = cyber_parser.get_results()
 
-    # --- Write pass (or dry-run preview) -------------------------------------
+    print(f"\nParsed: {len(attendance_results)} attendance, "
+          f"{len(open_shop_results)} shop-opens, "
+          f"{len(rent_runs)} rent-runs, "
+          f"{len(cyber_runs)} cyber-runs, "
+          f"{len(dm_thread_map)} DM-threads, "
+          f"{len(last_pay_trauma)} TT-payments")
+
+    # --- Write pass (or dry-run preview) ------------------------------------
     if dry_run:
         print("\n--- Dry-run preview ---")
         _print_dry_run(
