@@ -412,6 +412,7 @@ async def fetch_threads_checkpointed(
         arch_url = f"{DISCORD_API}/channels/{channel_id}/threads/archived/public"
         before_ts: Optional[str] = cp.get("public_cursor")
         pub_page = cp.get("public_page", 0)
+        pub_exhausted = False
 
         while True:
             params: dict = {"limit": 100}
@@ -431,19 +432,23 @@ async def fetch_threads_checkpointed(
             checkpoint[cp_key] = cp
             save_checkpoint(checkpoint)  # checkpoint after every batch
             if not data.get("has_more") or not batch:
+                pub_exhausted = True
                 break
             if limit_pages and pub_page >= limit_pages:
-                break
+                break  # stopped by --limit; NOT exhausted
 
-        cp = {**cp, "public_done": True}
-        checkpoint[cp_key] = cp
-        save_checkpoint(checkpoint)
+        # Only mark done when API is truly exhausted, not when stopped by --limit
+        if pub_exhausted:
+            cp = {**cp, "public_done": True}
+            checkpoint[cp_key] = cp
+            save_checkpoint(checkpoint)
 
     # ── Archived private threads (paginated) ───────────────────────────────
     if not cp.get("private_done"):
         priv_url = f"{DISCORD_API}/channels/{channel_id}/threads/archived/private"
         before_ts = cp.get("private_cursor")
         priv_page = cp.get("private_page", 0)
+        priv_exhausted = False
         try:
             while True:
                 params = {"limit": 100}
@@ -463,34 +468,120 @@ async def fetch_threads_checkpointed(
                 checkpoint[cp_key] = cp
                 save_checkpoint(checkpoint)
                 if not data.get("has_more") or not batch:
+                    priv_exhausted = True
                     break
                 if limit_pages and priv_page >= limit_pages:
-                    break
+                    break  # stopped by --limit; NOT exhausted
         except RuntimeError:
-            pass  # Bot may lack MANAGE_THREADS; skip silently
+            priv_exhausted = True  # Bot lacks MANAGE_THREADS; nothing more to fetch
 
-        cp = {**cp, "private_done": True, "all_done": True, "threads": threads}
-        checkpoint[cp_key] = cp
-        save_checkpoint(checkpoint)
+        # Only mark private_done (and all_done) when truly exhausted
+        if priv_exhausted:
+            all_done = cp.get("public_done", False) and priv_exhausted
+            cp = {**cp, "private_done": True, "all_done": all_done, "threads": threads}
+            checkpoint[cp_key] = cp
+            save_checkpoint(checkpoint)
 
     print(f"  [{label}] total threads: {len(threads)}")
     return threads
 
 # ---------------------------------------------------------------------------
-# DM thread parser (name-only — no message reading required)
+# DM thread parser — name-based + relay-message fallback
 # ---------------------------------------------------------------------------
 
-def parse_dm_threads(threads: list[dict]) -> dict[str, int]:
-    """Extract user_id → thread_id from thread name suffix (e.g. 'name-12345678')."""
-    mapping: dict[str, int] = {}
+# Relay message patterns written by dm_handling.py into each thread:
+#   📥 **Received from DisplayName (USER_ID)**:  (incoming user DM)
+#   📤 **Sent to DisplayName (USER_ID) by …:**   (outgoing fixer DM)
+_RELAY_UID_RE = re.compile(
+    r"(?:Received from|Sent to)\s+.{0,80}\((\d{15,20})\)"
+)
+
+
+async def build_dm_thread_map(
+    session: aiohttp.ClientSession,
+    threads: list[dict],
+    checkpoint: dict,
+    limit_pages: Optional[int],
+) -> dict[str, int]:
+    """
+    Build user_id → thread_id mapping via two strategies:
+
+    1. Name-based (primary): thread name ends with the numeric user ID,
+       e.g. ``username-123456789012345678``.
+    2. Relay-message fallback: for threads whose names cannot be parsed,
+       stream the thread's messages and extract the user ID from the first
+       relay log line (``Received from … (ID)`` or ``Sent to … (ID)``).
+
+    Both strategies are idempotent and checkpointed.  The mapping stored
+    in the checkpoint is used on resume to avoid re-reading threads whose
+    user ID was already resolved.
+    """
+    CP_KEY = "dm_thread_map_cache"
+    # Load any previously resolved mappings from checkpoint
+    mapping: dict[str, int] = dict(checkpoint.get(CP_KEY, {}))
+
+    # Build reverse lookup: thread_id → user_id (already resolved)
+    resolved_tids: set[int] = {int(tid_str) for tid_str in
+                                {str(v) for v in mapping.values()}}
+
+    name_hits = 0
+    relay_hits = 0
+
     for t in threads:
+        tid = int(t["id"])
+        if tid in resolved_tids:
+            continue  # Already resolved on a previous run
+
+        # ── Strategy 1: name suffix ────────────────────────────────────
         m = re.search(r"(\d{15,20})$", t.get("name", ""))
         if m:
-            mapping[m.group(1)] = int(t["id"])
+            uid = m.group(1)
+            mapping[uid] = tid
+            resolved_tids.add(tid)
+            name_hits += 1
+            continue
+
+        # ── Strategy 2: relay message scan ────────────────────────────
+        cp_key = f"dm_scan_{tid}"
+        cp_entry = checkpoint.get(cp_key, {})
+        found_uid: Optional[str] = cp_entry.get("found_uid")
+
+        if not cp_entry.get("done") and found_uid is None:
+            label = f"dm-scan/{t.get('name', tid)[:28]}"
+            async for page in stream_pages(
+                session, tid, cp_key, checkpoint, limit_pages, label
+            ):
+                for msg in page:
+                    if not _is_bot(msg):
+                        continue
+                    rm = _RELAY_UID_RE.search(msg.get("content", ""))
+                    if rm:
+                        found_uid = rm.group(1)
+                        break
+                # Save per-page in case we're interrupted
+                checkpoint[cp_key] = {
+                    **checkpoint.get(cp_key, {}),
+                    "found_uid": found_uid,
+                }
+                save_checkpoint(checkpoint)
+                if found_uid:
+                    break  # No need to read further messages in this thread
+
+        if found_uid:
+            mapping[found_uid] = tid
+            resolved_tids.add(tid)
+            relay_hits += 1
+
+    print(f"  [dm_threads] name-based: {name_hits}  relay-fallback: {relay_hits}  "
+          f"total: {len(mapping)}")
+    # Persist resolved mapping to checkpoint
+    checkpoint[CP_KEY] = {uid: str(tid) for uid, tid in mapping.items()}
+    save_checkpoint(checkpoint)
     return mapping
 
+
 # ---------------------------------------------------------------------------
-# Trauma team parser (forum threads)
+# Trauma team parser (forum threads) — cross-thread global best_ts
 # ---------------------------------------------------------------------------
 
 async def fetch_and_parse_trauma_team(
@@ -500,12 +591,19 @@ async def fetch_and_parse_trauma_team(
     limit_pages: Optional[int],
 ) -> dict[str, str]:
     """
-    For each forum thread, stream its messages and find the most recent
-    '✅ Payment Successful' bot message.  Thread title: 'Name - user_id'.
+    For each forum thread, stream messages and find payment confirmations.
+    Thread title format: 'Character Name - userid'.
+
+    Tracks the most recent payment per user ACROSS ALL THREADS using a
+    global checkpoint key so that, when a user has multiple threads, only
+    the latest payment is returned regardless of iteration order.
+
     Returns {user_id: summary_string}.
     """
     PAYMENT_RE = re.compile(r"Payment Successful")
-    result: dict[str, str] = {}
+    # Global per-user best: {user_id: [best_ts_iso, best_summary]}
+    # Loaded from checkpoint so progress survives interruption.
+    global_best: dict[str, list] = checkpoint.get("tt_global_best", {})
 
     for t in threads:
         m = re.search(r"\s*-\s*(\d{15,20})\s*$", t.get("name", ""))
@@ -517,33 +615,40 @@ async def fetch_and_parse_trauma_team(
         label = f"trauma/{t.get('name', tid)[:28]}"
 
         cp_entry = checkpoint.get(cp_key, {})
-        # Load any already-found payment from checkpoint
-        best_ts: Optional[str] = cp_entry.get("best_ts")
-        best_summary: Optional[str] = cp_entry.get("best_summary")
+        # Per-thread best (within this thread only)
+        thread_best_ts: Optional[str]      = cp_entry.get("best_ts")
+        thread_best_summary: Optional[str] = cp_entry.get("best_summary")
 
         if not cp_entry.get("done"):
-            async for page in stream_pages(session, tid, cp_key, checkpoint, limit_pages, label):
+            async for page in stream_pages(
+                session, tid, cp_key, checkpoint, limit_pages, label
+            ):
                 for msg in page:
                     if not _is_bot(msg):
                         continue
                     content = msg.get("content", "")
                     if PAYMENT_RE.search(content):
                         ts = msg["timestamp"]
-                        if best_ts is None or ts > best_ts:
-                            best_ts = ts
-                            best_summary = content.strip()
-                # Save after each page
+                        if thread_best_ts is None or ts > thread_best_ts:
+                            thread_best_ts     = ts
+                            thread_best_summary = content.strip()
+                # Save per-thread state after every page
                 checkpoint[cp_key] = {
                     **checkpoint.get(cp_key, {}),
-                    "best_ts": best_ts,
-                    "best_summary": best_summary,
+                    "best_ts": thread_best_ts,
+                    "best_summary": thread_best_summary,
                 }
                 save_checkpoint(checkpoint)
 
-        if best_summary:
-            result[user_id] = best_summary
+        # Update the global (cross-thread) best for this user
+        if thread_best_ts is not None and thread_best_summary is not None:
+            existing = global_best.get(user_id)
+            if existing is None or thread_best_ts > existing[0]:
+                global_best[user_id] = [thread_best_ts, thread_best_summary]
+                checkpoint["tt_global_best"] = global_best
+                save_checkpoint(checkpoint)
 
-    return result
+    return {uid: v[1] for uid, v in global_best.items()}
 
 # ---------------------------------------------------------------------------
 # Generic channel fetch-and-parse driver
@@ -862,8 +967,9 @@ async def main() -> None:
                 session, CHANNEL_IDS["dm_threads"], "th_dm_threads",
                 checkpoint, args.limit, "dm_threads",
             )
-            dm_thread_map = parse_dm_threads(threads)
-            print(f"  Found {len(dm_thread_map)} user→thread mappings")
+            dm_thread_map = await build_dm_thread_map(
+                session, threads, checkpoint, args.limit,
+            )
 
         if "trauma_team" in sections:
             print("\n--- Section: trauma_team ---")
