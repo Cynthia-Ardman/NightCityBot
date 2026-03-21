@@ -57,6 +57,15 @@ CHANNEL_IDS = {
     "trauma_team":  1351070651313557545,
 }
 
+# Forum channels: Discord's /channels/{id}/threads/active returns 404 for these;
+# active threads must be fetched guild-wide and filtered by parent_id instead.
+FORUM_CHANNEL_IDS: set[int] = {
+    CHANNEL_IDS["dm_threads"],
+    CHANNEL_IDS["trauma_team"],
+}
+
+GUILD_ID = 1348601552083882108
+
 ALL_SECTIONS = list(CHANNEL_IDS.keys())
 
 _CLUSTER_GAP_RENT  = timedelta(minutes=5)
@@ -488,10 +497,21 @@ async def fetch_threads_checkpointed(
 
     # ── Active threads (single request, no pagination) ─────────────────────
     if not cp.get("active_done"):
-        active_data = await discord_get(
-            session, f"{DISCORD_API}/channels/{channel_id}/threads/active"
-        )
-        active = active_data.get("threads", [])
+        if channel_id in FORUM_CHANNEL_IDS:
+            # Forum channels don't support /channels/{id}/threads/active.
+            # Use the guild-wide endpoint and filter by parent_id instead.
+            guild_data = await discord_get(
+                session, f"{DISCORD_API}/guilds/{GUILD_ID}/threads/active"
+            )
+            active = [
+                t for t in guild_data.get("threads", [])
+                if int(t.get("parent_id", 0)) == channel_id
+            ]
+        else:
+            active_data = await discord_get(
+                session, f"{DISCORD_API}/channels/{channel_id}/threads/active"
+            )
+            active = active_data.get("threads", [])
         threads.extend(active)
         print(f"  [{label}] active threads: {len(active)}")
         cp = {**cp, "active_done": True, "threads": threads}
