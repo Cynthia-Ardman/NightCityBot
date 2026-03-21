@@ -1013,8 +1013,7 @@ async def main() -> None:
                 session, CHANNEL_IDS["attendance"], "ch_attendance",
                 attendance_parser, checkpoint, args.limit, "attendance",
             )
-            print(f"  Collected {len(attendance_parser._bot_acks)} bot-acks "
-                  f"and {len(attendance_parser._cmds)} commands")
+            print(f"  Confirmed {len(attendance_parser._records)} attendance pair(s)")
 
         if "open_shop" in sections:
             print("\n--- Section: open_shop ---")
@@ -1022,8 +1021,7 @@ async def main() -> None:
                 session, CHANNEL_IDS["open_shop"], "ch_open_shop",
                 open_shop_parser, checkpoint, args.limit, "open_shop",
             )
-            print(f"  Collected {len(open_shop_parser._bot_acks)} bot-acks "
-                  f"and {len(open_shop_parser._cmds)} commands")
+            print(f"  Confirmed {len(open_shop_parser._records)} open-shop pair(s)")
 
         if "rent" in sections:
             print("\n--- Section: rent ---")

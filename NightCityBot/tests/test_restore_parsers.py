@@ -296,3 +296,94 @@ class TestCyberwareParser:
         p.process_page(page)
         runs, status = p.get_results()
         assert len(runs) == 2
+
+
+# ---------------------------------------------------------------------------
+# Orchestration smoke-tests
+# Verify that the attributes referenced in main() logging actually exist,
+# so runtime AttributeErrors are caught here before the CLI is invoked.
+# ---------------------------------------------------------------------------
+
+class TestOrchestrationAttributes:
+    """
+    Smoke-tests ensuring the parser attributes referenced by main()'s logging
+    statements are present and of the expected types.  These catch regressions
+    where a parser refactor breaks the main() log lines.
+    """
+
+    def _run_attendance(self, page):
+        p = AttendanceParser()
+        p.process_page(page)
+        return p
+
+    def _run_open_shop(self, page):
+        p = OpenShopParser()
+        p.process_page(page)
+        return p
+
+    def test_attendance_parser_has_records_attr(self):
+        """main() logs `len(attendance_parser._records)` — must not AttributeError."""
+        page = [
+            _bot("Attendance logged.", _ts(2)),
+            _user("111", "!attend", _ts(1)),
+        ]
+        p = self._run_attendance(page)
+        # Must be subscriptable and len-able (list)
+        assert isinstance(p._records, list)
+        _ = len(p._records)   # must not raise
+
+    def test_open_shop_parser_has_records_attr(self):
+        """main() logs `len(open_shop_parser._records)` — must not AttributeError."""
+        page = [
+            _bot("Business opening logged.", _ts(2)),
+            _user("111", "!open_shop", _ts(1)),
+        ]
+        p = self._run_open_shop(page)
+        assert isinstance(p._records, list)
+        _ = len(p._records)
+
+    def test_attendance_parser_no_bot_acks_attr(self):
+        """The old _bot_acks attribute must no longer exist (guard against revert)."""
+        p = AttendanceParser()
+        assert not hasattr(p, "_bot_acks"), (
+            "_bot_acks must not exist; main() must use _records"
+        )
+
+    def test_attendance_parser_no_cmds_attr(self):
+        """The old _cmds attribute must no longer exist (guard against revert)."""
+        p = AttendanceParser()
+        assert not hasattr(p, "_cmds"), (
+            "_cmds must not exist; main() must use _records"
+        )
+
+    def test_open_shop_parser_no_bot_acks_attr(self):
+        p = OpenShopParser()
+        assert not hasattr(p, "_bot_acks")
+
+    def test_open_shop_parser_no_cmds_attr(self):
+        p = OpenShopParser()
+        assert not hasattr(p, "_cmds")
+
+    def test_attendance_full_pipeline(self):
+        """
+        Simulate two pages of fetch then get_results() — same flow as main().
+        Verify no crash and correct record count.
+        """
+        page1 = [
+            _bot("Attendance logged.", _ts(4)),
+            _user("222", "!attend", _ts(3)),
+        ]
+        page2 = [
+            _bot("Attendance logged.", _ts(2)),
+            _user("111", "!attend", _ts(1)),
+        ]
+        p = AttendanceParser()
+        p.process_page(page1)
+        # Simulate checkpoint round-trip (as done in run_channel_section)
+        p = AttendanceParser(p.to_state())
+        p.process_page(page2)
+        # main() logging line
+        count = len(p._records)     # must not raise
+        assert count == 2
+        results = p.get_results()   # must not raise
+        assert len(results) == 2
