@@ -209,97 +209,87 @@ _CY_CHECKUP   = re.compile(r"checkup on <@!?(\d+)>")
 #   get_results()       — return final parsed records (called once, at end)
 # ---------------------------------------------------------------------------
 
-def _strict_adjacent_pairs(
-    cmds: list[list],
-    acks: list[str],
-) -> list[tuple[str, datetime]]:
-    """
-    Match user commands to bot ACKs using strict adjacent chronological pairing.
-
-    Algorithm (O(n log n)):
-      1. Sort both lists by timestamp.
-      2. Walk through commands in order; for each command, advance an ACK pointer
-         to the first ACK whose timestamp is >= the command's timestamp.
-      3. If that ACK is within _PAIR_WINDOW_SECS, consume it as the pair.
-         Each ACK may only be consumed once (strictly one-to-one).
-
-    This mirrors how the bot behaves in real-time: it responds to each command
-    in order, so the immediately-following ACK is the correct match even when
-    multiple users issue commands in quick succession.
-    """
-    sorted_cmds = sorted(cmds, key=lambda x: x[1])
-    sorted_acks = sorted(acks)
-    results: list[tuple[str, datetime]] = []
-    ack_idx = 0
-    for uid, cmd_ts_iso in sorted_cmds:
-        cmd_dt = _parse_ts(cmd_ts_iso)
-        # Advance pointer past ACKs that predate this command
-        while ack_idx < len(sorted_acks) and _parse_ts(sorted_acks[ack_idx]) < cmd_dt:
-            ack_idx += 1
-        if ack_idx < len(sorted_acks):
-            ack_dt = _parse_ts(sorted_acks[ack_idx])
-            if (ack_dt - cmd_dt).total_seconds() <= _PAIR_WINDOW_SECS:
-                results.append((uid, ack_dt))
-                ack_idx += 1  # consume this ACK; each ACK is used at most once
-    return results
-
-
 class AttendanceParser:
     """
-    Collects "Attendance logged" bot-ACK timestamps and !attend user commands
-    separately, then matches them with strict adjacent chronological pairing
-    in get_results().
+    Stateful parser that scans the message stream in its natural fetch order
+    (newest-to-oldest, as the `before=` cursor delivers pages) and detects
+    attendance pairs using strict immediate-adjacency semantics:
+
+      In chronological order: ``!attend`` → ``Attendance logged``
+      In newest-first order:  ``Attendance logged`` → ``!attend``
+
+    State carried across page boundaries:
+      - ``pending_bot_ts``: timestamp of the most recent "Attendance logged"
+        bot message seen in this direction.  Set when a bot ACK is encountered.
+        Consumed when the VERY NEXT message is a ``!attend`` user command.
+        Cleared (discarded) if ANY other message appears between ACK and command.
+
+    This correctly handles interleaved messages: if a non-``!attend`` message
+    appears immediately before the ACK in chronological order (= immediately
+    after the ACK in reverse-scan order), the ACK is not paired with any
+    earlier command, preventing false positives.
     """
 
     def __init__(self, state: Optional[dict] = None) -> None:
         s = state or {}
-        # [ts_iso, ...]  — timestamps of bot "Attendance logged" messages
-        self._bot_acks: list[str] = s.get("bot_acks", [])
-        # [[uid, ts_iso], ...]  — !attend commands
-        self._cmds: list[list] = s.get("cmds", [])
+        # ts_iso of the most recent "Attendance logged" ACK waiting for a command
+        self._pending_bot_ts: Optional[str] = s.get("pending_bot_ts")
+        # [[uid, ack_ts_iso], ...]  — confirmed pairs
+        self._records: list[list] = s.get("records", [])
 
     def process_page(self, page: list[dict]) -> None:
+        # `page` arrives newest-to-oldest (natural fetch order).
+        # In this direction: ACK is seen before the command that triggered it.
         for msg in page:
-            if _is_bot(msg):
-                if "Attendance logged" in msg.get("content", ""):
-                    self._bot_acks.append(msg["timestamp"])
+            if _is_bot(msg) and "Attendance logged" in msg.get("content", ""):
+                # Bot ACK: remember it; wait for the immediately-preceding command.
+                self._pending_bot_ts = msg["timestamp"]
+            elif (not _is_bot(msg)
+                  and msg.get("content", "").strip().lower().startswith("!attend")
+                  and self._pending_bot_ts is not None):
+                # User command immediately precedes (chrono.) the pending ACK → pair!
+                self._records.append([str(msg["author"]["id"]), self._pending_bot_ts])
+                self._pending_bot_ts = None
             else:
-                if msg.get("content", "").strip().lower().startswith("!attend"):
-                    self._cmds.append([str(msg["author"]["id"]), msg["timestamp"]])
+                # Any intervening message invalidates the pending ACK.
+                self._pending_bot_ts = None
 
     def to_state(self) -> dict:
-        return {"bot_acks": self._bot_acks, "cmds": self._cmds}
+        return {"pending_bot_ts": self._pending_bot_ts, "records": self._records}
 
     def get_results(self) -> list[tuple[str, datetime]]:
-        return _strict_adjacent_pairs(self._cmds, self._bot_acks)
+        return [(r[0], _parse_ts(r[1])) for r in self._records]
 
 
 class OpenShopParser:
     """
-    Same collect-and-match pattern as AttendanceParser, for !open_shop commands.
-    Uses strict adjacent chronological pairing in get_results().
+    Same stateful reverse-scan approach as AttendanceParser, applied to
+    !open_shop / !openshop / !os commands and "Business opening logged" ACKs.
     """
 
     def __init__(self, state: Optional[dict] = None) -> None:
         s = state or {}
-        self._bot_acks: list[str] = s.get("bot_acks", [])
-        self._cmds: list[list] = s.get("cmds", [])
+        self._pending_bot_ts: Optional[str] = s.get("pending_bot_ts")
+        self._records: list[list] = s.get("records", [])
 
     def process_page(self, page: list[dict]) -> None:
         for msg in page:
-            if _is_bot(msg):
-                if "Business opening logged" in msg.get("content", ""):
-                    self._bot_acks.append(msg["timestamp"])
+            if _is_bot(msg) and "Business opening logged" in msg.get("content", ""):
+                self._pending_bot_ts = msg["timestamp"]
+            elif (not _is_bot(msg)
+                  and msg.get("content", "").strip().lower().startswith(
+                      ("!open_shop", "!openshop", "!os"))
+                  and self._pending_bot_ts is not None):
+                self._records.append([str(msg["author"]["id"]), self._pending_bot_ts])
+                self._pending_bot_ts = None
             else:
-                content = msg.get("content", "").strip().lower()
-                if content.startswith(("!open_shop", "!openshop", "!os")):
-                    self._cmds.append([str(msg["author"]["id"]), msg["timestamp"]])
+                self._pending_bot_ts = None
 
     def to_state(self) -> dict:
-        return {"bot_acks": self._bot_acks, "cmds": self._cmds}
+        return {"pending_bot_ts": self._pending_bot_ts, "records": self._records}
 
     def get_results(self) -> list[tuple[str, datetime]]:
-        return _strict_adjacent_pairs(self._cmds, self._bot_acks)
+        return [(r[0], _parse_ts(r[1])) for r in self._records]
 
 
 class RentParser:
