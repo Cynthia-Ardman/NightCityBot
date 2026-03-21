@@ -103,3 +103,47 @@ def test_warn_db_failure_handles_missing_channel():
             return None
 
     _run(_db.warn_db_failure(FakeBot(), "test_op", "some detail"))
+
+
+def test_warn_db_failure_increments_counter_and_sets_timestamp():
+    """warn_db_failure increments _db_failures and records _last_failure_at."""
+    import NightCityBot.utils.db as db_mod
+    from datetime import datetime
+
+    class FakeBot:
+        def get_channel(self, ch_id):
+            return None
+
+    before = db_mod._db_failures
+    before_ts = db_mod._last_failure_at
+
+    _run(db_mod.warn_db_failure(FakeBot(), "test_warn_op", "detail text"))
+
+    assert db_mod._db_failures == before + 1
+    assert db_mod._last_failure_at is not None
+    assert isinstance(db_mod._last_failure_at, datetime)
+    if before_ts is not None:
+        assert db_mod._last_failure_at >= before_ts
+
+
+def test_get_last_failure_at_returns_none_or_datetime():
+    """get_last_failure_at() returns None or a datetime after warn_db_failure calls."""
+    from datetime import datetime
+
+    result = _db.get_last_failure_at()
+    assert result is None or isinstance(result, datetime)
+
+
+def test_retry_exhaustion_sets_last_failure_at():
+    """_with_retry exhaustion records _last_failure_at as well as incrementing counter."""
+    import NightCityBot.utils.db as db_mod
+    from datetime import datetime
+
+    async def coro():
+        raise asyncpg.InterfaceError("always fails")
+
+    with pytest.raises(asyncpg.InterfaceError):
+        _run(db_mod._with_retry(coro, label="timestamp_test", retries=1, delay=0))
+
+    assert db_mod._last_failure_at is not None
+    assert isinstance(db_mod._last_failure_at, datetime)

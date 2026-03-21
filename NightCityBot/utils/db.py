@@ -22,7 +22,8 @@ _pool_lock: asyncio.Lock | None = None
 # Retry / resilience helpers
 # ---------------------------------------------------------------------------
 
-_db_failures: int = 0  # cumulative count of write-path retry exhaustions
+_db_failures: int = 0          # cumulative count — incremented by both _with_retry exhaustion and warn_db_failure
+_last_failure_at: datetime | None = None  # UTC timestamp of the most recent recorded failure
 
 _TRANSIENT_ERRORS = (
     asyncpg.PostgresConnectionError,
@@ -35,9 +36,10 @@ async def _with_retry(coro_factory, *, label: str = "", retries: int = 2, delay:
     """Call coro_factory() up to retries+1 times on transient DB errors.
 
     Non-transient exceptions (constraint violations, etc.) propagate immediately.
-    On final failure the module-level _db_failures counter is incremented.
+    On final failure the module-level _db_failures counter is incremented and
+    _last_failure_at is set to the current UTC time.
     """
-    global _db_failures
+    global _db_failures, _last_failure_at
     for attempt in range(retries + 1):
         try:
             return await coro_factory()
@@ -50,6 +52,7 @@ async def _with_retry(coro_factory, *, label: str = "", retries: int = 2, delay:
                 await asyncio.sleep(delay * (2 ** attempt))
             else:
                 _db_failures += 1
+                _last_failure_at = datetime.utcnow()
                 logger.error(
                     "DB operation '%s' failed after %d attempt(s)",
                     label, retries + 1, exc_info=True,
@@ -60,8 +63,13 @@ async def _with_retry(coro_factory, *, label: str = "", retries: int = 2, delay:
 
 
 def get_failure_count() -> int:
-    """Return the cumulative number of write-path retry exhaustions since startup."""
+    """Return the cumulative number of write-path failures since startup."""
     return _db_failures
+
+
+def get_last_failure_at() -> "datetime | None":
+    """Return the UTC datetime of the most recent recorded write failure, or None."""
+    return _last_failure_at
 
 
 async def db_ping() -> float | None:
@@ -78,12 +86,16 @@ async def db_ping() -> float | None:
 
 
 async def warn_db_failure(bot, operation: str, detail: str) -> None:
-    """Post a DB failure alert to the audit channel.
+    """Increment the failure counter, record the failure timestamp, and alert the audit channel.
 
-    Call this from cog-level code when a write operation fails and the bot
-    object is available.  Does *not* modify the failure counter — that is
-    tracked separately by _with_retry.
+    Call this from cog-level code when a write operation returns False/None.
+    Also increments _db_failures and sets _last_failure_at so !db_health reflects
+    failures that are surfaced through the cog layer, not just retry exhaustions.
     """
+    global _db_failures, _last_failure_at
+    _db_failures += 1
+    _last_failure_at = datetime.utcnow()
+    logger.error("DB failure alert: %s — %s", operation, detail)
     try:
         import config as _config
         ch_id = getattr(_config, "AUDIT_LOG_CHANNEL_ID", 0)
@@ -94,7 +106,6 @@ async def warn_db_failure(bot, operation: str, detail: str) -> None:
             )
     except Exception:
         logger.warning("warn_db_failure: could not send Discord alert", exc_info=True)
-    logger.error("DB failure alert: %s — %s", operation, detail)
 
 
 # ---------------------------------------------------------------------------

@@ -431,7 +431,7 @@ class Admin(commands.Cog):
                     "`!backfill_logs [limit]` – rebuild attendance and business open logs from recent message history.",
                     "`!reindex_tickets [limit]` (alias: !reindextickets) – scan the bot-logs channel and build a local ticket search index. Run once to seed history; new tickets index automatically.",
                     "`!search_tickets <query>` (aliases: !searchtickets, !ticketsearch) – instantly search the local ticket index by name, user, ticket ID, reason, or any text.",
-                    "`!db_health` – show database ping, pool stats, and cumulative write-failure count since startup.",
+                    "`!db_health` – show database ping, pool stats, write-failure count, and last failure timestamp.",
                 ]),
             ),
             (
@@ -758,10 +758,11 @@ class Admin(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def db_health(self, ctx: commands.Context):
         """Show database pool health, ping time, and failure count."""
-        from NightCityBot.utils.db import get_pool, db_ping, get_failure_count
+        from NightCityBot.utils.db import get_pool, db_ping, get_failure_count, get_last_failure_at
 
         ping_ms = await db_ping()
         failures = get_failure_count()
+        last_fail = get_last_failure_at()
 
         try:
             pool = await get_pool()
@@ -794,8 +795,12 @@ class Admin(commands.Cog):
                 else discord.Color.gold()
             ),
         )
+        last_fail_str = (
+            last_fail.strftime("%Y-%m-%d %H:%M:%S UTC") if last_fail else "None"
+        )
         embed.add_field(name="Ping", value=ping_str, inline=True)
         embed.add_field(name="Write failures (since startup)", value=str(failures), inline=True)
+        embed.add_field(name="Last failure recorded", value=last_fail_str, inline=False)
         embed.add_field(name="Pool", value=pool_info, inline=False)
         await ctx.send(embed=embed)
 
