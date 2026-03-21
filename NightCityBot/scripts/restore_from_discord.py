@@ -209,10 +209,46 @@ _CY_CHECKUP   = re.compile(r"checkup on <@!?(\d+)>")
 #   get_results()       — return final parsed records (called once, at end)
 # ---------------------------------------------------------------------------
 
+def _strict_adjacent_pairs(
+    cmds: list[list],
+    acks: list[str],
+) -> list[tuple[str, datetime]]:
+    """
+    Match user commands to bot ACKs using strict adjacent chronological pairing.
+
+    Algorithm (O(n log n)):
+      1. Sort both lists by timestamp.
+      2. Walk through commands in order; for each command, advance an ACK pointer
+         to the first ACK whose timestamp is >= the command's timestamp.
+      3. If that ACK is within _PAIR_WINDOW_SECS, consume it as the pair.
+         Each ACK may only be consumed once (strictly one-to-one).
+
+    This mirrors how the bot behaves in real-time: it responds to each command
+    in order, so the immediately-following ACK is the correct match even when
+    multiple users issue commands in quick succession.
+    """
+    sorted_cmds = sorted(cmds, key=lambda x: x[1])
+    sorted_acks = sorted(acks)
+    results: list[tuple[str, datetime]] = []
+    ack_idx = 0
+    for uid, cmd_ts_iso in sorted_cmds:
+        cmd_dt = _parse_ts(cmd_ts_iso)
+        # Advance pointer past ACKs that predate this command
+        while ack_idx < len(sorted_acks) and _parse_ts(sorted_acks[ack_idx]) < cmd_dt:
+            ack_idx += 1
+        if ack_idx < len(sorted_acks):
+            ack_dt = _parse_ts(sorted_acks[ack_idx])
+            if (ack_dt - cmd_dt).total_seconds() <= _PAIR_WINDOW_SECS:
+                results.append((uid, ack_dt))
+                ack_idx += 1  # consume this ACK; each ACK is used at most once
+    return results
+
+
 class AttendanceParser:
     """
     Collects "Attendance logged" bot-ACK timestamps and !attend user commands
-    separately, then matches them by proximity in get_results().
+    separately, then matches them with strict adjacent chronological pairing
+    in get_results().
     """
 
     def __init__(self, state: Optional[dict] = None) -> None:
@@ -235,28 +271,13 @@ class AttendanceParser:
         return {"bot_acks": self._bot_acks, "cmds": self._cmds}
 
     def get_results(self) -> list[tuple[str, datetime]]:
-        sorted_cmds = sorted(self._cmds, key=lambda x: x[1])
-        sorted_acks = sorted(self._bot_acks)
-        results: list[tuple[str, datetime]] = []
-        used: set[int] = set()
-        for uid, cmd_ts_iso in sorted_cmds:
-            cmd_dt = _parse_ts(cmd_ts_iso)
-            best_i, best_diff = None, float("inf")
-            for i, ack_ts_iso in enumerate(sorted_acks):
-                if i in used:
-                    continue
-                diff = (_parse_ts(ack_ts_iso) - cmd_dt).total_seconds()
-                if 0 <= diff <= _PAIR_WINDOW_SECS and diff < best_diff:
-                    best_i, best_diff = i, diff
-            if best_i is not None:
-                used.add(best_i)
-                results.append((uid, _parse_ts(sorted_acks[best_i])))
-        return results
+        return _strict_adjacent_pairs(self._cmds, self._bot_acks)
 
 
 class OpenShopParser:
     """
     Same collect-and-match pattern as AttendanceParser, for !open_shop commands.
+    Uses strict adjacent chronological pairing in get_results().
     """
 
     def __init__(self, state: Optional[dict] = None) -> None:
@@ -278,23 +299,7 @@ class OpenShopParser:
         return {"bot_acks": self._bot_acks, "cmds": self._cmds}
 
     def get_results(self) -> list[tuple[str, datetime]]:
-        sorted_cmds = sorted(self._cmds, key=lambda x: x[1])
-        sorted_acks = sorted(self._bot_acks)
-        results: list[tuple[str, datetime]] = []
-        used: set[int] = set()
-        for uid, cmd_ts_iso in sorted_cmds:
-            cmd_dt = _parse_ts(cmd_ts_iso)
-            best_i, best_diff = None, float("inf")
-            for i, ack_ts_iso in enumerate(sorted_acks):
-                if i in used:
-                    continue
-                diff = (_parse_ts(ack_ts_iso) - cmd_dt).total_seconds()
-                if 0 <= diff <= _PAIR_WINDOW_SECS and diff < best_diff:
-                    best_i, best_diff = i, diff
-            if best_i is not None:
-                used.add(best_i)
-                results.append((uid, _parse_ts(sorted_acks[best_i])))
-        return results
+        return _strict_adjacent_pairs(self._cmds, self._bot_acks)
 
 
 class RentParser:
@@ -324,23 +329,36 @@ class RentParser:
     def to_state(self) -> dict:
         return {"events": self._events}
 
-    def get_results(self) -> tuple[list[dict], dict[str, str]]:
+    def get_results(self) -> tuple[list[dict], dict[str, str], dict[str, str]]:
+        """
+        Returns:
+          (runs, last_payment_summary, last_payment_ts)
+
+        ``last_payment_summary[uid]`` is the most recent rent summary line.
+        ``last_payment_ts[uid]`` is its ISO timestamp (for recency comparison
+        when merging with other payment sources).
+        """
         if not self._events:
-            return [], {}
+            return [], {}, {}
         # Sort chronologically before clustering
         sorted_evs = sorted(self._events, key=lambda x: x[0])
         runs: list[dict] = []
         last_payment: dict[str, str] = {}
+        last_payment_ts: dict[str, str] = {}
         cluster: list[list] = []
 
         def flush() -> None:
             if not cluster:
                 return
             per_user: dict[str, str] = {}
-            for _, uid, line in cluster:
+            run_at_iso = cluster[0][0]
+            for ts_iso, uid, line in cluster:
                 per_user[uid] = line
-                last_payment[uid] = line
-            runs.append({"run_at": cluster[0][0], "initiated_by": "restored",
+                # Track most-recent payment per user across all clusters
+                if uid not in last_payment_ts or ts_iso > last_payment_ts[uid]:
+                    last_payment[uid]    = line
+                    last_payment_ts[uid] = ts_iso
+            runs.append({"run_at": run_at_iso, "initiated_by": "restored",
                          "per_user": per_user})
             cluster.clear()
 
@@ -351,7 +369,7 @@ class RentParser:
                     flush()
             cluster.append(ev)
         flush()
-        return runs, last_payment
+        return runs, last_payment, last_payment_ts
 
 
 class CyberwareParser:
@@ -777,11 +795,10 @@ async def write_to_db(
     attendance: list[tuple[str, datetime]],
     open_shop: list[tuple[str, datetime]],
     rent_runs: list[dict],
-    last_payment_rent: dict[str, str],
+    last_payment: dict[str, str],
     cyber_runs: list[dict],
     cyber_status: dict[str, tuple[int, datetime]],
     dm_threads: dict[str, int],
-    last_payment_trauma: dict[str, str],
 ) -> dict[str, dict]:
     summary: dict[str, dict] = {
         "attendance_log":        {"found": 0, "inserted": 0, "skipped": 0},
@@ -832,9 +849,7 @@ async def write_to_db(
                 )
                 summary["rent_runs"]["inserted"] += 1
 
-        # Merge last_payment: rent first, trauma_team overwrites where newer
-        all_lp: dict[str, str] = {**last_payment_rent, **last_payment_trauma}
-        for uid, lp_summary in all_lp.items():
+        for uid, lp_summary in last_payment.items():
             res = await conn.execute(
                 "INSERT INTO last_payment (user_id, summary) VALUES ($1,$2)"
                 " ON CONFLICT (user_id) DO UPDATE SET summary = EXCLUDED.summary",
@@ -891,11 +906,10 @@ def _print_dry_run(
     attendance: list,
     open_shop: list,
     rent_runs: list,
-    last_payment_rent: dict,
+    last_payment: dict,
     cyber_runs: list,
     cyber_status: dict,
     dm_threads: dict,
-    last_payment_trauma: dict,
 ) -> None:
     sep = "=" * 64
     print(f"\n{sep}\nDRY RUN PREVIEW — nothing will be written\n{sep}")
@@ -912,8 +926,8 @@ def _print_dry_run(
     for run in rent_runs:
         print(f"  run_at={run['run_at']}  users={len(run.get('per_user',{}))}")
 
-    print(f"\n[last_payment — rent] {len(last_payment_rent)} user(s)")
-    for uid, s in last_payment_rent.items():
+    print(f"\n[last_payment (merged — most-recent-wins)] {len(last_payment)} user(s)")
+    for uid, s in last_payment.items():
         print(f"  user={uid}  summary={s[:120]}")
 
     print(f"\n[cyberware_weekly_runs] {len(cyber_runs)} run(s)")
@@ -928,10 +942,6 @@ def _print_dry_run(
     print(f"\n[dm_threads] {len(dm_threads)} mapping(s)")
     for uid, tid in dm_threads.items():
         print(f"  user={uid}  thread={tid}")
-
-    print(f"\n[last_payment — trauma_team] {len(last_payment_trauma)} user(s)")
-    for uid, s in last_payment_trauma.items():
-        print(f"  user={uid}  summary={s[:120]}")
 
     print(f"\n{sep}\nDRY RUN — nothing written\n{sep}")
 
@@ -1065,24 +1075,43 @@ async def main() -> None:
     # Derive final results (clustering/matching happens here)
     attendance_results = attendance_parser.get_results()
     open_shop_results  = open_shop_parser.get_results()
-    rent_runs, last_pay_rent = rent_parser.get_results()
+    rent_runs, last_pay_rent, last_pay_rent_ts = rent_parser.get_results()
     cyber_runs, cyber_status = cyber_parser.get_results()
+
+    # Merge last_payment by recency: for each user take whichever source has
+    # the later timestamp (ISO strings compare lexicographically = chronologically)
+    trauma_global_best: dict[str, list] = checkpoint.get("tt_global_best", {})
+    merged_last_payment: dict[str, str] = {}
+    all_uids = set(last_pay_rent.keys()) | set(last_pay_trauma.keys())
+    for uid in all_uids:
+        rent_ts     = last_pay_rent_ts.get(uid, "")
+        trauma_ts   = trauma_global_best.get(uid, ["", ""])[0]
+        if uid in last_pay_rent and uid in last_pay_trauma:
+            if trauma_ts > rent_ts:
+                merged_last_payment[uid] = last_pay_trauma[uid]
+            else:
+                merged_last_payment[uid] = last_pay_rent[uid]
+        elif uid in last_pay_rent:
+            merged_last_payment[uid] = last_pay_rent[uid]
+        else:
+            merged_last_payment[uid] = last_pay_trauma[uid]
 
     print(f"\nParsed: {len(attendance_results)} attendance, "
           f"{len(open_shop_results)} shop-opens, "
           f"{len(rent_runs)} rent-runs, "
           f"{len(cyber_runs)} cyber-runs, "
           f"{len(dm_thread_map)} DM-threads, "
-          f"{len(last_pay_trauma)} TT-payments")
+          f"{len(last_pay_trauma)} TT-payments, "
+          f"{len(merged_last_payment)} last-payment entries")
 
     # --- Write pass (or dry-run preview) ------------------------------------
     if dry_run:
         print("\n--- Dry-run preview ---")
         _print_dry_run(
             attendance_results, open_shop_results,
-            rent_runs, last_pay_rent,
+            rent_runs, merged_last_payment,
             cyber_runs, cyber_status,
-            dm_thread_map, last_pay_trauma,
+            dm_thread_map,
         )
         return
 
@@ -1092,9 +1121,9 @@ async def main() -> None:
         db_summary = await write_to_db(
             pool,
             attendance_results, open_shop_results,
-            rent_runs, last_pay_rent,
+            rent_runs, merged_last_payment,
             cyber_runs, cyber_status,
-            dm_thread_map, last_pay_trauma,
+            dm_thread_map,
         )
     finally:
         await pool.close()
@@ -1106,9 +1135,22 @@ async def main() -> None:
                   f"inserted={counts['inserted']:>5}  skipped={counts['skipped']:>5}")
     print("\nSafe to re-run — all inserts use ON CONFLICT DO NOTHING or upsert.")
 
-    if not args.section:
-        delete_checkpoint()
-        print("Checkpoint file deleted.")
+    # Only delete checkpoint when a full (all-section, no --limit) run is
+    # confirmed exhausted.  A --limit run or --section run may still need to
+    # resume, so we leave the checkpoint in place.
+    full_run = not args.section and not args.limit
+    if full_run:
+        ch_done = all(
+            checkpoint.get(f"ch_{s}", {}).get("done", False)
+            for s in ["attendance", "open_shop", "rent", "cyberware"]
+        )
+        th_done = (
+            checkpoint.get("th_dm_threads", {}).get("all_done", False)
+            and checkpoint.get("th_trauma_team", {}).get("all_done", False)
+        )
+        if ch_done and th_done:
+            delete_checkpoint()
+            print("Checkpoint file deleted (all sections fully exhausted).")
 
 
 if __name__ == "__main__":
