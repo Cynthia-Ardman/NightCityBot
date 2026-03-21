@@ -1970,7 +1970,8 @@ async def _mig_last_payment(pool: asyncpg.Pool, data) -> dict:
 
 async def _mig_rent_run(pool: asyncpg.Pool, data) -> dict:
     target = "rent_runs"
-    # Legacy format: {"last_run": "<iso>", ...}  OR a direct ISO string
+    # rent_runs has only a SERIAL PK — use WHERE NOT EXISTS to stay idempotent.
+    # Legacy format: {"last_run": "<iso>", ...}  OR a direct ISO string.
     found = inserted = errors = 0
     ts_str = None
     if isinstance(data, dict):
@@ -1982,9 +1983,14 @@ async def _mig_rent_run(pool: asyncpg.Pool, data) -> dict:
         try:
             dt = datetime.fromisoformat(ts_str)
             res = await pool.execute(
-                "INSERT INTO rent_runs (run_at, initiated_by) VALUES ($1, $2)"
-                " ON CONFLICT DO NOTHING",
-                dt, "migrated",
+                """
+                INSERT INTO rent_runs (run_at, initiated_by)
+                SELECT $1, 'migrated'
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM rent_runs WHERE run_at = $1 AND initiated_by = 'migrated'
+                )
+                """,
+                dt,
             )
             inserted += _count_inserted(res)
         except Exception:
@@ -2054,6 +2060,7 @@ async def _mig_cyberware_last_run(pool: asyncpg.Pool, data) -> dict:
 
 async def _mig_cyberware_weekly(pool: asyncpg.Pool, data) -> dict:
     target = "cyberware_weekly_runs"
+    # cyberware_weekly_runs has only a SERIAL PK — use WHERE NOT EXISTS to stay idempotent.
     if not isinstance(data, list):
         return _mig_result(target, 0, 0, 1)
     found = inserted = errors = 0
@@ -2071,8 +2078,13 @@ async def _mig_cyberware_weekly(pool: asyncpg.Pool, data) -> dict:
                 paid = [str(x) for x in entry.get("paid", [])]
                 unpaid = [str(x) for x in entry.get("unpaid", [])]
                 res = await conn.execute(
-                    "INSERT INTO cyberware_weekly_runs (run_at, checkup_ids, paid_ids, unpaid_ids)"
-                    " VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+                    """
+                    INSERT INTO cyberware_weekly_runs (run_at, checkup_ids, paid_ids, unpaid_ids)
+                    SELECT $1, $2, $3, $4
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM cyberware_weekly_runs WHERE run_at = $1
+                    )
+                    """,
                     run_at, checkup, paid, unpaid,
                 )
                 inserted += _count_inserted(res)

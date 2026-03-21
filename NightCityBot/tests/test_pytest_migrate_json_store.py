@@ -30,12 +30,37 @@ class _FakeConn:
     def __init__(self, insert_result="INSERT 0 1"):
         self._insert_result = insert_result
         self.executed: list[tuple] = []
+        self._call_count = 0
 
     async def execute(self, sql, *args):
         self.executed.append((sql.strip(), args))
+        self._call_count += 1
         if "INSERT" in sql.upper():
             return self._insert_result
         return "OK"
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        pass
+
+
+class _FakeConnRerun:
+    """Fake connection that returns INSERT 0 1 on first call and INSERT 0 0 on subsequent calls
+    for the same effective insert, simulating WHERE NOT EXISTS behaviour."""
+
+    def __init__(self):
+        self.seen: set = set()
+        self.executed: list = []
+
+    async def execute(self, sql, *args):
+        self.executed.append((sql.strip(), args))
+        key = (sql.strip()[:60], args[:1])
+        if key in self.seen:
+            return "INSERT 0 0"
+        self.seen.add(key)
+        return "INSERT 0 1"
 
     async def __aenter__(self):
         return self
@@ -58,7 +83,24 @@ class _FakePool:
         return self._rows
 
     async def execute(self, sql, *args):
-        return self._conn.execute.__wrapped__(self._conn, sql, *args) if hasattr(self._conn.execute, "__wrapped__") else await self._conn.execute(sql, *args)
+        return await self._conn.execute(sql, *args)
+
+
+class _FakePoolRerun:
+    """Pool that tracks already-inserted rows and returns 0 on duplicates."""
+
+    def __init__(self, rows=None):
+        self._rows = rows or []
+        self._conn = _FakeConnRerun()
+
+    def acquire(self):
+        return self._conn
+
+    async def fetch(self, sql, *args):
+        return self._rows
+
+    async def execute(self, sql, *args):
+        return await self._conn.execute(sql, *args)
 
 
 # ---------------------------------------------------------------------------
@@ -158,12 +200,8 @@ def test_mig_last_payment_inserts():
 
 def test_mig_rent_run_dict_format():
     data = {"last_run": "2024-05-01T00:00:00"}
-
-    class SimplePool:
-        async def execute(self, sql, *args):
-            return "INSERT 0 1"
-
-    result = _run(_db._mig_rent_run(SimplePool(), data))
+    pool = _FakePoolRerun()
+    result = _run(_db._mig_rent_run(pool, data))
     assert result["found"] == 1
     assert result["inserted"] == 1
     assert result["target"] == "rent_runs"
@@ -173,6 +211,17 @@ def test_mig_rent_run_empty():
     result = _run(_db._mig_rent_run(_FakePool(), {}))
     assert result["found"] == 0
     assert result["inserted"] == 0
+
+
+def test_mig_rent_run_rerun_is_idempotent():
+    """Second migration of the same rent_run timestamp inserts 0 rows."""
+    data = {"last_run": "2024-05-01T00:00:00"}
+    pool = _FakePoolRerun()
+    r1 = _run(_db._mig_rent_run(pool, data))
+    r2 = _run(_db._mig_rent_run(pool, data))
+    assert r1["inserted"] == 1
+    assert r2["inserted"] == 0
+    assert r2["skipped"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +281,17 @@ def test_mig_cyberware_weekly_inserts():
 def test_mig_cyberware_weekly_bad_data():
     result = _run(_db._mig_cyberware_weekly(_FakePool(), "not a list"))
     assert result["errors"] == 1
+
+
+def test_mig_cyberware_weekly_rerun_is_idempotent():
+    """Second migration of the same weekly run timestamp inserts 0 rows."""
+    data = [{"timestamp": "2024-09-01T00:00:00", "checkup": [], "paid": [], "unpaid": []}]
+    pool = _FakePoolRerun()
+    r1 = _run(_db._mig_cyberware_weekly(pool, data))
+    r2 = _run(_db._mig_cyberware_weekly(pool, data))
+    assert r1["inserted"] == 1
+    assert r2["inserted"] == 0
+    assert r2["skipped"] == 1
 
 
 # ---------------------------------------------------------------------------
