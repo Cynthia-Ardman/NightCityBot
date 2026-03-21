@@ -25,7 +25,6 @@ import json
 import os
 import re
 import sys
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -207,13 +206,25 @@ async def fetch_threads_for_channel(
             break
         before_ts = batch[-1].get("thread_metadata", {}).get("archive_timestamp")
 
-    # Archived private threads
+    # Archived private threads (paginated — DM inbox threads are all private)
     arch_priv_url = f"{DISCORD_API}/channels/{channel_id}/threads/archived/private"
+    before_priv_ts = None
+    priv_page = 0
     try:
-        priv_data = await discord_get(session, arch_priv_url, {"limit": 100})
-        priv = priv_data.get("threads", [])
-        threads.extend(priv)
-        print(f"  [{label}] archived-private threads: {len(priv)}")
+        while True:
+            params_priv: dict = {"limit": 100}
+            if before_priv_ts:
+                params_priv["before"] = before_priv_ts
+            priv_data = await discord_get(session, arch_priv_url, params_priv)
+            priv = priv_data.get("threads", [])
+            threads.extend(priv)
+            priv_page += 1
+            print(f"  [{label}] archived-private page {priv_page}: {len(priv)} threads")
+            if not priv_data.get("has_more") or not priv:
+                break
+            if limit_pages and priv_page >= limit_pages:
+                break
+            before_priv_ts = priv[-1].get("thread_metadata", {}).get("archive_timestamp")
     except RuntimeError:
         # Bot may not have MANAGE_THREADS; skip silently
         pass
@@ -281,8 +292,8 @@ def parse_open_shop(messages: list[dict]) -> list[tuple[str, datetime]]:
                 records.append((pending_user, parse_ts(msg["timestamp"])))
             pending_user = None
         else:
-            content = msg.get("content", "").strip()
-            if content.lower().startswith("!open_shop") or content.lower().startswith("!openshop"):
+            content = msg.get("content", "").strip().lower()
+            if content.startswith(("!open_shop", "!openshop", "!os")):
                 pending_user = str(msg["author"]["id"])
             else:
                 pending_user = None
@@ -343,15 +354,23 @@ def _finalize_rent_run(events: list[tuple[datetime, str, str]]) -> dict:
 
 
 # Cyberware message patterns — old format and current format
+# Old paid: "✅ Deducted $2000 for cyberware meds from <@ID> (week 36)."
 _CYBER_OLD_RE = re.compile(
     r"Deducted \$[\d,]+ for cyberware meds from <@!?(\d+)> \(week (\d+)\)"
 )
+# Current paid: "✅ Deducted $X from <@ID> for cyberware meds."
 _CYBER_NEW_RE = re.compile(
     r"Deducted \$[\d,]+ from <@!?(\d+)> for cyberware meds"
 )
-_CYBER_UNPAID_RE = re.compile(
+# Old unpaid: "🚨 <@ID> cannot pay $X for immunosuppressants and is in danger…"
+_CYBER_UNPAID_OLD_RE = re.compile(
     r"<@!?(\d+)> cannot pay \$[\d,]+ for immunosuppressants"
 )
+# Current unpaid: "❌ Could not deduct $X from <@ID> for cyberware meds."
+_CYBER_UNPAID_NEW_RE = re.compile(
+    r"Could not deduct \$[\d,]+ from <@!?(\d+)> for cyberware meds"
+)
+# Checkup (both old and new): "Ripperdoc checkup on <@ID>. No money deducted."
 _CYBER_CHECKUP_RE = re.compile(
     r"checkup on <@!?(\d+)>"
 )
@@ -390,7 +409,12 @@ def parse_cyberware(
             events.append({"ts": ts, "type": "paid_noweek", "user_id": m.group(1), "weeks": None})
             continue
 
-        m = _CYBER_UNPAID_RE.search(content)
+        m = _CYBER_UNPAID_OLD_RE.search(content)
+        if m:
+            events.append({"ts": ts, "type": "unpaid", "user_id": m.group(1)})
+            continue
+
+        m = _CYBER_UNPAID_NEW_RE.search(content)
         if m:
             events.append({"ts": ts, "type": "unpaid", "user_id": m.group(1)})
             continue
