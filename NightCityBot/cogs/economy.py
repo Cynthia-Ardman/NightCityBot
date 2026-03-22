@@ -17,6 +17,7 @@ from NightCityBot.utils.db import (
     attendance_get_user, attendance_append,
     open_log_exists_today, open_log_count_month, open_log_add, open_log_get_all,
     last_payment_get, last_payment_set, last_payment_get_with_ts,
+    payment_label_set, payment_label_get_ts,
     rent_run_get_last, rent_run_record,
     warn_db_failure,
 )
@@ -447,7 +448,8 @@ class Economy(commands.Cog):
             summary += f" — {note}"
 
         ok = await last_payment_set(str(member.id), summary)
-        if ok:
+        label_ok = await payment_label_set(str(member.id), "collect_rent_after")
+        if ok and label_ok:
             await ctx.send(
                 f"✅ <@{member.id}> marked as paid this cycle. "
                 "`!collect_rent` will skip them for the next 30 days."
@@ -613,33 +615,15 @@ class Economy(commands.Cog):
     ) -> bool:
         """Return ``True`` if the given label was used within ``days`` days.
 
-        Checks the database ``last_payment`` table first (shared across all bot
+        Uses the database ``payment_labels`` table (shared across all bot
         instances) so that dev and production bots both see the same protection
-        state.  Falls back to the local balance-backup JSON files for older
-        records that pre-date this migration.
+        state without relying on local balance-backup JSON files.
         """
-        _, paid_at = await last_payment_get_with_ts(str(member.id))
-        if paid_at is not None:
-            paid_at_naive = paid_at.replace(tzinfo=None) if paid_at.tzinfo else paid_at
-            if datetime.utcnow() - paid_at_naive < timedelta(days=days):
-                return True
-
-        backup_dir = Path(config.BALANCE_BACKUP_DIR)
-        file_path = backup_dir / f"balance_backup_{member.id}.json"
-        entries = await load_json_file(file_path, default=[])
-        if not isinstance(entries, list):
+        recorded_at = await payment_label_get_ts(str(member.id), label)
+        if recorded_at is None:
             return False
-        for entry in reversed(entries):
-            if entry.get("label") == label:
-                ts = entry.get("timestamp")
-                if not ts:
-                    return False
-                try:
-                    dt = datetime.fromisoformat(ts)
-                except Exception:
-                    return False
-                return datetime.utcnow() - dt < timedelta(days=days)
-        return False
+        recorded_at_naive = recorded_at.replace(tzinfo=None) if recorded_at.tzinfo else recorded_at
+        return datetime.utcnow() - recorded_at_naive < timedelta(days=days)
 
     @commands.command(name="backup_balances")
     @commands.has_permissions(administrator=True)
@@ -1133,6 +1117,9 @@ class Economy(commands.Cog):
 
         await self.backup_balances([user], label="collect_housing_after")
 
+        for _lbl in ("collect_trauma_after", "collect_business_after", "collect_housing_after"):
+            await payment_label_set(str(user.id), _lbl)
+
         summary = "\n".join(log)
         if verbose:
             await ctx.send(summary)
@@ -1223,6 +1210,8 @@ class Economy(commands.Cog):
             f"📊 Final balance — Cash: ${final_cash:,}, Bank: ${final_bank:,}, Total: ${final_total:,}"
         )
 
+        await payment_label_set(str(user.id), "collect_business_after")
+
         summary = "\n".join(log)
         if verbose:
             await ctx.send(summary)
@@ -1302,6 +1291,8 @@ class Economy(commands.Cog):
         log.append(
             f"📊 Final balance — Cash: ${final_cash:,}, Bank: ${final_bank:,}, Total: ${final_total:,}"
         )
+
+        await payment_label_set(str(user.id), "collect_trauma_after")
 
         summary = "\n".join(log)
         if verbose:
@@ -1572,6 +1563,7 @@ class Economy(commands.Cog):
                         summary = "\n".join(log)
                         await _flush(len(log) - 1)
                     await self.record_last_payment(member, summary)
+                    await payment_label_set(str(member.id), "collect_rent_after")
                 audit_lines.append(summary)
 
             except Exception as e:

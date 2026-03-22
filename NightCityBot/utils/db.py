@@ -323,6 +323,15 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
             updated_at  TIMESTAMPTZ DEFAULT NOW()
         )
         """,
+        # ── Per-user collection label timestamps (cross-bot double-charge protection) ──
+        """
+        CREATE TABLE IF NOT EXISTS payment_labels (
+            user_id     TEXT NOT NULL,
+            label       TEXT NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (user_id, label)
+        )
+        """,
     ]
 
     async with pool.acquire() as conn:
@@ -1063,6 +1072,45 @@ async def last_payment_get_with_ts(user_id: str) -> "tuple[Optional[str], Option
     except Exception:
         logger.error("last_payment_get_with_ts failed for user '%s'", user_id, exc_info=True)
         return None, None
+
+
+async def payment_label_set(user_id: str, label: str) -> bool:
+    """Record that a collection label was triggered for a user (cross-bot protection)."""
+    try:
+        pool = await get_pool()
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO payment_labels (user_id, label, recorded_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (user_id, label) DO UPDATE SET recorded_at = NOW()
+                """,
+                user_id, label,
+            ),
+            label="payment_label_set",
+        )
+        return True
+    except Exception:
+        logger.error(
+            "payment_label_set failed for user '%s' label '%s'", user_id, label, exc_info=True
+        )
+        return False
+
+
+async def payment_label_get_ts(user_id: str, label: str) -> "Optional[datetime]":
+    """Return the recorded_at timestamp for a user+label pair, or None."""
+    try:
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            "SELECT recorded_at FROM payment_labels WHERE user_id = $1 AND label = $2",
+            user_id, label,
+        )
+        return row["recorded_at"] if row else None
+    except Exception:
+        logger.error(
+            "payment_label_get_ts failed for user '%s' label '%s'", user_id, label, exc_info=True
+        )
+        return None
 
 
 async def last_payment_set(user_id: str, summary: str) -> bool:
