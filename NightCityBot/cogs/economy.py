@@ -16,7 +16,7 @@ from NightCityBot.utils.db import (
     db_load, db_save,
     attendance_get_user, attendance_append,
     open_log_exists_today, open_log_count_month, open_log_add, open_log_get_all,
-    last_payment_get, last_payment_set,
+    last_payment_get, last_payment_set, last_payment_get_with_ts,
     rent_run_get_last, rent_run_record,
     warn_db_failure,
 )
@@ -375,8 +375,9 @@ class Economy(commands.Cog):
                     if checkup_role and checkup_role in member.roles:
                         upcoming = weeks + 1
                         cost = cyber.calculate_cost(level, upcoming)
-                        total += cost
-                        details.append(f"Cyberware meds week {upcoming}: ${cost}")
+                        details.append(
+                            f"Cyberware meds week {upcoming}: ${cost} *(collected separately by staff — not included in total)*"
+                        )
                     else:
                         details.append("Cyberware checkup due — no med cost")
 
@@ -405,6 +406,17 @@ class Economy(commands.Cog):
             else f"💸 **Estimated Due:** ${total}"
         )
         lines = [header] + [f"• {d}" for d in details]
+
+        _, paid_at = await last_payment_get_with_ts(str(target.id))
+        if paid_at is not None:
+            paid_at_naive = paid_at.replace(tzinfo=None) if paid_at.tzinfo else paid_at
+            if datetime.utcnow() - paid_at_naive < timedelta(days=30):
+                paid_str = paid_at_naive.strftime("%b %d")
+                lines.append(
+                    f"✅ **Housing & baseline already paid this cycle** (recorded {paid_str})."
+                    " Cyberware meds are collected separately by staff."
+                )
+
         await ctx.send("\n".join(lines))
 
     @commands.command(name="last_payment")
@@ -415,6 +427,37 @@ class Economy(commands.Cog):
             await ctx.send("❌ No payment record found.")
         else:
             await ctx.send(summary)
+
+    @commands.command(name="mark_paid")
+    @commands.has_permissions(administrator=True)
+    async def mark_paid(self, ctx, member: discord.Member, *, note: str = "") -> None:
+        """Manually mark a user as having paid their rent obligations this cycle.
+
+        Upserts a ``last_payment`` record for ``member`` with the current
+        timestamp, enabling the double-charge protection and updating the
+        ``!due`` "already paid" notice.  Accepts an optional free-text note.
+
+        Usage: ``!mark_paid @User [note]``
+        """
+        admin_cog = self.bot.get_cog("Admin")
+        summary = (
+            f"[Admin mark_paid] Marked as paid this cycle by {ctx.author} ({ctx.author.id})"
+        )
+        if note:
+            summary += f" — {note}"
+
+        ok = await last_payment_set(str(member.id), summary)
+        if ok:
+            await ctx.send(
+                f"✅ <@{member.id}> marked as paid this cycle. "
+                "`!collect_rent` will skip them for the next 30 days."
+            )
+            if admin_cog:
+                await admin_cog.log_audit(
+                    ctx.author, f"!mark_paid: <@{member.id}> — {summary}"
+                )
+        else:
+            await ctx.send(f"❌ Failed to update payment record for <@{member.id}>.")
 
     def _list_obligations(self, member: discord.Member) -> List[tuple[str, int]]:
         """Return a list of (name, cost) tuples for a member's upcoming fees."""
@@ -568,7 +611,19 @@ class Economy(commands.Cog):
     async def _label_used_recently(
         self, member: discord.Member, label: str, days: int = 30
     ) -> bool:
-        """Return ``True`` if the given label was used within ``days`` days."""
+        """Return ``True`` if the given label was used within ``days`` days.
+
+        Checks the database ``last_payment`` table first (shared across all bot
+        instances) so that dev and production bots both see the same protection
+        state.  Falls back to the local balance-backup JSON files for older
+        records that pre-date this migration.
+        """
+        _, paid_at = await last_payment_get_with_ts(str(member.id))
+        if paid_at is not None:
+            paid_at_naive = paid_at.replace(tzinfo=None) if paid_at.tzinfo else paid_at
+            if datetime.utcnow() - paid_at_naive < timedelta(days=days):
+                return True
+
         backup_dir = Path(config.BALANCE_BACKUP_DIR)
         file_path = backup_dir / f"balance_backup_{member.id}.json"
         entries = await load_json_file(file_path, default=[])
@@ -1439,6 +1494,10 @@ class Economy(commands.Cog):
                             )
                         log.append(
                             "⚠️ Baseline living cost unpaid. Continuing with rent steps."
+                        )
+                    elif rent_log_channel and not dry_run:
+                        await rent_log_channel.send(
+                            f"✅ <@{member.id}> — Baseline living cost paid: ${_baseline}"
                         )
                     await _flush(start)
 

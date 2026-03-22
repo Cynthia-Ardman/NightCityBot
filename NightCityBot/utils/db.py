@@ -1050,6 +1050,21 @@ async def last_payment_get(user_id: str) -> Optional[str]:
         return None
 
 
+async def last_payment_get_with_ts(user_id: str) -> "tuple[Optional[str], Optional[datetime]]":
+    """Return (summary, updated_at) for the user's last payment, or (None, None)."""
+    try:
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            "SELECT summary, updated_at FROM last_payment WHERE user_id = $1", user_id
+        )
+        if row:
+            return row["summary"], row["updated_at"]
+        return None, None
+    except Exception:
+        logger.error("last_payment_get_with_ts failed for user '%s'", user_id, exc_info=True)
+        return None, None
+
+
 async def last_payment_set(user_id: str, summary: str) -> bool:
     """Store or update the last payment summary for a user."""
     try:
