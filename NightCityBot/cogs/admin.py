@@ -415,12 +415,20 @@ class Admin(commands.Cog):
                 "\n".join([
                     "`!mark_paid @user [note]` – manually mark a member as paid this month. Updates the double-charge guard and the `!due` confirmation note.",
                     "`!collect_rent [@user] [-v] [-force]` (alias: !collectrent) – run the monthly rent cycle. Use `-force` to override the this-month guard.",
-                    "`!trigger_auto_rent` – manually trigger the auto monthly rent collection (respects this-month guard).",
                     "`!list_deficits` – list members who can't cover upcoming charges.",
                     "`!backup_balances` – save all member balances to a timestamped snapshot file.",
                     "`!backup_balance @user` – save one member's balance to a snapshot file.",
                     "`!restore_balances <file>` – restore balances from a snapshot file.",
                     "`!restore_balance @user [file]` – restore one member's balance from a snapshot.",
+                ]),
+            ),
+            (
+                "⏰ Scheduled Jobs",
+                "\n".join([
+                    "`!trigger_auto_rent` – immediately run the full rent cycle, bypassing the monthly guard. Useful for manual recovery and testing.",
+                    "The automatic rent scheduler fires at midnight on the 1st of each month (configured via `RENT_COLLECTION_HOUR` / `RENT_COLLECTION_MINUTE` in config). "
+                    "If the bot was down on the 1st, it catches up on startup if it's still day 1–3, or DMs the report user as a missed-run warning.",
+                    "Use `!disable_system auto_collect_rent` / `!enable_system auto_collect_rent` to suppress or restore the automatic scheduler.",
                 ]),
             ),
             (

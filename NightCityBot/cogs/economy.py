@@ -1,7 +1,7 @@
 import logging
 import os
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dtime
 import asyncio
 from typing import Optional, List, Dict, Callable, Awaitable, Any
 from zoneinfo import ZoneInfo
@@ -72,9 +72,18 @@ class Economy(commands.Cog):
         """Cancel the monthly auto-rent scheduler when this cog is unloaded."""
         self.auto_rent_loop.cancel()
 
-    @tasks.loop(hours=24)
+    @tasks.loop(
+        time=dtime(
+            hour=getattr(config, "RENT_COLLECTION_HOUR", 0),
+            minute=getattr(config, "RENT_COLLECTION_MINUTE", 0),
+            tzinfo=ZoneInfo(getattr(config, "TIMEZONE", "UTC")),
+        )
+    )
     async def auto_rent_loop(self) -> None:
         """Fire rent collection automatically on the 1st of each calendar month."""
+        control = self.bot.get_cog("SystemControl")
+        if control and not control.is_enabled("auto_collect_rent"):
+            return
         now = helpers.get_tz_now()
         if now.day != 1:
             return
@@ -84,36 +93,69 @@ class Economy(commands.Cog):
     async def _before_auto_rent_loop(self) -> None:
         await self.bot.wait_until_ready()
         await self._startup_catchup()
-        now = helpers.get_tz_now()
-        midnight = (now + timedelta(days=1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        await asyncio.sleep((midnight - now).total_seconds())
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
         await self._startup_catchup()
 
     async def _startup_catchup(self) -> None:
-        """If today is day 1-3 and auto-rent hasn't run this month, trigger it."""
+        """On startup: trigger if day 1-3 and not yet run; warn REPORT_USER_ID if missed past day 3."""
         if self._startup_catchup_done:
             return
         self._startup_catchup_done = True
-        now = helpers.get_tz_now()
-        if now.day > 3:
+
+        control = self.bot.get_cog("SystemControl")
+        if control and not control.is_enabled("auto_collect_rent"):
             return
+
+        now = helpers.get_tz_now()
+        tz = ZoneInfo(getattr(config, "TIMEZONE", "UTC"))
+
         last_run = await rent_run_get_last()
+        already_ran_this_month = False
         if last_run:
-            tz = ZoneInfo(getattr(config, "TIMEZONE", "UTC"))
             if last_run.tzinfo is None:
                 last_run = last_run.replace(tzinfo=ZoneInfo("UTC"))
             last_local = last_run.astimezone(tz)
-            if last_local.year == now.year and last_local.month == now.month:
-                return
-        logger.info("Startup catch-up: triggering auto rent collection (day %s).", now.day)
-        await self._run_auto_rent(triggered_by="startup-catchup")
+            already_ran_this_month = (
+                last_local.year == now.year and last_local.month == now.month
+            )
 
-    async def _run_auto_rent(self, *, triggered_by: str = "auto") -> None:
+        if already_ran_this_month:
+            return
+
+        if now.day <= 3:
+            logger.info(
+                "Startup catch-up: triggering auto rent collection (day %s).", now.day
+            )
+            await self._run_auto_rent(triggered_by="startup-catchup")
+        else:
+            logger.warning(
+                "Startup catch-up: auto rent collection appears missed for %s %s (today is day %s).",
+                now.strftime("%B"),
+                now.year,
+                now.day,
+            )
+            notify_user = None
+            user_id = getattr(config, "REPORT_USER_ID", 0)
+            if user_id:
+                notify_user = self.bot.get_user(user_id)
+                if notify_user is None:
+                    try:
+                        notify_user = await self.bot.fetch_user(user_id)
+                    except Exception:
+                        notify_user = None
+            if notify_user:
+                try:
+                    await notify_user.send(
+                        f"⚠️ Auto rent collection appears to have been missed for "
+                        f"{now.strftime('%B %Y')} (today is day {now.day}). "
+                        f"Please run `!collect_rent` manually if needed."
+                    )
+                except Exception:
+                    logger.warning("Suppressed exception", exc_info=True)
+
+    async def _run_auto_rent(self, *, triggered_by: str = "auto", force: bool = False) -> None:
         """Run a full rent collection cycle using the rent log channel as output."""
         guild = self.bot.get_guild(getattr(config, "GUILD_ID", 0))
         if guild is None:
@@ -124,11 +166,11 @@ class Economy(commands.Cog):
         if channel is None:
             logger.error("auto_rent: RENT_LOG_CHANNEL_ID channel not found — skipping.")
             return
-        logger.info("Auto rent collection starting (trigger=%s).", triggered_by)
+        logger.info("Auto rent collection starting (trigger=%s, force=%s).", triggered_by, force)
         try:
             await channel.send(f"🤖 Auto rent collection triggered (`{triggered_by}`).")
             ctx = _AutoCtx(guild, channel, self.bot)
-            await self.run_rent_collection(ctx, force=False, verbose=False)
+            await self.run_rent_collection(ctx, force=force, verbose=False)
         except Exception:
             logger.exception("Auto rent collection failed (trigger=%s).", triggered_by)
 
@@ -1131,7 +1173,7 @@ class Economy(commands.Cog):
     async def collect_housing(self, ctx, *args):
         """Manually collect housing rent from a single user.
 
-        Use ``-force`` to ignore the 30 day cooldown.
+        Use ``-force`` to ignore the this-month guard.
         """
         converter = commands.MemberConverter()
         user = None
@@ -1243,7 +1285,7 @@ class Economy(commands.Cog):
     async def collect_business(self, ctx, *args):
         """Manually collect business rent from a single user.
 
-        Use ``-force`` to ignore the 30 day cooldown.
+        Use ``-force`` to ignore the this-month guard.
         """
         converter = commands.MemberConverter()
         user = None
@@ -1333,7 +1375,7 @@ class Economy(commands.Cog):
     async def collect_trauma(self, ctx, *args):
         """Manually collect Trauma Team subscription.
 
-        Use ``-force`` to ignore the 30 day cooldown.
+        Use ``-force`` to ignore the this-month guard.
         """
         converter = commands.MemberConverter()
         user = None
@@ -1745,7 +1787,7 @@ class Economy(commands.Cog):
     ):
         """Global or per-member rent collection.
 
-        Pass ``-v``/``--verbose`` for detailed output and ``-force`` to ignore the 30 day cooldown.
+        Pass ``-v``/``--verbose`` for detailed output and ``-force`` to ignore the this-month guard.
         """
         verbose = False
         force = False
@@ -2101,10 +2143,20 @@ class Economy(commands.Cog):
     @commands.command(name="trigger_auto_rent")
     @commands.has_permissions(administrator=True)
     async def trigger_auto_rent_command(self, ctx) -> None:
-        """Manually trigger the automatic monthly rent collection cycle.
+        """Manually trigger the auto rent collection cycle, bypassing the monthly guard.
 
-        Respects the calendar-month guard — if rent has already been collected
-        this month, use ``!collect_rent -force`` instead.
+        Unlike ``!collect_rent``, this runs immediately regardless of whether rent
+        has already been collected this month — useful for testing and manual recovery.
+        To suppress the automatic scheduler without disabling this command, run
+        ``!disable_system auto_collect_rent``.
         """
-        await ctx.send("🤖 Triggering auto rent collection...")
-        await self._run_auto_rent(triggered_by=f"manual/{ctx.author}")
+        control = self.bot.get_cog("SystemControl")
+        if control and not control.is_enabled("auto_collect_rent"):
+            await ctx.send(
+                "⚠️ The `auto_collect_rent` system is disabled. "
+                "Use `!enable_system auto_collect_rent` to re-enable, "
+                "or run `!collect_rent -force` to collect manually."
+            )
+            return
+        await ctx.send("🤖 Triggering auto rent collection (force mode)...")
+        await self._run_auto_rent(triggered_by=f"manual/{ctx.author}", force=True)
