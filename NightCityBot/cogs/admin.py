@@ -426,7 +426,7 @@ class Admin(commands.Cog):
                 "⏰ Scheduled Jobs",
                 "\n".join([
                     "`!trigger_auto_rent` – immediately run the full rent cycle, bypassing the monthly guard. Useful for manual recovery and testing.",
-                    "The automatic rent scheduler fires at midnight on the 1st of each month (configured via `RENT_COLLECTION_HOUR` / `RENT_COLLECTION_MINUTE` in config). "
+                    "The automatic rent scheduler fires at the configured time on the 1st of each month (set via `RENT_COLLECTION_HOUR` / `RENT_COLLECTION_MINUTE` in config; defaults to midnight). "
                     "If the bot was down on the 1st, it catches up on startup if it's still day 1–3, or DMs the report user as a missed-run warning.",
                     "Use `!disable_system auto_collect_rent` / `!enable_system auto_collect_rent` to suppress or restore the automatic scheduler.",
                 ]),
