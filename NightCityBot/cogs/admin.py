@@ -916,6 +916,31 @@ class Admin(commands.Cog):
             await self.log_audit(
                 ctx.author, f"⚠️ Error: {ctx.message.content} → {str(error)}"
             )
+            channel_info = getattr(ctx.channel, "name", str(getattr(ctx.channel, "id", "?")))
+            await self._alert_report_user(
+                f"⚠️ **Unexpected command error**\n"
+                f"User: {ctx.author} (`{ctx.author.id}`)\n"
+                f"Channel: #{channel_info}\n"
+                f"Command: `{ctx.message.content}`\n"
+                f"Error: `{type(error).__name__}: {error}`"
+            )
+
+    async def _alert_report_user(self, message: str) -> None:
+        """DM the configured REPORT_USER_ID with an alert message."""
+        user_id = getattr(config, "REPORT_USER_ID", 0)
+        if not user_id:
+            return
+        user = self.bot.get_user(user_id)
+        if user is None:
+            try:
+                user = await self.bot.fetch_user(user_id)
+            except Exception:
+                logger.warning("_alert_report_user: could not fetch REPORT_USER_ID %s", user_id)
+                return
+        try:
+            await user.send(message)
+        except Exception:
+            logger.warning("_alert_report_user: DM to %s failed", user_id, exc_info=True)
 
     @commands.command(name="export_threads", aliases=["exportthreads"])
     @is_fixer()

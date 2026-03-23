@@ -1113,6 +1113,25 @@ async def payment_label_get_ts(user_id: str, label: str) -> "Optional[datetime]"
         return None
 
 
+async def payment_labels_cleanup(days: int = 60) -> int:
+    """Delete payment_labels rows older than ``days`` days. Returns the number of rows deleted."""
+    try:
+        pool = await get_pool()
+        result = await _with_retry(
+            lambda: pool.execute(
+                "DELETE FROM payment_labels WHERE recorded_at < NOW() - $1 * INTERVAL '1 day'",
+                days,
+            ),
+            label="payment_labels_cleanup",
+        )
+        deleted = int(result.split()[-1]) if isinstance(result, str) else 0
+        logger.info("payment_labels_cleanup: deleted %d rows older than %d days.", deleted, days)
+        return deleted
+    except Exception:
+        logger.error("payment_labels_cleanup failed", exc_info=True)
+        return 0
+
+
 async def last_payment_set(user_id: str, summary: str) -> bool:
     """Store or update the last payment summary for a user."""
     try:

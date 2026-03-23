@@ -132,6 +132,15 @@ async def verify_config(bot: discord.Client) -> None:
             logger.warning("\u26a0\ufe0f Bot missing permission: %s", perm)
             issues = True
 
+    hour = getattr(config, "RENT_COLLECTION_HOUR", 0)
+    minute = getattr(config, "RENT_COLLECTION_MINUTE", 0)
+    if not isinstance(hour, int) or not (0 <= hour <= 23):
+        logger.warning("⚠️ RENT_COLLECTION_HOUR must be an integer 0–23 (got %r)", hour)
+        issues = True
+    if not isinstance(minute, int) or not (0 <= minute <= 59):
+        logger.warning("⚠️ RENT_COLLECTION_MINUTE must be an integer 0–59 (got %r)", minute)
+        issues = True
+
     if not issues:
         logger.info("\u2705 Configuration verified with no issues.")
 

@@ -3,7 +3,7 @@ import os
 import json
 from datetime import datetime, timedelta, time as dtime
 import asyncio
-from typing import Optional, List, Dict, Callable, Awaitable, Any
+from typing import Optional, List, Dict, Callable, Awaitable, Any, NamedTuple
 from zoneinfo import ZoneInfo
 
 import discord
@@ -17,7 +17,7 @@ from NightCityBot.utils.db import (
     attendance_get_user, attendance_append,
     open_log_exists_today, open_log_count_month, open_log_add, open_log_get_all,
     last_payment_get, last_payment_set, last_payment_get_with_ts,
-    payment_label_set, payment_label_get_ts,
+    payment_label_set, payment_label_get_ts, payment_labels_cleanup,
     rent_run_get_last, rent_run_record,
     warn_db_failure,
 )
@@ -34,30 +34,23 @@ from NightCityBot.services.trauma_team import TraumaTeamService
 logger = logging.getLogger(__name__)
 
 
-class _AutoCtx:
-    """Minimal ctx-like proxy used by the scheduler to drive run_rent_collection.
+class RentRunResult(NamedTuple):
+    """Structured outcome counts returned by ``run_rent_collection``."""
+    charged: int
+    skipped: int
+    errors: int
 
-    Also counts charged/skipped members by matching the messages that
-    ``run_rent_collection`` emits, so ``_run_auto_rent`` can post a summary.
-    """
+
+class _AutoCtx:
+    """Minimal ctx-like proxy used by the scheduler to drive run_rent_collection."""
 
     def __init__(self, guild: discord.Guild, channel: discord.TextChannel, bot: commands.Bot):
         self.guild = guild
         self.channel = channel
         self.bot = bot
         self.author = bot.user
-        self.charged_count: int = 0
-        self.skipped_count: int = 0
-        self.error_count: int = 0
 
     async def send(self, content=None, **kwargs):
-        if isinstance(content, str):
-            if content.startswith("✅ Completed for"):
-                self.charged_count += 1
-            elif content.startswith("⏭️ Skipping"):
-                self.skipped_count += 1
-            elif content.startswith("❌ Error processing"):
-                self.error_count += 1
         try:
             await self.channel.send(content, **kwargs)
         except Exception:
@@ -79,12 +72,14 @@ class Economy(commands.Cog):
         self._startup_catchup_done: bool = False
 
     async def cog_load(self) -> None:
-        """Start the monthly auto-rent scheduler when this cog is loaded."""
+        """Start the monthly auto-rent scheduler and weekly cleanup task."""
         self.auto_rent_loop.start()
+        self._cleanup_loop.start()
 
     async def cog_unload(self) -> None:
-        """Cancel the monthly auto-rent scheduler when this cog is unloaded."""
+        """Cancel the scheduler and cleanup task."""
         self.auto_rent_loop.cancel()
+        self._cleanup_loop.cancel()
 
     @tasks.loop(
         time=dtime(
@@ -109,6 +104,15 @@ class Economy(commands.Cog):
     async def _before_auto_rent_loop(self) -> None:
         await self.bot.wait_until_ready()
         await self._startup_catchup()
+
+    @tasks.loop(hours=168)
+    async def _cleanup_loop(self) -> None:
+        """Weekly job: delete payment_labels rows older than 60 days."""
+        await payment_labels_cleanup(days=60)
+
+    @_cleanup_loop.before_loop
+    async def _before_cleanup_loop(self) -> None:
+        await self.bot.wait_until_ready()
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -198,22 +202,25 @@ class Economy(commands.Cog):
             return
         logger.info("Auto rent collection starting (trigger=%s, force=%s).", triggered_by, force)
         ctx = _AutoCtx(guild, channel, self.bot)
+        result: Optional[RentRunResult] = None
         try:
             await channel.send(f"🤖 Auto rent collection triggered (`{triggered_by}`).")
-            await self.run_rent_collection(ctx, force=force, verbose=False)
+            result = await self.run_rent_collection(ctx, force=force, verbose=False)
         except Exception:
             logger.exception("Auto rent collection failed (trigger=%s).", triggered_by)
             return
 
         await payment_label_set("0", "auto_collect_rent")
 
-        summary = (
-            f"🤖 Auto rent collection complete — "
-            f"{ctx.charged_count} charged, "
-            f"{ctx.skipped_count} skipped"
-            + (f", {ctx.error_count} error(s)" if ctx.error_count else "")
-            + f" (trigger: `{triggered_by}`)."
-        )
+        if result is not None:
+            summary = (
+                f"🤖 Auto rent collection complete — "
+                f"{result.charged} charged, {result.skipped} skipped"
+                + (f", {result.errors} error(s)" if result.errors else "")
+                + f" (trigger: `{triggered_by}`)."
+            )
+        else:
+            summary = f"🤖 Auto rent collection complete (trigger: `{triggered_by}`)."
         try:
             await channel.send(summary)
         except Exception:
@@ -1548,6 +1555,7 @@ class Economy(commands.Cog):
                 except Exception:
                     logger.warning("Suppressed exception", exc_info=True)
         audit_lines: List[str] = []
+        _charged = _skipped = _errors = 0
 
         if not force and not target_user:
             last_run = await rent_run_get_last()
@@ -1634,12 +1642,14 @@ class Economy(commands.Cog):
                         await ctx.send(
                             f"⏭️ Skipping <@{member.id}> — already paid this month."
                         )
+                        _skipped += 1
                         continue
 
                 if not any(r.id == config.APPROVED_ROLE_ID for r in member.roles):
                     await ctx.send(
                         f"⏭️ Skipping <@{member.id}> — no approved character."
                     )
+                    _skipped += 1
                     continue
 
                 progress = f"{idx}/{len(members_to_process)}"
@@ -1760,6 +1770,7 @@ class Economy(commands.Cog):
                     pass
                 else:
                     await ctx.send(f"✅ Completed for <@{member.id}>")
+                _charged += 1
                 if dry_run and admin_cog:
                     await admin_cog.log_audit(ctx.author, summary)
                 if not dry_run:
@@ -1778,6 +1789,7 @@ class Economy(commands.Cog):
 
             except Exception as e:
                 await ctx.send(f"❌ Error processing <@{member.id}>: `{e}`")
+                _errors += 1
                 if dry_run and admin_cog:
                     await admin_cog.log_audit(
                         ctx.author, f"Error processing <@{member.id}>: {e}"
@@ -1840,6 +1852,8 @@ class Economy(commands.Cog):
                     )
                 except Exception:
                     logger.warning("Suppressed exception", exc_info=True)
+        return RentRunResult(charged=_charged, skipped=_skipped, errors=_errors)
+
     @commands.command(aliases=["collectrent"])
     @commands.has_permissions(administrator=True)
     async def collect_rent(
