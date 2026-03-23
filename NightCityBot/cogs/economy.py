@@ -521,7 +521,7 @@ class Economy(commands.Cog):
     @commands.command(name="mark_paid")
     @commands.has_permissions(administrator=True)
     async def mark_paid(self, ctx, member: discord.Member, *, note: str = "") -> None:
-        """Manually mark a user as having paid their rent obligations this cycle.
+        """Manually mark a user as having paid their rent obligations this month.
 
         Upserts a ``last_payment`` record for ``member`` with the current
         timestamp, enabling the double-charge protection and updating the
@@ -531,7 +531,7 @@ class Economy(commands.Cog):
         """
         admin_cog = self.bot.get_cog("Admin")
         summary = (
-            f"[Admin mark_paid] Marked as paid this cycle by {ctx.author} ({ctx.author.id})"
+            f"[Admin mark_paid] Marked as paid this month by {ctx.author} ({ctx.author.id})"
         )
         if note:
             summary += f" — {note}"
@@ -540,8 +540,8 @@ class Economy(commands.Cog):
         label_ok = await payment_label_set(str(member.id), "collect_rent_after")
         if ok and label_ok:
             await ctx.send(
-                f"✅ <@{member.id}> marked as paid this cycle. "
-                "`!collect_rent` will skip them for the next 30 days."
+                f"✅ <@{member.id}> marked as paid this month. "
+                "`!collect_rent` will skip them for the rest of this calendar month."
             )
             if admin_cog:
                 await admin_cog.log_audit(
