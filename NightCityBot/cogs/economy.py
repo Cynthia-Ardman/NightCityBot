@@ -130,9 +130,17 @@ class Economy(commands.Cog):
         """On startup: trigger if day 1-3 and not yet run; warn REPORT_USER_ID if missed past day 3."""
         if self._startup_catchup_done:
             return
-        self._startup_catchup_done = True
 
         control = self.bot.get_cog("SystemControl")
+        if control is not None:
+            deadline = helpers.get_tz_now().timestamp() + 10
+            while not control.status and helpers.get_tz_now().timestamp() < deadline:
+                await asyncio.sleep(0.2)
+
+        if self._startup_catchup_done:
+            return
+        self._startup_catchup_done = True
+
         if control and not control.is_enabled("auto_collect_rent"):
             return
 
