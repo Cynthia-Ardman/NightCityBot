@@ -1113,6 +1113,33 @@ async def payment_label_get_ts(user_id: str, label: str) -> "Optional[datetime]"
         return None
 
 
+async def payment_labels_any_this_month(user_id: str, labels: list, timezone: str = "UTC") -> bool:
+    """Return True if ANY of the given labels were recorded for the user this calendar month.
+
+    The month boundary is evaluated in the server's configured timezone, matching
+    the behaviour of ``_paid_this_month`` but in a single DB round-trip.
+    """
+    try:
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            """
+            SELECT 1 FROM payment_labels
+            WHERE user_id = $1
+              AND label = ANY($2)
+              AND date_trunc('month', recorded_at AT TIME ZONE $3)
+                  = date_trunc('month', NOW() AT TIME ZONE $3)
+            LIMIT 1
+            """,
+            user_id, list(labels), timezone,
+        )
+        return row is not None
+    except Exception:
+        logger.error(
+            "payment_labels_any_this_month failed for user '%s'", user_id, exc_info=True
+        )
+        return False
+
+
 async def payment_labels_cleanup(days: int = 60) -> int:
     """Delete payment_labels rows older than ``days`` days. Returns the number of rows deleted."""
     try:

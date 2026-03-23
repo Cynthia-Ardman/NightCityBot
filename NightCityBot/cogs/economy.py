@@ -18,6 +18,7 @@ from NightCityBot.utils.db import (
     open_log_exists_today, open_log_count_month, open_log_add, open_log_get_all,
     last_payment_get, last_payment_set, last_payment_get_with_ts,
     payment_label_set, payment_label_get_ts, payment_labels_cleanup,
+    payment_labels_any_this_month,
     rent_run_get_last, rent_run_record,
     warn_db_failure,
 )
@@ -48,7 +49,7 @@ class _AutoCtx:
         self.guild = guild
         self.channel = channel
         self.bot = bot
-        self.author = bot.user
+        self.author = guild.me
 
     async def send(self, content=None, **kwargs):
         try:
@@ -840,6 +841,15 @@ class Economy(commands.Cog):
         return (recorded_local.year == now_local.year
                 and recorded_local.month == now_local.month)
 
+    async def _paid_any_this_month(self, member: discord.Member, labels: list) -> bool:
+        """Return True if ANY of the given payment labels were recorded this calendar month.
+
+        Executes a single DB query instead of one query per label, making it
+        more efficient in the rent collection loop.
+        """
+        tz = getattr(config, "TIMEZONE", "UTC")
+        return await payment_labels_any_this_month(str(member.id), labels, timezone=tz)
+
     @commands.command(name="backup_balances")
     @commands.has_permissions(administrator=True)
     async def backup_balances_command(self, ctx):
@@ -1628,16 +1638,12 @@ class Economy(commands.Cog):
         for idx, member in enumerate(members_to_process, start=1):
             try:
                 if not force:
-                    paid = await self._paid_this_month(member, "collect_rent_after")
-                    paid = paid or await self._paid_this_month(
-                        member, "collect_housing_after"
-                    )
-                    paid = paid or await self._paid_this_month(
-                        member, "collect_business_after"
-                    )
-                    paid = paid or await self._paid_this_month(
-                        member, "collect_trauma_after"
-                    )
+                    paid = await self._paid_any_this_month(member, [
+                        "collect_rent_after",
+                        "collect_housing_after",
+                        "collect_business_after",
+                        "collect_trauma_after",
+                    ])
                     if paid:
                         await ctx.send(
                             f"⏭️ Skipping <@{member.id}> — already paid this month."
