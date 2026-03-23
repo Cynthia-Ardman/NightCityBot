@@ -413,8 +413,9 @@ class Admin(commands.Cog):
             (
                 "💵 Rent & Payment",
                 "\n".join([
-                    "`!mark_paid @user [note]` – manually mark a member as paid this cycle. Updates the double-charge guard and the `!due` confirmation note.",
+                    "`!mark_paid @user [note]` – manually mark a member as paid this month. Updates the double-charge guard and the `!due` confirmation note.",
                     "`!collect_rent [@user] [-v] [-force]` (alias: !collectrent) – run the monthly rent cycle. Use `-force` to override the this-month guard.",
+                    "`!trigger_auto_rent` – manually trigger the auto monthly rent collection (respects this-month guard).",
                     "`!list_deficits` – list members who can't cover upcoming charges.",
                     "`!backup_balances` – save all member balances to a timestamped snapshot file.",
                     "`!backup_balance @user` – save one member's balance to a snapshot file.",

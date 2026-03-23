@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Callable, Awaitable, Any
 from zoneinfo import ZoneInfo
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from pathlib import Path
 from NightCityBot.utils.permissions import is_fixer
 from NightCityBot.utils import config_loader as _cfg
@@ -34,6 +34,22 @@ from NightCityBot.services.trauma_team import TraumaTeamService
 logger = logging.getLogger(__name__)
 
 
+class _AutoCtx:
+    """Minimal ctx-like proxy used by the scheduler to drive run_rent_collection."""
+
+    def __init__(self, guild: discord.Guild, channel: discord.TextChannel, bot: commands.Bot):
+        self.guild = guild
+        self.channel = channel
+        self.bot = bot
+        self.author = bot.user
+
+    async def send(self, content=None, **kwargs):
+        try:
+            await self.channel.send(content, **kwargs)
+        except Exception:
+            pass
+
+
 class Economy(commands.Cog):
     """Cog managing player economy and automated rent."""
 
@@ -46,6 +62,75 @@ class Economy(commands.Cog):
         self.attend_lock = asyncio.Lock()
         self.event_expires_at: Optional[datetime] = None
         self.event_started_at: Optional[datetime] = None
+        self._startup_catchup_done: bool = False
+
+    async def cog_load(self) -> None:
+        """Start the monthly auto-rent scheduler when this cog is loaded."""
+        self.auto_rent_loop.start()
+
+    async def cog_unload(self) -> None:
+        """Cancel the monthly auto-rent scheduler when this cog is unloaded."""
+        self.auto_rent_loop.cancel()
+
+    @tasks.loop(hours=24)
+    async def auto_rent_loop(self) -> None:
+        """Fire rent collection automatically on the 1st of each calendar month."""
+        now = helpers.get_tz_now()
+        if now.day != 1:
+            return
+        await self._run_auto_rent(triggered_by="scheduler")
+
+    @auto_rent_loop.before_loop
+    async def _before_auto_rent_loop(self) -> None:
+        await self.bot.wait_until_ready()
+        await self._startup_catchup()
+        now = helpers.get_tz_now()
+        midnight = (now + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        await asyncio.sleep((midnight - now).total_seconds())
+
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        await self._startup_catchup()
+
+    async def _startup_catchup(self) -> None:
+        """If today is day 1-3 and auto-rent hasn't run this month, trigger it."""
+        if self._startup_catchup_done:
+            return
+        self._startup_catchup_done = True
+        now = helpers.get_tz_now()
+        if now.day > 3:
+            return
+        last_run = await rent_run_get_last()
+        if last_run:
+            tz = ZoneInfo(getattr(config, "TIMEZONE", "UTC"))
+            if last_run.tzinfo is None:
+                last_run = last_run.replace(tzinfo=ZoneInfo("UTC"))
+            last_local = last_run.astimezone(tz)
+            if last_local.year == now.year and last_local.month == now.month:
+                return
+        logger.info("Startup catch-up: triggering auto rent collection (day %s).", now.day)
+        await self._run_auto_rent(triggered_by="startup-catchup")
+
+    async def _run_auto_rent(self, *, triggered_by: str = "auto") -> None:
+        """Run a full rent collection cycle using the rent log channel as output."""
+        guild = self.bot.get_guild(getattr(config, "GUILD_ID", 0))
+        if guild is None:
+            logger.error("auto_rent: guild not found — skipping.")
+            return
+        channel_id = getattr(config, "RENT_LOG_CHANNEL_ID", 0)
+        channel = guild.get_channel(channel_id)
+        if channel is None:
+            logger.error("auto_rent: RENT_LOG_CHANNEL_ID channel not found — skipping.")
+            return
+        logger.info("Auto rent collection starting (trigger=%s).", triggered_by)
+        try:
+            await channel.send(f"🤖 Auto rent collection triggered (`{triggered_by}`).")
+            ctx = _AutoCtx(guild, channel, self.bot)
+            await self.run_rent_collection(ctx, force=False, verbose=False)
+        except Exception:
+            logger.exception("Auto rent collection failed (trigger=%s).", triggered_by)
 
     @staticmethod
     def _split_deduction(cash: int, amount: int) -> tuple[int, int]:
@@ -410,11 +495,15 @@ class Economy(commands.Cog):
 
         _, paid_at = await last_payment_get_with_ts(str(target.id))
         if paid_at is not None:
-            paid_at_naive = paid_at.replace(tzinfo=None) if paid_at.tzinfo else paid_at
-            if datetime.utcnow() - paid_at_naive < timedelta(days=30):
-                paid_str = paid_at_naive.strftime("%b %d")
+            tz = ZoneInfo(getattr(config, "TIMEZONE", "UTC"))
+            now_local = helpers.get_tz_now()
+            if paid_at.tzinfo is None:
+                paid_at = paid_at.replace(tzinfo=ZoneInfo("UTC"))
+            paid_local = paid_at.astimezone(tz)
+            if paid_local.year == now_local.year and paid_local.month == now_local.month:
+                paid_str = paid_local.strftime("%b %d")
                 lines.append(
-                    f"✅ **Housing & baseline already paid this cycle** (recorded {paid_str})."
+                    f"✅ **Housing & baseline already paid this month** (recorded {paid_str})."
                     " Cyberware meds are collected separately by staff."
                 )
 
@@ -624,6 +713,23 @@ class Economy(commands.Cog):
             return False
         recorded_at_naive = recorded_at.replace(tzinfo=None) if recorded_at.tzinfo else recorded_at
         return datetime.utcnow() - recorded_at_naive < timedelta(days=days)
+
+    async def _paid_this_month(self, member: discord.Member, label: str) -> bool:
+        """Return ``True`` if the given label was recorded in the current calendar month.
+
+        Uses the server's configured timezone (``config.TIMEZONE``) for the
+        month/year comparison so the boundary matches the local calendar, not UTC.
+        """
+        recorded_at = await payment_label_get_ts(str(member.id), label)
+        if recorded_at is None:
+            return False
+        tz = ZoneInfo(getattr(config, "TIMEZONE", "UTC"))
+        now_local = helpers.get_tz_now()
+        if recorded_at.tzinfo is None:
+            recorded_at = recorded_at.replace(tzinfo=ZoneInfo("UTC"))
+        recorded_local = recorded_at.astimezone(tz)
+        return (recorded_local.year == now_local.year
+                and recorded_local.month == now_local.month)
 
     @commands.command(name="backup_balances")
     @commands.has_permissions(administrator=True)
@@ -1054,9 +1160,9 @@ class Economy(commands.Cog):
             await ctx.send(f"⏭️ <@{user.id}> has no approved character.")
             return
 
-        if not force and await self._label_used_recently(user, "collect_housing_after"):
+        if not force and await self._paid_this_month(user, "collect_housing_after"):
             await ctx.send(
-                "⏭️ Housing rent already collected in the last 30 days. Use -force to override."
+                "⏭️ Housing rent already collected this month. Use -force to override."
             )
             return
 
@@ -1158,11 +1264,9 @@ class Economy(commands.Cog):
             await ctx.send("❌ Could not resolve user.")
             return
 
-        if not force and await self._label_used_recently(
-            user, "collect_business_after"
-        ):
+        if not force and await self._paid_this_month(user, "collect_business_after"):
             await ctx.send(
-                "⏭️ Business rent already collected in the last 30 days. Use -force to override."
+                "⏭️ Business rent already collected this month. Use -force to override."
             )
             return
         control = self.bot.get_cog("SystemControl")
@@ -1250,9 +1354,9 @@ class Economy(commands.Cog):
             await ctx.send("❌ Could not resolve user.")
             return
 
-        if not force and await self._label_used_recently(user, "collect_trauma_after"):
+        if not force and await self._paid_this_month(user, "collect_trauma_after"):
             await ctx.send(
-                "⏭️ Trauma subscription already processed in the last 30 days. Use -force to override."
+                "⏭️ Trauma subscription already processed this month. Use -force to override."
             )
             return
         control = self.bot.get_cog("SystemControl")
@@ -1345,11 +1449,17 @@ class Economy(commands.Cog):
 
         if not force and not target_user:
             last_run = await rent_run_get_last()
-            if last_run and datetime.utcnow() - last_run < timedelta(days=30):
-                await ctx.send(
-                    "⚠️ Rent already collected in the last 30 days. Use -force to override."
-                )
-                return
+            if last_run:
+                _tz = ZoneInfo(getattr(config, "TIMEZONE", "UTC"))
+                _now = helpers.get_tz_now()
+                if last_run.tzinfo is None:
+                    last_run = last_run.replace(tzinfo=ZoneInfo("UTC"))
+                _last_local = last_run.astimezone(_tz)
+                if _last_local.year == _now.year and _last_local.month == _now.month:
+                    await ctx.send(
+                        "⚠️ Rent already collected this month. Use -force to override."
+                    )
+                    return
         if not target_user and not dry_run:
             ok = await rent_run_record(str(ctx.author))
             if not ok:
@@ -1408,21 +1518,19 @@ class Economy(commands.Cog):
         for idx, member in enumerate(members_to_process, start=1):
             try:
                 if not force:
-                    recent = await self._label_used_recently(
-                        member, "collect_rent_after"
-                    )
-                    recent = recent or await self._label_used_recently(
+                    paid = await self._paid_this_month(member, "collect_rent_after")
+                    paid = paid or await self._paid_this_month(
                         member, "collect_housing_after"
                     )
-                    recent = recent or await self._label_used_recently(
+                    paid = paid or await self._paid_this_month(
                         member, "collect_business_after"
                     )
-                    recent = recent or await self._label_used_recently(
+                    paid = paid or await self._paid_this_month(
                         member, "collect_trauma_after"
                     )
-                    if recent:
+                    if paid:
                         await ctx.send(
-                            f"⏭️ Skipping <@{member.id}> — rent recently collected."
+                            f"⏭️ Skipping <@{member.id}> — already paid this month."
                         )
                         continue
 
@@ -1989,3 +2097,14 @@ class Economy(commands.Cog):
                 await ctx.send(line)
         else:
             await ctx.send("✅ Everyone can cover their upcoming obligations.")
+
+    @commands.command(name="trigger_auto_rent")
+    @commands.has_permissions(administrator=True)
+    async def trigger_auto_rent_command(self, ctx) -> None:
+        """Manually trigger the automatic monthly rent collection cycle.
+
+        Respects the calendar-month guard — if rent has already been collected
+        this month, use ``!collect_rent -force`` instead.
+        """
+        await ctx.send("🤖 Triggering auto rent collection...")
+        await self._run_auto_rent(triggered_by=f"manual/{ctx.author}")
