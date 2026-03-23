@@ -13,6 +13,7 @@ SYSTEMS = [
     "business_rent",
     "trauma_team",
     "dm",
+    "auto_collect_rent",
 ]
 
 
@@ -29,7 +30,7 @@ class SystemControl(commands.Cog):
         updated = False
         for system in SYSTEMS:
             if system not in self.status:
-                self.status[system] = system == "wholesaler"
+                self.status[system] = system in {"wholesaler", "auto_collect_rent"}
                 updated = True
         if updated:
             for name, val in self.status.items():

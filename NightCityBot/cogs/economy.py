@@ -35,15 +35,29 @@ logger = logging.getLogger(__name__)
 
 
 class _AutoCtx:
-    """Minimal ctx-like proxy used by the scheduler to drive run_rent_collection."""
+    """Minimal ctx-like proxy used by the scheduler to drive run_rent_collection.
+
+    Also counts charged/skipped members by matching the messages that
+    ``run_rent_collection`` emits, so ``_run_auto_rent`` can post a summary.
+    """
 
     def __init__(self, guild: discord.Guild, channel: discord.TextChannel, bot: commands.Bot):
         self.guild = guild
         self.channel = channel
         self.bot = bot
         self.author = bot.user
+        self.charged_count: int = 0
+        self.skipped_count: int = 0
+        self.error_count: int = 0
 
     async def send(self, content=None, **kwargs):
+        if isinstance(content, str):
+            if content.startswith("✅ Completed for"):
+                self.charged_count += 1
+            elif content.startswith("⏭️ Skipping"):
+                self.skipped_count += 1
+            elif content.startswith("❌ Error processing"):
+                self.error_count += 1
         try:
             await self.channel.send(content, **kwargs)
         except Exception:
@@ -87,6 +101,8 @@ class Economy(commands.Cog):
         now = helpers.get_tz_now()
         if now.day != 1:
             return
+        if await self._auto_rent_ran_this_month():
+            return
         await self._run_auto_rent(triggered_by="scheduler")
 
     @auto_rent_loop.before_loop
@@ -97,6 +113,18 @@ class Economy(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self) -> None:
         await self._startup_catchup()
+
+    async def _auto_rent_ran_this_month(self) -> bool:
+        """Return True if the auto_collect_rent sentinel was set this calendar month."""
+        recorded_at = await payment_label_get_ts("0", "auto_collect_rent")
+        if recorded_at is None:
+            return False
+        tz = ZoneInfo(getattr(config, "TIMEZONE", "UTC"))
+        now = helpers.get_tz_now()
+        if recorded_at.tzinfo is None:
+            recorded_at = recorded_at.replace(tzinfo=ZoneInfo("UTC"))
+        recorded_local = recorded_at.astimezone(tz)
+        return recorded_local.year == now.year and recorded_local.month == now.month
 
     async def _startup_catchup(self) -> None:
         """On startup: trigger if day 1-3 and not yet run; warn REPORT_USER_ID if missed past day 3."""
@@ -109,19 +137,8 @@ class Economy(commands.Cog):
             return
 
         now = helpers.get_tz_now()
-        tz = ZoneInfo(getattr(config, "TIMEZONE", "UTC"))
 
-        last_run = await rent_run_get_last()
-        already_ran_this_month = False
-        if last_run:
-            if last_run.tzinfo is None:
-                last_run = last_run.replace(tzinfo=ZoneInfo("UTC"))
-            last_local = last_run.astimezone(tz)
-            already_ran_this_month = (
-                last_local.year == now.year and last_local.month == now.month
-            )
-
-        if already_ran_this_month:
+        if await self._auto_rent_ran_this_month():
             return
 
         if now.day <= 3:
@@ -156,7 +173,12 @@ class Economy(commands.Cog):
                     logger.warning("Suppressed exception", exc_info=True)
 
     async def _run_auto_rent(self, *, triggered_by: str = "auto", force: bool = False) -> None:
-        """Run a full rent collection cycle using the rent log channel as output."""
+        """Run a full rent collection cycle using the rent log channel as output.
+
+        After completion, records the ``auto_collect_rent`` sentinel in
+        ``payment_labels`` and posts a brief charged/skipped summary to the
+        rent-log channel and DMs ``REPORT_USER_ID``.
+        """
         guild = self.bot.get_guild(getattr(config, "GUILD_ID", 0))
         if guild is None:
             logger.error("auto_rent: guild not found — skipping.")
@@ -167,12 +189,42 @@ class Economy(commands.Cog):
             logger.error("auto_rent: RENT_LOG_CHANNEL_ID channel not found — skipping.")
             return
         logger.info("Auto rent collection starting (trigger=%s, force=%s).", triggered_by, force)
+        ctx = _AutoCtx(guild, channel, self.bot)
         try:
             await channel.send(f"🤖 Auto rent collection triggered (`{triggered_by}`).")
-            ctx = _AutoCtx(guild, channel, self.bot)
             await self.run_rent_collection(ctx, force=force, verbose=False)
         except Exception:
             logger.exception("Auto rent collection failed (trigger=%s).", triggered_by)
+            return
+
+        await payment_label_set("0", "auto_collect_rent")
+
+        summary = (
+            f"🤖 Auto rent collection complete — "
+            f"{ctx.charged_count} charged, "
+            f"{ctx.skipped_count} skipped"
+            + (f", {ctx.error_count} error(s)" if ctx.error_count else "")
+            + f" (trigger: `{triggered_by}`)."
+        )
+        try:
+            await channel.send(summary)
+        except Exception:
+            logger.warning("Suppressed exception", exc_info=True)
+
+        notify_user = None
+        user_id = getattr(config, "REPORT_USER_ID", 0)
+        if user_id:
+            notify_user = self.bot.get_user(user_id)
+            if notify_user is None:
+                try:
+                    notify_user = await self.bot.fetch_user(user_id)
+                except Exception:
+                    notify_user = None
+        if notify_user:
+            try:
+                await notify_user.send(summary)
+            except Exception:
+                logger.warning("Suppressed exception", exc_info=True)
 
     @staticmethod
     def _split_deduction(cash: int, amount: int) -> tuple[int, int]:
