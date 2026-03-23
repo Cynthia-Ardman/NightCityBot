@@ -2199,8 +2199,8 @@ class Economy(commands.Cog):
 
         Unlike ``!collect_rent``, this runs immediately regardless of whether rent
         has already been collected this month — useful for testing and manual recovery.
-        To suppress the automatic scheduler without disabling this command, run
-        ``!disable_system auto_collect_rent``.
+        Requires the ``auto_collect_rent`` system to be enabled; use
+        ``!enable_system auto_collect_rent`` to re-enable it if disabled.
         """
         control = self.bot.get_cog("SystemControl")
         if control and not control.is_enabled("auto_collect_rent"):
