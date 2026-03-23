@@ -284,25 +284,11 @@ class Admin(commands.Cog):
 
 
         embed.add_field(
-            name="🔫 Gun Stores & Wholesaler",
+            name="🔫 Gun Stores",
             value=(
-                "`!wh_list` – view current wholesaler lots.\n"
-                "`!store_inv` – view your store inventory.\n"
-                "`!wh_buy <lot_id> <qty>` – store owners buy lots from corp wholesaler.\n"
-                '`!wh_sell @buyer "character_name" <lot_id> <qty> <price>` – complete a gun sale with a receipt posted to audit.\n\n'
-                "Run `!helpbusiness` for a full step-by-step guide."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="📑 Character Sheets",
-            value=(
-                "`!search_characters <keyword> [-depth N]` – search thread titles, tags and posts with fuzzy matching (Fixers only).\n"
-                "`!retire` – move threads tagged 'Retired' to the archive (Fixers only).\n"
-                "`!move_npcs` – move threads tagged 'NPC' to the NPC forum (Fixers only).\n"
-                "`!unretire <thread_id>` – move a retired thread back (Fixers only).\n"
-                "`!export_threads #channel` – export all threads from a channel into a downloadable HTML file (Fixers only)."
+                "`!wh_list` – browse current wholesaler lots.\n"
+                "`!store_inv` – view your store's current inventory.\n\n"
+                "Own a gun store? Run `!helpbusiness` for the full buying & selling guide."
             ),
             inline=False,
         )
@@ -332,42 +318,42 @@ class Admin(commands.Cog):
                 ]),
             ),
             (
+                "📋 Character Sheets",
+                "\n".join([
+                    "`!search_characters <keyword> [-depth N]` – search thread titles, tags and posts with fuzzy matching.",
+                    "`!retire` – move threads tagged 'Retired' to the archive forum.",
+                    "`!move_npcs` – move threads tagged 'NPC' to the NPC forum.",
+                    "`!unretire <thread_id>` – move a retired thread back to the active forum.",
+                    "`!backup_sheets` – export a snapshot of all character sheet threads.",
+                ]),
+            ),
+            (
                 "💵 Economy & Rent",
                 "\n".join([
                     "`!open_shop` (aliases: !openshop, !os) – record a business opening on Sunday and grant passive income immediately.",
                     "`!attend` – log weekly attendance for a $250 payout.",
                     "`!event_start` (aliases: !eventstart, !open_event, !start_event) – allow !attend and !open_shop for 4 hours outside Sunday when run in #attendance.",
-                    "`!due` – display a detailed breakdown of what a user owes on the 1st.",
+                    "`!due [@user]` – display a detailed breakdown of what a user owes on the 1st.",
                     "`!paydue [-v]` – pay your monthly obligations early.",
-                    "`!collect_rent [@user] [-v] [-force]` (alias: !collectrent) – run the monthly rent cycle. Use `-force` to ignore the 30\u202fday limit.",
+                    "`!collect_rent [@user] [-v] [-force]` (alias: !collectrent) – run the monthly rent cycle. Use `-force` to override the this-month guard.",
                     "`!collect_housing @user [-v] [-force]` / `!collect_business @user [-v] [-force]` / `!collect_trauma @user [-v] [-force]` – charge specific fees with optional verbose logs. (aliases: !collecthousing / !collectbusiness / !collecttrauma)",
                     "`!list_deficits` – list members who can't cover upcoming charges.",
+                    "`!simulate_rent [@user] [-v]` (alias: !simulaterent) – dry run of rent collection without charging anyone.",
+                    "`!simulate_cyberware [@user] [week]` – preview cyberware medication costs for a member or the whole server.",
+                    "`!simulate_all [@user]` – run both simulations at once.",
                 ]),
             ),
             (
                 "🔫 Wholesaler / Store Tools",
                 "\n".join([
                     "`!wh_list` – view current wholesaler lots grouped by weapon type.",
-                    "`!store_inv [shop_name]` – view your store inventory (admins can inspect a mapped shop alias).",
+                    "`!store_inv [shop_name]` – view your store inventory.",
                     '`!wh_buy <lot_id> <qty>` – buy stock from the wholesaler into your store.',
                     '`!wh_sell @buyer "character_name" <lot_id> <qty> <price>` – sell to a player (debit buyer, credit seller, post receipt). Alias: `!sell`.',
-                    "`!wh_setshop <shop_name> @owner` – bind a shop alias to a specific owner account.",
-                    "`!wh_shops` – list all shop alias mappings.",
-                    "`!wh_restock [seed]` – regenerate weekly wholesaler stock from the configured sheet source.",
-                    "`!wh_clear_inventory` – clear current wholesaler lots without touching store inventories.",
-                    "`!wh_recheck` – compare current lots to source sheet values and report mismatches.",
-                    "`!wh_gunlist` (aliases: !wh_guns, !wh_masterlist) – list every gun parsed from the master sheet with type, tier and price.",
-                    "`!wh_setsheet <xlsx_export_url|off>` – set or clear the runtime master gun list source URL.",
-                    "`!wh_restock_settings [key] [value]` – view or tune weekly wholesaler refresh settings (lot counts and qty ranges).",
-                    "`!wh_add <gun> <L|M|H> <unit_cost> <qty> [restriction]` / `!store_add @owner <gun> <L|M|H> <unit_cost> <qty> [restriction]` – manually add stock. Restriction: `basic` (default), `controlled`, or `restricted`.",
-                    "`!wh_remove <lot_id> [qty]` – remove a lot (or reduce its quantity) from the wholesaler.",
-                    "`!store_remove @owner <lot_id> [qty]` – remove a lot (or reduce its quantity) from a store.",
                     "`!wh_approve @user` – add a user to your controlled-buyer list.",
                     "`!wh_unapprove @user` – remove a user from your controlled-buyer list.",
                     "`!wh_approved` – view your controlled-buyer list.",
-                    "`!wh_tx <tx_id>` – inspect a transaction by ID.",
-                    "`!wh_retry_payout <tx_id>` – retry a pending seller payout.",
-                    "`!wh_paths` – show wholesaler data file paths.",
+                    "`!wh_gunlist` (aliases: !wh_guns, !wh_masterlist) – list every gun parsed from the master sheet with type, tier and price.",
                 ]),
             ),
             (
@@ -379,7 +365,8 @@ class Admin(commands.Cog):
                     "`!give_checkup_role [@user]` (aliases: !givecheckuprole, !cuall) – give the check-up role to a member or all cyberware users.",
                     "`!checkup_report` (aliases: !cu_report, !cur) – list who did a checkup, who paid meds, and who couldn't pay.",
                     "`!cyberware_status` (aliases: !cstatus, !cstat) – show current week status for all cyberware users.",
-                    "`!collect_cyberware @user [-v]` – manually charge a member for their meds and show the last few log lines unless `-v` is supplied.",
+                    "`!collect_cyberware @user [-v]` – manually charge a member for their meds.",
+                    "`!manual_cyberware_log @user <week> <status>` (alias: !mcl) – manually record a cyberware log entry without charging.",
                     "`!paycyberware [-v]` – pay your own cyberware meds manually.",
                 ]),
             ),
@@ -418,34 +405,54 @@ class Admin(commands.Cog):
             (
                 "⚙️ System Control",
                 "\n".join([
-                    "`!enable_system <name>` / `!disable_system <name>` (aliases: !es/!ds) – toggle major subsystems.",
-                    "`!system_status` – display the current enable/disable flags.",
+                    "`!enable_system <name>` / `!disable_system <name>` (aliases: !es/!ds) – toggle major subsystems by name.",
+                    "`!system_status` – display the current enable/disable flags for all subsystems.",
+                    "`!reload_config` – reload bot configuration from the database without restarting.",
+                ]),
+            ),
+            (
+                "💵 Rent & Payment",
+                "\n".join([
+                    "`!mark_paid @user [note]` – manually mark a member as paid this cycle. Updates the double-charge guard and the `!due` confirmation note.",
+                    "`!collect_rent [@user] [-v] [-force]` (alias: !collectrent) – run the monthly rent cycle. Use `-force` to override the this-month guard.",
+                    "`!list_deficits` – list members who can't cover upcoming charges.",
+                    "`!backup_balances` – save all member balances to a timestamped snapshot file.",
+                    "`!backup_balance @user` – save one member's balance to a snapshot file.",
+                    "`!restore_balances <file>` – restore balances from a snapshot file.",
+                    "`!restore_balance @user [file]` – restore one member's balance from a snapshot.",
                 ]),
             ),
             (
                 "🛠️ Admin Tools",
                 "\n".join([
-                    "`!test_bot [tests] [-silent] [-verbose]` – execute the built-in test suite. Results can be DMed when `-silent` is used and step details are shown with `-verbose`. Prefixes run groups of tests.",
-                    "`!list_tests` – show all available self-test names.",
-                    "`!test__bot [pattern]` – run the PyTest suite optionally filtering by pattern.",
                     "`!shutdown_bot` (aliases: !shutdownbot, !forceshutdown) – log an audit message and cleanly shut down the bot process.",
                     "`!backfill_logs [limit]` – rebuild attendance and business open logs from recent message history.",
-                    "`!reindex_tickets [limit]` (alias: !reindextickets) – scan the bot-logs channel and build a local ticket search index. Run once to seed history; new tickets index automatically.",
-                    "`!search_tickets <query>` (aliases: !searchtickets, !ticketsearch) – instantly search the local ticket index by name, user, ticket ID, reason, or any text.",
+                    "`!reindex_tickets [limit]` (alias: !reindextickets) – scan the bot-logs channel and build the ticket search index.",
+                    "`!search_tickets <query>` (aliases: !searchtickets, !ticketsearch) – search the ticket index by name, user, ticket ID, reason, or any text.",
                     "`!db_health` – show database ping, pool stats, write-failure count, and last failure timestamp.",
-                    "`!migrate_json_store` – one-time migration: copy all json_store blobs into normalized tables. Idempotent — safe to re-run. json_store is NOT dropped.",
+                    "`!migrate_json_store` – one-time migration: copy all json_store blobs into normalized tables. Idempotent — safe to re-run.",
+                    "`!test_bot [tests] [-silent] [-verbose]` – execute the built-in test suite *(bot owner only)*.",
+                    "`!list_tests` – show all available self-test names *(bot owner only)*.",
+                    "`!test__bot [pattern]` – run the PyTest suite optionally filtering by pattern *(bot owner only)*.",
                 ]),
             ),
             (
-                "💵 Simulations & Backups",
+                "🔫 Wholesaler Admin",
                 "\n".join([
-                    "`!simulate_rent [@user] [-v]` (alias: !simulaterent) – perform a dry run of rent collection using the same options.",
-                    "`!simulate_cyberware [@user] [week]` – preview cyberware medication costs globally or for a certain week.",
-                    "`!simulate_all [@user]` – run both simulations at once.",
-                    "`!backup_balances` – save all member balances to a timestamped file.",
-                    "`!backup_balance @user` – save one member's balance to a file.",
-                    "`!restore_balances <file>` – restore balances from a backup file.",
-                    "`!restore_balance @user [file]` – restore one member's balance from a backup.",
+                    "`!wh_setshop <shop_name> @owner` – bind a shop alias to a specific owner account.",
+                    "`!wh_shops` – list all shop alias mappings.",
+                    "`!wh_restock [seed]` – regenerate weekly wholesaler stock from the configured sheet source.",
+                    "`!wh_clear_inventory` – clear all current wholesaler lots without touching store inventories.",
+                    "`!wh_recheck` – compare current lots to source sheet values and report mismatches.",
+                    "`!wh_setsheet <xlsx_export_url|off>` – set or clear the runtime Google Sheets XLSX export URL.",
+                    "`!wh_restock_settings [key] [value]` – view or tune weekly restock settings (lot counts and qty ranges).",
+                    "`!wh_add <gun> <L|M|H> <unit_cost> <qty> [restriction]` – manually add stock to the wholesaler.",
+                    "`!store_add @owner <gun> <L|M|H> <unit_cost> <qty> [restriction]` – manually add stock to a specific store.",
+                    "`!wh_remove <lot_id> [qty]` – remove or reduce a lot from the wholesaler.",
+                    "`!store_remove @owner <lot_id> [qty]` – remove or reduce a lot from a store.",
+                    "`!wh_tx <tx_id>` – inspect a wholesaler transaction by ID.",
+                    "`!wh_retry_payout <tx_id>` – retry a pending seller payout.",
+                    "`!wh_paths` – show wholesaler data file paths (useful for debugging).",
                 ]),
             ),
         ]
@@ -453,7 +460,7 @@ class Admin(commands.Cog):
         embeds = []
         current = discord.Embed(
             title="🛠️ NCRP Bot — Admin Help",
-            description="Commands for admins only.",
+            description="Commands for server administrators.",
             color=discord.Color.dark_gold(),
         )
         for name, value in fields:
