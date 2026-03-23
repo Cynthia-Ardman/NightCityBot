@@ -1,0 +1,50 @@
+Here's my assessment of the new changes:
+
+---
+
+## Three Updates
+
+### 1. Automated Monthly Rent Collection (Tasks #8 & #9)
+
+This is the biggest addition. Rent collection is now fully automated on a calendar-month boundary.
+
+**The scheduler.** A `discord.ext.tasks` loop fires daily at the configured time (`RENT_COLLECTION_HOUR`/`RENT_COLLECTION_MINUTE` in the server's timezone). On the 1st of the month, if rent hasn't already been collected, it runs the full cycle. The sentinel is stored in `payment_labels` with a synthetic user ID of `"0"` -- clever reuse of existing infrastructure rather than inventing a new table.
+
+**Startup catch-up.** If the bot was down on the 1st, the `_startup_catchup` logic handles it: if it's still within the first 3 days of the month, it triggers immediately. After day 3, it DMs `REPORT_USER_ID` with a warning that rent was missed. This covers the realistic failure mode (bot restart, hosting hiccup) without silently skipping a month.
+
+**Calendar-month boundaries.** The double-charge protection switched from rolling 30-day windows (`_label_used_recently`) to calendar-month checks (`_paid_this_month`). This is the correct model -- rent is a monthly obligation, not a "once every 30 days" thing. A player charged on Jan 1st should be chargeable again on Feb 1st, not Feb 1st + however-many-hours-the-old-window-was-off-by.
+
+**`RentRunResult` return value.** `run_rent_collection` now returns a `NamedTuple(charged, skipped, errors)` so the auto-scheduler can report a meaningful summary. Clean.
+
+**`!trigger_auto_rent`** lets admins manually fire the auto cycle with force mode for testing/recovery, gated behind the `auto_collect_rent` system flag.
+
+**Weekly cleanup task.** `payment_labels` rows older than 60 days are automatically pruned. This prevents unbounded table growth from a table that otherwise only gets INSERTs and UPSERTs.
+
+### 2. Help Command Overhaul (Task #7)
+
+The `!helpme`, `!helpfixer`, and `!helpadmin` embeds were restructured. The main changes:
+
+- `!helpme` is more concise -- the wholesaler section went from a wall of admin commands to just the 2 commands players actually use, with a pointer to `!helpbusiness`
+- Character sheet commands moved to their own section in `!helpfixer`
+- `!helpadmin` got new sections for "Scheduled Jobs" and "Rent & Payment," and the wholesaler admin commands were split into their own section instead of being mixed into the player-facing gun store section
+- Test commands marked as "bot owner only"
+
+This is a usability improvement -- players no longer see admin-only wholesaler commands in their help output.
+
+### 3. Error Alerting via DM
+
+The `on_command_error` handler now DMs `REPORT_USER_ID` with structured error details (user, channel, command, error type) in addition to the existing audit log entry. The `_alert_report_user` helper is reusable. This means you'll know about command failures even if you're not watching the audit channel.
+
+---
+
+## What I'd Suggest Next
+
+Looking at the current state, my suggestions from the last round still apply, but I'd reprioritize based on what you just shipped:
+
+**1. Batch the `_paid_this_month` checks.** This was item #4 last round, but it's more urgent now. The rent loop still does 4 sequential DB queries per member. With auto-collection running unattended on the 1st, you want this to be as fast and DB-friendly as possible. A single `SELECT 1 FROM payment_labels WHERE user_id = $1 AND label = ANY($2) AND ...` per member would be a quick win.
+
+**2. Split `db.py`.** Still 2,325 lines. Still the #1 structural improvement available.
+
+**3. The `_AutoCtx` proxy.** It works, but it's fragile -- if any code path touches `ctx.author.roles`, `ctx.author.id` (as an int for API calls), or other `Member`-specific attributes, it'll fail at runtime since `bot.user` is a `User`, not a `Member`. Consider fetching the guild's `Member` object for the bot: `guild.me` gives you `discord.Member` with all the role/permission attributes intact.
+
+**4. Extract the rent collection logic into its own cog/module.** Economy is now 1,991 lines, and the auto-rent scheduler + catch-up + run logic alone added ~180 lines. The rent collection flow (scheduler, `run_rent_collection`, `collect_housing`, `collect_business`, `collect_trauma`, `process_*_rent`, `deduct_flat_fee`) is a natural extraction candidate.
