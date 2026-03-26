@@ -506,6 +506,7 @@ class WholesalerCog(commands.Cog):
         price_idx = idx_for(["Price New", "Price", "Price (New)"], 3)
         cyberware_idx = idx_for(["Cyberware Needed", "Cyberware"], 4)
         restriction_idx = idx_for(["Restriction", "Restrictions"], None)
+        status_idx = idx_for(["Status", "Market Status"], None)
 
         section_header_map = {
             "pistols": "pistol",
@@ -559,6 +560,10 @@ class WholesalerCog(commands.Cog):
                 restriction_raw = str(row[restriction_idx]).strip().lower()
             restriction = restriction_raw if restriction_raw in ("basic", "controlled", "restricted") else "basic"
 
+            status = "live"
+            if status_idx is not None and status_idx < len(row) and row[status_idx] is not None:
+                status = str(row[status_idx]).strip().lower()
+
             parsed.append(
                 {
                     "gun_name": gun_name,
@@ -570,6 +575,7 @@ class WholesalerCog(commands.Cog):
                     "gun_category": WholesalerCog._derive_category(effectiveness_raw),
                     "weapon_type": weapon_type,
                     "restriction": restriction,
+                    "status": status,
                 }
             )
 
@@ -1576,14 +1582,19 @@ class WholesalerCog(commands.Cog):
             return
 
         try:
-            guns = await self._load_master_guns()
+            all_guns = await self._load_master_guns()
         except Exception as e:
             logger.exception("wh_restock failed")
             await ctx.send(f"❌ Restock failed while reading source sheet: {e}")
             return
 
+        guns = [g for g in all_guns if g.get("status", "live") == "live"]
+        draft_count = len(all_guns) - len(guns)
         if not guns:
-            await ctx.send("❌ No valid guns found in source sheet.")
+            await ctx.send(
+                "❌ No market-ready guns found in source sheet. "
+                f"{draft_count} gun(s) found but none have Status = live."
+            )
             return
 
         async with self.lock:
@@ -1610,9 +1621,10 @@ class WholesalerCog(commands.Cog):
             )
             return
 
-        await ctx.send(f"✅ Wholesaler is restocked. Added {len(lots)} wholesale lots.")
+        draft_note = f" ({draft_count} draft gun(s) excluded)" if draft_count else ""
+        await ctx.send(f"✅ Wholesaler is restocked. Added {len(lots)} wholesale lots{draft_note}.")
         await self._audit_send(
-            f"[WHOLESALE_RESTOCK] by={member.mention} lots={len(lots)} qtyL={level_totals['L']} qtyM={level_totals['M']} qtyH={level_totals['H']}"
+            f"[WHOLESALE_RESTOCK] by={member.mention} lots={len(lots)} qtyL={level_totals['L']} qtyM={level_totals['M']} qtyH={level_totals['H']} draft_excluded={draft_count}"
         )
 
     @commands.command(name="wh_clear_inventory")
@@ -1864,6 +1876,9 @@ class WholesalerCog(commands.Cog):
             await ctx.send("⚠️ No guns found in the master sheet.")
             return
 
+        live_count = sum(1 for g in guns if g.get("status", "live") == "live")
+        draft_count = len(guns) - live_count
+
         grouped: dict[str, list[dict[str, Any]]] = {}
         for g in guns:
             wtype = g.get("weapon_type") or "unknown"
@@ -1873,8 +1888,12 @@ class WholesalerCog(commands.Cog):
             k for k in grouped if k not in self.WEAPON_TYPES
         )
 
+        status_note = f"✅ {live_count} live"
+        if draft_count:
+            status_note += f" | ⚠️ {draft_count} draft (excluded from restock)"
+
         pages: list[str] = []
-        current_lines: list[str] = [f"**Master Gun List** — {len(guns)} guns parsed\n"]
+        current_lines: list[str] = [f"**Master Gun List** — {len(guns)} guns parsed — {status_note}\n"]
         for wtype in type_order:
             type_guns = grouped.get(wtype)
             if not type_guns:
@@ -1886,8 +1905,10 @@ class WholesalerCog(commands.Cog):
             for g in type_guns:
                 r = g.get("restriction", "basic")
                 r_tag = "" if r == "basic" else f" | 🔒 {r}"
+                s = g.get("status", "live")
+                s_tag = "" if s == "live" else f" | ⚠️ {s}"
                 section_lines.append(
-                    f"`{g['gun_level']}` **{g['gun_name']}** — ${g['price_new']:,}{r_tag}"
+                    f"`{g['gun_level']}` **{g['gun_name']}** — ${g['price_new']:,}{r_tag}{s_tag}"
                 )
 
             block = "\n".join(section_lines)
