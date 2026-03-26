@@ -1,0 +1,63 @@
+**__Gun Store Owners/Sellers__**
+
+** __Upcoming Gun System Changes (Slow Rollout)__**
+
+Hey y’all, heads up that we’re rolling out a **new gun buying/selling system** soon. The goal is simple:
+
+* **Money can’t buy unlimited power** (this isn’t grinder gear-progression RP)
+* **Shops stay relevant** (no more “everyone has everything forever so the city feels empty”)
+* **Low admin overhead** (simple rules + sheets + seller logs)
+### What this means for gun stores
+**You become the main point of sale for weapons** in NCRP. More walk-in RP, more special orders, more reasons for players to interact with the city instead of bypassing it with cash.
+### The new structure (high level)
+
+**1) __Master Gun Catalog (cyberware-style)__**
+* We’ll maintain a master “what exists in NCRP” catalog (like we do for cyberware).
+* We'll also maintain a list per character like we do for cyberware
+* **Being in the catalog ≠ stocked somewhere.**
+* To buy a gun, a player needs a seller (gun store / fixer) who carries it or can special order it.
+
+**2) __Gun Access Tiers__**
+* **Common:** cash only (normal shelf stuff)
+* **Controlled:** cash + buyer must be on *your* “Cleared for Controlled” list (rep/vouch based per player character)
+* **Restricted:** cash + cleared list + **Fixer sponsor approval** (This is mostly going to be story based, meaning they need to have a lore reason to have a weapon)
+* **Unique:** plot-only
+
+**3) __Stock vs Special Order__**
+* If you have it **stocked**, you can sell it immediately.
+* If you **don’t** have it stocked, you can **special order it** → arrives **next week** (this keeps stocking meaningful and stops “instant anything”).
+
+**4) __Seller-Logged Purchases (important)__**
+* **If the sale isn’t logged by the seller, it doesn’t count.**
+* We'll do this via a form that you'll fill out, just really simple, character name + gun name
+* This is how we keep it enforceable and avoid arguments later.
+
+### __What you’ll be asked to do__
+We’re going to give you a **simple template sheet** (like cyberware) where you track:
+* What guns you *carry*
+* Your prices (you set your markup)
+* **Quantity tracking only for Controlled/Restricted**
+* Your “Cleared for Controlled Weapons” list (rep/vouch/faction/etc per character, but this is up to you **In Character**)
+### __Restocking (retailer flow)__
+* You’ll buy stock through the **weekly wholesale list** (run by fixers / corp producers / black market sources).
+* Wholesale money **doesn’t go to a player’s pocket**.
+* You choose your retail pricing.
+### __Custom weapons (prefabs not on the list)__
+* Players request customs via ticket, either character ticket or general ticket, this goes to fixers, you don't need to worry about that.
+* If approved, we assign **tier + price** and add it to the master catalog.
+* Then you can sell it as a **special order** like anything else.
+## Rollout plan 
+We’re doing this in phases:
+
+1. **Immediate / now-ish:** Get feedback from you all.
+2. **Next:** collect what guns people already have (via a survey)
+3. **Then:** finalize the master gun catalog + start wholesale/retail sales through the system
+4. **After that:** inventory + logging becomes “officially required” and the system goes live.
+
+If you’re a gun store owner, your “prep work” is basically:
+
+* Decide what you want to stock + what you’d price it at
+* Think about what qualifies someone for your **Controlled cleared list**
+* Be ready to use the template sheet + log sales (we’ll give you the format)
+
+This is your chance to give feedback on this before we go live with it, which will be a bit because we need to gather all the weapons we currently have.
