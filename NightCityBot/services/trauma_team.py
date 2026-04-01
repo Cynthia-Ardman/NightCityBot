@@ -87,7 +87,7 @@ class TraumaTeamService:
             mention = f"<@&{config.TRAUMA_TEAM_ROLE_ID}>"
             if not dry_run and target_thread:
                 await target_thread.send(
-                    f"❌ Payment for **{trauma_role.name}** (${cost}) by <@{member.id}> failed.",
+                    f"❌ Payment for **{trauma_role.name}** (${cost}) by <@{member.id}> failed."
                     f"\n## {mention} Subscription suspended.",
                 )
             if log is not None:
