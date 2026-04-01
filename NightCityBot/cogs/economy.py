@@ -1704,6 +1704,7 @@ class Economy(commands.Cog):
                     )
                     await _flush(len(log) - 1)
 
+                base_ok = True
                 if not on_loa:
                     start = len(log)
                     _baseline = _cfg.get_baseline_living_cost()
@@ -1783,7 +1784,13 @@ class Economy(commands.Cog):
                 if verbose:
                     pass
                 else:
-                    await ctx.send(f"✅ Completed for <@{member.id}>", allowed_mentions=_no_ping)
+                    if not on_loa and not base_ok:
+                        await ctx.send(
+                            f"⚠️ Completed for <@{member.id}> — baseline not collected (insufficient funds)",
+                            allowed_mentions=_no_ping,
+                        )
+                    else:
+                        await ctx.send(f"✅ Completed for <@{member.id}>", allowed_mentions=_no_ping)
                 _charged += 1
                 if dry_run and admin_cog:
                     await admin_cog.log_audit(ctx.author, summary)
