@@ -11,7 +11,7 @@ except Exception:  # pragma: no cover - rapidfuzz may not be installed
 
 import discord
 from discord.ext import commands
-from NightCityBot.utils.permissions import is_fixer
+from NightCityBot.utils.permissions import is_fixer, is_cs_approver
 from NightCityBot.utils.helpers import save_json_file, safe_filename
 from pathlib import Path
 import config
@@ -241,7 +241,7 @@ class CharacterManager(commands.Cog):
         await ctx.send(f"✅ {thread.name} moved back to {src.name}.")
 
     @commands.command(aliases=["sheet_search", "search_sheets"])
-    @is_fixer()
+    @commands.check_any(is_fixer(), is_cs_approver())
     async def search_characters(self, ctx: commands.Context, *, keyword: str) -> None:
         """Search character sheets for ``keyword``.
 

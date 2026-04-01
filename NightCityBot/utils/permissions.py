@@ -29,6 +29,30 @@ def is_fixer():
 
     return commands.check(predicate)
 
+def is_cs_approver():
+    """Check that the command author has the CS Approver role."""
+
+    async def predicate(ctx):
+        guild = ctx.bot.get_guild(config.GUILD_ID)
+        if not guild:
+            raise commands.CheckFailure("CS Approver role required")
+
+        member = ctx.author
+        if not isinstance(member, discord.Member):
+            member = guild.get_member(ctx.author.id)
+            if not member:
+                try:
+                    member = await guild.fetch_member(ctx.author.id)
+                except discord.NotFound:
+                    raise commands.CheckFailure("CS Approver role required")
+
+        if any(r.id == config.CS_APPROVER_ROLE_ID for r in getattr(member, "roles", [])):
+            return True
+        raise commands.CheckFailure("CS Approver role required")
+
+    return commands.check(predicate)
+
+
 def is_ripperdoc():
     """Check that the command author has the Ripperdoc role."""
 
