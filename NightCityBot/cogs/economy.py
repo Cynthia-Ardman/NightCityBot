@@ -1133,7 +1133,8 @@ class Economy(commands.Cog):
             )
             if eviction_channel and not dry_run:
                 await eviction_channel.send(
-                    f"🚨 <@{member.id}> — Housing Rent due: ${housing_total} — **FAILED** (insufficient funds) 🚨\n## You have **7 days** to pay or face eviction."
+                    f"🚨 <@{member.id}> — Housing Rent due: ${housing_total} — **FAILED** (insufficient funds) 🚨\n## You have **7 days** to pay or face eviction.",
+                    allowed_mentions=discord.AllowedMentions(users=False),
                 )
             log.append(
                 f"⚠️ Housing rent skipped for <@{member.id}> due to insufficient funds."
@@ -1164,7 +1165,8 @@ class Economy(commands.Cog):
             log.append("✅ Housing Rent collection completed. Notice Sent to #rent")
             if rent_log_channel and not dry_run:
                 await rent_log_channel.send(
-                    f"✅ <@{member.id}> — Housing Rent paid: ${housing_total}"
+                    f"✅ <@{member.id}> — Housing Rent paid: ${housing_total}",
+                    allowed_mentions=discord.AllowedMentions(users=False),
                 )
         else:
             log.append(
@@ -1206,7 +1208,8 @@ class Economy(commands.Cog):
             )
             if eviction_channel and not dry_run:
                 await eviction_channel.send(
-                    f"🚨 <@{member.id}> — Business Rent due: ${business_total} — **FAILED** (insufficient funds) 🚨\n## You have **7 days** to pay or face eviction."
+                    f"🚨 <@{member.id}> — Business Rent due: ${business_total} — **FAILED** (insufficient funds) 🚨\n## You have **7 days** to pay or face eviction.",
+                    allowed_mentions=discord.AllowedMentions(users=False),
                 )
             log.append(
                 f"⚠️ Business rent skipped for <@{member.id}> due to insufficient funds."
@@ -1237,7 +1240,8 @@ class Economy(commands.Cog):
             log.append("✅ Business Rent collection completed. Notice Sent to #rent")
             if rent_log_channel and not dry_run:
                 await rent_log_channel.send(
-                    f"✅ <@{member.id}> — Business Rent paid: ${business_total}"
+                    f"✅ <@{member.id}> — Business Rent paid: ${business_total}",
+                    allowed_mentions=discord.AllowedMentions(users=False),
                 )
         else:
             log.append(
@@ -1595,10 +1599,8 @@ class Economy(commands.Cog):
                     members_to_process = [m]
                 break
             if not target_user:
-                has_verified = any(r.id == config.VERIFIED_ROLE_ID for r in m.roles)
-                has_tier = any("Tier" in r.name for r in m.roles)
                 has_approved = any(r.id == config.APPROVED_ROLE_ID for r in m.roles)
-                if (has_verified or has_tier) and has_approved:
+                if has_approved:
                     members_to_process.append(m)
         if not members_to_process:
             if target_user:
@@ -1630,10 +1632,12 @@ class Economy(commands.Cog):
         rent_log_channel = ctx.guild.get_channel(config.RENT_LOG_CHANNEL_ID)
         admin_cog = self.bot.get_cog("Admin")
 
+        _no_ping = discord.AllowedMentions(users=False)
+
         async def _flush(start: int) -> None:
             if verbose:
                 for line in log[start:]:
-                    await ctx.send(line)
+                    await ctx.send(line, allowed_mentions=_no_ping)
 
         for idx, member in enumerate(members_to_process, start=1):
             try:
@@ -1646,21 +1650,23 @@ class Economy(commands.Cog):
                     ])
                     if paid:
                         await ctx.send(
-                            f"⏭️ Skipping <@{member.id}> — already paid this month."
+                            f"⏭️ Skipping <@{member.id}> — already paid this month.",
+                            allowed_mentions=_no_ping,
                         )
                         _skipped += 1
                         continue
 
                 if not any(r.id == config.APPROVED_ROLE_ID for r in member.roles):
                     await ctx.send(
-                        f"⏭️ Skipping <@{member.id}> — no approved character."
+                        f"⏭️ Skipping <@{member.id}> — no approved character.",
+                        allowed_mentions=_no_ping,
                     )
                     _skipped += 1
                     continue
 
                 progress = f"{idx}/{len(members_to_process)}"
                 log: List[str] = [f"🔍 **Working on:** <@{member.id}> ({progress})"]
-                await ctx.send(log[0])
+                await ctx.send(log[0], allowed_mentions=_no_ping)
 
                 role_names = [r.name for r in member.roles]
                 app_roles = [r for r in role_names if "Tier" in r]
@@ -1679,7 +1685,7 @@ class Economy(commands.Cog):
                     summary = "\n".join(log)
                     await _flush(0)
                     if not verbose:
-                        await ctx.send(f"⚠️ Could not fetch balance for <@{member.id}>")
+                        await ctx.send(f"⚠️ Could not fetch balance for <@{member.id}>", allowed_mentions=_no_ping)
                     if dry_run and admin_cog:
                         await admin_cog.log_audit(ctx.author, summary)
                     continue
@@ -1707,14 +1713,16 @@ class Economy(commands.Cog):
                     if not base_ok:
                         if eviction_channel and not dry_run:
                             await eviction_channel.send(
-                                f"⚠️ <@{member.id}> could not pay baseline living cost (${_baseline})."
+                                f"⚠️ <@{member.id}> could not pay baseline living cost (${_baseline}).",
+                                allowed_mentions=_no_ping,
                             )
                         log.append(
                             "⚠️ Baseline living cost unpaid. Continuing with rent steps."
                         )
                     elif rent_log_channel and not dry_run:
                         await rent_log_channel.send(
-                            f"✅ <@{member.id}> — Baseline living cost paid: ${_baseline}"
+                            f"✅ <@{member.id}> — Baseline living cost paid: ${_baseline}",
+                            allowed_mentions=_no_ping,
                         )
                     await _flush(start)
 
@@ -1775,7 +1783,7 @@ class Economy(commands.Cog):
                 if verbose:
                     pass
                 else:
-                    await ctx.send(f"✅ Completed for <@{member.id}>")
+                    await ctx.send(f"✅ Completed for <@{member.id}>", allowed_mentions=_no_ping)
                 _charged += 1
                 if dry_run and admin_cog:
                     await admin_cog.log_audit(ctx.author, summary)
@@ -1794,7 +1802,7 @@ class Economy(commands.Cog):
                 audit_lines.append(summary)
 
             except Exception as e:
-                await ctx.send(f"❌ Error processing <@{member.id}>: `{e}`")
+                await ctx.send(f"❌ Error processing <@{member.id}>: `{e}`", allowed_mentions=discord.AllowedMentions(users=False))
                 _errors += 1
                 if dry_run and admin_cog:
                     await admin_cog.log_audit(
