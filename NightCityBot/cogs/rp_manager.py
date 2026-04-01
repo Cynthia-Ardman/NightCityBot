@@ -23,19 +23,21 @@ class RPManager(commands.Cog):
             return
         if isinstance(message.channel, discord.TextChannel) and message.channel.name.startswith("text-rp-"):
             if message.content.strip().startswith("!"):
-                ctx = await self.bot.get_context(message)
+                # Let the bot's normal processing run the command.
+                # We only delete the message here to keep the RP channel clean.
+                # Deleting is deferred briefly so the command has time to run
+                # first (e.g. end_rp may delete the channel — if so, the
+                # message is already gone and we suppress the 404 quietly).
                 admin = self.bot.get_cog('Admin')
-                async def audit_send(content=None, **kwargs):
-                    if admin and content:
-                        await admin.log_audit(message.author, content)
-                ctx.send = audit_send
-                await self.bot.invoke(ctx)
+                await asyncio.sleep(0.5)
                 try:
                     await message.delete()
                     if admin:
-                        await admin.log_audit(message.author, f"🗑️ Deleted message in RP: {message.content}")
+                        await admin.log_audit(message.author, f"🗑️ Deleted command in RP channel: {message.content}")
+                except discord.NotFound:
+                    pass  # Channel or message already gone (e.g. end_rp deleted the channel)
                 except Exception:
-                    logger.warning("Suppressed exception", exc_info=True)
+                    logger.warning("Suppressed exception while deleting RP command message", exc_info=True)
                 return
 
     @commands.command(

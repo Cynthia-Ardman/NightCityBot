@@ -1,0 +1,144 @@
+2026-03-31 15:44:17.52
+b4496ddf
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/discord/http.py", line 758, in request
+2026-03-31 15:44:17.52
+b4496ddf
+User
+File "/home/runner/workspace/NightCityBot/cogs/rp_manager.py", line 34, in on_message
+2026-03-31 15:44:17.52
+b4496ddf
+User
+2026-03-31 22:44:17,518 - WARNING - Suppressed exception
+2026-03-31 15:44:17.52
+b4496ddf
+User
+Traceback (most recent call last):
+2026-03-31 15:44:17.52
+b4496ddf
+User
+await message.delete()
+2026-03-31 15:44:17.52
+b4496ddf
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/discord/message.py", line 1304, in delete
+2026-03-31 15:44:17.52
+b4496ddf
+User
+await self._state.http.delete_message(self.channel.id, self.id)
+2026-03-31 15:44:17.52
+b4496ddf
+User
+discord.errors.NotFound: 404 Not Found (error code: 10003): Unknown Channel
+2026-03-31 15:44:17.52
+b4496ddf
+User
+raise NotFound(response, data)
+2026-03-31 16:06:10.88
+b4496ddf
+User
+2026-03-31 23:06:10,882 - INFO - AUDIT medusa_cascade: 📝 Ending RP session, logging contents and deleting channel...
+2026-03-31 16:06:14.49
+b4496ddf
+User
+2026-03-31 23:06:14,493 - INFO - AUDIT medusa_cascade: 📝 Ending RP session, logging contents and deleting channel...
+2026-03-31 16:06:18.40
+b4496ddf
+User
+2026-03-31 23:06:18,404 - INFO - AUDIT medusa_cascade: 📝 Ending RP session, logging contents and deleting channel...
+2026-03-31 16:06:18.60
+b4496ddf
+User
+await message.delete()
+2026-03-31 16:06:18.60
+b4496ddf
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/discord/message.py", line 1304, in delete
+2026-03-31 16:06:18.60
+b4496ddf
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/discord/http.py", line 758, in request
+2026-03-31 16:06:18.60
+b4496ddf
+User
+discord.errors.NotFound: 404 Not Found (error code: 10003): Unknown Channel
+2026-03-31 16:06:18.60
+b4496ddf
+User
+await self._state.http.delete_message(self.channel.id, self.id)
+2026-03-31 16:06:18.60
+b4496ddf
+User
+2026-03-31 23:06:18,597 - WARNING - Suppressed exception
+2026-03-31 16:06:18.60
+b4496ddf
+User
+File "/home/runner/workspace/NightCityBot/cogs/rp_manager.py", line 34, in on_message
+2026-03-31 16:06:18.60
+b4496ddf
+User
+raise NotFound(response, data)
+2026-03-31 16:06:18.60
+b4496ddf
+User
+Traceback (most recent call last):
+2026-03-31 16:06:21.89
+b4496ddf
+User
+2026-03-31 23:06:21,892 - WARNING - Suppressed exception
+2026-03-31 16:06:21.89
+b4496ddf
+User
+discord.errors.NotFound: 404 Not Found (error code: 10003): Unknown Channel
+2026-03-31 16:06:21.89
+b4496ddf
+User
+raise NotFound(response, data)
+2026-03-31 16:06:21.89
+b4496ddf
+User
+Traceback (most recent call last):
+2026-03-31 16:06:21.89
+b4496ddf
+User
+File "/home/runner/workspace/NightCityBot/cogs/rp_manager.py", line 34, in on_message
+2026-03-31 16:06:21.89
+b4496ddf
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/discord/message.py", line 1304, in delete
+2026-03-31 16:06:21.89
+b4496ddf
+User
+await self._state.http.delete_message(self.channel.id, self.id)
+2026-03-31 16:06:21.89
+b4496ddf
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/discord/http.py", line 758, in request
+2026-03-31 16:06:21.89
+b4496ddf
+User
+await message.delete()
+2026-03-31 16:06:24.88
+b4496ddf
+User
+2026-03-31 23:06:24,888 - INFO - AUDIT medusa_cascade: 📝 Ending RP session, logging contents and deleting channel...
+2026-03-31 16:06:26.92
+b4496ddf
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/discord/http.py", line 758, in request
+2026-03-31 16:06:26.92
+b4496ddf
+User
+raise NotFound(response, data)
+2026-03-31 16:06:26.92
+b4496ddf
+User
+discord.errors.NotFound: 404 Not Found (error code: 10003): Unknown Channel
+2026-03-31 16:06:26.92
+b4496ddf
+User
+2026-03-31 23:06:26,917 - WARNING - Suppressed exception
+2026-03-31 16:06:26.92
+b4496ddf
+User
+await self._state.http.delete_message(self.channel.id, self.id)
