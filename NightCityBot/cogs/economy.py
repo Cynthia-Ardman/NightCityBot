@@ -1918,6 +1918,7 @@ class Economy(commands.Cog):
         to also preview the upcoming cyberware medication cost for ``target_user``.
         """
         verbose = False
+        force = False
         include_cyber = False
         if target_user is None:
             converter = commands.MemberConverter()
@@ -1926,6 +1927,8 @@ class Economy(commands.Cog):
                 lower = arg.lower()
                 if lower in {"-v", "--verbose", "-verbose", "verbose"}:
                     verbose = True
+                elif lower in {"-force", "--force", "force", "-f"}:
+                    force = True
                 elif lower in {"-cyberware", "--cyberware", "cyberware"}:
                     include_cyber = True
                 else:
@@ -1941,6 +1944,8 @@ class Economy(commands.Cog):
                 lower = arg.lower()
                 if lower in {"-v", "--verbose", "-verbose", "verbose"}:
                     verbose = True
+                elif lower in {"-force", "--force", "force", "-f"}:
+                    force = True
                 elif lower in {"-cyberware", "--cyberware", "cyberware"}:
                     include_cyber = True
         await self.run_rent_collection(
@@ -1948,6 +1953,7 @@ class Economy(commands.Cog):
             target_user=target_user,
             dry_run=True,
             verbose=verbose,
+            force=force,
             preview_dm=target_user is not None,
         )
 
