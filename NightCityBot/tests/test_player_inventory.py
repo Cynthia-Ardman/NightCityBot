@@ -722,6 +722,26 @@ class TestInvAdd:
         assert "✅" in reply
         assert "[basic]" not in reply  # basic restriction is silent
 
+    def test_keyword_syntax_rejected(self, monkeypatch):
+        """Using key=value syntax (e.g. item_type=gun) gives a clear corrective error."""
+        cog = _make_cog(monkeypatch)
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_add_item", AsyncMock(return_value=True))
+        ctx = _ctx(author_id=900)
+        player = _make_member(999)
+
+        async def run():
+            cmd = getattr(cog, "inv_add")
+            # Simulates: !inv_add @player item 1 char item_type=gun restriction=basic
+            return await cmd.callback(
+                cog, ctx, player, "item", 1, "char", "item_type=gun", "restriction=basic"
+            )
+
+        _run(run())
+        reply = ctx.send.call_args[0][0]
+        assert "❌" in reply
+        assert "positional" in reply.lower()
+        assert "Example" in reply
+
 
 # ------------------------------------------------------------------
 # TestInvRemove

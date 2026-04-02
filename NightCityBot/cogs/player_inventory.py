@@ -746,6 +746,21 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         restriction = restriction.strip().lower()
         seller = seller.strip().strip('"').strip("'")
 
+        # Detect keyword-style arguments (e.g. item_type=gun, restriction=basic) —
+        # this command is positional; keyword syntax is not supported.
+        _kw_args = {"item_type": item_type, "restriction": restriction,
+                    "description": description, "seller": seller}
+        _bad_kw = [v for v in _kw_args.values() if "=" in v]
+        if _bad_kw:
+            await ctx.send(
+                "❌ This command uses **positional** arguments — `key=value` syntax doesn't work here.\n"
+                "📋 Correct format:\n"
+                "`!inv_add @player \"item name\" <qty> \"character\" [item_type] [restriction] [\"description\"] [price] [\"seller\"]`\n"
+                "**Example (gun):** `!inv_add @V \"Militech M10AF\" 1 \"V\" gun controlled`\n"
+                "**Example (cyberware):** `!inv_add @V \"Kiroshi Optics Mk.1\" 1 \"V\" cyberware`"
+            )
+            return
+
         if not name:
             await ctx.send("❌ Item name is required.")
             return
@@ -758,7 +773,9 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         if restriction not in self.VALID_RESTRICTIONS:
             await ctx.send(
                 f"❌ Invalid restriction **{restriction}**. "
-                f"Must be one of: {', '.join(self.VALID_RESTRICTIONS)}."
+                f"Must be one of: {', '.join(self.VALID_RESTRICTIONS)}.\n"
+                "📋 Format: `!inv_add @player \"item name\" <qty> \"character\" [item_type] [restriction]`\n"
+                "**Example:** `!inv_add @V \"Militech M10AF\" 1 \"V\" gun controlled`"
             )
             return
 
