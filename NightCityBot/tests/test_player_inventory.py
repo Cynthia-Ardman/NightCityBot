@@ -231,6 +231,7 @@ class TestTrade:
         cog = _make_cog(monkeypatch)
         item = _item("Kiroshi")
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[item]))
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_item", AsyncMock(return_value=item))
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_update_owner", AsyncMock(return_value=True))
         ctx = _ctx(author_id=111)
         buyer = _make_member(111)  # same user
@@ -249,6 +250,7 @@ class TestTrade:
         cog = _make_cog(monkeypatch)
         item = _item("Liberty", item_type="gun", restriction="controlled")
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[item]))
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_item", AsyncMock(return_value=item))
         ctx = _ctx(author_id=111)
         _run(_cmd(cog, "trade", ctx, _make_member(999), 1, 2000, buyer_character="V"))
         msg = ctx.send.call_args[0][0]
@@ -258,6 +260,7 @@ class TestTrade:
         cog = _make_cog(monkeypatch)
         item = _item("Militech", item_type="gun", restriction="restricted")
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[item]))
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_item", AsyncMock(return_value=item))
         ctx = _ctx(author_id=111)
         _run(_cmd(cog, "trade", ctx, _make_member(999), 1, 5000, buyer_character="V"))
         assert "restricted" in ctx.send.call_args[0][0]
@@ -273,6 +276,7 @@ class TestTrade:
         cog = _make_cog(monkeypatch)
         item = _item("Kiroshi")
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[item]))
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_item", AsyncMock(return_value=item))
         cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 100, "bank": 0})
         ctx = _ctx(author_id=111)
         _run(_cmd(cog, "trade", ctx, _make_member(999), 1, 5000, buyer_character="V"))
@@ -283,6 +287,7 @@ class TestTrade:
         cog = _make_cog(monkeypatch)
         item = _item("Kiroshi", item_type="cyberware")
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[item]))
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_item", AsyncMock(return_value=item))
 
         pt_records = []
 
@@ -307,13 +312,27 @@ class TestTrade:
 
         assert len(pt_records) == 1
         assert pt_records[0]["amount"] == 2000
+        assert pt_records[0]["seller_id"] == "111"
+        assert pt_records[0]["buyer_id"] == "999"
         assert "⚠️" in ctx.send.call_args[0][0]
+
+    def test_stale_item_blocked_by_re_verify(self, monkeypatch):
+        """If the item is no longer owned by seller at re-verify, trade is rejected."""
+        cog = _make_cog(monkeypatch)
+        item = _item("Kiroshi")
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[item]))
+        # pi_get_item returns None (item no longer exists / was already transferred)
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_item", AsyncMock(return_value=None))
+        ctx = _ctx(author_id=111)
+        _run(_cmd(cog, "trade", ctx, _make_member(999), 1, 1000, buyer_character="V"))
+        assert "no longer in your inventory" in ctx.send.call_args[0][0]
 
     def test_success_logs_to_correct_channel(self, monkeypatch):
         """Gun item trade logs to gun-log channel."""
         cog = _make_cog(monkeypatch)
         item = _item("Liberty", item_type="gun")
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[item]))
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_item", AsyncMock(return_value=item))
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_update_owner", AsyncMock(return_value=True))
 
         gun_ch = MagicMock()
@@ -344,6 +363,16 @@ class TestInvGive:
         target = _make_member(111)  # same user
         _run(_cmd(cog, "inv_give", ctx, target, 1, "V", "Johnny"))
         assert "✅" in ctx.send.call_args[0][0]
+
+    def test_receiver_char_required_for_player_to_player(self, monkeypatch):
+        """Player-to-player gives must include a receiver character name."""
+        cog = _make_cog(monkeypatch)
+        item = _item("Kiroshi", char="V")
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[item]))
+        ctx = _ctx(author_id=111)
+        # No receiver_char provided — omit the argument entirely
+        _run(_cmd(cog, "inv_give", ctx, _make_member(999), 1, "V"))
+        assert "required" in ctx.send.call_args[0][0].lower()
 
     def test_invalid_row_rejected(self, monkeypatch):
         cog = _make_cog(monkeypatch)

@@ -386,14 +386,12 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         """
         CREATE TABLE IF NOT EXISTS pending_transfers (
             transfer_id     TEXT PRIMARY KEY,
-            from_id         TEXT NOT NULL,
-            to_id           TEXT NOT NULL,
+            seller_id       TEXT NOT NULL,
+            buyer_id        TEXT NOT NULL,
             item_id         TEXT NOT NULL,
             amount          INT NOT NULL DEFAULT 0,
-            status          TEXT NOT NULL DEFAULT 'pending',
-            error_detail    TEXT NOT NULL DEFAULT '',
-            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            resolved_at     TIMESTAMPTZ
+            resolved        BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """,
     ]
@@ -2804,11 +2802,17 @@ async def pi_delete_item(item_id: str) -> bool:
         return False
 
 
-async def pi_update_owner(item_id: str, new_owner_id: str, new_character: str) -> bool:
+async def pi_update_owner(
+    item_id: str, new_owner_id: str, new_character: str, old_owner_id: str
+) -> bool:
     """Transfer ownership of an item to a new player/character.
 
+    The WHERE clause includes ``old_owner_id`` as a guard so that if ownership
+    has already changed (concurrent command or stale display), the UPDATE hits
+    zero rows and the caller gets False — preventing accidental re-transfer.
+
     Returns True only when exactly one row was updated.
-    Returns False if item_id was not found (UPDATE 0) or a DB error occurred.
+    Returns False if item_id was not found, owner guard failed, or a DB error occurred.
     """
     try:
         pool = await get_pool()
@@ -2817,9 +2821,9 @@ async def pi_update_owner(item_id: str, new_owner_id: str, new_character: str) -
                 """
                 UPDATE player_inventory
                 SET owner_id = $2, character_name = $3
-                WHERE item_id = $1
+                WHERE item_id = $1 AND owner_id = $4
                 """,
-                str(item_id), str(new_owner_id), str(new_character),
+                str(item_id), str(new_owner_id), str(new_character), str(old_owner_id),
             ),
             label="pi_update_owner",
         )
@@ -2827,7 +2831,9 @@ async def pi_update_owner(item_id: str, new_owner_id: str, new_character: str) -
         rows_affected = int(result.split()[-1]) if result else 0
         if rows_affected == 0:
             logger.warning(
-                "pi_update_owner: UPDATE 0 for item_id='%s' — item not found in DB", item_id,
+                "pi_update_owner: UPDATE 0 for item_id='%s' owner_id='%s' — "
+                "item not found or owner mismatch",
+                item_id, old_owner_id,
             )
         return rows_affected > 0
     except Exception:
@@ -2873,17 +2879,15 @@ async def pt_create(transfer: dict) -> bool:
             lambda: pool.execute(
                 """
                 INSERT INTO pending_transfers
-                    (transfer_id, from_id, to_id, item_id, amount, status, error_detail, created_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                    (transfer_id, seller_id, buyer_id, item_id, amount, resolved, created_at)
+                VALUES ($1, $2, $3, $4, $5, FALSE, NOW())
                 ON CONFLICT (transfer_id) DO NOTHING
                 """,
                 str(transfer["transfer_id"]),
-                str(transfer["from_id"]),
-                str(transfer["to_id"]),
+                str(transfer["seller_id"]),
+                str(transfer["buyer_id"]),
                 str(transfer["item_id"]),
                 int(transfer.get("amount", 0)),
-                str(transfer.get("status", "pending")),
-                str(transfer.get("error_detail", "")),
             ),
             label="pt_create",
         )
@@ -2894,18 +2898,17 @@ async def pt_create(transfer: dict) -> bool:
 
 
 async def pt_get_pending() -> list[dict]:
-    """Return all pending transfer records."""
+    """Return all unresolved pending transfer records."""
     try:
         pool = await get_pool()
         rows = await pool.fetch(
-            "SELECT * FROM pending_transfers WHERE status = 'pending' ORDER BY created_at",
+            "SELECT * FROM pending_transfers WHERE resolved = FALSE ORDER BY created_at",
         )
         result = []
         for row in rows:
             d = dict(row)
-            for k in ("created_at", "resolved_at"):
-                if d.get(k) is not None and hasattr(d[k], "isoformat"):
-                    d[k] = d[k].isoformat()
+            if d.get("created_at") is not None and hasattr(d["created_at"], "isoformat"):
+                d["created_at"] = d["created_at"].isoformat()
             result.append(d)
         return result
     except Exception:
@@ -2914,17 +2917,13 @@ async def pt_get_pending() -> list[dict]:
 
 
 async def pt_resolve(transfer_id: str, status: str = "resolved") -> bool:
-    """Mark a pending transfer as resolved (or cancelled, etc.)."""
+    """Mark a pending transfer as resolved."""
     try:
         pool = await get_pool()
         await _with_retry(
             lambda: pool.execute(
-                """
-                UPDATE pending_transfers
-                SET status = $2, resolved_at = NOW()
-                WHERE transfer_id = $1
-                """,
-                str(transfer_id), str(status),
+                "UPDATE pending_transfers SET resolved = TRUE WHERE transfer_id = $1",
+                str(transfer_id),
             ),
             label="pt_resolve",
         )

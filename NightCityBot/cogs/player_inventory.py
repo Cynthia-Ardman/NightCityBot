@@ -389,13 +389,16 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             )
             return
 
-        # Regular player-to-player give (self-give allowed)
-        recv_char = (receiver_char or sender_char).strip().strip('"').strip("'")
-        if not recv_char:
-            await ctx.send("❌ Receiver character name is required.")
+        # Regular player-to-player give (self-give allowed) — receiver_character is required
+        if not receiver_char or not receiver_char.strip().strip('"').strip("'"):
+            await ctx.send(
+                "❌ Receiver character name is required for player-to-player gives. "
+                "Usage: `!inv_give @target <row> \"sender_char\" \"receiver_char\"`"
+            )
             return
+        recv_char = receiver_char.strip().strip('"').strip("'")
 
-        ok = await pi_update_owner(item_id, str(target.id), recv_char)
+        ok = await pi_update_owner(item_id, str(target.id), recv_char, str(ctx.author.id))
         if not ok:
             await ctx.send("❌ Failed to transfer item. Please try again or contact an admin.")
             return
@@ -478,6 +481,16 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         item_type = selected_item.get("item_type", "misc")
         restriction = selected_item.get("restriction", "basic")
 
+        # Locked re-verify: re-fetch item by UUID from DB to confirm it is still
+        # owned by the seller. Guards against concurrent commands or stale displays.
+        live_item = await pi_get_item(item_id)
+        if live_item is None or str(live_item.get("owner_id")) != str(ctx.author.id):
+            await ctx.send(
+                f"❌ Row {row} (`{item_name}`) is no longer in your inventory. "
+                "Please run `!my_inventory` and try again."
+            )
+            return
+
         if restriction in ("controlled", "restricted"):
             await ctx.send(
                 f"❌ **{item_name}** is **{restriction}** — "
@@ -530,12 +543,10 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 pt_id = str(uuid.uuid4())
                 await pt_create({
                     "transfer_id": pt_id,
-                    "from_id": str(buyer.id),
-                    "to_id": str(ctx.author.id),
+                    "seller_id": str(ctx.author.id),
+                    "buyer_id": str(buyer.id),
                     "item_id": item_id,
                     "amount": price,
-                    "status": "pending",
-                    "error_detail": "seller credit failed after buyer debit",
                 })
                 alert_ch = await self._nightcitybot_log_channel()
                 if alert_ch:
@@ -554,8 +565,11 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 )
                 return
 
-        # Transfer ownership in DB
-        ok_transfer = await pi_update_owner(item_id, str(buyer.id), buyer_character)
+        # Transfer ownership in DB — owner guard ensures no stale transfer if item
+        # ownership already changed since the pre-check above.
+        ok_transfer = await pi_update_owner(
+            item_id, str(buyer.id), buyer_character, str(ctx.author.id)
+        )
         if not ok_transfer:
             if price > 0 and buyer.id != ctx.author.id:
                 # Money already moved — persist a recovery record FIRST so admins can
@@ -563,12 +577,10 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 pt_id = str(uuid.uuid4())
                 await pt_create({
                     "transfer_id": pt_id,
-                    "from_id": str(buyer.id),
-                    "to_id": str(ctx.author.id),
+                    "seller_id": str(ctx.author.id),
+                    "buyer_id": str(buyer.id),
                     "item_id": item_id,
                     "amount": price,
-                    "status": "pending",
-                    "error_detail": "ownership DB write failed after payment moved",
                 })
                 logger.error(
                     "trade: ownership write failed after payment moved — "

@@ -958,15 +958,30 @@ class TestGroupedInventory:
         assert len(groups) == 1
         assert groups[0]["count"] == 2
 
-    def test_fifo_ordering_within_group(self, tmp_path, monkeypatch):
+    def test_fifo_ordering_within_same_date_group(self, tmp_path, monkeypatch):
+        """Items with the same date but different times are FIFO-sorted by timestamp."""
         cog = _make_cog(tmp_path, monkeypatch)
         inv = [
-            {"item_id": "late",  "name": "Kiroshi", "price_paid": 3000, "purchased_at": "2026-04-02"},
-            {"item_id": "early", "name": "Kiroshi", "price_paid": 3000, "purchased_at": "2026-04-01"},
+            {"item_id": "later",   "name": "Kiroshi", "price_paid": 3000, "purchased_at": "2026-04-01T14:00:00"},
+            {"item_id": "earlier", "name": "Kiroshi", "price_paid": 3000, "purchased_at": "2026-04-01T08:00:00"},
         ]
         groups = cog._grouped_inventory(inv)
-        # FIFO: earliest purchased_at first
-        assert groups[0]["items"][0]["item_id"] == "early"
+        # Both have same date → one group; earliest timestamp first
+        assert len(groups) == 1
+        assert groups[0]["items"][0]["item_id"] == "earlier"
+
+    def test_different_dates_different_groups(self, tmp_path, monkeypatch):
+        """Items with same name+price but different purchase dates are separate groups."""
+        cog = _make_cog(tmp_path, monkeypatch)
+        inv = [
+            {"item_id": "day2", "name": "Kiroshi", "price_paid": 3000, "purchased_at": "2026-04-02"},
+            {"item_id": "day1", "name": "Kiroshi", "price_paid": 3000, "purchased_at": "2026-04-01"},
+        ]
+        groups = cog._grouped_inventory(inv)
+        # Different dates → two groups, sorted by (name, price, date)
+        assert len(groups) == 2
+        assert groups[0]["date"] == "2026-04-01"
+        assert groups[1]["date"] == "2026-04-02"
 
     def test_different_names_different_groups(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)

@@ -524,30 +524,40 @@ class CyberwareShop(commands.Cog):
 
     @staticmethod
     def _grouped_inventory(inventory: list[dict]) -> list[dict]:
-        """Group inventory rows by (name, price_paid).
+        """Group inventory rows by (name, price_paid, purchased_at-date).
 
-        All copies of the same item at the same price are collapsed into one group
-        regardless of purchase date. Items within each group are sorted FIFO by
-        purchased_at so the oldest copy is consumed first.
+        Rows with the same item name, price paid, and purchase date are collapsed
+        into one group. Items within each group are sorted FIFO by purchased_at
+        so the oldest copy is consumed first.
 
         Returns a list of group dicts, each with:
-          name, price_paid, count, items (sorted FIFO by purchased_at).
-        Groups are sorted alphabetically by name.
+          name, price_paid, date, count, items (sorted FIFO by purchased_at).
+        Groups are sorted alphabetically by name, then by date.
         """
         groups: dict[tuple, dict] = {}
         for item in inventory:
             name = item["name"]
             price = item.get("price_paid")
-            key = (name, price)
+            raw_date = item.get("purchased_at")
+            date_str = str(raw_date)[:10] if raw_date else ""
+            key = (name, price, date_str)
             if key not in groups:
-                groups[key] = {"name": name, "price_paid": price, "items": []}
+                groups[key] = {
+                    "name": name,
+                    "price_paid": price,
+                    "date": date_str,
+                    "items": [],
+                }
             groups[key]["items"].append(item)
         for g in groups.values():
             g["items"].sort(
                 key=lambda i: (i.get("purchased_at") is None, str(i.get("purchased_at") or ""))
             )
             g["count"] = len(g["items"])
-        return sorted(groups.values(), key=lambda g: (g["name"], str(g["price_paid"] or "")))
+        return sorted(
+            groups.values(),
+            key=lambda g: (g["name"], str(g["price_paid"] or ""), g["date"]),
+        )
 
     @commands.command(name="cw_buy")
     @is_ripperdoc()
@@ -738,10 +748,7 @@ class CyberwareShop(commands.Cog):
             name = g["name"]
             price = g["price_paid"]
             count = g["count"]
-            # Show the earliest purchase date (FIFO first item) for the group
-            earliest = g["items"][0] if g["items"] else {}
-            raw_date = earliest.get("purchased_at")
-            date_str = str(raw_date)[:10] if raw_date else "—"
+            date_str = g["date"] or "—"
             price_str = f"${price:,}" if price else "—"
             suffix = f" × {count}" if count > 1 else ""
             lines.append(f"`{i}.` **{name}**{suffix} — paid {price_str} ea. ({date_str})")
