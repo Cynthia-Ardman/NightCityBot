@@ -8,7 +8,6 @@ SYSTEMS = [
     "cyberware_shop",
     "attend",
     "open_shop",
-    "wholesaler",
     "loa",
     "housing_rent",
     "business_rent",
@@ -16,6 +15,9 @@ SYSTEMS = [
     "dm",
     "auto_collect_rent",
 ]
+
+# Systems that should be OFF by default; everything else defaults to ON.
+_OFF_BY_DEFAULT = {"auto_collect_rent"}
 
 
 class SystemControl(commands.Cog):
@@ -31,7 +33,7 @@ class SystemControl(commands.Cog):
         updated = False
         for system in SYSTEMS:
             if system not in self.status:
-                self.status[system] = system in {"wholesaler", "auto_collect_rent"}
+                self.status[system] = system not in _OFF_BY_DEFAULT
                 updated = True
         if updated:
             for name, val in self.status.items():
