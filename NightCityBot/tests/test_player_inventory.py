@@ -435,6 +435,7 @@ class TestInvGive:
         async def mock_save_inv(uid, inv):
             cw_inventory.clear()
             cw_inventory.extend(inv)
+            return True
 
         cw_cog = MagicMock()
         cw_cog._load_inventory = mock_load_inv
@@ -454,6 +455,57 @@ class TestInvGive:
         assert len(cw_inventory) == 1
         assert cw_inventory[0]["name"] == "Kiroshi"
         assert "✅" in ctx.send.call_args[0][0]
+
+    def test_cw_stock_save_failure_restores_item(self, monkeypatch):
+        """If _save_inventory fails, the deleted item is re-inserted and the user sees an error."""
+        cog = _make_cog(monkeypatch)
+        item = {**_item("Kiroshi", item_type="cyberware", char="V"), "owner_id": "111"}
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[item]))
+
+        deleted_ids = []
+
+        async def capture_delete(item_id):
+            deleted_ids.append(item_id)
+            return True
+
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_delete_item", capture_delete)
+
+        restored_items = []
+
+        async def capture_add(item_dict):
+            restored_items.append(item_dict)
+            return True
+
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_add_item", capture_add)
+
+        async def mock_load_inv(uid):
+            return []
+
+        async def mock_save_inv(uid, inv):
+            return False  # simulate file write failure
+
+        cw_cog = MagicMock()
+        cw_cog._load_inventory = mock_load_inv
+        cw_cog._save_inventory = mock_save_inv
+        cog.bot.cogs = {"CyberwareShop": cw_cog}
+
+        ripperdoc_role = MagicMock()
+        ripperdoc_role.id = 800
+        target = _make_member(500, roles=[ripperdoc_role])
+
+        ctx = _ctx(author_id=111)
+        _run(_cmd(cog, "inv_give", ctx, target, 1, "V"))
+
+        # Item was deleted from DB
+        assert len(deleted_ids) == 1
+        # Item was restored to DB
+        assert len(restored_items) == 1
+        assert restored_items[0]["name"] == "Kiroshi"
+        assert restored_items[0]["owner_id"] == "111"
+        # User sees error
+        msg = ctx.send.call_args[0][0]
+        assert "❌" in msg
+        assert "restored" in msg.lower() or "try again" in msg.lower()
 
     def test_gun_give_logs_to_gun_channel(self, monkeypatch):
         """Gun item give logs to #gun-log, not #gear-misc-logs."""

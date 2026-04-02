@@ -9,7 +9,7 @@ import asyncpg
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -52,7 +52,7 @@ async def _with_retry(coro_factory, *, label: str = "", retries: int = 2, delay:
                 await asyncio.sleep(delay * (2 ** attempt))
             else:
                 _db_failures += 1
-                _last_failure_at = datetime.utcnow()
+                _last_failure_at = datetime.now(timezone.utc)
                 logger.error(
                     "DB operation '%s' failed after %d attempt(s)",
                     label, retries + 1, exc_info=True,
@@ -94,7 +94,7 @@ async def warn_db_failure(bot, operation: str, detail: str) -> None:
     """
     global _db_failures, _last_failure_at
     _db_failures += 1
-    _last_failure_at = datetime.utcnow()
+    _last_failure_at = datetime.now(timezone.utc)
     logger.error("DB failure alert: %s — %s", operation, detail)
     try:
         import config as _config
@@ -981,7 +981,7 @@ async def _migrate_wholesaler(pool: asyncpg.Pool) -> None:
                             if not tx_id:
                                 continue
                             ts_str = tx.get("timestamp")
-                            ts = datetime.fromisoformat(ts_str) if ts_str else datetime.utcnow()
+                            ts = datetime.fromisoformat(ts_str) if ts_str else datetime.now(timezone.utc)
                             await conn.execute(
                                 """
                                 INSERT INTO wholesaler_transactions
@@ -1840,7 +1840,7 @@ async def wh_tx_append(tx: dict) -> bool:
             logger.warning("wh_tx_append: tx has no tx_id, skipping")
             return False
         ts_str = tx.get("timestamp")
-        ts = datetime.fromisoformat(ts_str) if ts_str else datetime.utcnow()
+        ts = datetime.fromisoformat(ts_str) if ts_str else datetime.now(timezone.utc)
         actor = str(tx.get("seller_id", tx.get("buyer_id", tx.get("actor_id", "")))) or None
         serialized = json.dumps(tx)
         await _with_retry(

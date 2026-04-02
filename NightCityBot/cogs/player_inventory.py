@@ -379,7 +379,31 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 "price_paid": selected_item.get("price_paid"),
                 "purchased_at": selected_item.get("acquired_at") or selected_item.get("created_at"),
             })
-            await cw_cog._save_inventory(target.id, rd_inventory)
+            ok_save = await cw_cog._save_inventory(target.id, rd_inventory)
+            if not ok_save:
+                # File write failed — restore the item to the player's DB to prevent loss.
+                logger.error(
+                    "inv_give: _save_inventory failed for ripperdoc=%s item=%s — attempting DB restore",
+                    target.id, item_id,
+                )
+                await pi_add_item({
+                    "item_id": item_id,
+                    "owner_id": str(ctx.author.id),
+                    "character_name": selected_item.get("character_name", ""),
+                    "item_type": item_type,
+                    "name": item_name,
+                    "restriction": selected_item.get("restriction", "basic"),
+                    "description": selected_item.get("description", ""),
+                    "price_paid": selected_item.get("price_paid"),
+                    "seller_id": selected_item.get("seller_id"),
+                    "seller_name": selected_item.get("seller_name", ""),
+                    "acquired_at": selected_item.get("acquired_at"),
+                })
+                await ctx.send(
+                    "❌ Failed to add item to ripperdoc stock (file write error). "
+                    "Your item has been restored. Please try again or contact an admin."
+                )
+                return
 
             log_ch = await self._cyberware_log_channel()
             if log_ch:
@@ -735,7 +759,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             await ctx.send("❌ Failed to add item to inventory. Please try again.")
             return
 
-        log_ch = await self._gear_log_channel()
+        log_ch = await self._route_log_channel(item_type)
         if log_ch:
             embed = discord.Embed(
                 title="🔧 Admin: Item(s) Added to Inventory",

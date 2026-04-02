@@ -71,9 +71,15 @@ class CyberwareManager(commands.Cog):
     def _week_increment(self) -> int:
         """Return how many weeks have passed since the last full run."""
         if self.last_run:
-            delta = datetime.utcnow() - self.last_run
-            inc = delta.days // 7
-            return inc if inc >= 1 else 1
+            try:
+                lr = self.last_run
+                if lr.tzinfo is None:
+                    lr = lr.replace(tzinfo=timezone.utc)
+                delta = datetime.now(timezone.utc) - lr
+                inc = delta.days // 7
+                return inc if inc >= 1 else 1
+            except Exception:
+                logger.warning("Could not compute week increment from last_run=%s", self.last_run)
         return 1
 
     @tasks.loop(time=time(hour=0, tzinfo=ZoneInfo(getattr(config, "TIMEZONE", "UTC"))))
@@ -101,7 +107,7 @@ class CyberwareManager(commands.Cog):
         logs: List[str] = []
         results = await self.process_week(log=logs)
 
-        run_at = datetime.utcnow()
+        run_at = datetime.now(timezone.utc)
         ok = await cyberware_weekly_add(
             run_at=run_at,
             checkup_ids=[str(x) for x in results.get("checkup", [])],
@@ -214,7 +220,7 @@ class CyberwareManager(commands.Cog):
             member_inc = week_inc
             if last_ts:
                 try:
-                    delta = datetime.utcnow() - datetime.fromisoformat(last_ts)
+                    delta = datetime.now(timezone.utc) - datetime.fromisoformat(last_ts).replace(tzinfo=timezone.utc)
                     inc = delta.days // 7
                     if inc > 0:
                         member_inc = max(member_inc, inc)
@@ -295,7 +301,7 @@ class CyberwareManager(commands.Cog):
             if not dry_run:
                 self.data[user_id] = {
                     "weeks": weeks,
-                    "last": datetime.utcnow().isoformat(),
+                    "last": datetime.now(timezone.utc).isoformat(),
                 }
                 if log is not None:
                     log.append(f"Streak is now {weeks} week(s) for <@{member.id}>")
@@ -304,7 +310,7 @@ class CyberwareManager(commands.Cog):
 
         if not dry_run:
             if target_member is None:
-                self.last_run = datetime.utcnow()
+                self.last_run = datetime.now(timezone.utc)
                 ok = await cyberware_last_run_set(self.last_run)
                 if not ok:
                     await warn_db_failure(

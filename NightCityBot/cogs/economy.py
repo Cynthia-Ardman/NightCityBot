@@ -799,7 +799,7 @@ class Economy(commands.Cog):
             change = (bal.get("cash", 0) + bal.get("bank", 0)) - prev_total
 
             entry = {
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "label": label,
                 "cash": bal.get("cash", 0),
                 "bank": bal.get("bank", 0),
@@ -853,7 +853,7 @@ class Economy(commands.Cog):
         members = ctx.guild.members
         backup_dir = Path(config.BALANCE_BACKUP_DIR)
         backup_dir.mkdir(exist_ok=True)
-        filename = f"manual_{datetime.utcnow():%Y%m%d_%H%M%S}.json"
+        filename = f"manual_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}.json"
         file_path = backup_dir / filename
 
         data: Dict[int, Dict[str, int]] = {}
@@ -881,7 +881,7 @@ class Economy(commands.Cog):
         """Back up a single member's balance to a timestamped file."""
         backup_dir = Path(config.BALANCE_BACKUP_DIR)
         backup_dir.mkdir(exist_ok=True)
-        filename = f"manual_{datetime.utcnow():%Y%m%d_%H%M%S}.json"
+        filename = f"manual_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}.json"
         file_path = backup_dir / filename
 
         bal = await self.unbelievaboat.get_balance(member.id)
@@ -1836,7 +1836,7 @@ class Economy(commands.Cog):
             audit_lines.append(end_msg)
             audit_dir = Path(getattr(config, "RENT_AUDIT_DIR", "rent_audits"))
             audit_dir.mkdir(exist_ok=True)
-            log_file = audit_dir / f"rent_audit_{datetime.utcnow():%B_%Y}.log"
+            log_file = audit_dir / f"rent_audit_{datetime.now(timezone.utc):%B_%Y}.log"
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write("\n".join(audit_lines) + "\n")
 
