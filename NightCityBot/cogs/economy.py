@@ -820,24 +820,6 @@ class Economy(commands.Cog):
                 f"user {member.id} — payment summary not persisted",
             )
 
-    async def _label_used_recently(
-        self, member: discord.Member, label: str, days: int = 30
-    ) -> bool:
-        """Return ``True`` if the given label was used within ``days`` days.
-
-        Uses the database ``payment_labels`` table (shared across all bot
-        instances) so that dev and production bots both see the same protection
-        state without relying on local balance-backup JSON files.
-        """
-        recorded_at = await payment_label_get_ts(str(member.id), label)
-        if recorded_at is None:
-            return False
-        if recorded_at.tzinfo:
-            recorded_at_naive = recorded_at.astimezone(timezone.utc).replace(tzinfo=None)
-        else:
-            recorded_at_naive = recorded_at
-        return datetime.utcnow() - recorded_at_naive < timedelta(days=days)
-
     async def _paid_this_month(self, member: discord.Member, label: str) -> bool:
         """Return ``True`` if the given label was recorded in the current calendar month.
 
