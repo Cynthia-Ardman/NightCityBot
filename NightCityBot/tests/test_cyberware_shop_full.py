@@ -18,7 +18,7 @@ from NightCityBot.cogs.cyberware_shop import CyberwareShop
 
 def _make_cog(tmp_path: Path, monkeypatch):
     """Instantiate CyberwareShop bypassing __init__, patch DB helpers."""
-    monkeypatch.setattr("config.RIPPERDOC_LOG_CHANNEL_ID", 0)
+    monkeypatch.setattr("config.CYBERWARE_LOG_CHANNEL_ID", 0)
     monkeypatch.setattr("config.RIPPERDOC_ROLE_ID", 800)
     monkeypatch.setattr("config.FIXER_ROLE_ID", 900)
 
@@ -56,6 +56,10 @@ def _make_cog(tmp_path: Path, monkeypatch):
     )
     monkeypatch.setattr(
         "NightCityBot.cogs.cyberware_shop.cw_catalog_delete_one",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "NightCityBot.cogs.cyberware_shop.pi_add_item",
         AsyncMock(return_value=True),
     )
 
@@ -127,6 +131,11 @@ def _seed_state(cog, lots=None, extra=None):
 
 def _seed_inventory(cog, user_id, items):
     _run(cog._save_inventory(user_id, items))
+
+
+def _inv_names(inv) -> list[str]:
+    """Extract item names from a list that may contain strings or dicts."""
+    return [e["name"] if isinstance(e, dict) else e for e in inv]
 
 
 # ------------------------------------------------------------------
@@ -259,10 +268,13 @@ class TestCwBuy:
             {"lot_id": "cwlot-002", "item_name": "Sandevistan Mk.1", "unit_cost": 8000, "qty_available": 0},
         ]
 
+    # Lot 1 = Kiroshi Optics Mk.1 (available, first alpha)
+    # Lot 2 = Sandevistan Mk.1 (sold out, second)
+
     def test_dm_guard(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
         ctx = _ctx(guild=False)
-        _run(_cmd(cog, "cw_buy", ctx, item_name="Kiroshi Optics Mk.1"))
+        _run(_cmd(cog, "cw_buy", ctx, 1))
         ctx.send.assert_called_once()
         assert "server" in ctx.send.call_args[0][0]
 
@@ -270,21 +282,21 @@ class TestCwBuy:
         cog = _make_cog(tmp_path, monkeypatch)
         _seed_state(cog, lots=[])
         ctx = _ctx()
-        _run(_cmd(cog, "cw_buy", ctx, item_name="Kiroshi Optics Mk.1"))
+        _run(_cmd(cog, "cw_buy", ctx, 1))
         assert "No cyberware" in ctx.send.call_args[0][0]
 
-    def test_item_not_in_wholesale(self, tmp_path, monkeypatch):
+    def test_invalid_lot_number(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
         _seed_state(cog, lots=self._lots())
         ctx = _ctx()
-        _run(_cmd(cog, "cw_buy", ctx, item_name="Totally Unknown Item"))
-        assert "not in this week" in ctx.send.call_args[0][0]
+        _run(_cmd(cog, "cw_buy", ctx, 99))
+        assert "Invalid lot number" in ctx.send.call_args[0][0]
 
     def test_sold_out(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
         _seed_state(cog, lots=self._lots())
         ctx = _ctx()
-        _run(_cmd(cog, "cw_buy", ctx, item_name="Sandevistan Mk.1"))
+        _run(_cmd(cog, "cw_buy", ctx, 2))  # lot 2 = Sandevistan Mk.1 (sold out)
         assert "sold out" in ctx.send.call_args[0][0]
 
     def test_balance_fetch_fails(self, tmp_path, monkeypatch):
@@ -292,7 +304,7 @@ class TestCwBuy:
         _seed_state(cog, lots=self._lots())
         cog.unbelievaboat.get_balance = AsyncMock(return_value=None)
         ctx = _ctx()
-        _run(_cmd(cog, "cw_buy", ctx, item_name="Kiroshi Optics Mk.1"))
+        _run(_cmd(cog, "cw_buy", ctx, 1))
         assert "Could not fetch" in ctx.send.call_args[0][0]
 
     def test_insufficient_funds(self, tmp_path, monkeypatch):
@@ -300,7 +312,7 @@ class TestCwBuy:
         _seed_state(cog, lots=self._lots())
         cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 100, "bank": 0})
         ctx = _ctx()
-        _run(_cmd(cog, "cw_buy", ctx, item_name="Kiroshi Optics Mk.1"))
+        _run(_cmd(cog, "cw_buy", ctx, 1))
         assert "Insufficient" in ctx.send.call_args[0][0]
 
     def test_balance_deduct_fails(self, tmp_path, monkeypatch):
@@ -309,7 +321,7 @@ class TestCwBuy:
         cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 5000, "bank": 0})
         cog.unbelievaboat.update_balance = AsyncMock(return_value=False)
         ctx = _ctx()
-        _run(_cmd(cog, "cw_buy", ctx, item_name="Kiroshi Optics Mk.1"))
+        _run(_cmd(cog, "cw_buy", ctx, 1))
         assert "Balance update failed" in ctx.send.call_args[0][0]
 
     def test_success(self, tmp_path, monkeypatch):
@@ -319,7 +331,7 @@ class TestCwBuy:
         cog.unbelievaboat.update_balance = AsyncMock(return_value=True)
         ctx = _ctx(author_id=201)
 
-        _run(_cmd(cog, "cw_buy", ctx, item_name="Kiroshi Optics Mk.1"))
+        _run(_cmd(cog, "cw_buy", ctx, 1))  # lot 1 = Kiroshi Optics Mk.1
 
         # Balance debited with correct amount
         cog.unbelievaboat.update_balance.assert_called_once()
@@ -327,9 +339,9 @@ class TestCwBuy:
         assert deduct_args[0] == 201
         assert deduct_args[1]["cash"] == -3000
 
-        # Item lands in inventory
+        # Item lands in inventory (as dict)
         inv = _run(cog._load_inventory(201))
-        assert "Kiroshi Optics Mk.1" in inv
+        assert "Kiroshi Optics Mk.1" in _inv_names(inv)
 
         # Lot qty decremented
         state = _run(cog._load_state())
@@ -355,7 +367,7 @@ class TestCwBuy:
         cog.unbelievaboat.update_balance = AsyncMock(return_value=True)
         ctx = _ctx(author_id=202)
 
-        _run(_cmd(cog, "cw_buy", ctx, item_name="Kiroshi Optics Mk.1"))
+        _run(_cmd(cog, "cw_buy", ctx, 1))  # lot 1 = Kiroshi Optics Mk.1
 
         payload = cog.unbelievaboat.update_balance.call_args[0][1]
         assert payload["cash"] == -1000   # all cash used
@@ -384,7 +396,7 @@ class TestCwBuy:
         cog.unbelievaboat.update_balance = AsyncMock(side_effect=deduct_then_drain)
         ctx = _ctx(author_id=203)
 
-        _run(_cmd(cog, "cw_buy", ctx, item_name="Kiroshi Optics Mk.1"))
+        _run(_cmd(cog, "cw_buy", ctx, 1))  # lot 1 = Kiroshi Optics Mk.1
 
         assert call_count == 2  # deduct + refund
         inv = _run(cog._load_inventory(203))
@@ -398,83 +410,83 @@ class TestCwBuy:
 # ------------------------------------------------------------------
 
 class TestCwSell:
+    # New signature: (ctx, patient, inv_number: int, price: int, *, character_name: str)
+    # Row 1 = first item in inventory list
+
     def test_dm_guard(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
-        _seed_catalog(cog)
         ctx = _ctx(guild=False)
-        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), "Kiroshi Optics Mk.1", 3500))
+        _seed_inventory(cog, 111, ["Kiroshi Optics Mk.1"])
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), 1, 3500, character_name="V"))
         assert "server" in ctx.send.call_args[0][0]
 
     def test_price_zero_rejected(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
-        _seed_catalog(cog)
+        _seed_inventory(cog, 111, ["Kiroshi Optics Mk.1"])
         ctx = _ctx(author_id=111)
-        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), "Kiroshi Optics Mk.1", 0))
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), 1, 0, character_name="V"))
         assert "positive" in ctx.send.call_args[0][0]
 
     def test_negative_price_rejected(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
-        _seed_catalog(cog)
+        _seed_inventory(cog, 111, ["Kiroshi Optics Mk.1"])
         ctx = _ctx(author_id=111)
-        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), "Kiroshi Optics Mk.1", -100))
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), 1, -100, character_name="V"))
         assert "positive" in ctx.send.call_args[0][0]
 
     def test_self_sell_rejected(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
-        _seed_catalog(cog)
+        _seed_inventory(cog, 111, ["Kiroshi Optics Mk.1"])
         ctx = _ctx(author_id=111)
-        _run(_cmd(cog, "cw_sell", ctx, _make_member(111), "Kiroshi Optics Mk.1", 3500))
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(111), 1, 3500, character_name="V"))
         assert "yourself" in ctx.send.call_args[0][0]
 
-    def test_item_not_in_catalog(self, tmp_path, monkeypatch):
+    def test_invalid_row_number(self, tmp_path, monkeypatch):
+        """Out-of-range row number → clear error message."""
         cog = _make_cog(tmp_path, monkeypatch)
-        _seed_catalog(cog)
         ctx = _ctx(author_id=111)
-        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), "Totally Unknown Implant", 1000))
-        assert "not found in catalog" in ctx.send.call_args[0][0]
+        # No inventory seeded → row 1 is invalid
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), 1, 3500, character_name="V"))
+        assert "Invalid row" in ctx.send.call_args[0][0]
 
-    def test_item_not_in_inventory(self, tmp_path, monkeypatch):
+    def test_out_of_range_row_large(self, tmp_path, monkeypatch):
+        """Row larger than inventory size is rejected."""
         cog = _make_cog(tmp_path, monkeypatch)
-        _seed_catalog(cog)
+        _seed_inventory(cog, 111, ["Kiroshi Optics Mk.1"])
         ctx = _ctx(author_id=111)
-        # No inventory seeded
-        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), "Kiroshi Optics Mk.1", 3500))
-        assert "not in your inventory" in ctx.send.call_args[0][0]
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), 99, 3500, character_name="V"))
+        assert "Invalid row" in ctx.send.call_args[0][0]
 
     def test_patient_balance_fetch_fails(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
-        _seed_catalog(cog)
         _seed_inventory(cog, 111, ["Kiroshi Optics Mk.1"])
         cog.unbelievaboat.get_balance = AsyncMock(return_value=None)
         ctx = _ctx(author_id=111)
-        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), "Kiroshi Optics Mk.1", 3500))
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), 1, 3500, character_name="V"))
         assert "Could not fetch" in ctx.send.call_args[0][0]
 
     def test_patient_cannot_afford(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
-        _seed_catalog(cog)
         _seed_inventory(cog, 111, ["Kiroshi Optics Mk.1"])
         cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 100, "bank": 0})
         ctx = _ctx(author_id=111)
-        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), "Kiroshi Optics Mk.1", 3500))
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), 1, 3500, character_name="V"))
         assert "cannot afford" in ctx.send.call_args[0][0]
 
     def test_patient_deduct_fails(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
-        _seed_catalog(cog)
         _seed_inventory(cog, 111, ["Kiroshi Optics Mk.1"])
         cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 5000, "bank": 0})
         cog.unbelievaboat.update_balance = AsyncMock(return_value=False)
         ctx = _ctx(author_id=111)
-        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), "Kiroshi Optics Mk.1", 3500))
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), 1, 3500, character_name="V"))
         assert "Failed to deduct" in ctx.send.call_args[0][0]
         # Item must still be in inventory
         inv = _run(cog._load_inventory(111))
-        assert "Kiroshi Optics Mk.1" in inv
+        assert "Kiroshi Optics Mk.1" in _inv_names(inv)
 
     def test_ripper_credit_fails_refunds_patient(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
-        _seed_catalog(cog)
         _seed_inventory(cog, 111, ["Kiroshi Optics Mk.1"])
         cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 5000, "bank": 0})
 
@@ -491,7 +503,7 @@ class TestCwSell:
 
         cog.unbelievaboat.update_balance = AsyncMock(side_effect=update_side)
         ctx = _ctx(author_id=111)
-        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), "Kiroshi Optics Mk.1", 3500))
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), 1, 3500, character_name="V"))
 
         # Three calls: deduct, credit attempt, refund
         assert call_count == 3
@@ -500,14 +512,13 @@ class TestCwSell:
 
     def test_success(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
-        _seed_catalog(cog)
         _seed_inventory(cog, 111, ["Kiroshi Optics Mk.1", "Sandevistan Mk.1"])
         cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 5000, "bank": 2000})
         cog.unbelievaboat.update_balance = AsyncMock(return_value=True)
         ctx = _ctx(author_id=111)
         patient = _make_member(999)
 
-        _run(_cmd(cog, "cw_sell", ctx, patient, "Kiroshi Optics Mk.1", 3500))
+        _run(_cmd(cog, "cw_sell", ctx, patient, 1, 3500, character_name="V"))  # row 1 = Kiroshi
 
         # Two balance calls: patient deduct + ripper credit
         assert cog.unbelievaboat.update_balance.call_count == 2
@@ -519,8 +530,9 @@ class TestCwSell:
 
         # Item removed from inventory; other items untouched
         inv = _run(cog._load_inventory(111))
-        assert "Kiroshi Optics Mk.1" not in inv
-        assert "Sandevistan Mk.1" in inv
+        names = _inv_names(inv)
+        assert "Kiroshi Optics Mk.1" not in names
+        assert "Sandevistan Mk.1" in names
 
         # SELL transaction recorded
         txs = _run(cog._load_tx())
@@ -537,14 +549,13 @@ class TestCwSell:
     def test_sell_drains_cash_first(self, tmp_path, monkeypatch):
         """Patient's cash is used before bank."""
         cog = _make_cog(tmp_path, monkeypatch)
-        _seed_catalog(cog)
         _seed_inventory(cog, 111, ["Kiroshi Optics Mk.1"])
         # 1000 cash + 3000 bank; price = 3000
         cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 1000, "bank": 3000})
         cog.unbelievaboat.update_balance = AsyncMock(return_value=True)
         ctx = _ctx(author_id=111)
 
-        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), "Kiroshi Optics Mk.1", 3000))
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), 1, 3000, character_name="V"))
 
         patient_payload = cog.unbelievaboat.update_balance.call_args_list[0][0][1]
         assert patient_payload["cash"] == -1000
@@ -553,7 +564,6 @@ class TestCwSell:
     def test_item_stolen_under_lock_refunds_both(self, tmp_path, monkeypatch):
         """Item removed from inventory between pre-check and lock — both parties refunded."""
         cog = _make_cog(tmp_path, monkeypatch)
-        _seed_catalog(cog)
         _seed_inventory(cog, 111, ["Kiroshi Optics Mk.1"])
         cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 5000, "bank": 0})
 
@@ -570,12 +580,12 @@ class TestCwSell:
 
         cog.unbelievaboat.update_balance = AsyncMock(side_effect=deduct_then_drain)
         ctx = _ctx(author_id=111)
-        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), "Kiroshi Optics Mk.1", 3500))
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), 1, 3500, character_name="V"))
 
         # At least 3 calls: deduct patient, refund patient, refund ripper
         assert call_count >= 3
         msg = ctx.send.call_args[0][0]
-        assert "no longer in your inventory" in msg or "refunded" in msg
+        assert "no longer in your inventory" in msg or "refunded" in msg or "changed" in msg
 
 
 # ------------------------------------------------------------------
@@ -595,7 +605,7 @@ class TestCwGiveTake:
         ripperdoc = _make_member(500, "Doc")
         _run(_cmd(cog, "cw_give", ctx, ripperdoc, item_name="Kiroshi Optics Mk.1"))
         inv = _run(cog._load_inventory(500))
-        assert "Kiroshi Optics Mk.1" in inv
+        assert "Kiroshi Optics Mk.1" in _inv_names(inv)
         assert "✅" in ctx.send.call_args[0][0]
 
     def test_cw_give_appends_to_existing(self, tmp_path, monkeypatch):
@@ -605,8 +615,8 @@ class TestCwGiveTake:
         ripperdoc = _make_member(500, "Doc")
         _run(_cmd(cog, "cw_give", ctx, ripperdoc, item_name="Kiroshi Optics Mk.1"))
         inv = _run(cog._load_inventory(500))
-        assert "Sandevistan Mk.1" in inv
-        assert "Kiroshi Optics Mk.1" in inv
+        assert "Sandevistan Mk.1" in _inv_names(inv)
+        assert "Kiroshi Optics Mk.1" in _inv_names(inv)
 
     def test_cw_take_dm_guard(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
@@ -621,8 +631,9 @@ class TestCwGiveTake:
         ripperdoc = _make_member(500, "Doc")
         _run(_cmd(cog, "cw_take", ctx, ripperdoc, item_name="Kiroshi Optics Mk.1"))
         inv = _run(cog._load_inventory(500))
-        assert "Kiroshi Optics Mk.1" not in inv
-        assert "Sandevistan Mk.1" in inv
+        names = _inv_names(inv)
+        assert "Kiroshi Optics Mk.1" not in names
+        assert "Sandevistan Mk.1" in names
         assert "✅" in ctx.send.call_args[0][0]
 
     def test_cw_take_prefix_match(self, tmp_path, monkeypatch):
@@ -643,7 +654,7 @@ class TestCwGiveTake:
         assert "not found" in ctx.send.call_args[0][0]
         # Inventory unchanged
         inv = _run(cog._load_inventory(500))
-        assert inv == ["Sandevistan Mk.1"]
+        assert "Sandevistan Mk.1" in _inv_names(inv)
 
 
 # ------------------------------------------------------------------

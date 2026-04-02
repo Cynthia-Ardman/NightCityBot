@@ -24,6 +24,7 @@ from NightCityBot.utils.db import (
     wh_tx_append, wh_tx_get_all,
     gun_catalog_upsert_many, gun_catalog_sync_qty_from_lots, gun_catalog_adjust_qty,
     gun_catalog_get_all,
+    pi_add_item,
 )
 
 logger = logging.getLogger(__name__)
@@ -1511,6 +1512,20 @@ class GunsShopCog(commands.Cog):
             f"character={character_name or 'N/A'} gun={store_lot['gun_name']} level={store_lot['gun_level']} "
             f"qty={qty} total={total_price} unit_cost={store_lot['unit_cost']} lot={lot_id} restriction={restriction}"
         )
+        unit_price_each = max(1, total_price // qty) if qty else total_price
+        for _ in range(qty):
+            await pi_add_item({
+                "item_id": str(uuid.uuid4()),
+                "owner_id": str(buyer.id),
+                "character_name": character_name or "",
+                "item_type": "gun",
+                "name": store_lot["gun_name"],
+                "restriction": restriction,
+                "description": f"Level: {store_lot.get('gun_level', '?')}",
+                "price_paid": unit_price_each,
+                "seller_id": str(member.id),
+                "seller_name": member.display_name,
+            })
 
     async def _request_admin_approval(
         self,

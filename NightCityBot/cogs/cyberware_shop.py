@@ -26,6 +26,8 @@ from NightCityBot.utils.db import (
     cw_catalog_upsert_many,
     cw_catalog_upsert_one,
     cw_catalog_delete_one,
+    pi_add_item,
+    pi_get_by_owner,
 )
 from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
 
@@ -126,15 +128,30 @@ class CyberwareShop(commands.Cog):
     def _inventory_file(self, user_id: int | str) -> Path:
         return self.inventory_dir / f"{user_id}.json"
 
-    async def _load_inventory(self, user_id: int | str) -> list[str]:
-        """Return the list of item names currently stocked by this Ripperdoc."""
+    async def _load_inventory(self, user_id: int | str) -> list[dict]:
+        """Return inventory dicts for this Ripperdoc, migrating legacy string entries."""
         path = self._inventory_file(user_id)
         data = await helpers.load_json_file(path, default=[])
-        if isinstance(data, list):
-            return data
-        return []
+        if not isinstance(data, list):
+            return []
+        migrated = False
+        result: list[dict] = []
+        for entry in data:
+            if isinstance(entry, str):
+                result.append({
+                    "item_id": str(uuid.uuid4()),
+                    "name": entry,
+                    "price_paid": None,
+                    "purchased_at": None,
+                })
+                migrated = True
+            elif isinstance(entry, dict):
+                result.append(entry)
+        if migrated:
+            await self._save_inventory(user_id, result)
+        return result
 
-    async def _save_inventory(self, user_id: int | str, items: list[str]) -> bool:
+    async def _save_inventory(self, user_id: int | str, items: list[dict]) -> bool:
         return await helpers.save_json_file(self._inventory_file(user_id), items)
 
     async def _append_tx(self, tx: dict[str, Any]) -> bool:
@@ -160,12 +177,13 @@ class CyberwareShop(commands.Cog):
         return None
 
     async def _log_channel(self) -> Optional[discord.TextChannel]:
-        ch = self.bot.get_channel(config.RIPPERDOC_LOG_CHANNEL_ID)
+        ch_id = getattr(config, "CYBERWARE_LOG_CHANNEL_ID", 0)
+        ch = self.bot.get_channel(ch_id)
         if ch is None:
             try:
-                ch = await self.bot.fetch_channel(config.RIPPERDOC_LOG_CHANNEL_ID)
+                ch = await self.bot.fetch_channel(ch_id)
             except Exception:
-                logger.warning("Could not fetch RIPPERDOC_LOG_CHANNEL_ID", exc_info=True)
+                logger.warning("Could not fetch CYBERWARE_LOG_CHANNEL_ID", exc_info=True)
         return ch
 
     @staticmethod
@@ -417,7 +435,12 @@ class CyberwareShop(commands.Cog):
             return
         async with self.lock:
             inventory = await self._load_inventory(ripperdoc.id)
-            inventory.append(item_name)
+            inventory.append({
+                "item_id": str(uuid.uuid4()),
+                "name": item_name,
+                "price_paid": None,
+                "purchased_at": None,
+            })
             await self._save_inventory(ripperdoc.id, inventory)
 
         log_ch = await self._log_channel()
@@ -452,11 +475,11 @@ class CyberwareShop(commands.Cog):
             inventory = await self._load_inventory(ripperdoc.id)
             q = item_name.strip().lower()
             idx = next(
-                (i for i, n in enumerate(inventory) if n.strip().lower() == q), None
+                (i for i, e in enumerate(inventory) if e["name"].strip().lower() == q), None
             )
             if idx is None:
                 idx = next(
-                    (i for i, n in enumerate(inventory) if n.strip().lower().startswith(q)), None
+                    (i for i, e in enumerate(inventory) if e["name"].strip().lower().startswith(q)), None
                 )
             if idx is None:
                 await ctx.send(
@@ -466,6 +489,7 @@ class CyberwareShop(commands.Cog):
             removed = inventory.pop(idx)
             await self._save_inventory(ripperdoc.id, inventory)
 
+        removed_name = removed["name"] if isinstance(removed, dict) else removed
         log_ch = await self._log_channel()
         if log_ch:
             embed = discord.Embed(
@@ -473,46 +497,76 @@ class CyberwareShop(commands.Cog):
                 color=discord.Color.red(),
             )
             embed.add_field(name="Ripperdoc", value=ripperdoc.mention, inline=True)
-            embed.add_field(name="Item Removed", value=removed, inline=True)
+            embed.add_field(name="Item Removed", value=removed_name, inline=True)
             embed.add_field(name="Admin", value=ctx.author.mention, inline=True)
             await log_ch.send(embed=embed)
 
         await ctx.send(
-            f"✅ **{removed}** removed from {ripperdoc.display_name}'s inventory."
+            f"✅ **{removed_name}** removed from {ripperdoc.display_name}'s inventory."
         )
+
+    @staticmethod
+    def _sorted_lots(lots: list[dict]) -> tuple[list[dict], list[dict]]:
+        """Return (available_sorted, sold_out_sorted) — the canonical display order."""
+        available = sorted(
+            [l for l in lots if int(l.get("qty_available", 0)) > 0],
+            key=lambda l: l["item_name"],
+        )
+        sold_out = sorted(
+            [l for l in lots if int(l.get("qty_available", 0)) <= 0],
+            key=lambda l: l["item_name"],
+        )
+        return available, sold_out
 
     @commands.command(name="cw_buy")
     @is_ripperdoc()
-    async def cw_buy(self, ctx: commands.Context, *, item_name: str) -> None:
-        """Purchase a cyberware part from this week's wholesale stock."""
+    async def cw_buy(self, ctx: commands.Context, lot_number: int, qty: int = 1) -> None:
+        """Purchase cyberware from this week's wholesale by lot number.
+
+        Usage: !cw_buy <lot_number> [qty=1]
+        Use !cw_wh_list to see the numbered list.
+        """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
             return
+        if qty < 1:
+            await ctx.send("❌ qty must be at least 1.")
+            return
+
         state = await self._load_state()
         lots = state.get("cw_wholesale_lots", [])
+        available, sold_out = self._sorted_lots(lots)
+        all_ordered = available + sold_out
 
-        if not lots:
+        if not all_ordered:
             await ctx.send(
                 "❌ No cyberware is available from the wholesaler this week. "
-                "Use `!cw_wh_list` to check stock, or ask an admin to run `!cw_wh_restock`."
+                "Ask an admin to run `!cw_wh_restock`."
             )
             return
 
-        lot = self._lookup_lot(lots, item_name)
-        if lot is None:
+        if lot_number < 1 or lot_number > len(all_ordered):
             await ctx.send(
-                f"❌ **{item_name}** is not in this week's wholesale stock. "
-                "Use `!cw_wh_list` to see what's available."
+                f"❌ Invalid lot number **{lot_number}**. "
+                f"Use `!cw_wh_list` to see available items (1–{len(all_ordered)})."
             )
             return
 
+        lot = all_ordered[lot_number - 1]
         if int(lot.get("qty_available", 0)) <= 0:
             await ctx.send(
-                f"❌ **{lot['item_name']}** is sold out this week."
+                f"❌ Lot **{lot_number}** (`{lot['item_name']}`) is sold out this week."
             )
             return
 
-        price = int(lot["unit_cost"])
+        if qty > int(lot.get("qty_available", 0)):
+            await ctx.send(
+                f"❌ Only **{lot['qty_available']}** unit(s) of `{lot['item_name']}` available."
+            )
+            return
+
+        unit_price = int(lot["unit_cost"])
+        total_price = unit_price * qty
 
         balance = await self.unbelievaboat.get_balance(ctx.author.id)
         if balance is None:
@@ -521,19 +575,19 @@ class CyberwareShop(commands.Cog):
 
         cash = int(balance.get("cash", 0))
         bank = int(balance.get("bank", 0))
-        if cash + bank < price:
+        if cash + bank < total_price:
             await ctx.send(
-                f"❌ Insufficient funds. **{lot['item_name']}** costs ${price:,} "
+                f"❌ Insufficient funds. {qty}× **{lot['item_name']}** costs ${total_price:,} "
                 f"but you only have ${cash + bank:,}."
             )
             return
 
-        cash_deduct = min(max(cash, 0), price)
-        bank_deduct = max(0, price - cash_deduct)
+        cash_deduct = min(max(cash, 0), total_price)
+        bank_deduct = max(0, total_price - cash_deduct)
         ok = await self.unbelievaboat.update_balance(
             ctx.author.id,
             {"cash": -cash_deduct, "bank": -bank_deduct},
-            reason=f"Cyberware wholesale buy: {lot['item_name']}",
+            reason=f"Cyberware wholesale buy ×{qty}: {lot['item_name']}",
         )
         if not ok:
             await ctx.send("❌ Balance update failed. Please try again.")
@@ -541,12 +595,28 @@ class CyberwareShop(commands.Cog):
 
         async with self.lock:
             state = await self._load_state()
-            current_lot = self._lookup_lot(state.get("cw_wholesale_lots", []), lot["item_name"])
-            if current_lot is None or int(current_lot.get("qty_available", 0)) <= 0:
+            lots2 = state.get("cw_wholesale_lots", [])
+            avail2, sold2 = self._sorted_lots(lots2)
+            all2 = avail2 + sold2
+
+            if lot_number < 1 or lot_number > len(all2):
                 await self.unbelievaboat.update_balance(
                     ctx.author.id,
                     {"cash": cash_deduct, "bank": bank_deduct},
-                    reason=f"Cyberware wholesale buy refund (sold out): {lot['item_name']}",
+                    reason=f"Cyberware buy refund (lot disappeared): {lot['item_name']}",
+                )
+                await ctx.send(
+                    "❌ The wholesale list changed while processing. "
+                    "Your payment has been refunded."
+                )
+                return
+
+            current_lot = all2[lot_number - 1]
+            if current_lot["item_name"] != lot["item_name"] or int(current_lot.get("qty_available", 0)) < qty:
+                await self.unbelievaboat.update_balance(
+                    ctx.author.id,
+                    {"cash": cash_deduct, "bank": bank_deduct},
+                    reason=f"Cyberware buy refund (sold out): {lot['item_name']}",
                 )
                 await ctx.send(
                     f"❌ **{lot['item_name']}** sold out while processing. "
@@ -554,20 +624,28 @@ class CyberwareShop(commands.Cog):
                 )
                 return
 
-            current_lot["qty_available"] = int(current_lot["qty_available"]) - 1
+            current_lot["qty_available"] = int(current_lot["qty_available"]) - qty
+            now_iso = self._now_iso()
             inventory = await self._load_inventory(ctx.author.id)
-            inventory.append(lot["item_name"])
+            for _ in range(qty):
+                inventory.append({
+                    "item_id": str(uuid.uuid4()),
+                    "name": lot["item_name"],
+                    "price_paid": unit_price,
+                    "purchased_at": now_iso,
+                })
             await self._save_inventory(ctx.author.id, inventory)
             await self._save_state(state)
 
             tx = {
                 "tx_id": str(uuid.uuid4()),
                 "tx_type": "BUY",
-                "ts": self._now_iso(),
+                "ts": now_iso,
                 "ripperdoc_id": str(ctx.author.id),
                 "ripperdoc_name": ctx.author.display_name,
                 "item": lot["item_name"],
-                "price": price,
+                "price": total_price,
+                "qty": qty,
                 "lot_id": lot.get("lot_id", ""),
             }
             await self._append_tx(tx)
@@ -576,15 +654,15 @@ class CyberwareShop(commands.Cog):
         receipt = (
             f"🛒 **CYBERWARE PURCHASE**\n"
             f"Ripperdoc: {ctx.author.mention}\n"
-            f"Item: **{lot['item_name']}**\n"
-            f"Price paid: **${price:,}**"
+            f"Item: **{lot['item_name']}** × {qty}\n"
+            f"Price paid: **${total_price:,}**"
         )
         if log_ch:
             await log_ch.send(receipt, allowed_mentions=discord.AllowedMentions.none())
 
         await ctx.send(
-            f"✅ Purchased **{lot['item_name']}** for **${price:,}**. "
-            "It is now in your inventory."
+            f"✅ Purchased **{lot['item_name']}** × {qty} for **${total_price:,}**. "
+            "Added to your ripperdoc inventory."
         )
 
     @commands.command(name="cw_inventory")
@@ -592,7 +670,11 @@ class CyberwareShop(commands.Cog):
     async def cw_inventory(
         self, ctx: commands.Context, member: Optional[discord.Member] = None
     ) -> None:
-        """Show your (or another Ripperdoc's) current cyberware inventory."""
+        """Show your (or another Ripperdoc's) current cyberware inventory with row numbers.
+
+        Usage: !cw_inventory [@ripperdoc]
+        Row numbers can be used with !cw_sell and !cw_install.
+        """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
             return
@@ -610,29 +692,36 @@ class CyberwareShop(commands.Cog):
 
         inventory = await self._load_inventory(target.id)
         if not inventory:
-            name = "Your" if target == ctx.author else f"{target.display_name}'s"
-            await ctx.send(f"📦 {name} cyberware inventory is empty.")
+            name_str = "Your" if target == ctx.author else f"{target.display_name}'s"
+            await ctx.send(f"📦 {name_str} cyberware inventory is empty.")
             return
 
-        from collections import Counter
-        counts = Counter(inventory)
-        lines = [
-            f"`{name}` × {qty}" if qty > 1 else f"`{name}`"
-            for name, qty in sorted(counts.items())
-        ]
-        desc = "\n".join(lines)
+        lines = []
+        for i, entry in enumerate(inventory, 1):
+            item_name = entry["name"]
+            price = entry.get("price_paid")
+            date = entry.get("purchased_at")
+            if price and date:
+                date_str = str(date)[:10]
+                lines.append(f"`{i}.` **{item_name}** — bought ${price:,} on {date_str}")
+            else:
+                lines.append(f"`{i}.` **{item_name}**")
+
         title = (
             "Your Cyberware Inventory"
             if target == ctx.author
             else f"{target.display_name}'s Cyberware Inventory"
         )
-        embed = discord.Embed(
-            title=title,
-            description=desc,
-            color=discord.Color.purple(),
-        )
-        embed.set_footer(text=f"{len(inventory)} item(s) in stock")
-        await ctx.send(embed=embed)
+        page_size = 20
+        pages = [lines[i: i + page_size] for i in range(0, len(lines), page_size)]
+        for page_num, page in enumerate(pages, 1):
+            embed = discord.Embed(
+                title=f"{title} ({page_num}/{len(pages)})",
+                description="\n".join(page),
+                color=discord.Color.purple(),
+            )
+            embed.set_footer(text=f"{len(inventory)} item(s) in stock | Use !cw_sell <row> or !cw_install <row>")
+            await ctx.send(embed=embed)
 
     @commands.command(name="cw_sell")
     @is_ripperdoc()
@@ -640,12 +729,15 @@ class CyberwareShop(commands.Cog):
         self,
         ctx: commands.Context,
         patient: discord.Member,
-        item_name: str,
+        inv_number: int,
         price: int,
+        *,
+        character_name: str,
     ) -> None:
-        """Sell/install a cyberware part to a patient at your stated price.
+        """Sell/install a cyberware part to a patient. Removes item from your inventory.
 
-        Usage: !cw_sell @patient "item name" <price>
+        Usage: !cw_sell @patient <inv_row> <price> character name
+        Use !cw_inventory to see your numbered inventory.
         """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
@@ -653,30 +745,29 @@ class CyberwareShop(commands.Cog):
         if price <= 0:
             await ctx.send("❌ Price must be a positive number.")
             return
-
         if patient.id == ctx.author.id:
             await ctx.send("❌ You cannot sell to yourself.")
             return
 
-        catalog = await self._load_catalog()
-        item = self._lookup_item(catalog, item_name)
-        if item is None:
-            await ctx.send(
-                f"❌ Item **{item_name}** not found in catalog. "
-                "Use `!cw_catalog` to browse available items."
-            )
+        character_name = character_name.strip().strip('"').strip("'")
+        if not character_name:
+            await ctx.send("❌ Character name is required.")
             return
 
-        item_lower = item["name"].lower()
-
-        # Pre-flight inventory check outside the lock — fast feedback to user
+        # Pre-flight inventory check outside the lock
         pre_inv = await self._load_inventory(ctx.author.id)
-        if not any(n.lower() == item_lower for n in pre_inv):
+        if inv_number < 1 or inv_number > len(pre_inv):
+            size = len(pre_inv)
             await ctx.send(
-                f"❌ **{item['name']}** is not in your inventory. "
-                "Use `!cw_buy` to purchase it first."
+                f"❌ Invalid row **{inv_number}**. Your inventory has {size} item(s). "
+                "Use `!cw_inventory` to see your numbered list."
             )
             return
+
+        inv_item = pre_inv[inv_number - 1]
+        item_name = inv_item["name"]
+        item_id = inv_item.get("item_id", str(uuid.uuid4()))
+        price_paid_orig = inv_item.get("price_paid")
 
         # Balance check outside the lock
         patient_balance = await self.unbelievaboat.get_balance(patient.id)
@@ -697,11 +788,10 @@ class CyberwareShop(commands.Cog):
         pat_cash_deduct = min(max(pat_cash, 0), price)
         pat_bank_deduct = max(0, price - pat_cash_deduct)
 
-        # Balance API calls outside the lock — these are external HTTP requests
         ok_patient = await self.unbelievaboat.update_balance(
             patient.id,
             {"cash": -pat_cash_deduct, "bank": -pat_bank_deduct},
-            reason=f"Cyberware install: {item['name']}",
+            reason=f"Cyberware install: {item_name}",
         )
         if not ok_patient:
             await ctx.send("❌ Failed to deduct from patient's balance. Aborting.")
@@ -710,7 +800,7 @@ class CyberwareShop(commands.Cog):
         ok_ripper = await self.unbelievaboat.update_balance(
             ctx.author.id,
             {"cash": price},
-            reason=f"Cyberware sale: {item['name']} to {patient.display_name}",
+            reason=f"Cyberware sale: {item_name} to {patient.display_name}",
         )
         if not ok_ripper:
             logger.error(
@@ -722,7 +812,7 @@ class CyberwareShop(commands.Cog):
             refund_ok = await self.unbelievaboat.update_balance(
                 patient.id,
                 {"cash": pat_cash_deduct, "bank": pat_bank_deduct},
-                reason=f"Cyberware sale refund (Ripperdoc credit failure): {item['name']}",
+                reason=f"Cyberware sale refund (Ripperdoc credit failure): {item_name}",
             )
             if refund_ok:
                 await ctx.send(
@@ -742,37 +832,51 @@ class CyberwareShop(commands.Cog):
                 )
             return
 
-        # Under the lock: re-verify item is still in inventory, pop, save, record tx
+        # Under the lock: re-verify item is still at that position, pop, save, record tx
         async with self.lock:
             inventory = await self._load_inventory(ctx.author.id)
-            idx = next(
-                (i for i, n in enumerate(inventory) if n.lower() == item_lower),
-                None,
-            )
-            if idx is None:
-                # Item removed between pre-check and lock acquisition — refund both parties
+            if inv_number < 1 or inv_number > len(inventory):
                 logger.warning(
-                    "cw_sell: '%s' not in inventory under lock for %s — refunding",
-                    item["name"],
+                    "cw_sell: inv row %d out of range (now %d items) for %s — refunding",
+                    inv_number,
+                    len(inventory),
                     ctx.author.id,
                 )
                 await self.unbelievaboat.update_balance(
                     patient.id,
                     {"cash": pat_cash_deduct, "bank": pat_bank_deduct},
-                    reason=f"Cyberware sale refund (item no longer in inventory): {item['name']}",
+                    reason=f"Cyberware sale refund (item no longer in inventory): {item_name}",
                 )
                 await self.unbelievaboat.update_balance(
                     ctx.author.id,
                     {"cash": -price},
-                    reason=f"Cyberware sale refund (item no longer in inventory): {item['name']}",
+                    reason=f"Cyberware sale refund (item no longer in inventory): {item_name}",
                 )
                 await ctx.send(
-                    f"❌ **{item['name']}** was no longer in your inventory when the "
+                    f"❌ **{item_name}** was no longer in your inventory when the "
                     "sale was processed. All payments have been refunded."
                 )
                 return
 
-            inventory.pop(idx)
+            locked_item = inventory[inv_number - 1]
+            if locked_item["name"] != item_name:
+                await self.unbelievaboat.update_balance(
+                    patient.id,
+                    {"cash": pat_cash_deduct, "bank": pat_bank_deduct},
+                    reason=f"Cyberware sale refund (inventory changed): {item_name}",
+                )
+                await self.unbelievaboat.update_balance(
+                    ctx.author.id,
+                    {"cash": -price},
+                    reason=f"Cyberware sale refund (inventory changed): {item_name}",
+                )
+                await ctx.send(
+                    "❌ Your inventory changed while processing. "
+                    "All payments have been refunded. Please try again."
+                )
+                return
+
+            inventory.pop(inv_number - 1)
             await self._save_inventory(ctx.author.id, inventory)
 
             tx = {
@@ -783,24 +887,127 @@ class CyberwareShop(commands.Cog):
                 "ripperdoc_name": ctx.author.display_name,
                 "patient_id": str(patient.id),
                 "patient_name": patient.display_name,
-                "item": item["name"],
+                "item": item_name,
                 "price": price,
+                "character_name": character_name,
             }
             await self._append_tx(tx)
+
+        # Write to player_inventory (best-effort, non-blocking)
+        await pi_add_item({
+            "item_id": item_id,
+            "owner_id": str(patient.id),
+            "character_name": character_name,
+            "item_type": "cyberware",
+            "name": item_name,
+            "restriction": "basic",
+            "description": "",
+            "price_paid": price,
+            "seller_id": str(ctx.author.id),
+            "seller_name": ctx.author.display_name,
+        })
 
         log_ch = await self._log_channel()
         receipt = (
             f"💉 **CYBERWARE INSTALL**\n"
             f"Ripperdoc: {ctx.author.mention}\n"
-            f"Patient: {patient.mention}\n"
-            f"Item: **{item['name']}**\n"
+            f"Patient: {patient.mention} (Character: **{character_name}**)\n"
+            f"Item: **{item_name}**\n"
             f"Price charged: **${price:,}**"
         )
         if log_ch:
             await log_ch.send(receipt, allowed_mentions=discord.AllowedMentions.none())
 
         await ctx.send(
-            f"✅ Sold **{item['name']}** to {patient.display_name} for **${price:,}**."
+            f"✅ Installed **{item_name}** on **{character_name}** ({patient.display_name}) "
+            f"for **${price:,}**."
+        )
+
+    @commands.command(name="cw_install")
+    @is_ripperdoc()
+    async def cw_install(
+        self,
+        ctx: commands.Context,
+        patient: discord.Member,
+        inv_number: int,
+        *,
+        character_name: str,
+    ) -> None:
+        """Install a cyberware item onto a patient with no payment (free install).
+
+        Usage: !cw_install @patient <inv_row> character name
+        Use !cw_inventory to see your numbered inventory.
+        """
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
+
+        character_name = character_name.strip().strip('"').strip("'")
+        if not character_name:
+            await ctx.send("❌ Character name is required.")
+            return
+
+        pre_inv = await self._load_inventory(ctx.author.id)
+        if inv_number < 1 or inv_number > len(pre_inv):
+            await ctx.send(
+                f"❌ Invalid row **{inv_number}**. Your inventory has {len(pre_inv)} item(s). "
+                "Use `!cw_inventory` to see your numbered list."
+            )
+            return
+
+        async with self.lock:
+            inventory = await self._load_inventory(ctx.author.id)
+            if inv_number < 1 or inv_number > len(inventory):
+                await ctx.send(
+                    "❌ Inventory changed while processing. Please try again."
+                )
+                return
+
+            inv_item = inventory.pop(inv_number - 1)
+            item_name = inv_item["name"]
+            item_id = inv_item.get("item_id", str(uuid.uuid4()))
+            price_paid_orig = inv_item.get("price_paid")
+            await self._save_inventory(ctx.author.id, inventory)
+
+            tx = {
+                "tx_id": str(uuid.uuid4()),
+                "tx_type": "INSTALL",
+                "ts": self._now_iso(),
+                "ripperdoc_id": str(ctx.author.id),
+                "ripperdoc_name": ctx.author.display_name,
+                "patient_id": str(patient.id),
+                "patient_name": patient.display_name,
+                "item": item_name,
+                "price": 0,
+                "character_name": character_name,
+            }
+            await self._append_tx(tx)
+
+        await pi_add_item({
+            "item_id": item_id,
+            "owner_id": str(patient.id),
+            "character_name": character_name,
+            "item_type": "cyberware",
+            "name": item_name,
+            "restriction": "basic",
+            "description": "",
+            "price_paid": price_paid_orig,
+            "seller_id": str(ctx.author.id),
+            "seller_name": ctx.author.display_name,
+        })
+
+        log_ch = await self._log_channel()
+        receipt = (
+            f"💉 **CYBERWARE INSTALL (FREE)**\n"
+            f"Ripperdoc: {ctx.author.mention}\n"
+            f"Patient: {patient.mention} (Character: **{character_name}**)\n"
+            f"Item: **{item_name}**"
+        )
+        if log_ch:
+            await log_ch.send(receipt, allowed_mentions=discord.AllowedMentions.none())
+
+        await ctx.send(
+            f"✅ Installed **{item_name}** on **{character_name}** ({patient.display_name})."
         )
 
     @commands.command(name="cw_tx")
@@ -897,22 +1104,17 @@ class CyberwareShop(commands.Cog):
 
         settings = state.get("settings", {})
         sunday_key = str(settings.get("last_cw_restock_sunday", "unknown"))
-        available = sorted(
-            [l for l in lots if int(l.get("qty_available", 0)) > 0],
-            key=lambda l: l["item_name"],
-        )
-        sold_out = sorted(
-            [l for l in lots if int(l.get("qty_available", 0)) <= 0],
-            key=lambda l: l["item_name"],
-        )
+        available, sold_out = self._sorted_lots(lots)
+        all_ordered = available + sold_out
 
         lines = []
-        for lot in available:
+        for i, lot in enumerate(all_ordered, 1):
             qty = int(lot["qty_available"])
             price = int(lot["unit_cost"])
-            lines.append(f"`{lot['item_name']}` — ${price:,} × {qty}")
-        for lot in sold_out:
-            lines.append(f"~~`{lot['item_name']}`~~ — Sold out")
+            if qty > 0:
+                lines.append(f"**{i}.** `{lot['item_name']}` — ${price:,} × {qty}")
+            else:
+                lines.append(f"~~**{i}.** `{lot['item_name']}`~~ — Sold out")
 
         page_size = 20
         pages = [lines[i: i + page_size] for i in range(0, len(lines), page_size)]
@@ -923,7 +1125,7 @@ class CyberwareShop(commands.Cog):
                 color=discord.Color.teal(),
             )
             embed.set_footer(
-                text=f"{len(available)} of {len(lots)} items available | Use !cw_buy <name> to purchase"
+                text=f"{len(available)} of {len(lots)} items available | Use !cw_buy <lot#> [qty]"
             )
             await ctx.send(embed=embed)
 

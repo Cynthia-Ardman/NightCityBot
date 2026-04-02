@@ -81,16 +81,42 @@ Two-table catalog system in PostgreSQL:
 ### Cyberware Wholesale Flow (mirrors gun wholesaler)
 
 1. Each Sunday (auto) or via `!cw_wh_restock`, 15 random items from the full catalog are selected with 1–3 qty each
-2. Ripperdocs use `!cw_wh_list` to see what's available this week
-3. `!cw_buy <item>` now checks weekly lots — limited stock, first-come first-served
-4. Sold-out items show ~~strikethrough~~ in the list; if a race occurs mid-purchase, funds are auto-refunded
-5. Auto-restock fires during the Sunday weekly cyberware process (same hook that triggers gun restock)
+2. Ripperdocs use `!cw_wh_list` to see what's available this week (numbered lots)
+3. `!cw_buy <lot#> [qty]` — buy by lot number, first-come first-served
+4. Sold-out items show ~~strikethrough~~ in the list; race conditions auto-refund
+5. Auto-restock fires during the Sunday weekly cyberware process
+
+### Ripperdoc Inventory Flow
+
+1. `!cw_inventory` — shows numbered inventory rows (row# used by sell/install)
+2. `!cw_sell @patient <row> <price> character_name` — sells to patient, creates `player_inventory` record
+3. `!cw_install @patient <row> character_name` — free install (no payment), creates `player_inventory` record
 
 ### Admin commands
 - `!cw_wh_restock [seed]` — force restock
 - `!cw_wh_add <qty> <item>` — add/top-up a specific item mid-week
 - `!cw_wh_remove <item>` — pull an item from current week
 - `!cw_wh_settings [key] [value]` — tune total_items, qty_min, qty_max
+
+## Player Inventory System (new in Task 11)
+
+Tables: `player_inventory`, `pending_transfers`
+Cog: `NightCityBot/cogs/player_inventory.py`
+
+- `!my_inventory [@player] [page]` — view item inventory with row numbers
+- `!inv_give @target <row> "sender_char" ["receiver_char"]` — transfer item (no payment)
+- `!trade @buyer <row> <price> buyer_character` — sell item with payment; controlled/restricted blocked; DB failure → pending_transfers + alert to #nightcitybot-logs
+- `!inv_add @player <type> "name" <restriction> "desc" [price]` — admin add item
+- `!inv_remove @player <row>` — admin delete item
+- `!inv_reassign @player <row> new_character` — admin character reassignment
+
+Guns sold via `!guns_wh_sell` also write to `player_inventory` automatically.
+
+### Audit log channels
+- `CYBERWARE_LOG_CHANNEL_ID` — cyberware shop events
+- `GUN_LOG_CHANNEL_ID` — gun shop events (to-do: migrate guns_shop audit send)
+- `GEAR_MISC_LOG_CHANNEL_ID` — player inventory trades/gives
+- `NIGHTCITYBOT_LOG_CHANNEL_ID` — system alerts (pending transfers, etc.)
 
 ## Gun Restriction System
 

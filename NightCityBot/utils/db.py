@@ -361,6 +361,41 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
             updated_at       TIMESTAMPTZ DEFAULT NOW()
         )
         """,
+        # ── Player inventory (one row per item instance) ─────────────────────
+        """
+        CREATE TABLE IF NOT EXISTS player_inventory (
+            item_id         TEXT PRIMARY KEY,
+            owner_id        TEXT NOT NULL,
+            character_name  TEXT NOT NULL DEFAULT '',
+            item_type       TEXT NOT NULL DEFAULT 'cyberware',
+            name            TEXT NOT NULL,
+            restriction     TEXT NOT NULL DEFAULT 'basic',
+            description     TEXT NOT NULL DEFAULT '',
+            price_paid      INT,
+            seller_id       TEXT,
+            seller_name     TEXT NOT NULL DEFAULT '',
+            acquired_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_inventory_owner
+            ON player_inventory (owner_id)
+        """,
+        # ── Pending transfers (trade failure recovery) ────────────────────────
+        """
+        CREATE TABLE IF NOT EXISTS pending_transfers (
+            transfer_id     TEXT PRIMARY KEY,
+            from_id         TEXT NOT NULL,
+            to_id           TEXT NOT NULL,
+            item_id         TEXT NOT NULL,
+            amount          INT NOT NULL DEFAULT 0,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            error_detail    TEXT NOT NULL DEFAULT '',
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            resolved_at     TIMESTAMPTZ
+        )
+        """,
     ]
 
     async with pool.acquire() as conn:
@@ -2649,6 +2684,234 @@ async def gun_catalog_adjust_qty(gun_name: str, delta: int) -> bool:
         return True
     except Exception:
         logger.error("gun_catalog_adjust_qty failed for gun='%s'", gun_name, exc_info=True)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Player inventory helpers
+# ---------------------------------------------------------------------------
+
+async def pi_add_item(item: dict) -> bool:
+    """Insert one item into player_inventory. Silently ignores duplicate item_id."""
+    try:
+        pool = await get_pool()
+        acq = item.get("acquired_at")
+        if isinstance(acq, str):
+            try:
+                acq = datetime.fromisoformat(acq.replace("Z", "+00:00"))
+            except Exception:
+                acq = None
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO player_inventory
+                    (item_id, owner_id, character_name, item_type, name, restriction,
+                     description, price_paid, seller_id, seller_name, acquired_at, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                        COALESCE($11, NOW()), NOW())
+                ON CONFLICT (item_id) DO NOTHING
+                """,
+                str(item["item_id"]),
+                str(item["owner_id"]),
+                str(item.get("character_name", "")),
+                str(item.get("item_type", "cyberware")),
+                str(item["name"]),
+                str(item.get("restriction", "basic")),
+                str(item.get("description", "")),
+                item.get("price_paid"),
+                str(item["seller_id"]) if item.get("seller_id") else None,
+                str(item.get("seller_name", "")),
+                acq,
+            ),
+            label="pi_add_item",
+        )
+        return True
+    except Exception:
+        logger.error("pi_add_item failed for item_id='%s'", item.get("item_id"), exc_info=True)
+        return False
+
+
+async def pi_get_by_owner(owner_id: str) -> list[dict]:
+    """Return all items owned by owner_id, ordered by character_name, item_type, name, acquired_at."""
+    try:
+        pool = await get_pool()
+        rows = await pool.fetch(
+            """
+            SELECT item_id, owner_id, character_name, item_type, name, restriction,
+                   description, price_paid, seller_id, seller_name, acquired_at, created_at
+            FROM player_inventory
+            WHERE owner_id = $1
+            ORDER BY character_name, item_type, name, acquired_at
+            """,
+            str(owner_id),
+        )
+        result = []
+        for row in rows:
+            d = dict(row)
+            for k in ("acquired_at", "created_at"):
+                if d.get(k) is not None and hasattr(d[k], "isoformat"):
+                    d[k] = d[k].isoformat()
+            result.append(d)
+        return result
+    except Exception:
+        logger.error("pi_get_by_owner failed for owner='%s'", owner_id, exc_info=True)
+        return []
+
+
+async def pi_get_item(item_id: str) -> Optional[dict]:
+    """Fetch a single player_inventory row by item_id."""
+    try:
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            """
+            SELECT item_id, owner_id, character_name, item_type, name, restriction,
+                   description, price_paid, seller_id, seller_name, acquired_at, created_at
+            FROM player_inventory WHERE item_id = $1
+            """,
+            str(item_id),
+        )
+        if row is None:
+            return None
+        d = dict(row)
+        for k in ("acquired_at", "created_at"):
+            if d.get(k) is not None and hasattr(d[k], "isoformat"):
+                d[k] = d[k].isoformat()
+        return d
+    except Exception:
+        logger.error("pi_get_item failed for item_id='%s'", item_id, exc_info=True)
+        return None
+
+
+async def pi_delete_item(item_id: str) -> bool:
+    """Delete a player_inventory row. Returns True if a row was deleted."""
+    try:
+        pool = await get_pool()
+        deleted = False
+
+        async def _do():
+            nonlocal deleted
+            async with pool.acquire() as conn:
+                result = await conn.execute(
+                    "DELETE FROM player_inventory WHERE item_id = $1",
+                    str(item_id),
+                )
+                deleted = result != "DELETE 0"
+
+        await _with_retry(_do, label="pi_delete_item")
+        return deleted
+    except Exception:
+        logger.error("pi_delete_item failed for item_id='%s'", item_id, exc_info=True)
+        return False
+
+
+async def pi_update_owner(item_id: str, new_owner_id: str, new_character: str) -> bool:
+    """Transfer ownership of an item to a new player/character."""
+    try:
+        pool = await get_pool()
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                UPDATE player_inventory
+                SET owner_id = $2, character_name = $3
+                WHERE item_id = $1
+                """,
+                str(item_id), str(new_owner_id), str(new_character),
+            ),
+            label="pi_update_owner",
+        )
+        return True
+    except Exception:
+        logger.error("pi_update_owner failed for item_id='%s'", item_id, exc_info=True)
+        return False
+
+
+async def pi_update_character(item_id: str, new_character: str) -> bool:
+    """Update only the character_name of an existing player_inventory item."""
+    try:
+        pool = await get_pool()
+        await _with_retry(
+            lambda: pool.execute(
+                "UPDATE player_inventory SET character_name = $2 WHERE item_id = $1",
+                str(item_id), str(new_character),
+            ),
+            label="pi_update_character",
+        )
+        return True
+    except Exception:
+        logger.error("pi_update_character failed for item_id='%s'", item_id, exc_info=True)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Pending transfers helpers (trade failure recovery)
+# ---------------------------------------------------------------------------
+
+async def pt_create(transfer: dict) -> bool:
+    """Record a pending transfer (money moved but item ownership not yet saved)."""
+    try:
+        pool = await get_pool()
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO pending_transfers
+                    (transfer_id, from_id, to_id, item_id, amount, status, error_detail, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                ON CONFLICT (transfer_id) DO NOTHING
+                """,
+                str(transfer["transfer_id"]),
+                str(transfer["from_id"]),
+                str(transfer["to_id"]),
+                str(transfer["item_id"]),
+                int(transfer.get("amount", 0)),
+                str(transfer.get("status", "pending")),
+                str(transfer.get("error_detail", "")),
+            ),
+            label="pt_create",
+        )
+        return True
+    except Exception:
+        logger.error("pt_create failed for transfer_id='%s'", transfer.get("transfer_id"), exc_info=True)
+        return False
+
+
+async def pt_get_pending() -> list[dict]:
+    """Return all pending transfer records."""
+    try:
+        pool = await get_pool()
+        rows = await pool.fetch(
+            "SELECT * FROM pending_transfers WHERE status = 'pending' ORDER BY created_at",
+        )
+        result = []
+        for row in rows:
+            d = dict(row)
+            for k in ("created_at", "resolved_at"):
+                if d.get(k) is not None and hasattr(d[k], "isoformat"):
+                    d[k] = d[k].isoformat()
+            result.append(d)
+        return result
+    except Exception:
+        logger.error("pt_get_pending failed", exc_info=True)
+        return []
+
+
+async def pt_resolve(transfer_id: str, status: str = "resolved") -> bool:
+    """Mark a pending transfer as resolved (or cancelled, etc.)."""
+    try:
+        pool = await get_pool()
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                UPDATE pending_transfers
+                SET status = $2, resolved_at = NOW()
+                WHERE transfer_id = $1
+                """,
+                str(transfer_id), str(status),
+            ),
+            label="pt_resolve",
+        )
+        return True
+    except Exception:
+        logger.error("pt_resolve failed for transfer_id='%s'", transfer_id, exc_info=True)
         return False
 
 

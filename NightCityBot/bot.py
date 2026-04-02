@@ -29,6 +29,7 @@ from NightCityBot.cogs.role_buttons import RoleButtons
 from NightCityBot.cogs.trauma_team import TraumaTeam
 from NightCityBot.cogs.guns_shop import GunsShopCog
 from NightCityBot.cogs.cyberware_shop import CyberwareShop
+from NightCityBot.cogs.player_inventory import PlayerInventoryCog
 from NightCityBot.utils.startup_checks import perform_startup_checks
 from NightCityBot.services.unbelievaboat import UnbelievaBoatAPI
 from NightCityBot.utils import config_loader as _cfg
@@ -72,6 +73,7 @@ class NightCityBot(commands.Bot):
         await self.add_cog(TraumaTeam(self))
         await self.add_cog(GunsShopCog(self))
         await self.add_cog(CyberwareShop(self))
+        await self.add_cog(PlayerInventoryCog(self, self.unbelievaboat))
         await self.add_cog(Admin(self))
         await self.add_cog(TestSuite(self))
         self.loop.create_task(perform_startup_checks(self))
