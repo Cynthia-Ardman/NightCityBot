@@ -30,8 +30,6 @@ async def run(suite, ctx) -> List[str]:
         patch.object(economy.unbelievaboat, 'update_balance', new=AsyncMock(return_value=True)),
         patch.object(economy, 'backup_balances', new=AsyncMock()),
         patch.object(economy.trauma_service, 'process_trauma_team_payment', new=AsyncMock()),
-        patch('NightCityBot.cogs.economy.db_load', new=AsyncMock(return_value={})),
-        patch('NightCityBot.cogs.economy.db_save', new=AsyncMock()),
     ):
         await economy.collect_rent(ctx, target_user=user)
         eviction_calls = eviction_channel.send.await_args_list

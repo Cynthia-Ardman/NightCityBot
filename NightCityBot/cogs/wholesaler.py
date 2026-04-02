@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import random
 import re
@@ -16,11 +17,9 @@ from openpyxl import load_workbook
 import config
 from NightCityBot.utils import helpers
 from NightCityBot.utils.db import (
-    db_load, db_save,
     wh_lots_get_all, wh_lots_replace_all,
     wh_stores_get_all, wh_stores_replace_all,
     wh_shops_get_all, wh_shops_replace_all,
-    wh_pending_payouts_get,
     wh_settings_get, wh_settings_save,
     wh_tx_append, wh_tx_get_all,
     gun_catalog_upsert_many, gun_catalog_sync_qty_from_lots, gun_catalog_adjust_qty,
@@ -672,15 +671,15 @@ class WholesalerCog(commands.Cog):
         lots = await wh_lots_get_all()
         stores_db = await wh_stores_get_all()
         shops_db = await wh_shops_get_all()
-        pending = await wh_pending_payouts_get()
         settings_db = await wh_settings_get()
 
         if lots or stores_db or shops_db:
+            json_state = await helpers.load_json_file(self.state_file, default={})
             state = {
                 "wholesale_lots": lots,
                 "stores": stores_db,
                 "shop_registry": shops_db,
-                "pending_payouts": pending,
+                "pending_payouts": json_state.get("pending_payouts", []),
                 "settings": settings_db,
                 "transactions": 0,
             }
@@ -2352,14 +2351,12 @@ class WholesalerCog(commands.Cog):
             await ctx.send("❌ Admin role required.")
             return
 
-        txs = await db_load("wholesaler_tx", default=[], seed_path=self.tx_file)
-        if not isinstance(txs, list):
-            txs = []
+        txs = await wh_tx_get_all()
         tx = next((t for t in txs if t.get("tx_id") == tx_id), None)
         if not tx:
             await ctx.send("Transaction not found.")
             return
-        await ctx.send(f"```json\n{tx}\n```")
+        await ctx.send(f"```json\n{json.dumps(tx, indent=2)}\n```")
 
     @commands.command(name="wh_retry_payout")
     async def wh_retry_payout(self, ctx: commands.Context, tx_id: str):

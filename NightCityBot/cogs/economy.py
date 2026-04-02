@@ -13,7 +13,6 @@ from NightCityBot.utils.permissions import is_fixer
 from NightCityBot.utils import config_loader as _cfg
 from NightCityBot.utils import helpers
 from NightCityBot.utils.db import (
-    db_load, db_save,
     attendance_get_user, attendance_append,
     open_log_exists_today, open_log_count_month, open_log_add, open_log_get_all,
     last_payment_get, last_payment_set, last_payment_get_with_ts,
