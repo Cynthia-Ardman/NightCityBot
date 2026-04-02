@@ -108,10 +108,22 @@ class RPManager(commands.Cog):
             logger.warning("Suppressed exception", exc_info=True)
         return channel
 
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx, error):
+        """Surface check failures as a visible message in the invoking channel."""
+        if isinstance(error, (commands.CheckFailure, commands.MissingPermissions)):
+            try:
+                await ctx.send(
+                    f"❌ You don't have permission to use `!{ctx.command}` here.",
+                    delete_after=10,
+                )
+            except Exception:
+                pass
+
     @commands.command(
         aliases=["endrp", "rp_end", "rpend"]
     )
-    @is_fixer()
+    @commands.check_any(is_fixer(), commands.has_permissions(administrator=True))
     async def end_rp(self, ctx):
         """Ends the RP session in the current channel."""
         if not ctx.guild:
