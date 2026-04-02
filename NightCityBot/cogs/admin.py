@@ -294,6 +294,20 @@ class Admin(commands.Cog):
 
 
         embed.add_field(
+            name="🎒 Item Inventory",
+            value=(
+                "`!my_inventory` (alias: !myinv) — view your items grouped by character.\n"
+                "`!my_inventory \"character_name\"` — filter to one character.\n"
+                "`!my_inventory 2` — jump to page 2.\n\n"
+                "`!trade @buyer <row> <price> character_name` — sell an item to another player. "
+                "Price 0 is allowed when moving items between your own characters.\n"
+                "`!inv_give @target <row> \"sender_char\" [\"receiver_char\"]` — give an item for free. "
+                "If the item is cyberware and the target is a Ripperdoc, it goes into their stock instead."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
             name="🔫 Gun Stores",
             value=(
                 "`!guns_wh_list` – browse current wholesaler lots.\n"
@@ -378,6 +392,15 @@ class Admin(commands.Cog):
                     "`!collect_cyberware @user [-v]` – manually charge a member for their meds.",
                     "`!manual_cyberware_log @user <week> <status>` (alias: !mcl) – manually record a cyberware log entry without charging.",
                     "`!paycyberware [-v]` – pay your own cyberware meds manually.",
+                ]),
+            ),
+            (
+                "🎒 Inventory Management",
+                "\n".join([
+                    "`!my_inventory [@player] [\"char\"] [page]` (alias: !myinv) – view your items or another player's, grouped by character. Fixers can view any player.",
+                    "`!inv_add @player \"name\" <qty> \"character_name\" [item_type] [\"description\"] [price] [\"seller\"]` – add qty items (each gets a unique UUID) to a player's inventory. item_type defaults to misc.",
+                    "`!inv_remove @player <item_id>` – remove a specific item by UUID.",
+                    "`!inv_reassign <item_id> @player \"character_name\"` – move an item to a different character (keeps the same owner).",
                 ]),
             ),
         ]
@@ -663,10 +686,10 @@ class Admin(commands.Cog):
         embed.add_field(
             name="🛒 Buy Parts (Ripperdoc only)",
             value=(
-                "`!cw_buy <item name>` — purchase a part from this week's wholesale stock.\n"
-                "Example: `!cw_buy Kiroshi Optics Mk.1`\n\n"
-                "Cost is deducted from your balance. Part is added to your inventory immediately.\n"
-                "Multi-word names don't need quotes. If the item isn't in this week's rotation, you'll be told."
+                "`!cw_buy <lot_number> [qty=1]` — purchase a part from this week's wholesale stock.\n"
+                "Example: `!cw_buy 3` or `!cw_buy 3 2`\n\n"
+                "Use `!cw_wh_list` to find lot numbers. "
+                "Cost is deducted from your balance. Part is added to your inventory immediately."
             ),
             inline=False,
         )
@@ -674,23 +697,36 @@ class Admin(commands.Cog):
         embed.add_field(
             name="📦 Check Your Stock (Ripperdoc only)",
             value=(
-                "`!cw_inventory` — view parts currently in your inventory.\n"
-                "`!cw_inventory @ripperdoc` — admins can view another Ripperdoc's stock."
+                "`!cw_inventory` — view parts currently in your inventory, grouped and numbered.\n"
+                "`!cw_inventory @ripperdoc` — admins can view another Ripperdoc's stock.\n"
+                "Row numbers shown here are used with `!cw_sell` and `!cw_install`."
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="💉 Install / Sell to a Patient (Ripperdoc only)",
+            name="💉 Sell to a Patient (Ripperdoc only)",
             value=(
-                '`!cw_sell @patient "item name" <price>`\n'
-                'Example: `!cw_sell @V "Kiroshi Optics Mk.1" 3500`\n\n'
+                '`!cw_sell @patient <inv_row> <price> character_name`\n'
+                'Example: `!cw_sell @V 1 3500 V`\n\n'
                 "This will:\n"
                 "1. Deduct the price from the patient's balance\n"
                 "2. Credit the price to your (Ripperdoc's) balance\n"
-                "3. Remove the part from your inventory\n"
-                "4. Post an audit receipt to the Ripperdoc log channel\n\n"
-                "Item name must be in quotes if it contains spaces. Price is your call."
+                "3. Remove the part from your inventory (FIFO)\n"
+                "4. Add the item to the patient's inventory record\n"
+                "5. Post an audit receipt to the Ripperdoc log channel\n\n"
+                "Use `!cw_inventory` to find row numbers."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🔧 Free Install (Ripperdoc only)",
+            value=(
+                '`!cw_install @patient "character_name" <inv_row>`\n'
+                'Example: `!cw_install @V "V" 1`\n\n'
+                "Transfers the item with no payment — use for comped installs or staff-directed ops. "
+                "Part is removed from your stock and recorded in the patient's inventory."
             ),
             inline=False,
         )
