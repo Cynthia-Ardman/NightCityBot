@@ -186,6 +186,25 @@ class TestBuildDisplay:
         item_rows = [rn for rn, _ in display if rn is not None]
         assert len(item_rows) == 1
 
+    def test_char_filter_preserves_global_row_numbers(self):
+        """Filtered view shows GLOBAL row numbers matching !trade / !inv_give row resolution."""
+        items = [
+            {**_item("Axe",     char="Alpha"), "owner_id": "1"},  # global row 1
+            {**_item("Bomb",    char="Alpha"), "owner_id": "1"},  # global row 2
+            {**_item("Pistol",  char="V"),     "owner_id": "1"},  # global row 3
+        ]
+        # Without filter: rows 1, 2, 3
+        display_all, _ = PlayerInventoryCog._build_display(items)
+        all_rows = [rn for rn, _ in display_all if rn is not None]
+        assert all_rows == [1, 2, 3]
+
+        # With filter "V": only V's item is shown, but its row number stays 3
+        display_v, groups_v = PlayerInventoryCog._build_display(items, char_filter="V")
+        filtered_rows = [rn for rn, _ in display_v if rn is not None]
+        assert filtered_rows == [3]   # NOT [1] — global position preserved
+        assert len(groups_v) == 1
+        assert groups_v[0]["name"] == "Pistol"
+
 
 # ------------------------------------------------------------------
 # TestMyInventory
@@ -506,6 +525,44 @@ class TestInvGive:
         msg = ctx.send.call_args[0][0]
         assert "❌" in msg
         assert "restored" in msg.lower() or "try again" in msg.lower()
+
+    def test_cyberware_to_ripperdoc_purchased_at_defaults_to_now(self, monkeypatch):
+        """If acquired_at and created_at are both None, purchased_at is set to a non-None value."""
+        cog = _make_cog(monkeypatch)
+        item = {
+            **_item("Kiroshi", item_type="cyberware", char="V"),
+            "owner_id": "111",
+            "acquired_at": None,
+            "created_at": None,
+        }
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[item]))
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_delete_item", AsyncMock(return_value=True))
+
+        cw_inventory = []
+
+        async def mock_load_inv(uid):
+            return list(cw_inventory)
+
+        async def mock_save_inv(uid, inv):
+            cw_inventory.clear()
+            cw_inventory.extend(inv)
+            return True
+
+        cw_cog = MagicMock()
+        cw_cog._load_inventory = mock_load_inv
+        cw_cog._save_inventory = mock_save_inv
+        cog.bot.cogs = {"CyberwareShop": cw_cog}
+
+        ripperdoc_role = MagicMock()
+        ripperdoc_role.id = 800
+        target = _make_member(500, roles=[ripperdoc_role])
+
+        ctx = _ctx(author_id=111)
+        _run(_cmd(cog, "inv_give", ctx, target, 1, "V"))
+
+        assert len(cw_inventory) == 1
+        # purchased_at must not be None — fallback to datetime.now()
+        assert cw_inventory[0]["purchased_at"] is not None
 
     def test_gun_give_logs_to_gun_channel(self, monkeypatch):
         """Gun item give logs to #gun-log, not #gear-misc-logs."""

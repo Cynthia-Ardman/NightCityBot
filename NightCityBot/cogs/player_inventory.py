@@ -143,7 +143,10 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
         Returns a list of (row_number_or_None, line) tuples where row_number
         is None for character headers and an int for item group rows.
-        Flat row numbers are consecutive across all characters.
+
+        Row numbers are GLOBAL (matching the unfiltered full inventory order)
+        so that a filtered view still shows the same row numbers that !trade
+        and !inv_give use when resolving rows against the full inventory.
         """
         char_order: list[str] = []
         char_groups: dict[str, list[dict]] = {}
@@ -154,17 +157,16 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 char_groups[char] = []
             char_groups[char].append(item)
 
-        # Filter by character if requested
-        if char_filter:
-            char_filter_lower = char_filter.lower()
-            char_order = [c for c in char_order if c.lower() == char_filter_lower]
+        char_filter_lower = char_filter.lower() if char_filter else None
 
         display = []
         row_num = 1
         all_groups: list[dict] = []
         for char in char_order:
-            display.append((None, f"— **{char or '(no character)'}** —"))
+            visible = (char_filter_lower is None) or (char.lower() == char_filter_lower)
             groups = PlayerInventoryCog._group_items(char_groups[char])
+            if visible:
+                display.append((None, f"— **{char or '(no character)'}** —"))
             for g in groups:
                 price_str = f"${g['price_paid']:,}" if g["price_paid"] else "—"
                 seller_str = g["seller_name"] or "—"
@@ -174,8 +176,9 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                     f"`{row_num}.` **{g['name']}**{count_str}"
                     f" | {g['item_type']} | {price_str} | {seller_str} | {date_str}"
                 )
-                display.append((row_num, line))
-                all_groups.append(g)
+                if visible:
+                    display.append((row_num, line))
+                    all_groups.append(g)
                 row_num += 1
         return display, all_groups
 
@@ -262,10 +265,11 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         if page > total_pages:
             page = total_pages
 
-        # Collect which row numbers are on this page
-        start_group = (page - 1) * GROUPS_PER_PAGE + 1
-        end_group = page * GROUPS_PER_PAGE
-        page_rows = {rn for rn, _ in item_lines if start_group <= rn <= end_group}
+        # Collect which row numbers are on this page, slicing by position in the
+        # filtered list (row numbers may be non-contiguous when a char filter is active).
+        page_start = (page - 1) * GROUPS_PER_PAGE
+        page_end = page * GROUPS_PER_PAGE
+        page_rows = {rn for rn, _ in item_lines[page_start:page_end]}
 
         # Rebuild display lines for this page (include headers if they have items on this page)
         page_lines: list[str] = []
@@ -377,7 +381,11 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 "item_id": item_id,
                 "name": item_name,
                 "price_paid": selected_item.get("price_paid"),
-                "purchased_at": selected_item.get("acquired_at") or selected_item.get("created_at"),
+                "purchased_at": (
+                    selected_item.get("acquired_at")
+                    or selected_item.get("created_at")
+                    or datetime.now(timezone.utc).isoformat()
+                ),
             })
             ok_save = await cw_cog._save_inventory(target.id, rd_inventory)
             if not ok_save:

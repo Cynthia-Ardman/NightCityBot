@@ -967,6 +967,60 @@ class TestCwTx:
 
 
 # ------------------------------------------------------------------
+# _load_inventory migration tests
+# ------------------------------------------------------------------
+
+class TestLoadInventoryMigration:
+    def test_dict_entry_missing_item_id_gets_uuid(self, tmp_path, monkeypatch):
+        """Legacy dict entries without item_id are assigned a UUID and saved back."""
+        cog = _make_cog(tmp_path, monkeypatch)
+        # Manually write a dict entry without item_id
+        legacy = [{"name": "Kiroshi Optics Mk.1", "price_paid": 3000, "purchased_at": "2026-01-01"}]
+        inv_file = cog.inventory_dir / "111.json"
+        inv_file.write_text(json.dumps(legacy))
+
+        inv = _run(cog._load_inventory(111))
+
+        assert len(inv) == 1
+        assert "item_id" in inv[0]
+        assert inv[0]["item_id"]  # non-empty UUID string
+
+        # Verify migrated UUID was saved back to file
+        saved = json.loads(inv_file.read_text())
+        assert "item_id" in saved[0]
+        assert saved[0]["item_id"] == inv[0]["item_id"]
+
+    def test_dict_entry_with_item_id_unchanged(self, tmp_path, monkeypatch):
+        """Dict entries that already have item_id are left untouched."""
+        cog = _make_cog(tmp_path, monkeypatch)
+        existing_id = "existing-uuid-123"
+        data = [{"item_id": existing_id, "name": "Sandevistan Mk.1", "price_paid": 8000, "purchased_at": None}]
+        inv_file = cog.inventory_dir / "222.json"
+        inv_file.write_text(json.dumps(data))
+
+        inv = _run(cog._load_inventory(222))
+
+        assert inv[0]["item_id"] == existing_id
+
+    def test_cw_sell_item_without_id_not_duplicated(self, tmp_path, monkeypatch):
+        """_load_inventory assigns UUID to dict entry → cw_sell filter removes correct item."""
+        cog = _make_cog(tmp_path, monkeypatch)
+        # Write a legacy dict entry without item_id
+        legacy = [{"name": "Kiroshi Optics Mk.1", "price_paid": 3000, "purchased_at": "2026-04-01"}]
+        inv_file = cog.inventory_dir / "111.json"
+        inv_file.write_text(json.dumps(legacy))
+
+        # Load and migrate — item now has a UUID
+        inv = _run(cog._load_inventory(111))
+        assert "item_id" in inv[0]
+
+        # Simulate the cw_sell remove step: filter by item_id
+        item_id = inv[0]["item_id"]
+        updated = [it for it in inv if it.get("item_id") != item_id]
+        assert updated == []  # item was removed, NOT duplicated
+
+
+# ------------------------------------------------------------------
 # Grouped inventory helper tests
 # ------------------------------------------------------------------
 

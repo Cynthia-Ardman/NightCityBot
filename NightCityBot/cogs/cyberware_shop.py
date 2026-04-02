@@ -146,6 +146,9 @@ class CyberwareShop(commands.Cog):
                 })
                 migrated = True
             elif isinstance(entry, dict):
+                if "item_id" not in entry:
+                    entry = {**entry, "item_id": str(uuid.uuid4())}
+                    migrated = True
                 result.append(entry)
         if migrated:
             await self._save_inventory(user_id, result)

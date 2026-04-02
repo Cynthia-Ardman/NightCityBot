@@ -1,0 +1,97 @@
+Bug 1: !trade refund gives money back to wrong fields (Medium)
+In the trade command, when the ownership write fails after payment, the refund attempts to claw back the seller credit with {"cash": -price}:
+
+
+player_inventory.py
+Lines 648-657
+                await self.unbelievaboat.update_balance(
+                    buyer.id,
+                    {"cash": b_cash_deduct, "bank": b_bank_deduct},
+                    reason=f"Trade refund (DB failure): {item_name}",
+                )
+                await self.unbelievaboat.update_balance(
+                    ctx.author.id,
+                    {"cash": -price},
+                    reason=f"Trade refund (DB failure): {item_name}",
+                )
+The buyer refund is correct (restores to the exact fields deducted from). But the seller was credited {"cash": price} on line 579, and the refund uses {"cash": -price}. This works for the net balance, but if the seller had $0 cash before the trade, they'd now have negative cash. The UnbelievaBoat API may reject that. Should match the original credit field.
+
+Same pattern appears in cw_sell lines 913-916.
+
+Bug 2: cw_sell / cw_install reuse stale item_id when group item has no ID (Low-Medium)
+
+cyberware_shop.py
+Lines 832-833
+        inv_item = pre_group["items"][0]
+        item_id = inv_item.get("item_id", str(uuid.uuid4()))
+And again at line 944:
+
+
+cyberware_shop.py
+Lines 944-944
+            item_id = selected_item.get("item_id", str(uuid.uuid4()))
+If a legacy inventory entry has no item_id, a random UUID is generated as fallback. But this UUID isn't stored back to the inventory file, so the [it for it in inventory if it.get("item_id") != item_id] filter on line 982 will never match the item (since the original entry has no item_id field). The item won't be removed from the Ripperdoc's stock file even though it was added to the patient's DB inventory. Result: the item gets duplicated -- it exists in both places.
+
+The _load_inventory migration code on lines 137-152 does assign UUIDs to legacy string entries, but not to legacy dict entries that happen to be missing item_id. If any such entries exist, this is a dupe bug.
+
+Bug 3: cw_buy deducts money before taking the lock, creating a TOCTOU gap (Low-Medium)
+In cw_buy, the balance check and deduction happen on lines 624-644 (outside the lock), then the lock is acquired on line 649 to update inventory and state. If two Ripperdocs buy the last unit simultaneously:
+
+Both pass the qty check (line 615)
+Both deduct money
+First one gets the lock, decrements qty to 0, succeeds
+Second one gets the lock, sees qty is now 0, refunds
+The refund path does exist (lines 654-677), so money isn't lost. But the user experience is confusing -- they see a deduction then a refund. This is the same pattern the gun shop likely has, so it may be an accepted trade-off, but it's worth noting.
+
+Bug 4: inv_give to Ripperdoc doesn't set acquired_at on the stock entry (Low)
+
+player_inventory.py
+Lines 376-381
+            rd_inventory.append({
+                "item_id": item_id,
+                "name": item_name,
+                "price_paid": selected_item.get("price_paid"),
+                "purchased_at": selected_item.get("acquired_at") or selected_item.get("created_at"),
+            })
+The key is purchased_at (matching the Ripperdoc inventory schema), which correctly pulls from acquired_at or created_at. But if both are None on the source item, purchased_at will be None, and the FIFO sorting in _grouped_inventory will sort it last (after items with dates). Not a data loss bug, but it could cause unexpected ordering when the Ripperdoc later sells from this stock.
+
+Bug 5: _build_display row numbers don't account for character filtering (Low)
+
+player_inventory.py
+Lines 163-179
+        row_num = 1
+        all_groups: list[dict] = []
+        for char in char_order:
+            display.append((None, f"— **{char or '(no character)'}** —"))
+            groups = PlayerInventoryCog._group_items(char_groups[char])
+            for g in groups:
+                // ...
+                display.append((row_num, line))
+                all_groups.append(g)
+                row_num += 1
+Row numbers always start at 1 within the filtered view. This is fine for display, but if a user runs !my_inventory "V" and sees row 1, then runs !trade @buyer 1 500 char, the trade command fetches the unfiltered inventory and resolves row 1 against the full list. If character "V"'s items aren't first alphabetically, the wrong item gets traded.
+
+This is the most likely user-facing bug. The trade/give commands build their own _build_display(items) without the character filter, so row 1 in the filtered view may not be row 1 in the unfiltered view.
+
+Bug 6: verify_balance_ops still mutates production data (Carried forward)
+Still subtracts 
+1
+a
+n
+d
+a
+d
+d
+s
+1andadds1 back with a crash-between risk.
+
+Summary
+#	Bug	Severity	Fix Effort
+5	Filtered row numbers don't match trade/give row resolution	Medium-High	Small -- pass char filter through or warn user
+1	Seller refund may create negative cash	Medium	Trivial -- track credit field
+2	Missing item_id on legacy CW stock entries causes item duplication	Low-Medium	Small -- assign UUID in _load_inventory for dict entries too
+3	cw_buy money-then-lock TOCTOU	Low-Medium	Accepted pattern, but document it
+4	Missing purchased_at on Ripperdoc stock give	Low	Trivial -- default to datetime.now()
+6	verify_balance_ops production mutation	Low	Trivial
+Bug #5 is the one most likely to actually bite a player in practice.
+

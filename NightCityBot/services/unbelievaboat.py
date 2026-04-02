@@ -78,33 +78,9 @@ class UnbelievaBoatAPI:
         return False
 
     async def verify_balance_ops(self, user_id: int) -> bool:
-        """Test updating a balance without affecting the final amount."""
+        """Verify the UnbelievaBoat API is reachable for this user by reading their balance.
+
+        Read-only — does NOT modify production data.
+        """
         balance = await self.get_balance(user_id)
-        if not balance:
-            return False
-
-        # Choose a field with at least $1 to avoid invalid negative balances
-        target_field = "cash" if balance.get("cash", 0) > 0 else "bank"
-        start_value = balance.get(target_field, 0)
-
-        minus = await self.update_balance(
-            user_id,
-            {target_field: -1},
-            reason="Simulation check",
-        )
-        if not minus:
-            return False
-
-        plus = await self.update_balance(
-            user_id,
-            {target_field: 1},
-            reason="Simulation check",
-        )
-        if not plus:
-            return False
-
-        final = await self.get_balance(user_id)
-        if not final:
-            return False
-
-        return final.get(target_field, 0) == start_value
+        return balance is not None
