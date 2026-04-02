@@ -80,3 +80,6 @@ WHOLESALER_STORE_STATE_FILE = WHOLESALER_DATA_DIR / "stores.json"
 WHOLESALER_WHOLESALE_FILE = WHOLESALER_DATA_DIR / "inventory" / "wholesale.json"
 WHOLESALER_STORE_INVENTORY_DIR = WHOLESALER_DATA_DIR / "inventory" / "stores"
 WHOLESALER_TX_FILE = WHOLESALER_DATA_DIR / "transactions.json"
+
+# Cyberware shop configuration
+CYBERWARE_SHOP_DATA_DIR = BASE_DIR / "data" / "cyberware_shop"

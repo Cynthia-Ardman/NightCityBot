@@ -28,6 +28,7 @@ from NightCityBot.cogs.system_control import SystemControl
 from NightCityBot.cogs.role_buttons import RoleButtons
 from NightCityBot.cogs.trauma_team import TraumaTeam
 from NightCityBot.cogs.wholesaler import WholesalerCog
+from NightCityBot.cogs.cyberware_shop import CyberwareShop
 from NightCityBot.utils.startup_checks import perform_startup_checks
 from NightCityBot.services.unbelievaboat import UnbelievaBoatAPI
 from NightCityBot.utils import config_loader as _cfg
@@ -70,6 +71,7 @@ class NightCityBot(commands.Bot):
         await self.add_cog(RoleButtons(self))
         await self.add_cog(TraumaTeam(self))
         await self.add_cog(WholesalerCog(self))
+        await self.add_cog(CyberwareShop(self))
         await self.add_cog(Admin(self))
         await self.add_cog(TestSuite(self))
         self.loop.create_task(perform_startup_checks(self))
