@@ -604,7 +604,7 @@ class TestInvAdd:
 
         async def run():
             cmd = getattr(cog, "inv_add")
-            return await cmd.callback(cog, ctx, player, "Trauma Team Card", 3, "V", "gear", "", None)
+            return await cmd.callback(cog, ctx, player, "Trauma Team Card", 3, "V", "gear", "basic", "", None)
 
         _run(run())
 
@@ -614,6 +614,7 @@ class TestInvAdd:
         assert len(set(item_ids)) == 3  # all unique UUIDs
         assert all(d["name"] == "Trauma Team Card" for d in added_items)
         assert all(d["character_name"] == "V" for d in added_items)
+        assert all(d["restriction"] == "basic" for d in added_items)
         assert "✅" in ctx.send.call_args[0][0]
 
     def test_qty_zero_rejected(self, monkeypatch):
@@ -628,6 +629,98 @@ class TestInvAdd:
 
         _run(run())
         assert "qty" in ctx.send.call_args[0][0].lower()
+
+    def test_gun_with_controlled_restriction(self, monkeypatch):
+        """!inv_add with item_type=gun and restriction=controlled stores correctly."""
+        cog = _make_cog(monkeypatch)
+        added_items = []
+
+        async def capture_add(item_dict):
+            added_items.append(item_dict)
+            return True
+
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_add_item", capture_add)
+
+        ctx = _ctx(author_id=900)
+        player = _make_member(999)
+
+        async def run():
+            cmd = getattr(cog, "inv_add")
+            return await cmd.callback(
+                cog, ctx, player, "Militech M10AF", 1, "V", "gun", "controlled"
+            )
+
+        _run(run())
+
+        assert len(added_items) == 1
+        assert added_items[0]["item_type"] == "gun"
+        assert added_items[0]["restriction"] == "controlled"
+        assert "✅" in ctx.send.call_args[0][0]
+        assert "[controlled]" in ctx.send.call_args[0][0]
+
+    def test_cyberware_with_basic_restriction(self, monkeypatch):
+        """!inv_add with item_type=cyberware stores the item correctly."""
+        cog = _make_cog(monkeypatch)
+        added_items = []
+
+        async def capture_add(item_dict):
+            added_items.append(item_dict)
+            return True
+
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_add_item", capture_add)
+
+        ctx = _ctx(author_id=900)
+        player = _make_member(999)
+
+        async def run():
+            cmd = getattr(cog, "inv_add")
+            return await cmd.callback(
+                cog, ctx, player, "Kiroshi Optics Mk.1", 2, "V", "cyberware", "basic", "", 3000
+            )
+
+        _run(run())
+
+        assert len(added_items) == 2
+        assert all(d["item_type"] == "cyberware" for d in added_items)
+        assert all(d["restriction"] == "basic" for d in added_items)
+        assert all(d["price_paid"] == 3000 for d in added_items)
+        assert "✅" in ctx.send.call_args[0][0]
+
+    def test_invalid_restriction_rejected(self, monkeypatch):
+        """!inv_add rejects unknown restriction values."""
+        cog = _make_cog(monkeypatch)
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_add_item", AsyncMock(return_value=True))
+        ctx = _ctx(author_id=900)
+        player = _make_member(999)
+
+        async def run():
+            cmd = getattr(cog, "inv_add")
+            return await cmd.callback(
+                cog, ctx, player, "Some Gun", 1, "V", "gun", "legendary"
+            )
+
+        _run(run())
+        reply = ctx.send.call_args[0][0]
+        assert "❌" in reply
+        assert "restriction" in reply.lower()
+
+    def test_restricted_gun_no_note_in_basic(self, monkeypatch):
+        """Confirmation message omits restriction note when restriction=basic."""
+        cog = _make_cog(monkeypatch)
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_add_item", AsyncMock(return_value=True))
+        ctx = _ctx(author_id=900)
+        player = _make_member(999)
+
+        async def run():
+            cmd = getattr(cog, "inv_add")
+            return await cmd.callback(
+                cog, ctx, player, "Basic Pistol", 1, "V", "gun", "basic"
+            )
+
+        _run(run())
+        reply = ctx.send.call_args[0][0]
+        assert "✅" in reply
+        assert "[basic]" not in reply  # basic restriction is silent
 
 
 # ------------------------------------------------------------------

@@ -706,6 +706,8 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
     # !inv_add (admin)
     # ------------------------------------------------------------------
 
+    VALID_RESTRICTIONS = ("basic", "controlled", "restricted")
+
     @commands.command(name="inv_add")
     @commands.check_any(is_fixer(), commands.has_permissions(administrator=True))
     async def inv_add(
@@ -716,16 +718,22 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         qty: int,
         character_name: str,
         item_type: str = "misc",
+        restriction: str = "basic",
         description: str = "",
         price: Optional[int] = None,
         seller: str = "",
     ) -> None:
-        """Admin: add qty items to a player's inventory.
+        """Admin: add qty items directly to a player's inventory.
 
-        Usage: !inv_add @player "name" <qty> "character_name" [item_type=misc] ["description"] [price] ["seller"]
+        Usage: !inv_add @player "name" <qty> "character_name" [item_type] [restriction] ["description"] [price] ["seller"]
 
-        All arguments after character_name are optional. seller defaults to the
-        admin running the command when omitted.
+        item_type  – gun, cyberware, gear, misc (default: misc)
+        restriction – basic, controlled, restricted (default: basic)
+        seller defaults to the admin running the command when omitted.
+
+        Examples:
+          !inv_add @player "Militech M10AF" 1 "V" gun controlled
+          !inv_add @player "Kiroshi Optics Mk.1" 2 "V" cyberware basic "" 3000
         """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
@@ -735,6 +743,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         character_name = character_name.strip().strip('"').strip("'")
         description = description.strip().strip('"').strip("'")
         item_type = item_type.strip().lower()
+        restriction = restriction.strip().lower()
         seller = seller.strip().strip('"').strip("'")
 
         if not name:
@@ -745,6 +754,12 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             return
         if not character_name:
             await ctx.send("❌ Character name is required.")
+            return
+        if restriction not in self.VALID_RESTRICTIONS:
+            await ctx.send(
+                f"❌ Invalid restriction **{restriction}**. "
+                f"Must be one of: {', '.join(self.VALID_RESTRICTIONS)}."
+            )
             return
 
         # Use provided seller name or fall back to admin's display name
@@ -759,7 +774,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 "character_name": character_name,
                 "item_type": item_type,
                 "name": name,
-                "restriction": "basic",
+                "restriction": restriction,
                 "description": description,
                 "price_paid": price,
                 "seller_id": str(ctx.author.id),
@@ -788,6 +803,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             embed.add_field(name="Admin", value=f"{ctx.author.mention} ({ctx.author.display_name})", inline=False)
             embed.add_field(name="Item", value=f"**{name}**", inline=True)
             embed.add_field(name="Type", value=item_type, inline=True)
+            embed.add_field(name="Restriction", value=restriction, inline=True)
             embed.add_field(name="Qty Added", value=str(added), inline=True)
             if price is not None:
                 embed.add_field(name="Price Paid", value=f"${price:,}", inline=True)
@@ -798,8 +814,9 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
         partial = f" (only {added} of {qty})" if added < qty else ""
+        restr_note = f" [{restriction}]" if restriction != "basic" else ""
         await ctx.send(
-            f"✅ Added **{name}** × {added}{partial} ({item_type}) to "
+            f"✅ Added **{name}**{restr_note} × {added}{partial} ({item_type}) to "
             f"**{character_name}** ({player.display_name}'s) inventory."
         )
 

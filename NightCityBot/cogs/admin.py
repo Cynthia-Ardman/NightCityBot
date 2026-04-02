@@ -398,7 +398,10 @@ class Admin(commands.Cog):
                 "🎒 Inventory Management",
                 "\n".join([
                     "`!my_inventory [@player] [\"char\"] [page]` (alias: !myinv) – view your items or another player's, grouped by character. Fixers can view any player.",
-                    "`!inv_add @player \"name\" <qty> \"character_name\" [item_type] [\"description\"] [price] [\"seller\"]` – add qty items (each gets a unique UUID) to a player's inventory. item_type defaults to misc.",
+                    "`!inv_add @player \"name\" <qty> \"character_name\" [item_type] [restriction] [\"description\"] [price] [\"seller\"]` – add qty items directly to a player's inventory (each gets a unique UUID). "
+                    "item_type: `gun`, `cyberware`, `gear`, `misc` (default: misc). "
+                    "restriction: `basic`, `controlled`, `restricted` (default: basic). "
+                    "Examples: `!inv_add @V \"Militech M10AF\" 1 \"V\" gun controlled` | `!inv_add @V \"Kiroshi Optics Mk.1\" 2 \"V\" cyberware basic \"\" 3000`",
                     "`!inv_remove @player <item_id>` – remove a specific item by UUID.",
                     "`!inv_reassign <item_id> @player \"character_name\"` – move an item to a different character (keeps the same owner).",
                 ]),
