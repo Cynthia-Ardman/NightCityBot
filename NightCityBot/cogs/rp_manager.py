@@ -166,10 +166,10 @@ class RPManager(commands.Cog):
             self, channel: discord.TextChannel
     ) -> Optional[discord.Thread]:
         """Archive and end an RP session and return the created log thread."""
-        logger.debug("end_rp_session started for channel %s", channel)
+        logger.info("end_rp_session started for channel %s", channel)
         forum_id = getattr(config, "RP_LOG_FORUM_CHANNEL_ID", 0) or getattr(config, "GROUP_AUDIT_LOG_CHANNEL_ID", 0)
         log_channel = channel.guild.get_channel(forum_id)
-        logger.debug("RP log forum resolved as %s (id=%s)", log_channel, forum_id)
+        logger.info("RP log forum resolved as %s (id=%s, type=%s)", log_channel, forum_id, type(log_channel).__name__)
         try:
             if not isinstance(log_channel, discord.ForumChannel):
                 ch_type = type(log_channel).__name__ if log_channel else "not found"
@@ -189,7 +189,7 @@ class RPManager(commands.Cog):
             participants = channel.name.replace("text-rp-", "").split("-")
             thread_name = "GroupRP-" + "-".join(participants)
 
-            logger.debug("creating log thread %s in %s", thread_name, log_channel)
+            logger.info("creating log thread %s in %s", thread_name, log_channel)
             created = await log_channel.create_thread(
                 name=thread_name,
                 content=f"📘 RP log for `{channel.name}`"
@@ -229,7 +229,7 @@ class RPManager(commands.Cog):
             if buffer:
                 await log_thread.send(buffer)
 
-            logger.debug("deleting RP channel %s after logging", channel)
+            logger.info("deleting RP channel %s after logging", channel)
             await channel.delete(reason="RP session ended and logged.")
             return log_thread
         except Exception as e:

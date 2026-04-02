@@ -89,6 +89,10 @@ class NightCityBot(commands.Bot):
         if isinstance(
             message.channel, discord.TextChannel
         ) and message.channel.name.startswith("text-rp-"):
+            # Still process commands (e.g. !end_rp) — the RPManager cog
+            # listener handles deleting the command message after a short delay.
+            if message.content.strip().startswith(self.command_prefix):
+                await self.process_commands(message)
             return
 
         await self.process_commands(message)
