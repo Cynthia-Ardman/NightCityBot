@@ -448,11 +448,17 @@ class CyberwareShop(commands.Cog):
             embed = discord.Embed(
                 title="🔧 Admin: Cyberware Given",
                 color=discord.Color.orange(),
+                timestamp=datetime.utcnow(),
             )
-            embed.add_field(name="Ripperdoc", value=ripperdoc.mention, inline=True)
-            embed.add_field(name="Item", value=item_name, inline=True)
-            embed.add_field(name="Admin", value=ctx.author.mention, inline=True)
-            await log_ch.send(embed=embed)
+            embed.add_field(
+                name="Ripperdoc",
+                value=f"{ripperdoc.mention} ({ripperdoc.display_name})",
+                inline=False,
+            )
+            embed.add_field(name="Admin", value=f"{ctx.author.mention} ({ctx.author.display_name})", inline=False)
+            embed.add_field(name="Item", value=f"**{item_name}**", inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
+            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
         await ctx.send(
             f"✅ **{item_name}** added to {ripperdoc.display_name}'s inventory."
@@ -495,11 +501,17 @@ class CyberwareShop(commands.Cog):
             embed = discord.Embed(
                 title="🔧 Admin: Cyberware Removed from Inventory",
                 color=discord.Color.red(),
+                timestamp=datetime.utcnow(),
             )
-            embed.add_field(name="Ripperdoc", value=ripperdoc.mention, inline=True)
-            embed.add_field(name="Item Removed", value=removed_name, inline=True)
-            embed.add_field(name="Admin", value=ctx.author.mention, inline=True)
-            await log_ch.send(embed=embed)
+            embed.add_field(
+                name="Ripperdoc",
+                value=f"{ripperdoc.mention} ({ripperdoc.display_name})",
+                inline=False,
+            )
+            embed.add_field(name="Admin", value=f"{ctx.author.mention} ({ctx.author.display_name})", inline=False)
+            embed.add_field(name="Item Removed", value=f"**{removed_name}**", inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
+            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
         await ctx.send(
             f"✅ **{removed_name}** removed from {ripperdoc.display_name}'s inventory."
@@ -668,14 +680,21 @@ class CyberwareShop(commands.Cog):
             await self._append_tx(tx)
 
         log_ch = await self._log_channel()
-        receipt = (
-            f"🛒 **CYBERWARE PURCHASE**\n"
-            f"Ripperdoc: {ctx.author.mention}\n"
-            f"Item: **{lot['item_name']}** × {qty}\n"
-            f"Price paid: **${total_price:,}**"
-        )
         if log_ch:
-            await log_ch.send(receipt, allowed_mentions=discord.AllowedMentions.none())
+            embed = discord.Embed(
+                title="🛒 Cyberware Purchase",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow(),
+            )
+            embed.add_field(
+                name="Ripperdoc",
+                value=f"{ctx.author.mention} ({ctx.author.display_name})",
+                inline=False,
+            )
+            embed.add_field(name="Item", value=f"**{lot['item_name']}** × {qty}", inline=True)
+            embed.add_field(name="Price Paid", value=f"${total_price:,}", inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
+            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
         await ctx.send(
             f"✅ Purchased **{lot['item_name']}** × {qty} for **${total_price:,}**. "
@@ -958,15 +977,26 @@ class CyberwareShop(commands.Cog):
             await self._append_tx(tx)
 
         log_ch = await self._log_channel()
-        receipt = (
-            f"💉 **CYBERWARE INSTALL**\n"
-            f"Ripperdoc: {ctx.author.mention}\n"
-            f"Patient: {patient.mention} (Character: **{character_name}**)\n"
-            f"Item: **{item_name}**\n"
-            f"Price charged: **${price:,}**"
-        )
         if log_ch:
-            await log_ch.send(receipt, allowed_mentions=discord.AllowedMentions.none())
+            embed = discord.Embed(
+                title="💉 Cyberware Sell / Install",
+                color=discord.Color.dark_teal(),
+                timestamp=datetime.utcnow(),
+            )
+            embed.add_field(
+                name="Ripperdoc",
+                value=f"{ctx.author.mention} ({ctx.author.display_name})",
+                inline=False,
+            )
+            embed.add_field(
+                name="Patient",
+                value=f"{patient.mention} ({patient.display_name}) — {character_name}",
+                inline=False,
+            )
+            embed.add_field(name="Item", value=f"**{item_name}**", inline=True)
+            embed.add_field(name="Price Charged", value=f"${price:,}", inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
+            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
         await ctx.send(
             f"✅ Installed **{item_name}** on **{character_name}** ({patient.display_name}) "
@@ -979,13 +1009,12 @@ class CyberwareShop(commands.Cog):
         self,
         ctx: commands.Context,
         patient: discord.Member,
-        inv_number: int,
-        *,
         character_name: str,
+        inv_number: int,
     ) -> None:
         """Install a cyberware item onto a patient with no payment (free install).
 
-        Usage: !cw_install @patient <inv_row> character name
+        Usage: !cw_install @patient "character_name" <inv_row>
         Use !cw_inventory to see your numbered inventory.
         """
         if not ctx.guild:
@@ -1063,14 +1092,26 @@ class CyberwareShop(commands.Cog):
             await self._append_tx(tx)
 
         log_ch = await self._log_channel()
-        receipt = (
-            f"💉 **CYBERWARE INSTALL (FREE)**\n"
-            f"Ripperdoc: {ctx.author.mention}\n"
-            f"Patient: {patient.mention} (Character: **{character_name}**)\n"
-            f"Item: **{item_name}**"
-        )
         if log_ch:
-            await log_ch.send(receipt, allowed_mentions=discord.AllowedMentions.none())
+            embed = discord.Embed(
+                title="💉 Cyberware Install (Free)",
+                color=discord.Color.teal(),
+                timestamp=datetime.utcnow(),
+            )
+            embed.add_field(
+                name="Ripperdoc",
+                value=f"{ctx.author.mention} ({ctx.author.display_name})",
+                inline=False,
+            )
+            embed.add_field(
+                name="Patient",
+                value=f"{patient.mention} ({patient.display_name}) — {character_name}",
+                inline=False,
+            )
+            embed.add_field(name="Item", value=f"**{item_name}**", inline=True)
+            embed.add_field(name="Price Charged", value="Free (admin install)", inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
+            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
         await ctx.send(
             f"✅ Installed **{item_name}** on **{character_name}** ({patient.display_name})."

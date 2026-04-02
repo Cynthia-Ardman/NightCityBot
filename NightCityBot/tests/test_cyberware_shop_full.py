@@ -1092,13 +1092,13 @@ class TestCwInstall:
     def test_dm_guard(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
         ctx = _ctx(guild=False)
-        _run(_cmd(cog, "cw_install", ctx, _make_member(999), 1, character_name="V"))
+        _run(_cmd(cog, "cw_install", ctx, _make_member(999), "V", 1))
         assert "server" in ctx.send.call_args[0][0]
 
     def test_invalid_row(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
         ctx = _ctx(author_id=111)
-        _run(_cmd(cog, "cw_install", ctx, _make_member(999), 5, character_name="V"))
+        _run(_cmd(cog, "cw_install", ctx, _make_member(999), "V", 5))
         assert "Invalid row" in ctx.send.call_args[0][0]
 
     def test_success_removes_item_and_records_tx(self, tmp_path, monkeypatch):
@@ -1110,7 +1110,7 @@ class TestCwInstall:
         ctx = _ctx(author_id=111)
         patient = _make_member(999)
 
-        _run(_cmd(cog, "cw_install", ctx, patient, 1, character_name="V"))  # row 1 = Kiroshi (alpha)
+        _run(_cmd(cog, "cw_install", ctx, patient, "V", 1))  # row 1 = Kiroshi (alpha)
 
         inv = _run(cog._load_inventory(111))
         names = _inv_names(inv)
@@ -1137,7 +1137,7 @@ class TestCwInstall:
             return True
 
         monkeypatch.setattr("NightCityBot.cogs.cyberware_shop.pi_add_item", capture)
-        _run(_cmd(cog, "cw_install", ctx, patient, 1, character_name="Johnny"))
+        _run(_cmd(cog, "cw_install", ctx, patient, "Johnny", 1))
 
         assert len(captured) == 1
         assert captured[0]["item_id"] == "myid"
@@ -1154,7 +1154,7 @@ class TestCwInstall:
         monkeypatch.setattr("NightCityBot.cogs.cyberware_shop.pi_add_item", AsyncMock(return_value=False))
         ctx = _ctx(author_id=111)
 
-        _run(_cmd(cog, "cw_install", ctx, _make_member(999), 1, character_name="V"))
+        _run(_cmd(cog, "cw_install", ctx, _make_member(999), "V", 1))
 
         inv = _run(cog._load_inventory(111))
         assert "Kiroshi Optics Mk.1" in _inv_names(inv)

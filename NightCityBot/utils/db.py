@@ -2805,10 +2805,14 @@ async def pi_delete_item(item_id: str) -> bool:
 
 
 async def pi_update_owner(item_id: str, new_owner_id: str, new_character: str) -> bool:
-    """Transfer ownership of an item to a new player/character."""
+    """Transfer ownership of an item to a new player/character.
+
+    Returns True only when exactly one row was updated.
+    Returns False if item_id was not found (UPDATE 0) or a DB error occurred.
+    """
     try:
         pool = await get_pool()
-        await _with_retry(
+        result = await _with_retry(
             lambda: pool.execute(
                 """
                 UPDATE player_inventory
@@ -2819,24 +2823,39 @@ async def pi_update_owner(item_id: str, new_owner_id: str, new_character: str) -
             ),
             label="pi_update_owner",
         )
-        return True
+        # asyncpg returns a string like "UPDATE 1" or "UPDATE 0"
+        rows_affected = int(result.split()[-1]) if result else 0
+        if rows_affected == 0:
+            logger.warning(
+                "pi_update_owner: UPDATE 0 for item_id='%s' — item not found in DB", item_id,
+            )
+        return rows_affected > 0
     except Exception:
         logger.error("pi_update_owner failed for item_id='%s'", item_id, exc_info=True)
         return False
 
 
 async def pi_update_character(item_id: str, new_character: str) -> bool:
-    """Update only the character_name of an existing player_inventory item."""
+    """Update only the character_name of an existing player_inventory item.
+
+    Returns True only when exactly one row was updated.
+    Returns False if item_id was not found (UPDATE 0) or a DB error occurred.
+    """
     try:
         pool = await get_pool()
-        await _with_retry(
+        result = await _with_retry(
             lambda: pool.execute(
                 "UPDATE player_inventory SET character_name = $2 WHERE item_id = $1",
                 str(item_id), str(new_character),
             ),
             label="pi_update_character",
         )
-        return True
+        rows_affected = int(result.split()[-1]) if result else 0
+        if rows_affected == 0:
+            logger.warning(
+                "pi_update_character: UPDATE 0 for item_id='%s' — item not found in DB", item_id,
+            )
+        return rows_affected > 0
     except Exception:
         logger.error("pi_update_character failed for item_id='%s'", item_id, exc_info=True)
         return False

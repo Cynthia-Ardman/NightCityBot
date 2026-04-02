@@ -286,7 +286,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             description="\n".join(page_lines) if page_lines else "No items.",
             color=discord.Color.blue(),
         )
-        hint = f"Use `!my_inventory page {page + 1}`" if page < total_pages else ""
+        hint = f"Use `!my_inventory {page + 1}`" if page < total_pages else ""
         embed.set_footer(
             text=f"{len(items)} total item(s) | Use !trade <row> or !inv_give <row>"
             + (f" | {hint}" if hint else "")
@@ -402,10 +402,24 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
         log_ch = await self._route_log_channel(item_type)
         if log_ch:
-            embed = discord.Embed(title="🎁 Item Given", color=discord.Color.green())
-            embed.add_field(name="From", value=f"{ctx.author.mention} ({sender_char})", inline=True)
-            embed.add_field(name="To", value=f"{target.mention} ({recv_char})", inline=True)
-            embed.add_field(name="Item", value=f"**{item_name}** ({item_type})", inline=False)
+            embed = discord.Embed(
+                title="🎁 Item Given",
+                color=discord.Color.green(),
+                timestamp=datetime.utcnow(),
+            )
+            embed.add_field(
+                name="From",
+                value=f"{ctx.author.mention} ({ctx.author.display_name}) — {sender_char}",
+                inline=False,
+            )
+            embed.add_field(
+                name="To",
+                value=f"{target.mention} ({target.display_name}) — {recv_char}",
+                inline=False,
+            )
+            embed.add_field(name="Item", value=f"**{item_name}**", inline=True)
+            embed.add_field(name="Type", value=item_type, inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
         await ctx.send(
@@ -544,6 +558,36 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         ok_transfer = await pi_update_owner(item_id, str(buyer.id), buyer_character)
         if not ok_transfer:
             if price > 0 and buyer.id != ctx.author.id:
+                # Money already moved — persist a recovery record FIRST so admins can
+                # audit even if the subsequent refund also fails.
+                pt_id = str(uuid.uuid4())
+                await pt_create({
+                    "transfer_id": pt_id,
+                    "from_id": str(buyer.id),
+                    "to_id": str(ctx.author.id),
+                    "item_id": item_id,
+                    "amount": price,
+                    "status": "pending",
+                    "error_detail": "ownership DB write failed after payment moved",
+                })
+                logger.error(
+                    "trade: ownership write failed after payment moved — "
+                    "pending_transfer=%s seller=%s buyer=%s item=%s",
+                    pt_id, ctx.author.id, buyer.id, item_id,
+                )
+                alert_ch = await self._nightcitybot_log_channel()
+                if alert_ch:
+                    await alert_ch.send(
+                        f"🚨 **PENDING TRADE — ownership write failed**\n"
+                        f"Transfer ID: `{pt_id}`\n"
+                        f"Seller: {ctx.author.mention} ({ctx.author.display_name}) "
+                        f"| Buyer: {buyer.mention} ({buyer.display_name})\n"
+                        f"Item: **{item_name}** | Amount: **${price:,}**\n"
+                        "Buyer debited; seller credited. Ownership NOT transferred. "
+                        "Resolve manually.",
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                # Attempt refund (best-effort)
                 await self.unbelievaboat.update_balance(
                     buyer.id,
                     {"cash": b_cash_deduct, "bank": b_bank_deduct},
@@ -554,19 +598,37 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                     {"cash": -price},
                     reason=f"Trade refund (DB failure): {item_name}",
                 )
-            await ctx.send(
-                "❌ Failed to transfer item ownership in database. "
-                "All payments have been refunded. Please try again."
-            )
+                await ctx.send(
+                    f"⚠️ Ownership write failed (Transfer ID `{pt_id}`). "
+                    "Refunds have been attempted and this has been flagged for admin review."
+                )
+            else:
+                await ctx.send(
+                    "❌ Failed to transfer item ownership in database. Please try again."
+                )
             return
 
         log_ch = await self._route_log_channel(item_type)
         if log_ch:
-            embed = discord.Embed(title="💱 Item Traded", color=discord.Color.gold())
-            embed.add_field(name="Seller", value=ctx.author.mention, inline=True)
-            embed.add_field(name="Buyer", value=f"{buyer.mention} ({buyer_character})", inline=True)
-            embed.add_field(name="Item", value=f"**{item_name}** ({item_type}/{restriction})", inline=False)
+            embed = discord.Embed(
+                title="💱 Item Traded",
+                color=discord.Color.gold(),
+                timestamp=datetime.utcnow(),
+            )
+            embed.add_field(
+                name="Seller",
+                value=f"{ctx.author.mention} ({ctx.author.display_name})",
+                inline=False,
+            )
+            embed.add_field(
+                name="Buyer",
+                value=f"{buyer.mention} ({buyer.display_name}) — {buyer_character}",
+                inline=False,
+            )
+            embed.add_field(name="Item", value=f"**{item_name}**", inline=True)
+            embed.add_field(name="Type", value=f"{item_type}/{restriction}", inline=True)
             embed.add_field(name="Price", value=f"${price:,}" if price else "Free", inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
         price_str = f"for **${price:,}**" if price else "for free"
@@ -639,15 +701,25 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
         log_ch = await self._gear_log_channel()
         if log_ch:
-            embed = discord.Embed(title="🔧 Admin: Item(s) Added to Inventory", color=discord.Color.orange())
-            embed.add_field(name="Player", value=f"{player.mention} ({character_name})", inline=True)
-            embed.add_field(name="Item", value=f"{name} ({item_type})", inline=True)
+            embed = discord.Embed(
+                title="🔧 Admin: Item(s) Added to Inventory",
+                color=discord.Color.orange(),
+                timestamp=datetime.utcnow(),
+            )
+            embed.add_field(
+                name="Player",
+                value=f"{player.mention} ({player.display_name}) — {character_name}",
+                inline=False,
+            )
+            embed.add_field(name="Admin", value=f"{ctx.author.mention} ({ctx.author.display_name})", inline=False)
+            embed.add_field(name="Item", value=f"**{name}**", inline=True)
+            embed.add_field(name="Type", value=item_type, inline=True)
             embed.add_field(name="Qty Added", value=str(added), inline=True)
-            embed.add_field(name="Admin", value=ctx.author.mention, inline=True)
             if price is not None:
-                embed.add_field(name="Price", value=f"${price:,}", inline=True)
+                embed.add_field(name="Price Paid", value=f"${price:,}", inline=True)
             if description:
                 embed.add_field(name="Description", value=description, inline=False)
+            embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
         partial = f" (only {added} of {qty})" if added < qty else ""
@@ -696,11 +768,20 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
         log_ch = await self._gear_log_channel()
         if log_ch:
-            embed = discord.Embed(title="🗑️ Admin: Item Removed from Inventory", color=discord.Color.red())
-            embed.add_field(name="Player", value=player.mention, inline=True)
-            embed.add_field(name="Item Removed", value=item_name, inline=True)
+            embed = discord.Embed(
+                title="🗑️ Admin: Item Removed from Inventory",
+                color=discord.Color.red(),
+                timestamp=datetime.utcnow(),
+            )
+            embed.add_field(
+                name="Player",
+                value=f"{player.mention} ({player.display_name})",
+                inline=False,
+            )
+            embed.add_field(name="Admin", value=f"{ctx.author.mention} ({ctx.author.display_name})", inline=False)
+            embed.add_field(name="Item Removed", value=f"**{item_name}**", inline=True)
             embed.add_field(name="Item ID", value=f"`{item_id}`", inline=False)
-            embed.add_field(name="Admin", value=ctx.author.mention, inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
         await ctx.send(
@@ -755,12 +836,22 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
         log_ch = await self._gear_log_channel()
         if log_ch:
-            embed = discord.Embed(title="✏️ Admin: Item Reassigned", color=discord.Color.blurple())
-            embed.add_field(name="Player", value=player.mention, inline=True)
-            embed.add_field(name="Item", value=item_name, inline=True)
+            embed = discord.Embed(
+                title="✏️ Admin: Item Reassigned",
+                color=discord.Color.blurple(),
+                timestamp=datetime.utcnow(),
+            )
+            embed.add_field(
+                name="Player",
+                value=f"{player.mention} ({player.display_name})",
+                inline=False,
+            )
+            embed.add_field(name="Admin", value=f"{ctx.author.mention} ({ctx.author.display_name})", inline=False)
+            embed.add_field(name="Item", value=f"**{item_name}**", inline=True)
+            embed.add_field(name="Item ID", value=f"`{item_id}`", inline=False)
             embed.add_field(name="Old Character", value=old_char or "—", inline=True)
             embed.add_field(name="New Character", value=new_character, inline=True)
-            embed.add_field(name="Admin", value=ctx.author.mention, inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
         await ctx.send(
