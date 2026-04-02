@@ -1,31 +1,31 @@
 from typing import List
 
 async def run(suite, ctx) -> List[str]:
-    """Smoke-check that WholesalerCog is loaded and key commands are registered."""
+    """Smoke-check that GunsShopCog is loaded and key commands are registered."""
     logs: List[str] = []
-    cog = suite.bot.get_cog("WholesalerCog")
+    cog = suite.bot.get_cog("GunsShopCog")
     if not cog:
-        logs.append("❌ WholesalerCog is not loaded")
+        logs.append("❌ GunsShopCog is not loaded")
         return logs
 
     required = {
-        "wh_list",
-        "wh_buy",
-        "store_inv",
-        "wh_sell",
-        "wh_restock",
-        "wh_clear_inventory",
-        "wh_setshop",
-        "wh_shops",
-        "wh_setsheet",
-        "wh_recheck",
-        "wh_paths",
+        "guns_wh_list",
+        "guns_wh_buy",
+        "guns_store_inv",
+        "guns_wh_sell",
+        "guns_wh_restock",
+        "guns_wh_clear_inventory",
+        "guns_wh_setshop",
+        "guns_wh_shops",
+        "guns_wh_setsheet",
+        "guns_wh_recheck",
+        "guns_wh_paths",
     }
     available = {cmd.name for cmd in cog.get_commands()}
 
     missing = sorted(required - available)
     if missing:
-        logs.append(f"❌ Missing wholesaler commands: {', '.join(missing)}")
+        logs.append(f"❌ Missing gun shop commands: {', '.join(missing)}")
     else:
-        logs.append("✅ Wholesaler commands are registered")
+        logs.append("✅ Gun shop commands are registered")
     return logs

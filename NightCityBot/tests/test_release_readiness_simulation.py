@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 
-from NightCityBot.cogs.wholesaler import WholesalerCog
+from NightCityBot.cogs.guns_shop import GunsShopCog as WholesalerCog
 
 
 class FakeUnbelievaBoat:

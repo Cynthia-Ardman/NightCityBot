@@ -2,7 +2,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
-from NightCityBot.cogs.wholesaler import WholesalerCog
+from NightCityBot.cogs.guns_shop import GunsShopCog as WholesalerCog
 
 
 def test_parse_master_sheet_filters_headers_and_categories(tmp_path: Path):
