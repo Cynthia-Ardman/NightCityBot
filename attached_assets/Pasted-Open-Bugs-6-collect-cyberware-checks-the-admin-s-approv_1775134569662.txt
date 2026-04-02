@@ -1,0 +1,16 @@
+Open Bugs
+6. collect_cyberware checks the admin's approved role
+Where: cyberware.py:527 Why it's a bug: The command is gated by is_ripperdoc() | is_fixer() | administrator -- these are staff roles. But then it checks whether ctx.author (the staff member running the command) has APPROVED_ROLE_ID. This role indicates the user has an approved player character. A Ripperdoc or admin who doesn't happen to have a player character approved cannot use the command on anyone, even though they have the authority to do so. The target member check on line 531 is correct and sufficient.
+
+7. _list_obligations includes cyberware in deficit calculations, but !due excludes it
+Where: economy.py:747 vs economy.py:602 Why it's a bug: calculate_due (used by !due) deliberately excludes cyberware from the total with a note saying "collected separately by staff -- not included in total." But _list_obligations (used by !list_deficits and !paydue) does include cyberware as an obligation. This means !list_deficits reports a player as unable to cover their bills when their rent-only obligations are fully covered -- the deficit is inflated by a cyberware cost that isn't actually charged during rent collection. Players or admins seeing the deficit list will think someone is short when they're not.
+
+8. guns_wh_sell writes player inventory outside the lock after payment
+Where: guns_shop.py:1578-1591 Why it's a bug: The sale flow inside the lock: checks stock, deducts buyer's money, credits seller, decrements store qty, saves state, logs transaction. Then the lock is released. After the lock, it writes to player_inventory via pi_add_item. If those DB writes fail, the gun sale completed (money moved, stock decremented, receipt posted) but the buyer has no inventory record of the item. The gun effectively vanishes from the system. The code logs an audit alert for this, but the item can only be recovered via manual admin intervention. Moving the pi_add_item calls inside the lock (before the state save) would let the system detect the failure and avoid committing the sale.
+
+9. Leftover print() in collect_cyberware
+Where: cyberware.py:550 Why it's a bug: A debug print(f"[collect_cyberware] {msg}") in production code. It writes to stdout, which on most deployments goes nowhere useful (or clutters container logs). Should be logger.debug(...) to flow through the configured logging system.
+
+10. cw_buy deducts money before acquiring the lock (TOCTOU)
+Where: cyberware_shop.py:624-677 Why it's a bug: The balance check and deduction happen outside the lock. The lock is then acquired to update wholesale stock. If two Ripperdocs buy the last unit simultaneously, both pass the availability check, both get debited, then only the first one inside the lock gets the item. The second sees the stock is gone and triggers a refund. The money round-trips (debit then refund) correctly, so no funds are lost, but the user experience is confusing -- they briefly see money leave their account and then come back. This is an accepted pattern (the gun shop has it too) but worth documenting.
+

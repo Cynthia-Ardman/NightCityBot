@@ -524,10 +524,6 @@ class CyberwareManager(commands.Cog):
         """Manually collect cyberware medication from ``member``."""
         verbose = any(a.lower() in {"-v", "--verbose", "verbose"} for a in args)
 
-        if not any(r.id == config.APPROVED_ROLE_ID for r in ctx.author.roles):
-            await ctx.send("⏭️ You have no approved character.")
-            return
-
         if not any(r.id == config.APPROVED_ROLE_ID for r in member.roles):
             await ctx.send(f"⏭️ {member.display_name} has no approved character.")
             return
@@ -547,7 +543,7 @@ class CyberwareManager(commands.Cog):
             msg = f"Found existing entry for {member.display_name} ({member.id})"
         else:
             msg = f"No entry found for {member.display_name} ({member.id}) – will add"
-        print(f"[collect_cyberware] {msg}")
+        logger.debug("[collect_cyberware] %s", msg)
         log_lines.append(msg)
 
         result = await self.process_week(log=log_lines, target_member=member)

@@ -739,12 +739,7 @@ class Economy(commands.Cog):
                 elif medium and medium in member.roles:
                     level = "medium"
 
-                if level:
-                    weeks = self._get_cyber_weeks(cyber.data.get(str(member.id)))
-                    if checkup_role and checkup_role in member.roles:
-                        upcoming = weeks + 1
-                        cost = cyber.calculate_cost(level, upcoming)
-                        obligations.append((f"Cyberware meds week {upcoming}", cost))
+                # Cyberware meds are collected separately by staff — not included in deficit total.
         return obligations
 
     async def _evaluate_member_funds(

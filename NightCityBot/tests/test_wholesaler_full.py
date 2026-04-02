@@ -51,6 +51,7 @@ def _make_cog(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("NightCityBot.cogs.guns_shop.wh_shops_replace_all", AsyncMock(return_value=True))
     monkeypatch.setattr("NightCityBot.cogs.guns_shop.wh_settings_save", AsyncMock(return_value=True))
     monkeypatch.setattr("NightCityBot.cogs.guns_shop.wh_tx_append", AsyncMock(return_value=True))
+    monkeypatch.setattr("NightCityBot.cogs.guns_shop.pi_add_item", AsyncMock(return_value=True))
 
     return cog
 

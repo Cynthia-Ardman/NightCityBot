@@ -1555,6 +1555,55 @@ class GunsShopCog(commands.Cog):
             await self._save_state(state)
             await self._append_tx(tx)
 
+            # Write inventory records inside the lock so they are atomic with the sale.
+            unit_price_each = max(1, total_price // qty) if qty else total_price
+            inv_failures = 0
+            for _ in range(qty):
+                ok_inv = await pi_add_item({
+                    "item_id": str(uuid.uuid4()),
+                    "owner_id": str(buyer.id),
+                    "character_name": character_name or "",
+                    "item_type": "gun",
+                    "name": store_lot["gun_name"],
+                    "restriction": restriction,
+                    "description": f"Level: {store_lot.get('gun_level', '?')}",
+                    "price_paid": unit_price_each,
+                    "seller_id": str(member.id),
+                    "seller_name": member.display_name,
+                })
+                if not ok_inv:
+                    inv_failures += 1
+
+            if inv_failures:
+                logger.error(
+                    "wh_sell: %d/%d inventory DB write(s) failed for buyer=%s gun=%s tx=%s — "
+                    "attempting refund and qty restore",
+                    inv_failures, qty, buyer.id, store_lot["gun_name"], tx["tx_id"],
+                )
+                # Best-effort reversal: reclaim seller payout and restore buyer funds.
+                await self._deduct_funds(
+                    member.id,
+                    total_price,
+                    f"Sale reversal (inv write failure): {store_lot['gun_name']} tx={tx['tx_id']}",
+                )
+                await self._credit_funds(
+                    buyer.id,
+                    total_price,
+                    f"Sale refund (inv write failure): {store_lot['gun_name']} tx={tx['tx_id']}",
+                )
+                store_lot["qty_remaining"] += qty
+                await self._save_state(state)
+                await self._audit_send(
+                    f"🚨 [INVENTORY_WRITE_FAILURE] {inv_failures}/{qty} item(s) failed for "
+                    f"buyer=<@{buyer.id}> gun={store_lot['gun_name']} tx={tx['tx_id']} — "
+                    "sale reversed, manual check required"
+                )
+                await ctx.send(
+                    "❌ Failed to record item(s) in buyer's inventory. "
+                    "Sale has been reversed and funds restored. Please contact an admin."
+                )
+                return
+
         await ctx.send(f"✅ Sold {qty}x {store_lot['gun_name']} to {buyer.mention} for ${total_price} (character: {character_name}).")
         _sale_embed = discord.Embed(
             title="🔫 Player Sale Receipt",
@@ -1573,32 +1622,6 @@ class GunsShopCog(commands.Cog):
         _sale_embed.add_field(name="Tx ID", value=f"`{tx['tx_id']}`", inline=True)
         _sale_embed.set_footer(text="NightCityBot Audit Log")
         await self._audit_embed_send(_sale_embed)
-        unit_price_each = max(1, total_price // qty) if qty else total_price
-        inv_failures = 0
-        for _ in range(qty):
-            ok_inv = await pi_add_item({
-                "item_id": str(uuid.uuid4()),
-                "owner_id": str(buyer.id),
-                "character_name": character_name or "",
-                "item_type": "gun",
-                "name": store_lot["gun_name"],
-                "restriction": restriction,
-                "description": f"Level: {store_lot.get('gun_level', '?')}",
-                "price_paid": unit_price_each,
-                "seller_id": str(member.id),
-                "seller_name": member.display_name,
-            })
-            if not ok_inv:
-                inv_failures += 1
-        if inv_failures:
-            logger.error(
-                "wh_sell: %d/%d inventory DB write(s) failed for buyer=%s gun=%s tx=%s",
-                inv_failures, qty, buyer.id, store_lot["gun_name"], tx["tx_id"],
-            )
-            await self._audit_send(
-                f"🚨 [INVENTORY_WRITE_FAILURE] {inv_failures}/{qty} item(s) not recorded for "
-                f"buyer=<@{buyer.id}> gun={store_lot['gun_name']} tx={tx['tx_id']} — manual fix required"
-            )
 
     async def _request_admin_approval(
         self,
