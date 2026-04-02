@@ -12,6 +12,14 @@ author = "agent"
 task = "workflow.run"
 args = "bot"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "test"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "coverage"
+
 [[workflows.workflow]]
 name = "bot"
 author = "agent"
@@ -22,6 +30,28 @@ outputType = "console"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pip install -r requirements.txt && python -m NightCityBot.bot"
+
+[[workflows.workflow]]
+name = "test"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python -m pytest NightCityBot/tests/ -q --tb=short"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "coverage"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python -m pytest NightCityBot/tests/ -q --tb=short --cov=NightCityBot --cov-report=term-missing --cov-fail-under=54"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [[ports]]
 localPort = 5000
@@ -34,7 +64,7 @@ ignorePorts = true
 build = ["pip", "install", "-r", "requirements.txt"]
 
 [nix]
-packages = ["lsof"]
+packages = ["lsof", "postgresql", "rapidfuzz-cpp", "taskflow"]
 channel = "stable-25_05"
 
 
