@@ -84,8 +84,18 @@ def parse_cyberware_sheet(xlsx_path: Path | str) -> list[dict[str, Any]]:
         0,
     )
     price_idx = _find_col(
-        ["price", "cost", "price (eb)", "cost (eb)", "price new", "price (new)"],
+        [
+            "pricing", "price", "cost", "selling price", "sell price",
+            "price (eb)", "cost (eb)", "price new", "price (new)",
+        ],
         1,
+    )
+
+    logger.info(
+        "parse_cyberware_sheet: headers=%s | name_col=%d (%s) | price_col=%d (%s)",
+        header,
+        name_idx, header[name_idx] if name_idx < len(header) else "?",
+        price_idx, header[price_idx] if price_idx < len(header) else "?",
     )
 
     items: list[dict[str, Any]] = []
