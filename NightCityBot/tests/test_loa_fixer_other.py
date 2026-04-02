@@ -16,7 +16,7 @@ async def run(suite, ctx) -> List[str]:
     mock_author.roles = []
     ctx.author = mock_author
     fixer = MagicMock()
-    fixer.name = config.FIXER_ROLE_NAME
+    fixer.id = config.FIXER_ROLE_ID
     ctx.author.roles.append(fixer)
     target = MagicMock(spec=discord.Member)
     target.roles = []

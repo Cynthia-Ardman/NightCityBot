@@ -17,7 +17,7 @@ async def run(suite, ctx) -> List[str]:
     message.content = "Hello"
     message.attachments = []
     fixer_role = MagicMock()
-    fixer_role.name = config.FIXER_ROLE_NAME
+    fixer_role.id = config.FIXER_ROLE_ID
     message.author = MagicMock(roles=[fixer_role], display_name="Fixer", id=1)
     message.delete = AsyncMock()
 

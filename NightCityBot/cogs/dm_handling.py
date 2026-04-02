@@ -129,7 +129,7 @@ class DMHandler(commands.Cog):
             return
 
         roles = getattr(message.author, "roles", [])
-        if not any(getattr(r, "name", "") == config.FIXER_ROLE_NAME for r in roles):
+        if not any(getattr(r, "id", 0) == config.FIXER_ROLE_ID for r in roles):
             return
 
         try:

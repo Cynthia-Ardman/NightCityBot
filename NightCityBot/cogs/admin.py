@@ -2,6 +2,7 @@ import asyncio
 import logging
 import io
 import contextlib
+import re
 
 import discord
 from discord.ext import commands
@@ -12,7 +13,7 @@ from NightCityBot.utils import constants
 from NightCityBot.utils import startup_checks
 from NightCityBot.utils.helpers import load_json_file, save_json_file
 from NightCityBot.utils import db as _db
-from NightCityBot.utils.db import db_load, db_save, attendance_get_user, attendance_append, open_log_add_if_absent
+from NightCityBot.utils.db import attendance_get_user, attendance_append, open_log_add_if_absent
 from NightCityBot.utils import config_loader as _cfg
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,6 @@ class Admin(commands.Cog):
         Discord mentions like <@123456> are kept as-is so user IDs are
         searchable, and the <@> wrapper is also stripped so bare IDs match.
         """
-        import re as _re
         parts = []
         if embed.title:
             parts.append(embed.title)
@@ -82,7 +82,7 @@ class Admin(commands.Cog):
             parts.append(embed.author.name)
         raw = " ".join(parts)
         # Also add bare user/role IDs so searching by ID works
-        ids = _re.findall(r'<[@&#!&]*(\d+)>', raw)
+        ids = re.findall(r'<[@&#!&]*(\d+)>', raw)
         if ids:
             raw += " " + " ".join(ids)
         return raw

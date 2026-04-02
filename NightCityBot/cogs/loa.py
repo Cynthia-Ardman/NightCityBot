@@ -3,6 +3,12 @@ import discord
 from discord.ext import commands
 from typing import Optional
 
+import config
+from NightCityBot.utils.permissions import is_fixer
+
+logger = logging.getLogger(__name__)
+
+
 # ----------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------
@@ -18,11 +24,6 @@ def get_loa_role(guild: discord.Guild) -> Optional[discord.abc.Snowflake]:
             "LOA role %s not found in guild %s", config.LOA_ROLE_ID, guild
         )
     return role
-
-import config
-from NightCityBot.utils.permissions import is_fixer
-
-logger = logging.getLogger(__name__)
 
 
 class LOA(commands.Cog):
@@ -54,7 +55,7 @@ class LOA(commands.Cog):
             return
 
         target = member or ctx.author
-        if member and not any(r.name == config.FIXER_ROLE_NAME for r in ctx.author.roles):
+        if member and not any(r.id == config.FIXER_ROLE_ID for r in ctx.author.roles):
             logger.debug("start_loa denied: %s lacks fixer role", ctx.author)
             await ctx.send("❌ Permission denied.")
             return
@@ -90,7 +91,7 @@ class LOA(commands.Cog):
             return
 
         target = member or ctx.author
-        if member and not any(r.name == config.FIXER_ROLE_NAME for r in ctx.author.roles):
+        if member and not any(r.id == config.FIXER_ROLE_ID for r in ctx.author.roles):
             logger.debug("end_loa denied: %s lacks fixer role", ctx.author)
             await ctx.send("❌ Permission denied.")
             return

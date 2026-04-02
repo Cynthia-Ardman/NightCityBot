@@ -89,7 +89,7 @@ class RPManager(commands.Cog):
             return None
 
         mentions = " ".join(user.mention for user in users)
-        fixer_role = await ctx.guild.fetch_role(config.FIXER_ROLE_ID)
+        fixer_role = ctx.guild.get_role(config.FIXER_ROLE_ID)
         fixer_mention = fixer_role.mention if fixer_role else ""
 
         await channel.send(f"✅ RP session created! {mentions} {fixer_mention}")
@@ -98,7 +98,6 @@ class RPManager(commands.Cog):
             await admin.log_audit(ctx.author, f"✅ RP channel created: {channel.mention}")
         try:
             await ctx.message.delete()
-            admin = self.bot.get_cog('Admin')
             if admin:
                 await admin.log_audit(ctx.author, f"🗑️ Deleted command: {ctx.message.content}")
         except Exception:
@@ -130,7 +129,6 @@ class RPManager(commands.Cog):
         usernames = [(user.name, user.id) for user in users]
         channel_name = build_channel_name(usernames)
 
-        allowed_roles = {"Fixer", "Admin"}
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -139,9 +137,9 @@ class RPManager(commands.Cog):
         for user in users:
             overwrites[user] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
-        for role in guild.roles:
-            if role.name in allowed_roles:
-                overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        fixer_role = guild.get_role(config.FIXER_ROLE_ID)
+        if fixer_role:
+            overwrites[fixer_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
         try:
             return await guild.create_text_channel(
