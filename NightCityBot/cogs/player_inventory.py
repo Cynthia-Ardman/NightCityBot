@@ -294,7 +294,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         )
         hint = f"Use `!my_inventory {page + 1}`" if page < total_pages else ""
         embed.set_footer(
-            text=f"{len(items)} total item(s) | Use !trade <row> or !inv_give <row>"
+            text=f"{len(items)} total item(s) | !trade @buyer <row> <price> char  |  !inv_give @target <row> char"
             + (f" | {hint}" if hint else "")
         )
         await ctx.send(embed=embed)
@@ -496,6 +496,12 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             return
         if price < 0:
             await ctx.send("❌ Price cannot be negative.")
+            return
+        if buyer.id == ctx.author.id and price != 0:
+            await ctx.send(
+                "❌ Self-trades must use price **0** — they are for moving items between "
+                "your own characters. No money changes hands."
+            )
             return
 
         buyer_character = buyer_character.strip().strip('"').strip("'")
@@ -824,12 +830,13 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         item_name = item.get("name", "?")
         item_char = item.get("character_name") or "—"
         item_price = item.get("price_paid")
+        item_type_remove = item.get("item_type", "misc")
         ok = await pi_delete_item(item_id)
         if not ok:
             await ctx.send("❌ Failed to remove item. Please try again.")
             return
 
-        log_ch = await self._gear_log_channel()
+        log_ch = await self._route_log_channel(item_type_remove)
         if log_ch:
             embed = discord.Embed(
                 title="🗑️ Admin: Item Removed from Inventory",
@@ -893,13 +900,14 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
         item_name = item.get("name", "?")
         old_char = item.get("character_name", "")
+        item_type_reassign = item.get("item_type", "misc")
 
         ok = await pi_update_character(item_id, new_character)
         if not ok:
             await ctx.send("❌ Failed to reassign item. Please try again.")
             return
 
-        log_ch = await self._gear_log_channel()
+        log_ch = await self._route_log_channel(item_type_reassign)
         if log_ch:
             embed = discord.Embed(
                 title="✏️ Admin: Item Reassigned",

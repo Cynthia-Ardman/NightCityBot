@@ -142,9 +142,6 @@ class DMHandler(commands.Cog):
         if not target_user:
             return
 
-        if message.content.strip().startswith("!"):
-            ctx = await self.bot.get_context(message)
-
         # Handle roll command relay
         if message.content.strip().lower().startswith("!roll"):
             roll_cog = self.bot.get_cog('RollSystem')

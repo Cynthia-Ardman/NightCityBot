@@ -1777,9 +1777,7 @@ class Economy(commands.Cog):
                     await _flush(len(log) - 1)
 
                 summary = "\n".join(log)
-                if verbose:
-                    pass
-                else:
+                if not verbose:
                     if not on_loa and not base_ok:
                         await ctx.send(
                             f"⚠️ Completed for <@{member.id}> — baseline not collected (insufficient funds)",

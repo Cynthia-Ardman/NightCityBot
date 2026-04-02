@@ -1574,8 +1574,9 @@ class GunsShopCog(commands.Cog):
         _sale_embed.set_footer(text="NightCityBot Audit Log")
         await self._audit_embed_send(_sale_embed)
         unit_price_each = max(1, total_price // qty) if qty else total_price
+        inv_failures = 0
         for _ in range(qty):
-            await pi_add_item({
+            ok_inv = await pi_add_item({
                 "item_id": str(uuid.uuid4()),
                 "owner_id": str(buyer.id),
                 "character_name": character_name or "",
@@ -1587,6 +1588,17 @@ class GunsShopCog(commands.Cog):
                 "seller_id": str(member.id),
                 "seller_name": member.display_name,
             })
+            if not ok_inv:
+                inv_failures += 1
+        if inv_failures:
+            logger.error(
+                "wh_sell: %d/%d inventory DB write(s) failed for buyer=%s gun=%s tx=%s",
+                inv_failures, qty, buyer.id, store_lot["gun_name"], tx["tx_id"],
+            )
+            await self._audit_send(
+                f"🚨 [INVENTORY_WRITE_FAILURE] {inv_failures}/{qty} item(s) not recorded for "
+                f"buyer=<@{buyer.id}> gun={store_lot['gun_name']} tx={tx['tx_id']} — manual fix required"
+            )
 
     async def _request_admin_approval(
         self,
