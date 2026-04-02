@@ -507,8 +507,8 @@ class CyberwareShop(commands.Cog):
             )
             return
 
-        cash_deduct = min(price, cash)
-        bank_deduct = max(0, price - cash)
+        cash_deduct = min(max(cash, 0), price)
+        bank_deduct = max(0, price - cash_deduct)
         ok = await self.unbelievaboat.update_balance(
             ctx.author.id,
             {"cash": -cash_deduct, "bank": -bank_deduct},
@@ -667,8 +667,8 @@ class CyberwareShop(commands.Cog):
             )
             return
 
-        pat_cash_deduct = min(price, pat_cash)
-        pat_bank_deduct = max(0, price - pat_cash)
+        pat_cash_deduct = min(max(pat_cash, 0), price)
+        pat_bank_deduct = max(0, price - pat_cash_deduct)
 
         # Balance API calls outside the lock — these are external HTTP requests
         ok_patient = await self.unbelievaboat.update_balance(

@@ -5,6 +5,7 @@ from NightCityBot.utils.db import system_settings_get_all, system_settings_set
 
 SYSTEMS = [
     "cyberware",
+    "cyberware_shop",
     "attend",
     "open_shop",
     "wholesaler",

@@ -1,7 +1,7 @@
 import logging
 import discord
 from discord.ext import commands, tasks
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Dict, Optional, List, Any
 from pathlib import Path
@@ -142,9 +142,8 @@ class CyberwareManager(commands.Cog):
         cw_shop = self.bot.get_cog("CyberwareShop")
         if cw_shop and hasattr(cw_shop, "auto_cw_restock_if_due"):
             try:
-                from datetime import datetime, timezone as _tz
                 cw_refreshed = await cw_shop.auto_cw_restock_if_due(
-                    datetime.now(_tz.utc)
+                    datetime.now(timezone.utc)
                 )
                 if notify_user:
                     try:
