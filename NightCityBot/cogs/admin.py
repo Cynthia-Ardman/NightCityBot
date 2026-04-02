@@ -296,8 +296,8 @@ class Admin(commands.Cog):
         embed.add_field(
             name="🔫 Gun Stores",
             value=(
-                "`!wh_list` – browse current wholesaler lots.\n"
-                "`!store_inv` – view your store's current inventory.\n\n"
+                "`!guns_wh_list` – browse current wholesaler lots.\n"
+                "`!guns_store_inv` – view your store's current inventory.\n\n"
                 "Own a gun store? Run `!helpguns` for the full buying & selling guide."
             ),
             inline=False,
@@ -356,14 +356,14 @@ class Admin(commands.Cog):
             (
                 "🔫 Wholesaler / Store Tools",
                 "\n".join([
-                    "`!wh_list` – view current wholesaler lots grouped by weapon type.",
-                    "`!store_inv [shop_name]` – view your store inventory.",
-                    '`!wh_buy <lot_id> <qty>` – buy stock from the wholesaler into your store.',
-                    '`!wh_sell @buyer "character_name" <lot_id> <qty> <price>` – sell to a player (debit buyer, credit seller, post receipt). Alias: `!sell`.',
-                    "`!wh_approve @user` – add a user to your controlled-buyer list.",
-                    "`!wh_unapprove @user` – remove a user from your controlled-buyer list.",
-                    "`!wh_approved` – view your controlled-buyer list.",
-                    "`!wh_gunlist` (aliases: !wh_guns, !wh_masterlist) – list every gun parsed from the master sheet with type, tier and price.",
+                    "`!guns_wh_list` – view current wholesaler lots grouped by weapon type.",
+                    "`!guns_store_inv [shop_name]` – view your store inventory.",
+                    '`!guns_wh_buy <lot_id> <qty>` – buy stock from the wholesaler into your store.',
+                    '`!guns_wh_sell @buyer "character_name" <lot_id> <qty> <price>` – sell to a player (debit buyer, credit seller, post receipt). Alias: `!guns_sell`.',
+                    "`!guns_wh_approve @user` – add a user to your controlled-buyer list.",
+                    "`!guns_wh_unapprove @user` – remove a user from your controlled-buyer list.",
+                    "`!guns_wh_approved` – view your controlled-buyer list.",
+                    "`!guns_wh_gunlist` (aliases: !guns_wh_guns, !guns_wh_masterlist) – list every gun parsed from the master sheet with type, tier and price.",
                 ]),
             ),
             (
@@ -458,20 +458,20 @@ class Admin(commands.Cog):
             (
                 "🔫 Wholesaler Admin",
                 "\n".join([
-                    "`!wh_setshop <shop_name> @owner` – bind a shop alias to a specific owner account.",
-                    "`!wh_shops` – list all shop alias mappings.",
-                    "`!wh_restock [seed]` – regenerate weekly wholesaler stock from the configured sheet source.",
-                    "`!wh_clear_inventory` – clear all current wholesaler lots without touching store inventories.",
-                    "`!wh_recheck` – compare current lots to source sheet values and report mismatches.",
-                    "`!wh_setsheet <xlsx_export_url|off>` – set or clear the runtime Google Sheets XLSX export URL.",
-                    "`!wh_restock_settings [key] [value]` – view or tune weekly restock settings (lot counts and qty ranges).",
-                    "`!wh_add <gun> <L|M|H> <unit_cost> <qty> [restriction]` – manually add stock to the wholesaler.",
-                    "`!store_add @owner <gun> <L|M|H> <unit_cost> <qty> [restriction]` – manually add stock to a specific store.",
-                    "`!wh_remove <lot_id> [qty]` – remove or reduce a lot from the wholesaler.",
-                    "`!store_remove @owner <lot_id> [qty]` – remove or reduce a lot from a store.",
-                    "`!wh_tx <tx_id>` – inspect a wholesaler transaction by ID.",
-                    "`!wh_retry_payout <tx_id>` – retry a pending seller payout.",
-                    "`!wh_paths` – show wholesaler data file paths (useful for debugging).",
+                    "`!guns_wh_setshop <shop_name> @owner` – bind a shop alias to a specific owner account.",
+                    "`!guns_wh_shops` – list all shop alias mappings.",
+                    "`!guns_wh_restock [seed]` – regenerate weekly wholesaler stock from the configured sheet source.",
+                    "`!guns_wh_clear_inventory` – clear all current wholesaler lots without touching store inventories.",
+                    "`!guns_wh_recheck` – compare current lots to source sheet values and report mismatches.",
+                    "`!guns_wh_setsheet <xlsx_export_url|off>` – set or clear the runtime Google Sheets XLSX export URL.",
+                    "`!guns_wh_restock_settings [key] [value]` – view or tune weekly restock settings (lot counts and qty ranges).",
+                    "`!guns_wh_add <gun> <L|M|H> <unit_cost> <qty> [restriction]` – manually add stock to the wholesaler.",
+                    "`!guns_store_add @owner <gun> <L|M|H> <unit_cost> <qty> [restriction]` – manually add stock to a specific store.",
+                    "`!guns_wh_remove <lot_id> [qty]` – remove or reduce a lot from the wholesaler.",
+                    "`!guns_store_remove @owner <lot_id> [qty]` – remove or reduce a lot from a store.",
+                    "`!guns_wh_tx <tx_id>` – inspect a wholesaler transaction by ID.",
+                    "`!guns_wh_retry_payout <tx_id>` – retry a pending seller payout.",
+                    "`!guns_wh_paths` – show wholesaler data file paths (useful for debugging).",
                 ]),
             ),
         ]
@@ -518,7 +518,7 @@ class Admin(commands.Cog):
         embed.add_field(
             name="📋 Step 1 — Check Wholesaler Stock",
             value=(
-                "`!wh_list` — see what the wholesaler currently has available.\n"
+                "`!guns_wh_list` — see what the wholesaler currently has available.\n"
                 "Lots are grouped by weapon type (Pistol, Revolver, Shotgun, etc.).\n"
                 "Each lot shows: **Lot ID**, gun name, tier (L/M/H), cost per unit, and quantity."
             ),
@@ -528,8 +528,8 @@ class Admin(commands.Cog):
         embed.add_field(
             name="🛒 Step 2 — Buy Stock for Your Store",
             value=(
-                "`!wh_buy <lot_id> <qty>`\n"
-                "Example: `!wh_buy lot-a3f2 5` — buys 5 units from that lot.\n\n"
+                "`!guns_wh_buy <lot_id> <qty>`\n"
+                "Example: `!guns_wh_buy lot-a3f2 5` — buys 5 units from that lot.\n\n"
                 "The total cost (unit price x qty) is deducted from your balance.\n"
                 "The guns move into your store inventory automatically."
             ),
@@ -539,7 +539,7 @@ class Admin(commands.Cog):
         embed.add_field(
             name="📦 Step 3 — Check Your Store Inventory",
             value=(
-                "`!store_inv` — view what you currently have in stock.\n"
+                "`!guns_store_inv` — view what you currently have in stock.\n"
                 "Each item shows a **Lot ID** you'll use when selling to players."
             ),
             inline=False,
@@ -548,14 +548,14 @@ class Admin(commands.Cog):
         embed.add_field(
             name="💰 Step 4 — Sell to a Player",
             value=(
-                '`!wh_sell @buyer "character_name" <lot_id> <qty> <price>`\n'
-                'Example: `!wh_sell @Johnny "V" lot-a3f2 1 2500`\n\n'
+                '`!guns_wh_sell @buyer "character_name" <lot_id> <qty> <price>`\n'
+                'Example: `!guns_wh_sell @Johnny "V" lot-a3f2 1 2500`\n\n'
                 "This will:\n"
                 "1. Deduct the price from the buyer's balance\n"
                 "2. Credit the price to your balance\n"
                 "3. Remove the item(s) from your inventory\n"
                 "4. Post an audit receipt for staff records\n\n"
-                "Alias: `!sell`"
+                "Alias: `!guns_sell`"
             ),
             inline=False,
         )
@@ -567,9 +567,9 @@ class Admin(commands.Cog):
                 "- **Basic** — anyone can buy (default).\n"
                 "- **Controlled** — only buyers on your approved list can purchase.\n"
                 "- **Restricted** — approved list + an admin must approve each sale (5-min timeout).\n\n"
-                "`!wh_approve @user` — add someone to your approved buyer list.\n"
-                "`!wh_unapprove @user` — remove someone.\n"
-                "`!wh_approved` — view your approved buyer list."
+                "`!guns_wh_approve @user` — add someone to your approved buyer list.\n"
+                "`!guns_wh_unapprove @user` — remove someone.\n"
+                "`!guns_wh_approved` — view your approved buyer list."
             ),
             inline=False,
         )
@@ -577,9 +577,9 @@ class Admin(commands.Cog):
         embed.add_field(
             name="🏪 Store & Shop Commands",
             value=(
-                "`!store_inv` — view your own store inventory.\n"
-                "`!store_inv @owner` — admins: view another owner's inventory.\n"
-                "`!wh_shops` — list all registered shop aliases and their owners."
+                "`!guns_store_inv` — view your own store inventory.\n"
+                "`!guns_store_inv @owner` — admins: view another owner's inventory.\n"
+                "`!guns_wh_shops` — list all registered shop aliases and their owners."
             ),
             inline=False,
         )
@@ -587,16 +587,16 @@ class Admin(commands.Cog):
         embed.add_field(
             name="⚙️ Admin — Wholesaler Management",
             value=(
-                "`!wh_setsheet <url>` — load the gun master sheet and refresh the gun catalog.\n"
-                "`!wh_restock` — force a fresh weekly wholesale lot rotation.\n"
-                "`!wh_add \"<name>\" <level> <price> <qty> [restriction]` — manually add a lot to the wholesaler.\n"
-                "  Example: `!wh_add \"Nue\" M 1300 5 controlled`\n"
-                "`!wh_remove <lot_id> [qty]` — remove a lot (or reduce qty) from the wholesaler.\n"
-                "`!wh_clear` — wipe all wholesaler stock.\n"
-                "`!store_add @owner \"<name>\" <level> <price> <qty> [restriction]` — add a lot directly to a store.\n"
-                "`!store_remove @owner <lot_id> [qty]` — remove a lot from a store.\n"
-                "`!wh_retry_payout <tx_id>` — retry a failed sale payout.\n"
-                "`!wh_settings` — view or change wholesaler settings."
+                "`!guns_wh_setsheet <url>` — load the gun master sheet and refresh the gun catalog.\n"
+                "`!guns_wh_restock` — force a fresh weekly wholesale lot rotation.\n"
+                "`!guns_wh_add \"<name>\" <level> <price> <qty> [restriction]` — manually add a lot to the wholesaler.\n"
+                "  Example: `!guns_wh_add \"Nue\" M 1300 5 controlled`\n"
+                "`!guns_wh_remove <lot_id> [qty]` — remove a lot (or reduce qty) from the wholesaler.\n"
+                "`!guns_wh_clear_inventory` — wipe all wholesaler stock.\n"
+                "`!guns_store_add @owner \"<name>\" <level> <price> <qty> [restriction]` — add a lot directly to a store.\n"
+                "`!guns_store_remove @owner <lot_id> [qty]` — remove a lot from a store.\n"
+                "`!guns_wh_retry_payout <tx_id>` — retry a failed sale payout.\n"
+                "`!guns_wh_restock_settings` — view or change wholesaler settings."
             ),
             inline=False,
         )

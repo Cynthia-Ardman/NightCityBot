@@ -1169,7 +1169,7 @@ class WholesalerCog(commands.Cog):
             logger.error("_credit_funds: FAILED to credit user=%s amount=%d", user_id, amount)
         return result
 
-    @commands.command(name="wh_setshop")
+    @commands.command(name="guns_wh_setshop")
     async def wh_setshop(self, ctx: commands.Context, shop_name: str, owner_raw: str):
         """Bind shop aliases (shop1/shop2/shop3 etc.) to an owner Discord account."""
         if not await self._system_enabled(ctx):
@@ -1200,7 +1200,7 @@ class WholesalerCog(commands.Cog):
             f"[WHOLESALE_SET_SHOP] by={member.mention} shop={normalized} owner={owner.mention}"
         )
 
-    @commands.command(name="wh_shops")
+    @commands.command(name="guns_wh_shops")
     async def wh_shops(self, ctx: commands.Context):
 
         if not await self._system_enabled(ctx):
@@ -1216,7 +1216,7 @@ class WholesalerCog(commands.Cog):
         lines = [f"`{name}` → <@{owner_id}>" for name, owner_id in sorted(registry.items())]
         await ctx.send("**Shop Registry**\n" + "\n".join(lines[:30]))
 
-    @commands.command(name="wh_list")
+    @commands.command(name="guns_wh_list")
     async def wh_list(self, ctx: commands.Context):
 
         if not await self._system_enabled(ctx):
@@ -1256,9 +1256,9 @@ class WholesalerCog(commands.Cog):
                 )
         await ctx.send("\n".join(lines))
 
-    @commands.command(name="store_inv")
+    @commands.command(name="guns_store_inv")
     async def store_inv(self, ctx: commands.Context, *, shop: Optional[str] = None):
-        """Show your inventory or a named shop inventory (`!store_inv shop1`)."""
+        """Show your inventory or a named shop inventory (`!guns_store_inv shop1`)."""
         if not await self._system_enabled(ctx):
             return
         member = await self._ensure_member(ctx)
@@ -1298,7 +1298,7 @@ class WholesalerCog(commands.Cog):
                 )
         await ctx.send("\n".join(lines))
 
-    @commands.command(name="wh_buy")
+    @commands.command(name="guns_wh_buy")
     async def wh_buy(self, ctx: commands.Context, lot_id: str, qty: int):
 
         if not await self._system_enabled(ctx):
@@ -1374,7 +1374,7 @@ class WholesalerCog(commands.Cog):
             f"[WHOLESALE_BUY] tx={tx['tx_id']} buyer={member.mention} gun={lot['gun_name']} level={lot['gun_level']} qty={qty} total={total} lot={lot_id}"
         )
 
-    @commands.command(name="wh_sell", aliases=["sell"])
+    @commands.command(name="guns_wh_sell", aliases=["guns_sell"])
     async def wh_sell(
         self,
         ctx: commands.Context,
@@ -1386,7 +1386,7 @@ class WholesalerCog(commands.Cog):
     ):
         """Sell a weapon to a player.
 
-        Usage: ``!wh_sell @buyer "character_name" <lot_id> <qty> <price>``
+        Usage: ``!guns_wh_sell @buyer "character_name" <lot_id> <qty> <price>``
         """
         if not await self._system_enabled(ctx):
             return
@@ -1426,7 +1426,7 @@ class WholesalerCog(commands.Cog):
             if restriction in ("controlled", "restricted") and buyer.id not in approved_list:
                 await ctx.send(
                     f"❌ {buyer.mention} is not on your controlled-buyer list. "
-                    f"This **{restriction}** item requires buyer approval first (`!wh_approve @user`)."
+                    f"This **{restriction}** item requires buyer approval first (`!guns_wh_approve @user`)."
                 )
                 return
 
@@ -1597,7 +1597,7 @@ class WholesalerCog(commands.Cog):
             )
             return False
 
-    @commands.command(name="wh_restock")
+    @commands.command(name="guns_wh_restock")
     async def wh_restock(self, ctx: commands.Context, seed: Optional[int] = None):
 
         if not await self._system_enabled(ctx):
@@ -1656,7 +1656,7 @@ class WholesalerCog(commands.Cog):
             f"[WHOLESALE_RESTOCK] by={member.mention} lots={len(lots)} qtyL={level_totals['L']} qtyM={level_totals['M']} qtyH={level_totals['H']} draft_excluded={draft_count}"
         )
 
-    @commands.command(name="wh_clear_inventory")
+    @commands.command(name="guns_wh_clear_inventory")
     async def wh_clear_inventory(self, ctx: commands.Context):
         """Clear all current wholesaler lots while preserving store inventories."""
         if not await self._system_enabled(ctx):
@@ -1732,7 +1732,7 @@ class WholesalerCog(commands.Cog):
         )
         return True
 
-    @commands.command(name="wh_restock_settings")
+    @commands.command(name="guns_wh_restock_settings")
     async def wh_restock_settings(
         self,
         ctx: commands.Context,
@@ -1796,11 +1796,11 @@ class WholesalerCog(commands.Cog):
             )
         await ctx.send("\n".join(lines))
 
-    @commands.command(name="wh_setsheet")
+    @commands.command(name="guns_wh_setsheet")
     async def wh_setsheet(self, ctx: commands.Context, *, xlsx_export_url: str):
         """Set/clear runtime Google Sheets XLSX export URL for wholesaler source.
 
-        Use `!wh_setsheet off` to clear runtime override and fall back to config.
+        Use `!guns_wh_setsheet off` to clear runtime override and fall back to config.
         """
         if not await self._system_enabled(ctx):
             return
@@ -1832,7 +1832,7 @@ class WholesalerCog(commands.Cog):
         await ctx.send("✅ Runtime wholesaler sheet URL updated.")
         await self._audit_send(f"[WHOLESALE_SOURCE_SET] by={member.mention} url={normalized}")
 
-    @commands.command(name="wh_recheck")
+    @commands.command(name="guns_wh_recheck")
     async def wh_recheck(self, ctx: commands.Context):
         """Reconcile current wholesaler lots against current sheet prices/levels."""
         if not await self._system_enabled(ctx):
@@ -1885,7 +1885,7 @@ class WholesalerCog(commands.Cog):
         await ctx.send("\n".join(lines))
         await self._audit_send("[WHOLESALE_RECHECK] " + " | ".join(lines[:4]))
 
-    @commands.command(name="wh_gunlist", aliases=["wh_guns", "wh_masterlist"])
+    @commands.command(name="guns_wh_gunlist", aliases=["guns_wh_guns", "guns_wh_masterlist"])
     async def wh_gunlist(self, ctx: commands.Context):
         """List every gun parsed from the master spreadsheet with type and tier."""
         if not await self._system_enabled(ctx):
@@ -1954,7 +1954,7 @@ class WholesalerCog(commands.Cog):
         for page in pages:
             await ctx.send(page)
 
-    @commands.command(name="wh_paths")
+    @commands.command(name="guns_wh_paths")
     async def wh_paths(self, ctx: commands.Context):
         """Show resolved wholesaler persistence paths and whether files exist."""
         if not await self._system_enabled(ctx):
@@ -1985,7 +1985,7 @@ class WholesalerCog(commands.Cog):
 
         await ctx.send("\n".join(lines))
 
-    @commands.command(name="wh_add")
+    @commands.command(name="guns_wh_add")
     async def wh_add(self, ctx: commands.Context, gun_name: str, level: str, unit_cost: int, qty: int, restriction: Optional[str] = None):
 
         if not await self._system_enabled(ctx):
@@ -2044,7 +2044,7 @@ class WholesalerCog(commands.Cog):
             f"[WHOLESALE_ADMIN_ADD] by={member.mention} gun={gun_name} level={level} qty={qty} unit_cost={unit_cost} lot={lot['lot_id']}"
         )
 
-    @commands.command(name="store_add")
+    @commands.command(name="guns_store_add")
     async def store_add(
         self,
         ctx: commands.Context,
@@ -2116,7 +2116,7 @@ class WholesalerCog(commands.Cog):
             f"[STORE_ADMIN_ADD] by={member.mention} owner={store_owner.mention} gun={gun_name} level={level} qty={qty} unit_cost={unit_cost} lot={lot_id}"
         )
 
-    @commands.command(name="wh_remove")
+    @commands.command(name="guns_wh_remove")
     async def wh_remove(self, ctx: commands.Context, lot_id: str, qty: Optional[int] = None):
         if not await self._system_enabled(ctx):
             return
@@ -2176,7 +2176,7 @@ class WholesalerCog(commands.Cog):
             f"[WHOLESALE_ADMIN_REMOVE] by={member.mention} lot={lot_id} gun={target['gun_name']} removed_qty={remove_qty}"
         )
 
-    @commands.command(name="store_remove")
+    @commands.command(name="guns_store_remove")
     async def store_remove(self, ctx: commands.Context, store_owner_raw: str, lot_id: str, qty: Optional[int] = None):
         if not await self._system_enabled(ctx):
             return
@@ -2245,7 +2245,7 @@ class WholesalerCog(commands.Cog):
             f"[STORE_ADMIN_REMOVE] by={member.mention} owner={store_owner.mention} lot={lot_id} gun={target['gun_name']} removed_qty={remove_qty}"
         )
 
-    @commands.command(name="wh_approve")
+    @commands.command(name="guns_wh_approve")
     async def wh_approve(self, ctx: commands.Context, user_raw: str):
         """Add a user to your store's controlled-buyer list."""
         if not await self._system_enabled(ctx):
@@ -2280,7 +2280,7 @@ class WholesalerCog(commands.Cog):
             f"[CONTROLLED_APPROVE] store_owner={member.mention} approved={user.mention}"
         )
 
-    @commands.command(name="wh_unapprove")
+    @commands.command(name="guns_wh_unapprove")
     async def wh_unapprove(self, ctx: commands.Context, user_raw: str):
         """Remove a user from your store's controlled-buyer list."""
         if not await self._system_enabled(ctx):
@@ -2315,7 +2315,7 @@ class WholesalerCog(commands.Cog):
             f"[CONTROLLED_UNAPPROVE] store_owner={member.mention} removed={user.mention}"
         )
 
-    @commands.command(name="wh_approved")
+    @commands.command(name="guns_wh_approved")
     async def wh_approved(self, ctx: commands.Context):
         """Show your store's controlled-buyer list."""
         if not await self._system_enabled(ctx):
@@ -2339,7 +2339,7 @@ class WholesalerCog(commands.Cog):
             lines.append(f"• <@{uid}>")
         await ctx.send("\n".join(lines))
 
-    @commands.command(name="wh_tx")
+    @commands.command(name="guns_wh_tx")
     async def wh_tx(self, ctx: commands.Context, tx_id: str):
 
         if not await self._system_enabled(ctx):
@@ -2358,7 +2358,7 @@ class WholesalerCog(commands.Cog):
             return
         await ctx.send(f"```json\n{json.dumps(tx, indent=2)}\n```")
 
-    @commands.command(name="wh_retry_payout")
+    @commands.command(name="guns_wh_retry_payout")
     async def wh_retry_payout(self, ctx: commands.Context, tx_id: str):
 
         if not await self._system_enabled(ctx):
