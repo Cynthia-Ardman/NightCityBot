@@ -30,6 +30,8 @@ async def run(suite, ctx) -> List[str]:
         patch.object(economy.unbelievaboat, 'update_balance', new=AsyncMock(return_value=True)),
         patch.object(economy, 'backup_balances', new=AsyncMock()),
         patch.object(economy.trauma_service, 'process_trauma_team_payment', new=AsyncMock()),
+        # Bypass real DB so an existing payment label never skips the member
+        patch.object(economy, '_paid_any_this_month', new=AsyncMock(return_value=False)),
     ):
         await economy.collect_rent(ctx, target_user=user)
         eviction_calls = eviction_channel.send.await_args_list

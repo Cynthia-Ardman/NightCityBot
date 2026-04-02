@@ -302,12 +302,19 @@ def test_resolve_base_path_treats_relative_config_as_base_dir_relative(tmp_path:
 
 
 def test_audit_send_fetches_channel_when_not_cached(monkeypatch):
+    import discord as _discord
+
     class _Channel:
         def __init__(self):
-            self.sent = []
+            self.sent_embeds = []
 
-        async def send(self, text):
-            self.sent.append(text)
+        async def send(self, *args, **kwargs):
+            # _audit_send now sends embed= kwarg; capture the embed object
+            embed = kwargs.get("embed")
+            if embed is not None:
+                self.sent_embeds.append(embed)
+            elif args:
+                self.sent_embeds.append(args[0])
 
     class _Bot:
         def __init__(self, channel):
@@ -330,7 +337,11 @@ def test_audit_send_fetches_channel_when_not_cached(monkeypatch):
 
     asyncio.run(cog._audit_send("hello audit"))
 
-    assert channel.sent == ["hello audit"]
+    # One embed should have been sent containing the audit text
+    assert len(channel.sent_embeds) == 1
+    embed = channel.sent_embeds[0]
+    assert isinstance(embed, _discord.Embed)
+    assert "hello audit" in (embed.description or "")
 def test_parse_master_sheet_falls_back_to_single_tab_when_name_missing(tmp_path: Path):
     wb = Workbook()
     ws = wb.active
@@ -488,7 +499,7 @@ def test_load_state_reads_store_inventory_from_separate_file(tmp_path: Path):
     async def _run():
         return await cog._load_state()
 
-    with patch("NightCityBot.cogs.wholesaler.wh_lots_get_all", new=AsyncMock(return_value=[])), patch("NightCityBot.cogs.wholesaler.wh_stores_get_all", new=AsyncMock(return_value={})), patch("NightCityBot.cogs.wholesaler.wh_shops_get_all", new=AsyncMock(return_value={})):
+    with patch("NightCityBot.cogs.guns_shop.wh_lots_get_all", new=AsyncMock(return_value=[])), patch("NightCityBot.cogs.guns_shop.wh_stores_get_all", new=AsyncMock(return_value={})), patch("NightCityBot.cogs.guns_shop.wh_shops_get_all", new=AsyncMock(return_value={})):
         state = asyncio.run(_run())
     assert state["wholesale_lots"][0]["lot_id"] == "lot-1"
     assert state["stores"]["g-1"]["lots"][0]["lot_id"] == "store-1"
@@ -520,7 +531,7 @@ def test_save_state_writes_wholesale_and_store_inventory_files(tmp_path: Path):
     async def _run():
         return await cog._save_state(payload)
 
-    with patch("NightCityBot.cogs.wholesaler.wh_lots_replace_all", new=AsyncMock(return_value=True)), patch("NightCityBot.cogs.wholesaler.wh_stores_replace_all", new=AsyncMock(return_value=True)), patch("NightCityBot.cogs.wholesaler.wh_shops_replace_all", new=AsyncMock(return_value=True)), patch("NightCityBot.cogs.wholesaler.wh_settings_save", new=AsyncMock(return_value=True)):
+    with patch("NightCityBot.cogs.guns_shop.wh_lots_replace_all", new=AsyncMock(return_value=True)), patch("NightCityBot.cogs.guns_shop.wh_stores_replace_all", new=AsyncMock(return_value=True)), patch("NightCityBot.cogs.guns_shop.wh_shops_replace_all", new=AsyncMock(return_value=True)), patch("NightCityBot.cogs.guns_shop.wh_settings_save", new=AsyncMock(return_value=True)):
         assert asyncio.run(_run()) is True
 
     main = json.loads(state_path.read_text(encoding="utf-8"))
@@ -597,7 +608,7 @@ def test_load_state_prefers_new_inventory_files(tmp_path: Path):
     async def _run():
         return await cog._load_state()
 
-    with patch("NightCityBot.cogs.wholesaler.wh_lots_get_all", new=AsyncMock(return_value=[])), patch("NightCityBot.cogs.wholesaler.wh_stores_get_all", new=AsyncMock(return_value={})), patch("NightCityBot.cogs.wholesaler.wh_shops_get_all", new=AsyncMock(return_value={})):
+    with patch("NightCityBot.cogs.guns_shop.wh_lots_get_all", new=AsyncMock(return_value=[])), patch("NightCityBot.cogs.guns_shop.wh_stores_get_all", new=AsyncMock(return_value={})), patch("NightCityBot.cogs.guns_shop.wh_shops_get_all", new=AsyncMock(return_value={})):
         state = asyncio.run(_run())
     assert state["wholesale_lots"][0]["lot_id"] == "new-lot"
     assert state["stores"]["1:222"]["lots"][0]["lot_id"] == "store-new"
@@ -626,7 +637,7 @@ def test_load_state_sanitizes_malformed_inventory_collections(tmp_path: Path):
     async def _run():
         return await cog._load_state()
 
-    with patch("NightCityBot.cogs.wholesaler.wh_lots_get_all", new=AsyncMock(return_value=[])), patch("NightCityBot.cogs.wholesaler.wh_stores_get_all", new=AsyncMock(return_value={})), patch("NightCityBot.cogs.wholesaler.wh_shops_get_all", new=AsyncMock(return_value={})):
+    with patch("NightCityBot.cogs.guns_shop.wh_lots_get_all", new=AsyncMock(return_value=[])), patch("NightCityBot.cogs.guns_shop.wh_stores_get_all", new=AsyncMock(return_value={})), patch("NightCityBot.cogs.guns_shop.wh_shops_get_all", new=AsyncMock(return_value={})):
         state = asyncio.run(_run())
     assert state["wholesale_lots"] == []
     assert state["stores"]["1:222"]["lots"] == []
