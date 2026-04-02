@@ -369,15 +369,20 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
             character_name  TEXT NOT NULL DEFAULT '',
             item_type       TEXT NOT NULL DEFAULT 'cyberware',
             name            TEXT NOT NULL,
-            restriction     TEXT NOT NULL DEFAULT 'basic',
+            restriction     TEXT DEFAULT 'basic',
             description     TEXT NOT NULL DEFAULT '',
             price_paid      INT,
             seller_id       TEXT,
             seller_name     TEXT NOT NULL DEFAULT '',
-            acquired_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            acquired_at     TIMESTAMPTZ DEFAULT NOW(),
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """,
+        # Idempotent migration: align nullability of pre-existing tables with the
+        # above DDL contract (PostgreSQL silently no-ops DROP NOT NULL on an
+        # already-nullable column, so this is safe to run on every startup).
+        "ALTER TABLE player_inventory ALTER COLUMN restriction DROP NOT NULL",
+        "ALTER TABLE player_inventory ALTER COLUMN acquired_at DROP NOT NULL",
         """
         CREATE INDEX IF NOT EXISTS idx_player_inventory_owner
             ON player_inventory (owner_id)
@@ -2690,7 +2695,14 @@ async def gun_catalog_adjust_qty(gun_name: str, delta: int) -> bool:
 # ---------------------------------------------------------------------------
 
 async def pi_add_item(item: dict) -> bool:
-    """Insert one item into player_inventory. Silently ignores duplicate item_id."""
+    """Insert one item into player_inventory.
+
+    Returns ``True`` when exactly one row was inserted, ``False`` when the
+    insert was a no-op (duplicate ``item_id`` conflict) or when a DB error
+    occurred.  Callers must not assume the write succeeded when ``False`` is
+    returned — they should either retry with a fresh UUID or surface the
+    failure to the operator.
+    """
     try:
         pool = await get_pool()
         acq = item.get("acquired_at")
@@ -2699,7 +2711,7 @@ async def pi_add_item(item: dict) -> bool:
                 acq = datetime.fromisoformat(acq.replace("Z", "+00:00"))
             except Exception:
                 acq = None
-        await _with_retry(
+        status: str = await _with_retry(
             lambda: pool.execute(
                 """
                 INSERT INTO player_inventory
@@ -2723,6 +2735,14 @@ async def pi_add_item(item: dict) -> bool:
             ),
             label="pi_add_item",
         )
+        # asyncpg returns a command status like "INSERT 0 1" (1 row) or "INSERT 0 0" (conflict).
+        rows_affected = int(status.split()[-1]) if isinstance(status, str) else 0
+        if rows_affected == 0:
+            logger.warning(
+                "pi_add_item: ON CONFLICT suppressed insert for item_id='%s'",
+                item.get("item_id"),
+            )
+            return False
         return True
     except Exception:
         logger.error("pi_add_item failed for item_id='%s'", item.get("item_id"), exc_info=True)

@@ -204,8 +204,12 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
         tokens = query.strip().split()
         if tokens:
-            # Try last token as page number
-            if tokens[-1].isdigit():
+            # Support "page <n>" keyword form (e.g. !my_inventory page 2)
+            if len(tokens) >= 2 and tokens[0].lower() == "page" and tokens[1].isdigit():
+                page = int(tokens[1])
+                tokens = tokens[2:]
+            # Also support bare trailing digit (e.g. !my_inventory "V" 2)
+            elif tokens[-1].isdigit():
                 page = int(tokens[-1])
                 tokens = tokens[:-1]
 
