@@ -294,24 +294,26 @@ class Admin(commands.Cog):
 
 
         embed.add_field(
-            name="🎒 Item Inventory",
+            name="📦 Your Three Inventories",
             value=(
-                "`!my_inventory` (alias: !myinv) — view your items grouped by character.\n"
-                "`!my_inventory \"character_name\"` — filter to one character.\n"
-                "`!my_inventory 2` — jump to page 2.\n\n"
-                "`!trade @buyer <row> <price> character_name` — sell an item to another player. "
-                "Price 0 is allowed when moving items between your own characters.\n"
-                "`!inv_give @target <row> \"sender_char\" [\"receiver_char\"]` — give an item for free. "
-                "If the item is cyberware and the target is a Ripperdoc, it goes into their stock instead."
+                "**🎒 Personal inventory** — items you personally own (guns you bought, cyberware installed in you, gear, etc.):\n"
+                "`!my_inventory` (alias: `!myinv`) — see everything you own, grouped by character.\n"
+                "`!my_inventory \"character_name\"` — filter to one character. `!my_inventory 2` — page 2.\n\n"
+                "**🔫 Gun store stock** — guns sitting in your store, ready to sell to players (not yours personally):\n"
+                "`!guns_store_inv` — see what's currently in your shop. Run `!helpguns` for buying & selling.\n\n"
+                "**💉 Ripperdoc stock** — cyberware your doc has on hand, ready to install (not a personal item):\n"
+                "`!cw_inventory` — see what's in your ripperdoc stock. Run `!helpcyberware` for the full guide.\n\n"
+                "**Moving items between players:**\n"
+                "`!trade @buyer <row> <price> character_name` — sell a personal item to another player.\n"
+                "`!inv_give @target <row> \"sender_char\" [\"receiver_char\"]` — give a personal item for free."
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="🔫 Gun Stores",
+            name="🔫 Gun Store Wholesaler",
             value=(
-                "`!guns_wh_list` – browse current wholesaler lots.\n"
-                "`!guns_store_inv` – view your store's current inventory.\n\n"
+                "`!guns_wh_list` – browse lots available to buy for your store (not personal items).\n"
                 "Own a gun store? Run `!helpguns` for the full buying & selling guide."
             ),
             inline=False,
@@ -1127,6 +1129,17 @@ class Admin(commands.Cog):
             reason = str(error) or "Permission denied."
             await ctx.send(f"❌ {reason}")
             await self.log_audit(ctx.author, f"❌ {reason}: {ctx.message.content}")
+        elif isinstance(error, commands.UserInputError):
+            # Missing args, bad types, too many args, etc. — show usage hint, no alert.
+            hint = ""
+            if ctx.command:
+                sig = ctx.command.signature
+                name = ctx.command.qualified_name
+                if sig:
+                    hint = f"\n📋 Usage: `!{name} {sig}`"
+                else:
+                    hint = f"\n📋 Command: `!{name}`"
+            await ctx.send(f"⚠️ {str(error)}{hint}")
         else:
             await ctx.send(f"⚠️ Error: {str(error)}")
             await self.log_audit(
