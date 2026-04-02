@@ -931,3 +931,232 @@ class TestCwTx:
         _run(_cmd(cog, "cw_tx", ctx))
         msg = ctx.send.call_args[0][0]
         assert "No transactions found" in msg
+
+
+# ------------------------------------------------------------------
+# Grouped inventory helper tests
+# ------------------------------------------------------------------
+
+class TestGroupedInventory:
+    """_grouped_inventory correctly groups and FIFO-sorts inventory rows."""
+
+    def test_single_item_one_group(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        inv = [{"item_id": "a", "name": "Kiroshi", "price_paid": 3000, "purchased_at": "2026-04-01T10:00:00"}]
+        groups = cog._grouped_inventory(inv)
+        assert len(groups) == 1
+        assert groups[0]["name"] == "Kiroshi"
+        assert groups[0]["count"] == 1
+
+    def test_two_identical_items_one_group(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        inv = [
+            {"item_id": "a", "name": "Kiroshi", "price_paid": 3000, "purchased_at": "2026-04-01"},
+            {"item_id": "b", "name": "Kiroshi", "price_paid": 3000, "purchased_at": "2026-04-01"},
+        ]
+        groups = cog._grouped_inventory(inv)
+        assert len(groups) == 1
+        assert groups[0]["count"] == 2
+
+    def test_fifo_ordering_within_group(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        inv = [
+            {"item_id": "late",  "name": "Kiroshi", "price_paid": 3000, "purchased_at": "2026-04-02"},
+            {"item_id": "early", "name": "Kiroshi", "price_paid": 3000, "purchased_at": "2026-04-01"},
+        ]
+        groups = cog._grouped_inventory(inv)
+        # FIFO: earliest purchased_at first
+        assert groups[0]["items"][0]["item_id"] == "early"
+
+    def test_different_names_different_groups(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        inv = [
+            {"item_id": "a", "name": "Sandevistan", "price_paid": 8000, "purchased_at": None},
+            {"item_id": "b", "name": "Kiroshi",     "price_paid": 3000, "purchased_at": None},
+        ]
+        groups = cog._grouped_inventory(inv)
+        # Alphabetical: Kiroshi before Sandevistan
+        assert groups[0]["name"] == "Kiroshi"
+        assert groups[1]["name"] == "Sandevistan"
+
+    def test_stable_numbering_not_affected_by_stock(self, tmp_path, monkeypatch):
+        """_sorted_lots returns all lots alphabetically; sold-out lots keep their numbers."""
+        cog = _make_cog(tmp_path, monkeypatch)
+        lots = [
+            {"item_name": "Sandevistan",  "qty_available": 2, "unit_cost": 8000, "lot_id": "s"},
+            {"item_name": "Kiroshi",      "qty_available": 0, "unit_cost": 3000, "lot_id": "k"},
+            {"item_name": "Berserk",      "qty_available": 1, "unit_cost": 5000, "lot_id": "b"},
+        ]
+        ordered = cog._sorted_lots(lots)
+        # Should be fully alphabetical regardless of qty_available
+        assert [l["item_name"] for l in ordered] == ["Berserk", "Kiroshi", "Sandevistan"]
+        # Kiroshi (sold out) is lot #2 — NOT moved to the end
+
+
+# ------------------------------------------------------------------
+# Additional cw_sell tests — FIFO + data integrity
+# ------------------------------------------------------------------
+
+class TestCwSellFifo:
+    """FIFO consumption and pi_add_item data integrity tests for cw_sell."""
+
+    def test_fifo_picks_earliest_item(self, tmp_path, monkeypatch):
+        """When two identical items exist, the one with the earliest purchased_at is consumed."""
+        cog = _make_cog(tmp_path, monkeypatch)
+        # Seed two identical Kiroshi items — 'early' has earlier timestamp
+        inv = [
+            {"item_id": "late",  "name": "Kiroshi Optics Mk.1", "price_paid": 3000, "purchased_at": "2026-04-02"},
+            {"item_id": "early", "name": "Kiroshi Optics Mk.1", "price_paid": 3000, "purchased_at": "2026-04-01"},
+        ]
+        _seed_inventory(cog, 111, inv)
+        cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 5000, "bank": 0})
+        cog.unbelievaboat.update_balance = AsyncMock(return_value=True)
+
+        captured_item_id = []
+        original_pi_add_item = AsyncMock(return_value=True)
+
+        async def capturing_pi_add_item(item_dict):
+            captured_item_id.append(item_dict.get("item_id"))
+            return True
+
+        monkeypatch.setattr("NightCityBot.cogs.cyberware_shop.pi_add_item", capturing_pi_add_item)
+        ctx = _ctx(author_id=111)
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), 1, 3500, character_name="V"))
+
+        # FIFO: 'early' should be consumed, 'late' should remain
+        assert captured_item_id == ["early"]
+        inv_after = _run(cog._load_inventory(111))
+        remaining_ids = [e.get("item_id") for e in inv_after]
+        assert "early" not in remaining_ids
+        assert "late" in remaining_ids
+
+    def test_pi_add_item_failure_aborts_and_refunds(self, tmp_path, monkeypatch):
+        """If pi_add_item fails, item stays in inventory and both parties are refunded."""
+        cog = _make_cog(tmp_path, monkeypatch)
+        _seed_inventory(cog, 111, [
+            {"item_id": "abc", "name": "Kiroshi Optics Mk.1", "price_paid": 3000, "purchased_at": "2026-04-01"}
+        ])
+        cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 5000, "bank": 0})
+        cog.unbelievaboat.update_balance = AsyncMock(return_value=True)
+
+        monkeypatch.setattr("NightCityBot.cogs.cyberware_shop.pi_add_item", AsyncMock(return_value=False))
+
+        ctx = _ctx(author_id=111)
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), 1, 3500, character_name="V"))
+
+        # Item STILL in inventory (was not removed since DB write failed)
+        inv = _run(cog._load_inventory(111))
+        assert "Kiroshi Optics Mk.1" in _inv_names(inv)
+
+        # At least 4 balance calls: deduct patient, credit ripper, refund patient, refund ripper
+        assert cog.unbelievaboat.update_balance.call_count >= 4
+        msg = ctx.send.call_args[0][0]
+        assert "Failed" in msg or "refunded" in msg
+
+    def test_pi_add_item_called_before_remove(self, tmp_path, monkeypatch):
+        """pi_add_item is called inside the lock before removing from stock."""
+        cog = _make_cog(tmp_path, monkeypatch)
+        _seed_inventory(cog, 111, [
+            {"item_id": "xyz", "name": "Kiroshi Optics Mk.1", "price_paid": 3000, "purchased_at": "2026-04-01"}
+        ])
+        cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 5000, "bank": 0})
+        cog.unbelievaboat.update_balance = AsyncMock(return_value=True)
+
+        pi_called = []
+
+        async def tracking_pi_add_item(item_dict):
+            # Check ripperdoc still has the item when pi_add_item is called
+            inv = await cog._load_inventory(111)
+            pi_called.append(len(inv))
+            return True
+
+        monkeypatch.setattr("NightCityBot.cogs.cyberware_shop.pi_add_item", tracking_pi_add_item)
+
+        ctx = _ctx(author_id=111)
+        _run(_cmd(cog, "cw_sell", ctx, _make_member(999), 1, 3500, character_name="V"))
+
+        # pi_add_item was called and ripperdoc still had 1 item at that point
+        assert pi_called == [1]
+        # After success, item is gone
+        inv = _run(cog._load_inventory(111))
+        assert inv == []
+
+
+# ------------------------------------------------------------------
+# cw_install tests
+# ------------------------------------------------------------------
+
+class TestCwInstall:
+    """Tests for the !cw_install command."""
+
+    def test_dm_guard(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        ctx = _ctx(guild=False)
+        _run(_cmd(cog, "cw_install", ctx, _make_member(999), 1, character_name="V"))
+        assert "server" in ctx.send.call_args[0][0]
+
+    def test_invalid_row(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        ctx = _ctx(author_id=111)
+        _run(_cmd(cog, "cw_install", ctx, _make_member(999), 5, character_name="V"))
+        assert "Invalid row" in ctx.send.call_args[0][0]
+
+    def test_success_removes_item_and_records_tx(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        _seed_inventory(cog, 111, [
+            {"item_id": "inst1", "name": "Kiroshi Optics Mk.1", "price_paid": 3000, "purchased_at": "2026-04-01"},
+            {"item_id": "inst2", "name": "Sandevistan Mk.1",    "price_paid": 8000, "purchased_at": "2026-04-01"},
+        ])
+        ctx = _ctx(author_id=111)
+        patient = _make_member(999)
+
+        _run(_cmd(cog, "cw_install", ctx, patient, 1, character_name="V"))  # row 1 = Kiroshi (alpha)
+
+        inv = _run(cog._load_inventory(111))
+        names = _inv_names(inv)
+        assert "Kiroshi Optics Mk.1" not in names
+        assert "Sandevistan Mk.1" in names
+
+        txs = _run(cog._load_tx())
+        assert txs[0]["tx_type"] == "INSTALL"
+        assert txs[0]["item"] == "Kiroshi Optics Mk.1"
+        assert "✅" in ctx.send.call_args[0][0]
+
+    def test_pi_add_item_called_with_correct_args(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        _seed_inventory(cog, 111, [
+            {"item_id": "myid", "name": "Kiroshi Optics Mk.1", "price_paid": 3000, "purchased_at": "2026-04-01"}
+        ])
+        ctx = _ctx(author_id=111)
+        patient = _make_member(888)
+
+        captured = []
+
+        async def capture(d):
+            captured.append(d)
+            return True
+
+        monkeypatch.setattr("NightCityBot.cogs.cyberware_shop.pi_add_item", capture)
+        _run(_cmd(cog, "cw_install", ctx, patient, 1, character_name="Johnny"))
+
+        assert len(captured) == 1
+        assert captured[0]["item_id"] == "myid"
+        assert captured[0]["owner_id"] == "888"
+        assert captured[0]["character_name"] == "Johnny"
+        assert captured[0]["item_type"] == "cyberware"
+
+    def test_pi_add_item_failure_aborts(self, tmp_path, monkeypatch):
+        """If pi_add_item fails, inventory is unchanged."""
+        cog = _make_cog(tmp_path, monkeypatch)
+        _seed_inventory(cog, 111, [
+            {"item_id": "keep", "name": "Kiroshi Optics Mk.1", "price_paid": 3000, "purchased_at": "2026-04-01"}
+        ])
+        monkeypatch.setattr("NightCityBot.cogs.cyberware_shop.pi_add_item", AsyncMock(return_value=False))
+        ctx = _ctx(author_id=111)
+
+        _run(_cmd(cog, "cw_install", ctx, _make_member(999), 1, character_name="V"))
+
+        inv = _run(cog._load_inventory(111))
+        assert "Kiroshi Optics Mk.1" in _inv_names(inv)
+        msg = ctx.send.call_args[0][0]
+        assert "Failed" in msg

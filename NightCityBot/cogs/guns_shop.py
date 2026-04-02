@@ -1039,9 +1039,9 @@ class GunsShopCog(commands.Cog):
         return any(r.id in store_role_ids for r in member.roles)
 
     async def _audit_send(self, text: str) -> None:
-        channel_id = int(getattr(config, "WHOLESALER_AUDIT_CHANNEL_ID", 0) or 0)
+        channel_id = int(getattr(config, "GUN_LOG_CHANNEL_ID", 0) or 0)
         if channel_id <= 0:
-            logger.warning("Missing wholesaler audit channel id=%s", channel_id)
+            logger.warning("Missing gun-log audit channel id=%s", channel_id)
             return
 
         channel = self.bot.get_channel(channel_id)
@@ -1049,16 +1049,16 @@ class GunsShopCog(commands.Cog):
             try:
                 channel = await self.bot.fetch_channel(channel_id)
             except Exception:
-                logger.warning("Missing wholesaler audit channel id=%s", channel_id)
+                logger.warning("Missing gun-log audit channel id=%s", channel_id)
                 return
 
         if not channel:
-            logger.warning("Missing wholesaler audit channel id=%s", channel_id)
+            logger.warning("Missing gun-log audit channel id=%s", channel_id)
             return
         try:
             await channel.send(text)
         except Exception:
-            logger.exception("Failed to send wholesaler audit line")
+            logger.exception("Failed to send gun-log audit line")
 
 
     async def _system_enabled(self, ctx: commands.Context) -> bool:
@@ -1538,9 +1538,9 @@ class GunsShopCog(commands.Cog):
         character_name: str,
     ) -> bool:
         """Post a restricted-sale approval request and wait for an admin reaction."""
-        channel_id = int(getattr(config, "WHOLESALER_AUDIT_CHANNEL_ID", 0) or 0)
+        channel_id = int(getattr(config, "GUN_LOG_CHANNEL_ID", 0) or 0)
         if channel_id <= 0:
-            await ctx.send("❌ Audit channel not configured — cannot process restricted sales.")
+            await ctx.send("❌ Gun-log channel not configured — cannot process restricted sales.")
             return False
 
         channel = self.bot.get_channel(channel_id)
@@ -1548,7 +1548,7 @@ class GunsShopCog(commands.Cog):
             try:
                 channel = await self.bot.fetch_channel(channel_id)
             except Exception:
-                await ctx.send("❌ Audit channel not found — cannot process restricted sales.")
+                await ctx.send("❌ Gun-log channel not found — cannot process restricted sales.")
                 return False
 
         embed = discord.Embed(

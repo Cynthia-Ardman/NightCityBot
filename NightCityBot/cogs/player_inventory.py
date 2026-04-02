@@ -3,26 +3,30 @@
 Commands
 --------
 !my_inventory [character_name|@player] [page]
-    View your own (or another player's) item inventory.
+    View your own (or another player's) item inventory, grouped by character.
 
 !inv_give @target <row> "sender_char" ["receiver_char"]
-    Give one of your items to another player (no payment).
+    Give one of your items (no payment). If cyberware and target is a
+    Ripperdoc, the item goes into their CW stock instead.
 
 !trade @buyer <row> <price> buyer_character
-    Sell one of your items to a buyer with full payment handling.
+    Sell one of your items with full payment handling. Self-trade (price=0)
+    is allowed and is how players move items between their own characters.
 
-!inv_add @player item_type "name" restriction "description" [price]
-    Admin: add an item directly to a player's inventory.
+!inv_add @player "name" <qty> "character_name" [item_type=misc] [description=] [price=]
+    Admin: add qty items (each with a unique UUID) to a player's inventory.
 
-!inv_remove @player <row>
-    Admin: remove an item from a player's inventory (no payment).
+!inv_remove @player <item_id>
+    Admin: remove a specific item by UUID.
 
-!inv_reassign @player <row> new_character
-    Admin: reassign an item to a different character on the same player.
+!inv_reassign <item_id> @player "character_name"
+    Admin: reassign an item to a different character.
 """
 
 import logging
+import re
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 import discord
@@ -42,7 +46,7 @@ from NightCityBot.utils.permissions import is_fixer
 
 logger = logging.getLogger(__name__)
 
-ITEMS_PER_PAGE = 15
+GROUPS_PER_PAGE = 15
 
 
 class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
@@ -53,70 +57,170 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         self.unbelievaboat = unbelievaboat
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Channel helpers
     # ------------------------------------------------------------------
 
-    async def _nightcitybot_log_channel(self) -> Optional[discord.TextChannel]:
-        ch_id = getattr(config, "NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
-        ch = self.bot.get_channel(ch_id)
+    async def _get_channel(self, attr: str) -> Optional[discord.TextChannel]:
+        ch_id = getattr(config, attr, 0)
+        if not ch_id:
+            return None
+        ch = self.bot.get_channel(int(ch_id))
         if ch is None:
             try:
-                ch = await self.bot.fetch_channel(ch_id)
+                ch = await self.bot.fetch_channel(int(ch_id))
             except Exception:
-                logger.warning("Could not fetch NIGHTCITYBOT_LOG_CHANNEL_ID", exc_info=True)
+                logger.warning("Could not fetch channel %s=%s", attr, ch_id, exc_info=True)
         return ch
+
+    async def _nightcitybot_log_channel(self) -> Optional[discord.TextChannel]:
+        return await self._get_channel("NIGHTCITYBOT_LOG_CHANNEL_ID")
 
     async def _gear_log_channel(self) -> Optional[discord.TextChannel]:
-        ch_id = getattr(config, "GEAR_MISC_LOG_CHANNEL_ID", 0)
-        ch = self.bot.get_channel(ch_id)
-        if ch is None:
-            try:
-                ch = await self.bot.fetch_channel(ch_id)
-            except Exception:
-                logger.warning("Could not fetch GEAR_MISC_LOG_CHANNEL_ID", exc_info=True)
-        return ch
+        return await self._get_channel("GEAR_MISC_LOG_CHANNEL_ID")
+
+    async def _gun_log_channel(self) -> Optional[discord.TextChannel]:
+        return await self._get_channel("GUN_LOG_CHANNEL_ID")
+
+    async def _cyberware_log_channel(self) -> Optional[discord.TextChannel]:
+        return await self._get_channel("CYBERWARE_LOG_CHANNEL_ID")
+
+    async def _route_log_channel(self, item_type: str) -> Optional[discord.TextChannel]:
+        """Return the appropriate audit channel based on item type."""
+        if item_type == "gun":
+            return await self._gun_log_channel()
+        if item_type == "cyberware":
+            return await self._cyberware_log_channel()
+        return await self._gear_log_channel()
+
+    # ------------------------------------------------------------------
+    # Grouping helpers
+    # ------------------------------------------------------------------
 
     @staticmethod
-    def _format_item_line(i: int, item: dict) -> str:
-        name = item.get("name", "?")
-        char = item.get("character_name", "")
-        itype = item.get("item_type", "")
-        restriction = item.get("restriction", "basic")
-        price = item.get("price_paid")
-        line = f"`{i}.` **{name}**"
-        if char:
-            line += f" [{char}]"
-        badges = []
-        if itype:
-            badges.append(itype)
-        if restriction not in ("basic", "", None):
-            badges.append(restriction.upper())
-        if badges:
-            line += f" _{'/'.join(badges)}_"
-        if price:
-            line += f" — ${price:,}"
-        return line
+    def _group_items(items: list[dict]) -> list[dict]:
+        """Group a flat item list by (name, item_type, price_paid, seller_name).
+
+        All copies of the same item from the same seller at the same price are
+        collapsed into one group regardless of acquisition date. Items within
+        each group are sorted FIFO by acquired_at so the oldest is used first.
+
+        Returns a list of group dicts sorted alphabetically by name:
+          {name, item_type, price_paid, seller_name, count, items (FIFO)}
+        """
+        groups: dict[tuple, dict] = {}
+        for item in items:
+            name = item.get("name", "?")
+            itype = item.get("item_type", "misc")
+            price = item.get("price_paid")
+            seller = item.get("seller_name", "")
+            key = (name, itype, price, seller)
+            if key not in groups:
+                groups[key] = {
+                    "name": name,
+                    "item_type": itype,
+                    "price_paid": price,
+                    "seller_name": seller,
+                    "items": [],
+                }
+            groups[key]["items"].append(item)
+        for g in groups.values():
+            g["items"].sort(
+                key=lambda i: (
+                    i.get("acquired_at") is None,
+                    str(i.get("acquired_at") or i.get("created_at") or ""),
+                )
+            )
+            g["count"] = len(g["items"])
+        return sorted(groups.values(), key=lambda g: g["name"])
+
+    @staticmethod
+    def _build_display(items: list[dict], char_filter: Optional[str] = None):
+        """Build the display structure for !my_inventory.
+
+        Returns a list of (row_number_or_None, line) tuples where row_number
+        is None for character headers and an int for item group rows.
+        Flat row numbers are consecutive across all characters.
+        """
+        char_order: list[str] = []
+        char_groups: dict[str, list[dict]] = {}
+        for item in items:
+            char = item.get("character_name") or ""
+            if char not in char_groups:
+                char_order.append(char)
+                char_groups[char] = []
+            char_groups[char].append(item)
+
+        # Filter by character if requested
+        if char_filter:
+            char_filter_lower = char_filter.lower()
+            char_order = [c for c in char_order if c.lower() == char_filter_lower]
+
+        display = []
+        row_num = 1
+        all_groups: list[dict] = []
+        for char in char_order:
+            display.append((None, f"— **{char or '(no character)'}** —"))
+            groups = PlayerInventoryCog._group_items(char_groups[char])
+            for g in groups:
+                price_str = f"${g['price_paid']:,}" if g["price_paid"] else "—"
+                seller_str = g["seller_name"] or "—"
+                earliest = g["items"][0] if g["items"] else {}
+                raw_date = earliest.get("acquired_at") or earliest.get("created_at")
+                date_str = str(raw_date)[:10] if raw_date else "—"
+                count_str = f" ×{g['count']}" if g["count"] > 1 else ""
+                line = (
+                    f"`{row_num}.` **{g['name']}**{count_str}"
+                    f" | {g['item_type']} | {price_str} | {seller_str} | {date_str}"
+                )
+                display.append((row_num, line))
+                all_groups.append(g)
+                row_num += 1
+        return display, all_groups
 
     # ------------------------------------------------------------------
     # !my_inventory
     # ------------------------------------------------------------------
 
     @commands.command(name="my_inventory", aliases=["myinv"])
-    async def my_inventory(
-        self,
-        ctx: commands.Context,
-        target: Optional[discord.Member] = None,
-        page: int = 1,
-    ) -> None:
-        """View your item inventory (or another player's if admin/fixer).
+    async def my_inventory(self, ctx: commands.Context, *, query: str = "") -> None:
+        """View your item inventory, grouped by character.
 
         Usage:
-          !my_inventory [page]
-          !my_inventory @player [page]
+          !my_inventory
+          !my_inventory "character_name"
+          !my_inventory @player
+          !my_inventory @player 2
+          !my_inventory "V" 2
         """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
             return
+
+        target: Optional[discord.Member] = None
+        char_filter: Optional[str] = None
+        page: int = 1
+
+        tokens = query.strip().split()
+        if tokens:
+            # Try last token as page number
+            if tokens[-1].isdigit():
+                page = int(tokens[-1])
+                tokens = tokens[:-1]
+
+            if tokens:
+                remainder = " ".join(tokens)
+                mention_match = re.match(r"<@!?(\d+)>", remainder.strip())
+                if mention_match:
+                    member_id = int(mention_match.group(1))
+                    target = ctx.guild.get_member(member_id)
+                    if target is None:
+                        try:
+                            target = await ctx.guild.fetch_member(member_id)
+                        except Exception:
+                            await ctx.send("❌ Could not find that member.")
+                            return
+                else:
+                    char_filter = remainder.strip().strip('"').strip("'")
 
         if target and target != ctx.author:
             author_roles = getattr(ctx.author, "roles", [])
@@ -136,23 +240,57 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             await ctx.send(f"📦 {whose} inventory is empty.")
             return
 
+        display_lines, all_groups = self._build_display(items, char_filter)
+
+        if not display_lines:
+            char_label = f" for character **{char_filter}**" if char_filter else ""
+            await ctx.send(f"📦 No items found{char_label}.")
+            return
+
+        # Paginate: count only item-group lines (not headers)
+        item_lines = [(rn, ln) for rn, ln in display_lines if rn is not None]
+        total_groups = len(item_lines)
         if page < 1:
             page = 1
-        total_pages = (len(items) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE
+        total_pages = max(1, (total_groups + GROUPS_PER_PAGE - 1) // GROUPS_PER_PAGE)
         if page > total_pages:
             page = total_pages
 
-        start = (page - 1) * ITEMS_PER_PAGE
-        page_items = items[start: start + ITEMS_PER_PAGE]
-        lines = [self._format_item_line(start + i + 1, item) for i, item in enumerate(page_items)]
+        # Collect which row numbers are on this page
+        start_group = (page - 1) * GROUPS_PER_PAGE + 1
+        end_group = page * GROUPS_PER_PAGE
+        page_rows = {rn for rn, _ in item_lines if start_group <= rn <= end_group}
+
+        # Rebuild display lines for this page (include headers if they have items on this page)
+        page_lines: list[str] = []
+        last_was_header = False
+        pending_header = None
+        for rn, ln in display_lines:
+            if rn is None:
+                pending_header = ln
+                last_was_header = True
+            else:
+                if rn in page_rows:
+                    if pending_header is not None:
+                        page_lines.append(pending_header)
+                        pending_header = None
+                    page_lines.append(ln)
+                    last_was_header = False
 
         whose_title = "Your Inventory" if owner == ctx.author else f"{owner.display_name}'s Inventory"
+        if char_filter:
+            whose_title += f" — {char_filter}"
+
         embed = discord.Embed(
             title=f"📦 {whose_title} ({page}/{total_pages})",
-            description="\n".join(lines),
+            description="\n".join(page_lines) if page_lines else "No items.",
             color=discord.Color.blue(),
         )
-        embed.set_footer(text=f"{len(items)} total item(s) | Use !trade <row> or !inv_give <row>")
+        hint = f"Use `!my_inventory page {page + 1}`" if page < total_pages else ""
+        embed.set_footer(
+            text=f"{len(items)} total item(s) | Use !trade <row> or !inv_give <row>"
+            + (f" | {hint}" if hint else "")
+        )
         await ctx.send(embed=embed)
 
     # ------------------------------------------------------------------
@@ -172,12 +310,13 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
         Usage: !inv_give @target <row> "sender_char" ["receiver_char"]
         The row number comes from !my_inventory.
+
+        If the item is cyberware and target is a Ripperdoc, the item goes into
+        the ripperdoc's CW stock (receiver_char may be omitted in that case).
+        Self-give (same Discord user, different characters) is allowed.
         """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
-            return
-        if target.id == ctx.author.id:
-            await ctx.send("❌ You cannot give an item to yourself.")
             return
 
         sender_char = sender_char.strip().strip('"').strip("'")
@@ -185,20 +324,22 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             await ctx.send("❌ Your character name is required.")
             return
 
-        recv_char = (receiver_char or sender_char).strip().strip('"').strip("'")
-
         items = await pi_get_by_owner(str(ctx.author.id))
-        if row < 1 or row > len(items):
+        _, all_groups = self._build_display(items)
+
+        if row < 1 or row > len(all_groups):
             await ctx.send(
-                f"❌ Invalid row **{row}**. You have {len(items)} item(s). "
+                f"❌ Invalid row **{row}**. You have {len(all_groups)} item group(s). "
                 "Use `!my_inventory` to see the list."
             )
             return
 
-        item = items[row - 1]
-        item_name = item["name"]
-        item_id = item["item_id"]
-        item_char = item.get("character_name", "")
+        group = all_groups[row - 1]
+        selected_item = group["items"][0]
+        item_name = selected_item["name"]
+        item_id = selected_item["item_id"]
+        item_type = selected_item.get("item_type", "misc")
+        item_char = selected_item.get("character_name", "")
         if item_char and item_char.lower() != sender_char.lower():
             await ctx.send(
                 f"❌ Row {row} (`{item_name}`) belongs to character **{item_char}**, "
@@ -206,20 +347,65 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             )
             return
 
+        # Check if target is a ripperdoc and item is cyberware → route to CW stock
+        target_roles = getattr(target, "roles", [])
+        is_ripperdoc_target = any(
+            getattr(r, "id", None) == getattr(config, "RIPPERDOC_ROLE_ID", None)
+            for r in target_roles
+        )
+
+        if item_type == "cyberware" and is_ripperdoc_target:
+            # Transfer cyberware into ripperdoc's CW stock file
+            cw_cog = self.bot.cogs.get("CyberwareShop")
+            if cw_cog is None:
+                await ctx.send("❌ CyberwareShop cog unavailable. Contact an admin.")
+                return
+
+            ok_del = await pi_delete_item(item_id)
+            if not ok_del:
+                await ctx.send("❌ Failed to remove item from your inventory. Please try again.")
+                return
+
+            rd_inventory = await cw_cog._load_inventory(target.id)
+            rd_inventory.append({
+                "item_id": item_id,
+                "name": item_name,
+                "price_paid": selected_item.get("price_paid"),
+                "purchased_at": selected_item.get("acquired_at") or selected_item.get("created_at"),
+            })
+            await cw_cog._save_inventory(target.id, rd_inventory)
+
+            log_ch = await self._cyberware_log_channel()
+            if log_ch:
+                embed = discord.Embed(title="💉 Cyberware Returned to Ripperdoc Stock", color=discord.Color.teal())
+                embed.add_field(name="From", value=f"{ctx.author.mention} ({sender_char})", inline=True)
+                embed.add_field(name="Ripperdoc", value=target.mention, inline=True)
+                embed.add_field(name="Item", value=item_name, inline=False)
+                await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+            await ctx.send(
+                f"✅ **{item_name}** transferred from **{sender_char}** to "
+                f"{target.display_name}'s ripperdoc stock."
+            )
+            return
+
+        # Regular player-to-player give (self-give allowed)
+        recv_char = (receiver_char or sender_char).strip().strip('"').strip("'")
+        if not recv_char:
+            await ctx.send("❌ Receiver character name is required.")
+            return
+
         ok = await pi_update_owner(item_id, str(target.id), recv_char)
         if not ok:
             await ctx.send("❌ Failed to transfer item. Please try again or contact an admin.")
             return
 
-        log_ch = await self._gear_log_channel()
+        log_ch = await self._route_log_channel(item_type)
         if log_ch:
-            embed = discord.Embed(
-                title="🎁 Item Given",
-                color=discord.Color.green(),
-            )
+            embed = discord.Embed(title="🎁 Item Given", color=discord.Color.green())
             embed.add_field(name="From", value=f"{ctx.author.mention} ({sender_char})", inline=True)
             embed.add_field(name="To", value=f"{target.mention} ({recv_char})", inline=True)
-            embed.add_field(name="Item", value=item_name, inline=False)
+            embed.add_field(name="Item", value=f"**{item_name}** ({item_type})", inline=False)
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
         await ctx.send(
@@ -246,13 +432,11 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         Usage: !trade @buyer <row> <price> buyer_character_name
         The row number comes from !my_inventory.
         Controlled/restricted items cannot be traded via this command.
-        Price 0 is allowed (gift with payment record).
+        Price 0 is allowed — use it to move items between your own characters.
+        Self-trade (!trade @yourself <row> 0 "other_char") is explicitly allowed.
         """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
-            return
-        if buyer.id == ctx.author.id:
-            await ctx.send("❌ You cannot trade with yourself.")
             return
         if price < 0:
             await ctx.send("❌ Price cannot be negative.")
@@ -264,17 +448,21 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             return
 
         items = await pi_get_by_owner(str(ctx.author.id))
-        if row < 1 or row > len(items):
+        _, all_groups = self._build_display(items)
+
+        if row < 1 or row > len(all_groups):
             await ctx.send(
-                f"❌ Invalid row **{row}**. You have {len(items)} item(s). "
+                f"❌ Invalid row **{row}**. You have {len(all_groups)} item group(s). "
                 "Use `!my_inventory` to see the list."
             )
             return
 
-        item = items[row - 1]
-        item_name = item["name"]
-        item_id = item["item_id"]
-        restriction = item.get("restriction", "basic")
+        group = all_groups[row - 1]
+        selected_item = group["items"][0]
+        item_name = selected_item["name"]
+        item_id = selected_item["item_id"]
+        item_type = selected_item.get("item_type", "misc")
+        restriction = selected_item.get("restriction", "basic")
 
         if restriction in ("controlled", "restricted"):
             await ctx.send(
@@ -284,7 +472,10 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             )
             return
 
-        if price > 0:
+        b_cash_deduct = 0
+        b_bank_deduct = 0
+
+        if price > 0 and buyer.id != ctx.author.id:
             buyer_balance = await self.unbelievaboat.get_balance(buyer.id)
             if buyer_balance is None:
                 await ctx.send("❌ Could not fetch buyer's balance. Please try again.")
@@ -352,7 +543,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         # Transfer ownership in DB
         ok_transfer = await pi_update_owner(item_id, str(buyer.id), buyer_character)
         if not ok_transfer:
-            if price > 0:
+            if price > 0 and buyer.id != ctx.author.id:
                 await self.unbelievaboat.update_balance(
                     buyer.id,
                     {"cash": b_cash_deduct, "bank": b_bank_deduct},
@@ -369,15 +560,12 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             )
             return
 
-        log_ch = await self._gear_log_channel()
+        log_ch = await self._route_log_channel(item_type)
         if log_ch:
-            embed = discord.Embed(
-                title="💱 Item Traded",
-                color=discord.Color.gold(),
-            )
+            embed = discord.Embed(title="💱 Item Traded", color=discord.Color.gold())
             embed.add_field(name="Seller", value=ctx.author.mention, inline=True)
             embed.add_field(name="Buyer", value=f"{buyer.mention} ({buyer_character})", inline=True)
-            embed.add_field(name="Item", value=f"**{item_name}** ({restriction})", inline=False)
+            embed.add_field(name="Item", value=f"**{item_name}** ({item_type}/{restriction})", inline=False)
             embed.add_field(name="Price", value=f"${price:,}" if price else "Free", inline=True)
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
@@ -396,63 +584,76 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         self,
         ctx: commands.Context,
         player: discord.Member,
-        item_type: str,
         name: str,
-        restriction: str,
-        description: str,
+        qty: int,
+        character_name: str,
+        item_type: str = "misc",
+        description: str = "",
         price: Optional[int] = None,
     ) -> None:
-        """Admin: add an item directly to a player's inventory.
+        """Admin: add qty items to a player's inventory.
 
-        Usage: !inv_add @player <item_type> "name" <restriction> "description" [price]
-        item_type: gun, cyberware, gear, misc
-        restriction: basic, controlled, restricted
+        Usage: !inv_add @player "name" <qty> "character_name" [item_type=misc] ["description"] [price]
         """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
             return
 
         name = name.strip().strip('"').strip("'")
+        character_name = character_name.strip().strip('"').strip("'")
         description = description.strip().strip('"').strip("'")
-        restriction = restriction.strip().lower()
+        item_type = item_type.strip().lower()
 
         if not name:
             await ctx.send("❌ Item name is required.")
             return
+        if qty < 1:
+            await ctx.send("❌ qty must be at least 1.")
+            return
+        if not character_name:
+            await ctx.send("❌ Character name is required.")
+            return
 
-        item_id = str(uuid.uuid4())
-        ok = await pi_add_item({
-            "item_id": item_id,
-            "owner_id": str(player.id),
-            "character_name": "",
-            "item_type": item_type,
-            "name": name,
-            "restriction": restriction,
-            "description": description,
-            "price_paid": price,
-            "seller_id": str(ctx.author.id),
-            "seller_name": ctx.author.display_name,
-        })
-        if not ok:
+        now = datetime.now(timezone.utc).isoformat()
+        added = 0
+        for _ in range(qty):
+            ok = await pi_add_item({
+                "item_id": str(uuid.uuid4()),
+                "owner_id": str(player.id),
+                "character_name": character_name,
+                "item_type": item_type,
+                "name": name,
+                "restriction": "basic",
+                "description": description,
+                "price_paid": price,
+                "seller_id": str(ctx.author.id),
+                "seller_name": ctx.author.display_name,
+                "acquired_at": now,
+            })
+            if ok:
+                added += 1
+
+        if added == 0:
             await ctx.send("❌ Failed to add item to inventory. Please try again.")
             return
 
         log_ch = await self._gear_log_channel()
         if log_ch:
-            embed = discord.Embed(
-                title="🔧 Admin: Item Added to Inventory",
-                color=discord.Color.orange(),
-            )
-            embed.add_field(name="Player", value=player.mention, inline=True)
-            embed.add_field(name="Item", value=f"{name} ({item_type}/{restriction})", inline=True)
+            embed = discord.Embed(title="🔧 Admin: Item(s) Added to Inventory", color=discord.Color.orange())
+            embed.add_field(name="Player", value=f"{player.mention} ({character_name})", inline=True)
+            embed.add_field(name="Item", value=f"{name} ({item_type})", inline=True)
+            embed.add_field(name="Qty Added", value=str(added), inline=True)
             embed.add_field(name="Admin", value=ctx.author.mention, inline=True)
             if price is not None:
                 embed.add_field(name="Price", value=f"${price:,}", inline=True)
-            embed.add_field(name="Description", value=description or "—", inline=False)
+            if description:
+                embed.add_field(name="Description", value=description, inline=False)
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
+        partial = f" (only {added} of {qty})" if added < qty else ""
         await ctx.send(
-            f"✅ Added **{name}** ({item_type}/{restriction}) to {player.display_name}'s inventory."
+            f"✅ Added **{name}** × {added}{partial} ({item_type}) to "
+            f"**{character_name}** ({player.display_name}'s) inventory."
         )
 
     # ------------------------------------------------------------------
@@ -465,29 +666,29 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         self,
         ctx: commands.Context,
         player: discord.Member,
-        row: int,
+        item_id: str,
     ) -> None:
-        """Admin: remove an item from a player's inventory.
+        """Admin: remove a specific item from a player's inventory by UUID.
 
-        Usage: !inv_remove @player <row>
-        The row number comes from !my_inventory @player.
+        Usage: !inv_remove @player <item_id>
+        The item_id comes from !my_inventory (shown on the item detail).
         """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
             return
 
-        items = await pi_get_by_owner(str(player.id))
-        if row < 1 or row > len(items):
+        item_id = item_id.strip()
+        item = await pi_get_item(item_id)
+        if item is None:
+            await ctx.send(f"❌ Item `{item_id}` not found.")
+            return
+        if item.get("owner_id") != str(player.id):
             await ctx.send(
-                f"❌ Invalid row **{row}**. {player.display_name} has {len(items)} item(s). "
-                "Use `!my_inventory @player` to see the list."
+                f"❌ Item `{item_id}` does not belong to {player.display_name}."
             )
             return
 
-        item = items[row - 1]
-        item_id = item["item_id"]
-        item_name = item["name"]
-
+        item_name = item.get("name", "?")
         ok = await pi_delete_item(item_id)
         if not ok:
             await ctx.send("❌ Failed to remove item. Please try again.")
@@ -495,17 +696,15 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
         log_ch = await self._gear_log_channel()
         if log_ch:
-            embed = discord.Embed(
-                title="🗑️ Admin: Item Removed from Inventory",
-                color=discord.Color.red(),
-            )
+            embed = discord.Embed(title="🗑️ Admin: Item Removed from Inventory", color=discord.Color.red())
             embed.add_field(name="Player", value=player.mention, inline=True)
             embed.add_field(name="Item Removed", value=item_name, inline=True)
+            embed.add_field(name="Item ID", value=f"`{item_id}`", inline=False)
             embed.add_field(name="Admin", value=ctx.author.mention, inline=True)
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
         await ctx.send(
-            f"✅ Removed **{item_name}** from {player.display_name}'s inventory."
+            f"✅ Removed **{item_name}** (`{item_id}`) from {player.display_name}'s inventory."
         )
 
     # ------------------------------------------------------------------
@@ -517,14 +716,14 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
     async def inv_reassign(
         self,
         ctx: commands.Context,
+        item_id: str,
         player: discord.Member,
-        row: int,
         *,
         new_character: str,
     ) -> None:
-        """Admin: reassign an item to a different character on the same player.
+        """Admin: reassign an item to a different character.
 
-        Usage: !inv_reassign @player <row> new_character_name
+        Usage: !inv_reassign <item_id> @player "character_name"
         """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
@@ -535,16 +734,18 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             await ctx.send("❌ New character name is required.")
             return
 
-        items = await pi_get_by_owner(str(player.id))
-        if row < 1 or row > len(items):
+        item_id = item_id.strip()
+        item = await pi_get_item(item_id)
+        if item is None:
+            await ctx.send(f"❌ Item `{item_id}` not found.")
+            return
+        if item.get("owner_id") != str(player.id):
             await ctx.send(
-                f"❌ Invalid row **{row}**. {player.display_name} has {len(items)} item(s)."
+                f"❌ Item `{item_id}` does not belong to {player.display_name}."
             )
             return
 
-        item = items[row - 1]
-        item_id = item["item_id"]
-        item_name = item["name"]
+        item_name = item.get("name", "?")
         old_char = item.get("character_name", "")
 
         ok = await pi_update_character(item_id, new_character)
@@ -554,10 +755,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
         log_ch = await self._gear_log_channel()
         if log_ch:
-            embed = discord.Embed(
-                title="✏️ Admin: Item Reassigned",
-                color=discord.Color.blurple(),
-            )
+            embed = discord.Embed(title="✏️ Admin: Item Reassigned", color=discord.Color.blurple())
             embed.add_field(name="Player", value=player.mention, inline=True)
             embed.add_field(name="Item", value=item_name, inline=True)
             embed.add_field(name="Old Character", value=old_char or "—", inline=True)
@@ -566,7 +764,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
         await ctx.send(
-            f"✅ Reassigned **{item_name}** from **{old_char or '(none)'}** "
+            f"✅ Reassigned **{item_name}** (`{item_id}`) from **{old_char or '(none)'}** "
             f"to **{new_character}** for {player.display_name}."
         )
 
