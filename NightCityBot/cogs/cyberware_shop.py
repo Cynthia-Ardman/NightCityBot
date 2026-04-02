@@ -20,6 +20,7 @@ from NightCityBot.services.cyberware_shop_data import (
     parse_cyberware_sheet,
 )
 from NightCityBot.utils import helpers
+from NightCityBot.utils.db import cw_catalog_get_all, cw_catalog_upsert_many
 from NightCityBot.utils.permissions import is_ripperdoc
 
 logger = logging.getLogger(__name__)
@@ -81,7 +82,10 @@ class CyberwareShop(commands.Cog):
         return await helpers.save_json_file(self.state_file, state)
 
     async def _load_catalog(self) -> list[dict[str, Any]]:
-        """Return the cached item list from the last !cw_setsheet parse."""
+        """Return the item list from cyberware_catalog DB, falling back to catalog.json."""
+        db_items = await cw_catalog_get_all()
+        if db_items:
+            return db_items
         catalog_file = self.data_dir / "catalog.json"
         return await helpers.load_json_file(catalog_file, default=[])
 
@@ -172,6 +176,7 @@ class CyberwareShop(commands.Cog):
                 return
 
             await self._save_catalog(items)
+            await cw_catalog_upsert_many(items)
             state = await self._load_state()
             state["sheet_url"] = url.strip()
             state["items_count"] = len(items)

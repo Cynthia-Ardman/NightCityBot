@@ -332,6 +332,30 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
             PRIMARY KEY (user_id, label)
         )
         """,
+        # ── Cyberware catalog (editable master item list) ─────────────────────
+        """
+        CREATE TABLE IF NOT EXISTS cyberware_catalog (
+            id          SERIAL PRIMARY KEY,
+            name        TEXT NOT NULL UNIQUE,
+            price       INT NOT NULL DEFAULT 0,
+            updated_at  TIMESTAMPTZ DEFAULT NOW()
+        )
+        """,
+        # ── Gun catalog (editable master gun list + wholesale qty) ─────────────
+        """
+        CREATE TABLE IF NOT EXISTS gun_catalog (
+            id               SERIAL PRIMARY KEY,
+            gun_name         TEXT NOT NULL UNIQUE,
+            gun_level        TEXT NOT NULL DEFAULT 'L',
+            price            INT NOT NULL DEFAULT 0,
+            qty_available    INT NOT NULL DEFAULT 0,
+            restriction      TEXT NOT NULL DEFAULT 'basic',
+            status           TEXT NOT NULL DEFAULT 'live',
+            weapon_type      TEXT NOT NULL DEFAULT '',
+            effectiveness_raw TEXT NOT NULL DEFAULT '',
+            updated_at       TIMESTAMPTZ DEFAULT NOW()
+        )
+        """,
     ]
 
     async with pool.acquire() as conn:
@@ -2358,6 +2382,197 @@ async def _mig_thread_map(pool: asyncpg.Pool, data) -> dict:
                 errors += 1
                 logger.warning("_mig_thread_map: row error user=%s", user_id, exc_info=True)
     return _mig_result(target, found, inserted, errors)
+
+
+# ---------------------------------------------------------------------------
+# Cyberware catalog helpers
+# ---------------------------------------------------------------------------
+
+async def cw_catalog_get_all() -> list[dict]:
+    """Return all cyberware catalog items ordered by name."""
+    try:
+        pool = await get_pool()
+        rows = await pool.fetch(
+            "SELECT name, price FROM cyberware_catalog ORDER BY name"
+        )
+        return [{"name": row["name"], "price": row["price"]} for row in rows]
+    except Exception:
+        logger.error("cw_catalog_get_all failed", exc_info=True)
+        return []
+
+
+async def cw_catalog_upsert_many(items: list[dict]) -> bool:
+    """Bulk-upsert cyberware catalog items by name.
+
+    On conflict updates price and updated_at; preserves existing rows for
+    any names not present in *items*.
+    """
+    if not items:
+        return True
+    try:
+        pool = await get_pool()
+
+        async def _do():
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    for item in items:
+                        name = str(item.get("name", "")).strip()
+                        price = int(item.get("price", 0))
+                        if not name:
+                            continue
+                        await conn.execute(
+                            """
+                            INSERT INTO cyberware_catalog (name, price, updated_at)
+                            VALUES ($1, $2, NOW())
+                            ON CONFLICT (name) DO UPDATE
+                                SET price = EXCLUDED.price,
+                                    updated_at = NOW()
+                            """,
+                            name, price,
+                        )
+
+        await _with_retry(_do, label="cw_catalog_upsert_many")
+        return True
+    except Exception:
+        logger.error("cw_catalog_upsert_many failed", exc_info=True)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Gun catalog helpers
+# ---------------------------------------------------------------------------
+
+async def gun_catalog_get_all() -> list[dict]:
+    """Return all gun catalog entries ordered by gun_name."""
+    try:
+        pool = await get_pool()
+        rows = await pool.fetch(
+            """
+            SELECT gun_name, gun_level, price, qty_available,
+                   restriction, status, weapon_type, effectiveness_raw
+            FROM gun_catalog
+            ORDER BY gun_name
+            """
+        )
+        return [dict(row) for row in rows]
+    except Exception:
+        logger.error("gun_catalog_get_all failed", exc_info=True)
+        return []
+
+
+async def gun_catalog_upsert_many(guns: list[dict]) -> bool:
+    """Bulk-upsert gun catalog entries by gun_name.
+
+    On INSERT sets qty_available = 0.
+    On CONFLICT (gun_name) updates metadata fields (price, level, etc.) but
+    intentionally preserves qty_available so admin edits survive sheet reloads.
+    """
+    if not guns:
+        return True
+    try:
+        pool = await get_pool()
+
+        async def _do():
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    for gun in guns:
+                        name = str(gun.get("gun_name", "")).strip()
+                        if not name:
+                            continue
+                        await conn.execute(
+                            """
+                            INSERT INTO gun_catalog
+                                (gun_name, gun_level, price, qty_available,
+                                 restriction, status, weapon_type, effectiveness_raw,
+                                 updated_at)
+                            VALUES ($1, $2, $3, 0, $4, $5, $6, $7, NOW())
+                            ON CONFLICT (gun_name) DO UPDATE
+                                SET gun_level        = EXCLUDED.gun_level,
+                                    price            = EXCLUDED.price,
+                                    restriction      = EXCLUDED.restriction,
+                                    status           = EXCLUDED.status,
+                                    weapon_type      = EXCLUDED.weapon_type,
+                                    effectiveness_raw = EXCLUDED.effectiveness_raw,
+                                    updated_at       = NOW()
+                            """,
+                            name,
+                            str(gun.get("gun_level", "L")),
+                            int(gun.get("price_new", gun.get("price", 0))),
+                            str(gun.get("restriction", "basic")),
+                            str(gun.get("status", "live")),
+                            str(gun.get("weapon_type", "")),
+                            str(gun.get("effectiveness_raw", "")),
+                        )
+
+        await _with_retry(_do, label="gun_catalog_upsert_many")
+        return True
+    except Exception:
+        logger.error("gun_catalog_upsert_many failed", exc_info=True)
+        return False
+
+
+async def gun_catalog_sync_qty_from_lots(lots: list[dict]) -> bool:
+    """Sync gun_catalog.qty_available to match aggregate wholesale lot quantities.
+
+    Computes the sum of qty_available across all lots for each gun_name and
+    updates the corresponding gun_catalog row.  Guns not present in *lots*
+    are set to 0.  Only touches guns that already exist in gun_catalog.
+    """
+    try:
+        pool = await get_pool()
+        aggregates: dict[str, int] = {}
+        for lot in lots:
+            name = str(lot.get("gun_name", "")).strip()
+            qty = int(lot.get("qty_available", 0))
+            if name:
+                aggregates[name] = aggregates.get(name, 0) + max(qty, 0)
+
+        async def _do():
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute(
+                        "UPDATE gun_catalog SET qty_available = 0, updated_at = NOW()"
+                    )
+                    for gun_name, qty in aggregates.items():
+                        await conn.execute(
+                            """
+                            UPDATE gun_catalog
+                            SET qty_available = $2, updated_at = NOW()
+                            WHERE gun_name = $1
+                            """,
+                            gun_name, qty,
+                        )
+
+        await _with_retry(_do, label="gun_catalog_sync_qty_from_lots")
+        return True
+    except Exception:
+        logger.error("gun_catalog_sync_qty_from_lots failed", exc_info=True)
+        return False
+
+
+async def gun_catalog_adjust_qty(gun_name: str, delta: int) -> bool:
+    """Adjust gun_catalog.qty_available for *gun_name* by *delta* (may be negative).
+
+    The result is floored at 0 to prevent negative stock.
+    """
+    try:
+        pool = await get_pool()
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                UPDATE gun_catalog
+                SET qty_available = GREATEST(0, qty_available + $2),
+                    updated_at = NOW()
+                WHERE gun_name = $1
+                """,
+                gun_name, delta,
+            ),
+            label="gun_catalog_adjust_qty",
+        )
+        return True
+    except Exception:
+        logger.error("gun_catalog_adjust_qty failed for gun='%s'", gun_name, exc_info=True)
+        return False
 
 
 # ---------------------------------------------------------------------------

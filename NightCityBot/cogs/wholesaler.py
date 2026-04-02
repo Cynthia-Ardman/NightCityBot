@@ -23,6 +23,7 @@ from NightCityBot.utils.db import (
     wh_pending_payouts_get,
     wh_settings_get, wh_settings_save,
     wh_tx_append, wh_tx_get_all,
+    gun_catalog_upsert_many, gun_catalog_sync_qty_from_lots, gun_catalog_adjust_qty,
 )
 
 logger = logging.getLogger(__name__)
@@ -629,12 +630,15 @@ class WholesalerCog(commands.Cog):
         """Load wholesaler source rows using configured sheet name with gid fallback."""
         sheet_path = await self._resolve_sheet_path()
         _, sheet_gid = await self._resolve_sheet_source()
-        return await asyncio.to_thread(
+        guns = await asyncio.to_thread(
             self.parse_master_sheet,
             sheet_path,
             config.WHOLESALER_MASTER_SHEET_NAME,
             sheet_gid,
         )
+        if guns:
+            await gun_catalog_upsert_many(guns)
+        return guns
 
     async def _load_state(self) -> dict[str, Any]:
         wholesale_file = getattr(self, "wholesale_inventory_file", self.state_file)
@@ -1314,6 +1318,7 @@ class WholesalerCog(commands.Cog):
                 return
 
             lot["qty_available"] -= qty
+            await gun_catalog_adjust_qty(lot["gun_name"], -qty)
             store_id = self._store_id(ctx.guild.id, member.id)
             store = state.setdefault("stores", {}).setdefault(store_id, {"owner_id": member.id, "lots": []})
             if not isinstance(store, dict):
@@ -1606,6 +1611,7 @@ class WholesalerCog(commands.Cog):
             state["wholesale_lots"] = lots
             state.setdefault("settings", {}).setdefault("restock", {}).update(cfg)
             saved = await self._save_state(state)
+            await gun_catalog_sync_qty_from_lots(lots)
 
         if not saved:
             logger.error(
@@ -1695,6 +1701,7 @@ class WholesalerCog(commands.Cog):
             saved = await self._save_state(state)
             if not saved:
                 logger.error("Auto restock save failed trigger=%s", trigger)
+            await gun_catalog_sync_qty_from_lots(lots)
 
         await self._audit_send(
             f"[WHOLESALE_AUTO_RESTOCK] trigger={trigger} lots={len(lots)} sunday={sunday_key}"
