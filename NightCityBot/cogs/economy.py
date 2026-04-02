@@ -1,7 +1,7 @@
 import logging
 import os
 import json
-from datetime import datetime, timedelta, time as dtime
+from datetime import datetime, timedelta, time as dtime, timezone
 import asyncio
 from typing import Optional, List, Dict, Callable, Awaitable, Any, NamedTuple
 from zoneinfo import ZoneInfo
@@ -820,7 +820,10 @@ class Economy(commands.Cog):
         recorded_at = await payment_label_get_ts(str(member.id), label)
         if recorded_at is None:
             return False
-        recorded_at_naive = recorded_at.replace(tzinfo=None) if recorded_at.tzinfo else recorded_at
+        if recorded_at.tzinfo:
+            recorded_at_naive = recorded_at.astimezone(timezone.utc).replace(tzinfo=None)
+        else:
+            recorded_at_naive = recorded_at
         return datetime.utcnow() - recorded_at_naive < timedelta(days=days)
 
     async def _paid_this_month(self, member: discord.Member, label: str) -> bool:

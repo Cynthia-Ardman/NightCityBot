@@ -109,19 +109,18 @@ class RollSystem(commands.Cog):
 
         if skip_log:
             return
+        dm_handler = self.bot.get_cog("DMHandler")
         if isinstance(channel, discord.DMChannel) and not original_sender:
-            thread = await self.bot.get_cog("DMHandler").get_or_create_dm_thread(
-                log_target
-            )
-            if isinstance(thread, discord.abc.Messageable):
-                await thread.send(
-                    f"📥 **{log_target.display_name} used:** `!roll {dice}`\n\n{result}"
-                )
+            if dm_handler:
+                thread = await dm_handler.get_or_create_dm_thread(log_target)
+                if isinstance(thread, discord.abc.Messageable):
+                    await thread.send(
+                        f"📥 **{log_target.display_name} used:** `!roll {dice}`\n\n{result}"
+                    )
         elif original_sender:
-            thread = await self.bot.get_cog("DMHandler").get_or_create_dm_thread(
-                log_target
-            )
-            if isinstance(thread, discord.abc.Messageable):
-                await thread.send(
-                    f"📤 **{original_sender.display_name} rolled as {author.display_name}** → `!roll {dice}`\n\n{result}"
-                )
+            if dm_handler:
+                thread = await dm_handler.get_or_create_dm_thread(log_target)
+                if isinstance(thread, discord.abc.Messageable):
+                    await thread.send(
+                        f"📤 **{original_sender.display_name} rolled as {author.display_name}** → `!roll {dice}`\n\n{result}"
+                    )
