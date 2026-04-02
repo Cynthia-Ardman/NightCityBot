@@ -786,7 +786,7 @@ class CyberwareShop(commands.Cog):
         """Show recent cyberware transactions (admin or own transactions only)."""
         author_roles = getattr(ctx.author, "roles", [])
         is_privileged = (
-            ctx.author.guild_permissions.administrator
+            (isinstance(ctx.author, discord.Member) and ctx.author.guild_permissions.administrator)
             or any(r.id == config.FIXER_ROLE_ID for r in author_roles)
         )
         if member and not is_privileged and member.id != ctx.author.id:

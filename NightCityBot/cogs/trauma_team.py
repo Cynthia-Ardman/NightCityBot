@@ -13,6 +13,9 @@ class TraumaTeam(commands.Cog):
     @commands.command(aliases=["calltrauma", "trauma"])
     async def call_trauma(self, ctx: commands.Context) -> None:
         """Ping the Trauma Team role with the user's plan."""
+        if not ctx.guild:
+            await ctx.send("⚠️ This command can only be used in a server.")
+            return
         trauma_channel = ctx.guild.get_channel(config.TRAUMA_NOTIFICATIONS_CHANNEL_ID)
         if not isinstance(trauma_channel, discord.TextChannel):
             await ctx.send("⚠️ Trauma Team channel not found.")

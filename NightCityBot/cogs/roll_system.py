@@ -29,7 +29,7 @@ class RollSystem(commands.Cog):
         mentioned_user = None
         if match:
             user_id = int(match.group(1))
-            mentioned_user = ctx.guild.get_member(user_id)
+            mentioned_user = ctx.guild.get_member(user_id) if ctx.guild else None
             if mentioned_user:
                 dice = re.sub(r"(?:<@!?)?[0-9]{17,20}(?:>)?", "", dice).strip()
 

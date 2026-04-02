@@ -363,6 +363,9 @@ class Economy(commands.Cog):
     @is_fixer()
     async def event_start(self, ctx):
         """Temporarily enable !attend and !open_shop outside of Sunday."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         if ctx.channel.id != config.ATTENDANCE_CHANNEL_ID:
             ch = ctx.guild.get_channel(config.ATTENDANCE_CHANNEL_ID)
             mention = ch.mention if ch else "#attendance"
@@ -383,6 +386,9 @@ class Economy(commands.Cog):
         control = self.bot.get_cog("SystemControl")
         if control and not control.is_enabled("open_shop"):
             await ctx.send("⚠️ The open_shop system is currently disabled.")
+            return
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
             return
         if ctx.channel.id != config.BUSINESS_ACTIVITY_CHANNEL_ID:
             ch = ctx.guild.get_channel(config.BUSINESS_ACTIVITY_CHANNEL_ID)
@@ -458,6 +464,9 @@ class Economy(commands.Cog):
         control = self.bot.get_cog("SystemControl")
         if control and not control.is_enabled("attend"):
             await ctx.send("⚠️ The attend system is currently disabled.")
+            return
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
             return
         if ctx.channel.id != config.ATTENDANCE_CHANNEL_ID:
             ch = ctx.guild.get_channel(config.ATTENDANCE_CHANNEL_ID)
@@ -584,6 +593,9 @@ class Economy(commands.Cog):
 
         Optionally provide ``member`` to check someone else's upcoming costs.
         """
+        if not ctx.guild or not isinstance(ctx.author, discord.Member):
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         target = member or ctx.author
         logger.debug(
             "due command invoked for %s (%s) by %s (%s) in %s (%s)",
@@ -2002,6 +2014,9 @@ class Economy(commands.Cog):
         Works like ``!collect_rent`` but only processes the invoking user.
         Use ``-v`` for a detailed summary.
         """
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         verbose = any(a.lower() in {"-v", "--verbose", "verbose"} for a in args)
         await self.run_rent_collection(
             ctx,

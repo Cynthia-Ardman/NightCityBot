@@ -46,6 +46,9 @@ class LOA(commands.Cog):
             logger.debug("start_loa blocked: system disabled")
             await ctx.send("⚠️ The LOA system is currently disabled.")
             return
+        if not ctx.guild:
+            await ctx.send("⚠️ This command can only be used in a server.")
+            return
         guild = ctx.guild
         logger.debug("start_loa invoked by %s for %s", ctx.author, member or ctx.author)
         loa_role = self.get_loa_role(guild)
@@ -81,6 +84,9 @@ class LOA(commands.Cog):
         control = self.bot.get_cog('SystemControl')
         if control and not control.is_enabled('loa'):
             await ctx.send("⚠️ The LOA system is currently disabled.")
+            return
+        if not ctx.guild:
+            await ctx.send("⚠️ This command can only be used in a server.")
             return
         guild = ctx.guild
         logger.debug("end_loa invoked by %s for %s", ctx.author, member or ctx.author)

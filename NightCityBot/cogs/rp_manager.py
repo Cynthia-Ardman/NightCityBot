@@ -46,6 +46,9 @@ class RPManager(commands.Cog):
     @commands.check_any(is_fixer(), commands.has_permissions(administrator=True))
     async def start_rp(self, ctx, *user_identifiers: str):
         """Starts a private RP channel for the mentioned users."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         guild = ctx.guild
         users = []
 

@@ -166,6 +166,9 @@ class CharacterManager(commands.Cog):
     @is_fixer()
     async def retire(self, ctx: commands.Context) -> None:
         """Move all threads tagged "Retired" to the retired forum."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         src = ctx.guild.get_channel(config.CHARACTER_SHEETS_CHANNEL_ID)
         dest = ctx.guild.get_channel(config.RETIRED_SHEETS_CHANNEL_ID)
         if not isinstance(src, discord.ForumChannel) or not isinstance(
@@ -194,6 +197,9 @@ class CharacterManager(commands.Cog):
     @is_fixer()
     async def move_npcs(self, ctx: commands.Context) -> None:
         """Move all threads tagged "NPC" to the NPC forum."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         src = ctx.guild.get_channel(config.CHARACTER_SHEETS_CHANNEL_ID)
         dest = ctx.guild.get_channel(config.NPC_SHEETS_CHANNEL_ID)
         if not isinstance(src, discord.ForumChannel) or not isinstance(
@@ -222,6 +228,9 @@ class CharacterManager(commands.Cog):
     @is_fixer()
     async def unretire(self, ctx: commands.Context, thread_id: int) -> None:
         """Move a single thread back to the main forum."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         src = ctx.guild.get_channel(config.CHARACTER_SHEETS_CHANNEL_ID)
         dest = ctx.guild.get_channel(config.RETIRED_SHEETS_CHANNEL_ID)
         if not isinstance(src, discord.ForumChannel) or not isinstance(
@@ -246,6 +255,9 @@ class CharacterManager(commands.Cog):
         """Search character sheets for ``keyword``.
 
         Use ``-depth N`` to scan up to ``N`` messages per thread (default 20)."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         forums: list[discord.ForumChannel] = []
         for cid in (
             config.CHARACTER_SHEETS_CHANNEL_ID,
@@ -320,6 +332,9 @@ class CharacterManager(commands.Cog):
     @is_fixer()
     async def backup_sheets(self, ctx: commands.Context) -> None:
         """Back up all character sheet threads to files."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         forums: list[discord.ForumChannel] = []
         for cid in (
             config.CHARACTER_SHEETS_CHANNEL_ID,

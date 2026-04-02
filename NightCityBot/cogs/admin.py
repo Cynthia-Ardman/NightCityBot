@@ -1128,7 +1128,7 @@ class Admin(commands.Cog):
             await ctx.send("❌ Provide a channel mention or ID. Example: `!export_threads #general`")
             return
 
-        channel = ctx.guild.get_channel(channel_id)
+        channel = (ctx.guild.get_channel(channel_id) if ctx.guild else None) or self.bot.get_channel(channel_id)
         if not channel:
             await ctx.send("❌ Channel not found in this server.")
             return
