@@ -68,6 +68,24 @@ class CyberwareShop(commands.Cog):
             self.inventory_dir,
         )
 
+        # Populate cyberware_catalog DB table on startup if it is empty.
+        # Falls back to the local catalog.json cache written by !cw_setsheet.
+        try:
+            existing = await cw_catalog_get_all()
+            if not existing:
+                logger.info("cyberware_catalog is empty — attempting to populate from cache on startup")
+                catalog_file = self.data_dir / "catalog.json"
+                cached = await helpers.load_json_file(catalog_file, default=[])
+                if isinstance(cached, list) and cached:
+                    await cw_catalog_upsert_many(cached)
+                    logger.info("cyberware_catalog populated on startup: %d items", len(cached))
+                else:
+                    logger.info("cyberware_catalog startup populate: no cached catalog found (run !cw_setsheet first)")
+            else:
+                logger.info("cyberware_catalog already populated (%d entries) — skipping startup reload", len(existing))
+        except Exception:
+            logger.warning("cyberware_catalog startup populate failed (non-fatal)", exc_info=True)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
