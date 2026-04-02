@@ -262,6 +262,9 @@ class CyberwareShop(commands.Cog):
     @commands.check_any(is_fixer(), commands.has_permissions(administrator=True))
     async def cw_setsheet(self, ctx: commands.Context, *, url: str) -> None:
         """(Admin) Set the cyberware catalog Google Sheet URL and refresh the cache."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         async with self.lock:
             await ctx.send("⏳ Downloading and parsing cyberware sheet…")
             try:
@@ -302,6 +305,9 @@ class CyberwareShop(commands.Cog):
     @commands.check_any(is_ripperdoc(), is_fixer(), commands.has_permissions(administrator=True))
     async def cw_catalog(self, ctx: commands.Context) -> None:
         """Show the full cyberware catalog with reference prices."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         catalog = await self._load_catalog()
         if not catalog:
             await ctx.send(
@@ -356,6 +362,9 @@ class CyberwareShop(commands.Cog):
           !cw_add "Kiroshi Optics Mk.2" 5000 CWP-2
           !cw_add "Kiroshi Optics Mk.2" 5000 CWP-2 Enhanced optical neural interface
         """
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         if price <= 0:
             await ctx.send("❌ Price must be a positive number.")
             return
@@ -381,6 +390,9 @@ class CyberwareShop(commands.Cog):
         Usage: !cw_remove <item name>
         This does NOT affect Ripperdocs' existing inventories.
         """
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         deleted = await cw_catalog_delete_one(item_name)
         if deleted:
             await ctx.send(f"✅ **{item_name}** removed from the catalog.")
@@ -400,6 +412,9 @@ class CyberwareShop(commands.Cog):
         Usage: !cw_give @ripperdoc <item name>
         The item does not need to be in the weekly wholesale rotation.
         """
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         async with self.lock:
             inventory = await self._load_inventory(ripperdoc.id)
             inventory.append(item_name)
@@ -430,6 +445,9 @@ class CyberwareShop(commands.Cog):
         Usage: !cw_take @ripperdoc <item name>
         Removes the first matching entry (case-insensitive).
         """
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         async with self.lock:
             inventory = await self._load_inventory(ripperdoc.id)
             q = item_name.strip().lower()
@@ -467,6 +485,9 @@ class CyberwareShop(commands.Cog):
     @is_ripperdoc()
     async def cw_buy(self, ctx: commands.Context, *, item_name: str) -> None:
         """Purchase a cyberware part from this week's wholesale stock."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         state = await self._load_state()
         lots = state.get("cw_wholesale_lots", [])
 
@@ -572,6 +593,9 @@ class CyberwareShop(commands.Cog):
         self, ctx: commands.Context, member: Optional[discord.Member] = None
     ) -> None:
         """Show your (or another Ripperdoc's) current cyberware inventory."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         target = member or ctx.author
         if member:
             author_roles = getattr(ctx.author, "roles", [])
@@ -623,6 +647,9 @@ class CyberwareShop(commands.Cog):
 
         Usage: !cw_sell @patient "item name" <price>
         """
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         if price <= 0:
             await ctx.send("❌ Price must be a positive number.")
             return
@@ -784,6 +811,9 @@ class CyberwareShop(commands.Cog):
         member: Optional[discord.Member] = None,
     ) -> None:
         """Show recent cyberware transactions (admin or own transactions only)."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         author_roles = getattr(ctx.author, "roles", [])
         is_privileged = (
             (isinstance(ctx.author, discord.Member) and ctx.author.guild_permissions.administrator)
@@ -853,6 +883,9 @@ class CyberwareShop(commands.Cog):
     @commands.check_any(is_ripperdoc(), is_fixer(), commands.has_permissions(administrator=True))
     async def cw_wh_list(self, ctx: commands.Context) -> None:
         """Show this week's cyberware available from the wholesaler."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         state = await self._load_state()
         lots = state.get("cw_wholesale_lots", [])
         if not lots:
@@ -900,6 +933,9 @@ class CyberwareShop(commands.Cog):
         self, ctx: commands.Context, seed: Optional[int] = None
     ) -> None:
         """(Admin) Force a fresh weekly cyberware wholesale rotation."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         catalog = await self._load_catalog()
         if not catalog:
             await ctx.send(
@@ -962,6 +998,9 @@ class CyberwareShop(commands.Cog):
 
         Usage: !cw_wh_add <qty> <item name>
         """
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         if qty <= 0:
             await ctx.send("❌ qty must be positive.")
             return
@@ -1006,6 +1045,9 @@ class CyberwareShop(commands.Cog):
     @commands.check_any(is_fixer(), commands.has_permissions(administrator=True))
     async def cw_wh_remove(self, ctx: commands.Context, *, item_name: str) -> None:
         """(Admin) Remove an item entirely from this week's cyberware wholesale."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         async with self.lock:
             state = await self._load_state()
             lots = state.get("cw_wholesale_lots", [])
@@ -1034,6 +1076,9 @@ class CyberwareShop(commands.Cog):
         Keys: total_items, qty_min, qty_max
         Example: !cw_wh_settings total_items 20
         """
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in the server.")
+            return
         set_value = None
         invalid_msg = None
         async with self.lock:
