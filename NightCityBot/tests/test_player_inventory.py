@@ -852,3 +852,82 @@ class TestInvReassign:
 
         _run(run())
         assert "does not belong" in ctx.send.call_args[0][0]
+
+
+# ------------------------------------------------------------------
+# Coverage-gap tests: system-disabled guards, DM guards, page syntax
+# ------------------------------------------------------------------
+
+class TestSystemDisabledGuards:
+    """Cover the _inv_system_enabled() False path and offline message in each command."""
+
+    def _make_disabled_cog(self, monkeypatch):
+        cog = _make_cog(monkeypatch)
+        control = MagicMock()
+        control.is_enabled = MagicMock(return_value=False)
+        cog.bot.get_cog = MagicMock(return_value=control)
+        return cog
+
+    def test_inv_system_enabled_returns_false_when_disabled(self, monkeypatch):
+        """_inv_system_enabled returns False when SystemControl says disabled."""
+        cog = self._make_disabled_cog(monkeypatch)
+        assert cog._inv_system_enabled() is False
+
+    def test_my_inventory_offline_message(self, monkeypatch):
+        cog = self._make_disabled_cog(monkeypatch)
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[]))
+        ctx = _ctx()
+        _run(_cmd(cog, "my_inventory", ctx))
+        assert "offline" in ctx.send.call_args[0][0]
+
+    def test_trade_dm_guard(self, monkeypatch):
+        """!trade in a DM context is rejected."""
+        cog = _make_cog(monkeypatch)
+        ctx = _ctx(guild=False)
+        _run(_cmd(cog, "trade", ctx, _make_member(999), 1, 100, buyer_character="V"))
+        assert "server" in ctx.send.call_args[0][0]
+
+    def test_trade_system_disabled(self, monkeypatch):
+        cog = self._make_disabled_cog(monkeypatch)
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[]))
+        ctx = _ctx()
+        _run(_cmd(cog, "trade", ctx, _make_member(999), 1, 100, buyer_character="V"))
+        assert "offline" in ctx.send.call_args[0][0]
+
+    def test_inv_give_dm_guard(self, monkeypatch):
+        """!inv_give in a DM context is rejected."""
+        cog = _make_cog(monkeypatch)
+        ctx = _ctx(guild=False)
+        _run(_cmd(cog, "inv_give", ctx, _make_member(999), 1, "V", "Johnny"))
+        assert "server" in ctx.send.call_args[0][0]
+
+    def test_inv_give_system_disabled(self, monkeypatch):
+        cog = self._make_disabled_cog(monkeypatch)
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[]))
+        ctx = _ctx()
+        _run(_cmd(cog, "inv_give", ctx, _make_member(999), 1, "V", "Johnny"))
+        assert "offline" in ctx.send.call_args[0][0]
+
+
+class TestMyInventoryPageSyntax:
+    """Cover page-number parsing branches."""
+
+    def test_page_keyword_syntax(self, monkeypatch):
+        """'page N' keyword form is parsed correctly."""
+        cog = _make_cog(monkeypatch)
+        items = [_item("Kiroshi", char="V")]
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=items))
+        ctx = _ctx()
+        # "page 1" keyword form — should render page 1 of 1 without error
+        _run(_cmd(cog, "my_inventory", ctx, query="page 1"))
+        assert ctx.send.called
+
+    def test_trailing_digit_page_syntax(self, monkeypatch):
+        """Bare trailing digit after character name is treated as page number."""
+        cog = _make_cog(monkeypatch)
+        items = [_item("Kiroshi", char="V")]
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=items))
+        ctx = _ctx()
+        # "V 1" — 'V' is char filter, '1' is page number
+        _run(_cmd(cog, "my_inventory", ctx, query="V 1"))
+        assert ctx.send.called

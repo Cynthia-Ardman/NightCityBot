@@ -555,3 +555,68 @@ class TestCwInstall:
         # Pass empty string as character_name
         _run(_cmd(cog, "cw_install", ctx, _patient(999), "", 1))
         assert "Character" in ctx.send.call_args[0][0] or "character" in ctx.send.call_args[0][0].lower()
+
+
+# ------------------------------------------------------------------
+# TestCwCatalog — coverage for cw_catalog DM guard and empty catalog
+# ------------------------------------------------------------------
+
+class TestCwCatalog:
+    def test_dm_guard(self, tmp_path):
+        """cw_catalog in a DM is rejected."""
+        cog = _make_cog(tmp_path)
+        ctx = _ctx()
+        ctx.guild = None
+        _run(_cmd(cog, "cw_catalog", ctx))
+        assert "server" in ctx.send.call_args[0][0]
+
+    def test_empty_catalog_message(self, tmp_path):
+        """cw_catalog sends an appropriate message when catalog is empty."""
+        cog = _make_cog(tmp_path)
+        ctx = _ctx()
+
+        async def empty_catalog():
+            return []
+
+        cog._load_catalog = empty_catalog
+        _run(_cmd(cog, "cw_catalog", ctx))
+        msg = ctx.send.call_args[0][0]
+        assert "❌" in msg
+        assert "catalog" in msg.lower() or "empty" in msg.lower()
+
+
+# ------------------------------------------------------------------
+# TestCwSellExtraGuards — additional cw_sell guards for coverage
+# ------------------------------------------------------------------
+
+class TestCwSellExtraGuards:
+    def _setup_cog(self, tmp_path, inventory):
+        cog = _make_cog(tmp_path)
+        inv_store = list(inventory)
+
+        async def load_inv(uid):
+            return list(inv_store)
+
+        async def save_inv(uid, inv):
+            inv_store.clear()
+            inv_store.extend(inv)
+            return True
+
+        cog._load_inventory = load_inv
+        cog._save_inventory = save_inv
+        cog._append_tx = AsyncMock(return_value=True)
+        cog._log_channel = AsyncMock(return_value=None)
+        return cog, inv_store
+
+    def test_empty_character_name_rejected(self, tmp_path):
+        """cw_sell rejects an empty character name."""
+        inventory = [
+            {"item_id": str(uuid.uuid4()), "name": "Kiroshi",
+             "price_paid": 3000, "purchased_at": "2026-04-01T10:00:00+00:00"},
+        ]
+        cog, _ = self._setup_cog(tmp_path, inventory)
+        ctx = _ctx(author_id=111)
+        _run(_cmd(cog, "cw_sell", ctx, _patient(999), 1, 5000, character_name=""))
+        msg = ctx.send.call_args[0][0]
+        assert "❌" in msg
+        assert "character" in msg.lower()
