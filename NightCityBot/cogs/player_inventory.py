@@ -33,15 +33,15 @@ import discord
 from discord.ext import commands
 
 import config
-from NightCityBot.utils.db import (
-    pi_add_item,
-    pi_get_by_owner,
-    pi_get_item,
-    pi_delete_item,
-    pi_update_owner,
-    pi_update_character,
-    pt_create,
+from NightCityBot.utils.player_inventory import (
+    insert_player_item as pi_add_item,
+    query_player_inventory as pi_get_by_owner,
+    get_player_item as pi_get_item,
+    delete_player_item as pi_delete_item,
+    transfer_player_item as pi_update_owner,
+    reassign_player_item as pi_update_character,
 )
+from NightCityBot.utils.db import pt_create
 from NightCityBot.utils.permissions import is_fixer
 
 logger = logging.getLogger(__name__)
@@ -664,10 +664,14 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         item_type: str = "misc",
         description: str = "",
         price: Optional[int] = None,
+        seller: str = "",
     ) -> None:
         """Admin: add qty items to a player's inventory.
 
-        Usage: !inv_add @player "name" <qty> "character_name" [item_type=misc] ["description"] [price]
+        Usage: !inv_add @player "name" <qty> "character_name" [item_type=misc] ["description"] [price] ["seller"]
+
+        All arguments after character_name are optional. seller defaults to the
+        admin running the command when omitted.
         """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
@@ -677,6 +681,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         character_name = character_name.strip().strip('"').strip("'")
         description = description.strip().strip('"').strip("'")
         item_type = item_type.strip().lower()
+        seller = seller.strip().strip('"').strip("'")
 
         if not name:
             await ctx.send("❌ Item name is required.")
@@ -687,6 +692,9 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         if not character_name:
             await ctx.send("❌ Character name is required.")
             return
+
+        # Use provided seller name or fall back to admin's display name
+        seller_name = seller if seller else ctx.author.display_name
 
         now = datetime.now(timezone.utc).isoformat()
         added = 0
@@ -701,7 +709,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 "description": description,
                 "price_paid": price,
                 "seller_id": str(ctx.author.id),
-                "seller_name": ctx.author.display_name,
+                "seller_name": seller_name,
                 "acquired_at": now,
             })
             if ok:
@@ -729,6 +737,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             embed.add_field(name="Qty Added", value=str(added), inline=True)
             if price is not None:
                 embed.add_field(name="Price Paid", value=f"${price:,}", inline=True)
+            embed.add_field(name="Seller", value=seller_name, inline=True)
             if description:
                 embed.add_field(name="Description", value=description, inline=False)
             embed.set_footer(text="NightCityBot Audit Log")

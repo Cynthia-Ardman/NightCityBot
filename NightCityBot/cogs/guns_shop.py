@@ -1038,27 +1038,58 @@ class GunsShopCog(commands.Cog):
         store_role_ids = self._coerce_role_ids(getattr(config, "WHOLESALER_STORE_ROLE_IDS", []))
         return any(r.id in store_role_ids for r in member.roles)
 
-    async def _audit_send(self, text: str) -> None:
+    async def _get_audit_channel(self) -> Optional[discord.TextChannel]:
+        """Resolve the GUN_LOG_CHANNEL_ID to a channel object, or return None."""
         channel_id = int(getattr(config, "GUN_LOG_CHANNEL_ID", 0) or 0)
         if channel_id <= 0:
             logger.warning("Missing gun-log audit channel id=%s", channel_id)
-            return
-
+            return None
         channel = self.bot.get_channel(channel_id)
         if channel is None:
             try:
                 channel = await self.bot.fetch_channel(channel_id)
             except Exception:
                 logger.warning("Missing gun-log audit channel id=%s", channel_id)
-                return
-
+                return None
         if not channel:
             logger.warning("Missing gun-log audit channel id=%s", channel_id)
+            return None
+        return channel
+
+    async def _audit_send(self, text: str) -> None:
+        """Send a plain operational audit event as a minimal embed."""
+        channel = await self._get_audit_channel()
+        if channel is None:
             return
+        # Parse the action tag from the leading [ACTION] token if present
+        action = "Gun Shop Audit"
+        body = text
+        if text.startswith("["):
+            end = text.find("]")
+            if end != -1:
+                action = text[1:end].replace("_", " ").title()
+                body = text[end + 1:].strip()
+        embed = discord.Embed(
+            title=f"🔔 {action}",
+            description=f"```{body}```" if body else None,
+            color=discord.Color.dark_grey(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.set_footer(text="NightCityBot Audit Log")
         try:
-            await channel.send(text)
+            await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
         except Exception:
             logger.exception("Failed to send gun-log audit line")
+
+    async def _audit_embed_send(self, embed: discord.Embed) -> None:
+        """Send a pre-built structured audit embed to the gun-log channel."""
+        channel = await self._get_audit_channel()
+        if channel is None:
+            return
+        try:
+            await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        except Exception:
+            logger.exception("Failed to send gun-log audit embed")
 
 
     async def _system_enabled(self, ctx: commands.Context) -> bool:
@@ -1371,9 +1402,19 @@ class GunsShopCog(commands.Cog):
             await self._append_tx(tx)
 
         await ctx.send(f"✅ Purchased {qty}x {lot['gun_name']} for ${total}.")
-        await self._audit_send(
-            f"[WHOLESALE_BUY] tx={tx['tx_id']} buyer={member.mention} gun={lot['gun_name']} level={lot['gun_level']} qty={qty} total={total} lot={lot_id}"
+        _wh_buy_embed = discord.Embed(
+            title="💰 Wholesale Buy",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc),
         )
+        _wh_buy_embed.add_field(name="Buyer", value=f"{member.mention} ({member.display_name})", inline=True)
+        _wh_buy_embed.add_field(name="Item", value=f"{lot['gun_name']} (Tier {lot['gun_level']})", inline=True)
+        _wh_buy_embed.add_field(name="Qty", value=str(qty), inline=True)
+        _wh_buy_embed.add_field(name="Total", value=f"${total:,}", inline=True)
+        _wh_buy_embed.add_field(name="Lot ID", value=f"`{lot_id}`", inline=True)
+        _wh_buy_embed.add_field(name="Tx ID", value=f"`{tx['tx_id']}`", inline=True)
+        _wh_buy_embed.set_footer(text="NightCityBot Audit Log")
+        await self._audit_embed_send(_wh_buy_embed)
 
     @commands.command(name="guns_wh_sell", aliases=["guns_sell"])
     async def wh_sell(
@@ -1497,21 +1538,41 @@ class GunsShopCog(commands.Cog):
                 )
                 await self._save_state(state)
                 await self._append_tx(tx)
-                await self._audit_send(
-                    f"🚨 [PENDING_PAYOUT] tx={tx['tx_id']} seller={member.mention} buyer={buyer.mention} amount={total_price}"
+                _pp_embed = discord.Embed(
+                    title="🚨 Pending Payout",
+                    description="Buyer was charged but seller payout failed — requires admin retry.",
+                    color=discord.Color.red(),
+                    timestamp=datetime.now(timezone.utc),
                 )
+                _pp_embed.add_field(name="Seller", value=f"{member.mention} ({member.display_name})", inline=True)
+                _pp_embed.add_field(name="Buyer", value=f"{buyer.mention} ({buyer.display_name})", inline=True)
+                _pp_embed.add_field(name="Amount", value=f"${total_price:,}", inline=True)
+                _pp_embed.add_field(name="Tx ID", value=f"`{tx['tx_id']}`", inline=True)
+                _pp_embed.set_footer(text="NightCityBot Audit Log")
+                await self._audit_embed_send(_pp_embed)
                 await ctx.send("⚠️ Buyer charged, seller payout pending admin retry.")
                 return
             await self._save_state(state)
             await self._append_tx(tx)
 
         await ctx.send(f"✅ Sold {qty}x {store_lot['gun_name']} to {buyer.mention} for ${total_price} (character: {character_name}).")
-        await self._audit_send(
-            "[PLAYER_SALE_RECEIPT] "
-            f"tx={tx['tx_id']} ts={tx['timestamp']} seller={member.mention} buyer={buyer.mention} "
-            f"character={character_name or 'N/A'} gun={store_lot['gun_name']} level={store_lot['gun_level']} "
-            f"qty={qty} total={total_price} unit_cost={store_lot['unit_cost']} lot={lot_id} restriction={restriction}"
+        _sale_embed = discord.Embed(
+            title="🔫 Player Sale Receipt",
+            color=discord.Color.blue(),
+            timestamp=datetime.now(timezone.utc),
         )
+        _sale_embed.add_field(name="Seller", value=f"{member.mention} ({member.display_name})", inline=True)
+        _sale_embed.add_field(name="Buyer", value=f"{buyer.mention} ({buyer.display_name})", inline=True)
+        _sale_embed.add_field(name="Character", value=character_name or "N/A", inline=True)
+        _sale_embed.add_field(name="Item", value=f"{store_lot['gun_name']} (Tier {store_lot['gun_level']})", inline=True)
+        _sale_embed.add_field(name="Qty", value=str(qty), inline=True)
+        _sale_embed.add_field(name="Total", value=f"${total_price:,}", inline=True)
+        _sale_embed.add_field(name="Unit Cost", value=f"${store_lot['unit_cost']:,}", inline=True)
+        _sale_embed.add_field(name="Restriction", value=restriction, inline=True)
+        _sale_embed.add_field(name="Lot ID", value=f"`{lot_id}`", inline=True)
+        _sale_embed.add_field(name="Tx ID", value=f"`{tx['tx_id']}`", inline=True)
+        _sale_embed.set_footer(text="NightCityBot Audit Log")
+        await self._audit_embed_send(_sale_embed)
         unit_price_each = max(1, total_price // qty) if qty else total_price
         for _ in range(qty):
             await pi_add_item({
@@ -1597,9 +1658,18 @@ class GunsShopCog(commands.Cog):
                 await msg.edit(embed=embed.set_footer(text=f"APPROVED by {admin_user.display_name}"))
             except Exception:
                 logger.warning("Suppressed exception", exc_info=True)
-            await self._audit_send(
-                f"[RESTRICTED_SALE_APPROVED] admin={admin_user.mention} seller={seller.mention} buyer={buyer.mention} gun={lot['gun_name']} qty={qty} price={total_price}"
+            _approved_embed = discord.Embed(
+                title="✅ Restricted Sale Approved",
+                color=discord.Color.green(),
+                timestamp=datetime.now(timezone.utc),
             )
+            _approved_embed.add_field(name="Admin", value=f"{admin_user.mention} ({admin_user.display_name})", inline=True)
+            _approved_embed.add_field(name="Seller", value=f"{seller.mention} ({seller.display_name})", inline=True)
+            _approved_embed.add_field(name="Buyer", value=f"{buyer.mention} ({buyer.display_name})", inline=True)
+            _approved_embed.add_field(name="Item", value=f"{qty}x {lot['gun_name']}", inline=True)
+            _approved_embed.add_field(name="Price", value=f"${total_price:,}", inline=True)
+            _approved_embed.set_footer(text="NightCityBot Audit Log")
+            await self._audit_embed_send(_approved_embed)
             return True
         else:
             await ctx.send(f"❌ Restricted sale denied by {admin_user.mention}.")
@@ -1607,9 +1677,18 @@ class GunsShopCog(commands.Cog):
                 await msg.edit(embed=embed.set_footer(text=f"DENIED by {admin_user.display_name}"))
             except Exception:
                 logger.warning("Suppressed exception", exc_info=True)
-            await self._audit_send(
-                f"[RESTRICTED_SALE_DENIED] admin={admin_user.mention} seller={seller.mention} buyer={buyer.mention} gun={lot['gun_name']} qty={qty} price={total_price}"
+            _denied_embed = discord.Embed(
+                title="❌ Restricted Sale Denied",
+                color=discord.Color.red(),
+                timestamp=datetime.now(timezone.utc),
             )
+            _denied_embed.add_field(name="Admin", value=f"{admin_user.mention} ({admin_user.display_name})", inline=True)
+            _denied_embed.add_field(name="Seller", value=f"{seller.mention} ({seller.display_name})", inline=True)
+            _denied_embed.add_field(name="Buyer", value=f"{buyer.mention} ({buyer.display_name})", inline=True)
+            _denied_embed.add_field(name="Item", value=f"{qty}x {lot['gun_name']}", inline=True)
+            _denied_embed.add_field(name="Price", value=f"${total_price:,}", inline=True)
+            _denied_embed.set_footer(text="NightCityBot Audit Log")
+            await self._audit_embed_send(_denied_embed)
             return False
 
     @commands.command(name="guns_wh_restock")
