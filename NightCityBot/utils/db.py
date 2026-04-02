@@ -341,6 +341,11 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
             updated_at  TIMESTAMPTZ DEFAULT NOW()
         )
         """,
+        """
+        ALTER TABLE cyberware_catalog
+            ADD COLUMN IF NOT EXISTS cwp         TEXT NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''
+        """,
         # ── Gun catalog (editable master gun list + wholesale qty) ─────────────
         """
         CREATE TABLE IF NOT EXISTS gun_catalog (
@@ -2393,9 +2398,17 @@ async def cw_catalog_get_all() -> list[dict]:
     try:
         pool = await get_pool()
         rows = await pool.fetch(
-            "SELECT name, price FROM cyberware_catalog ORDER BY name"
+            "SELECT name, price, cwp, description FROM cyberware_catalog ORDER BY name"
         )
-        return [{"name": row["name"], "price": row["price"]} for row in rows]
+        return [
+            {
+                "name": row["name"],
+                "price": row["price"],
+                "cwp": row["cwp"] or "",
+                "description": row["description"] or "",
+            }
+            for row in rows
+        ]
     except Exception:
         logger.error("cw_catalog_get_all failed", exc_info=True)
         return []
@@ -2420,23 +2433,85 @@ async def cw_catalog_upsert_many(items: list[dict]) -> bool:
                     for item in items:
                         name = str(item.get("name", "")).strip()
                         price = int(item.get("price", 0))
+                        cwp = str(item.get("cwp", "") or "").strip()
+                        description = str(item.get("description", "") or "").strip()
                         if not name:
                             continue
                         await conn.execute(
                             """
-                            INSERT INTO cyberware_catalog (name, price, updated_at)
-                            VALUES ($1, $2, NOW())
+                            INSERT INTO cyberware_catalog (name, price, cwp, description, updated_at)
+                            VALUES ($1, $2, $3, $4, NOW())
                             ON CONFLICT (name) DO UPDATE
                                 SET price = EXCLUDED.price,
+                                    cwp = EXCLUDED.cwp,
+                                    description = EXCLUDED.description,
                                     updated_at = NOW()
                             """,
-                            name, price,
+                            name, price, cwp, description,
                         )
 
         await _with_retry(_do, label="cw_catalog_upsert_many")
         return True
     except Exception:
         logger.error("cw_catalog_upsert_many failed", exc_info=True)
+        return False
+
+
+async def cw_catalog_upsert_one(item: dict) -> bool:
+    """Add or update a single item in the cyberware catalog."""
+    try:
+        name = str(item.get("name", "")).strip()
+        price = int(item.get("price", 0))
+        cwp = str(item.get("cwp", "") or "").strip()
+        description = str(item.get("description", "") or "").strip()
+        if not name:
+            return False
+        pool = await get_pool()
+
+        async def _do():
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO cyberware_catalog (name, price, cwp, description, updated_at)
+                    VALUES ($1, $2, $3, $4, NOW())
+                    ON CONFLICT (name) DO UPDATE
+                        SET price = EXCLUDED.price,
+                            cwp = EXCLUDED.cwp,
+                            description = EXCLUDED.description,
+                            updated_at = NOW()
+                    """,
+                    name, price, cwp, description,
+                )
+
+        await _with_retry(_do, label="cw_catalog_upsert_one")
+        return True
+    except Exception:
+        logger.error("cw_catalog_upsert_one failed", exc_info=True)
+        return False
+
+
+async def cw_catalog_delete_one(name: str) -> bool:
+    """Remove a single item from the cyberware catalog by name (case-insensitive).
+
+    Returns True if a row was actually deleted.
+    """
+    try:
+        pool = await get_pool()
+        deleted = False
+
+        async def _do():
+            nonlocal deleted
+            async with pool.acquire() as conn:
+                result = await conn.execute(
+                    "DELETE FROM cyberware_catalog WHERE LOWER(name) = LOWER($1)",
+                    name,
+                )
+                deleted = result != "DELETE 0"
+
+        await _with_retry(_do, label="cw_catalog_delete_one")
+        return deleted
+    except Exception:
+        logger.error("cw_catalog_delete_one failed", exc_info=True)
         return False
 
 

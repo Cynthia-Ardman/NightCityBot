@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 from typing import Optional
 import config
-from NightCityBot.utils.permissions import is_fixer
+from NightCityBot.utils.permissions import is_fixer, is_ripperdoc, is_store_owner
 from NightCityBot.utils import constants
 from NightCityBot.utils import startup_checks
 from NightCityBot.utils.helpers import load_json_file, save_json_file
@@ -499,6 +499,7 @@ class Admin(commands.Cog):
             await ctx.send(embed=e)
 
     @commands.command(name="helpguns", aliases=["helpbusiness", "helpshop", "helpstore"])
+    @commands.check_any(is_store_owner(), is_fixer(), commands.has_permissions(administrator=True))
     async def helpguns(self, ctx):
         """Display help for the wholesale gun system and gun store owners."""
         embed = discord.Embed(
@@ -551,29 +552,48 @@ class Admin(commands.Cog):
                 "2. Credit the price to your balance\n"
                 "3. Remove the item(s) from your inventory\n"
                 "4. Post an audit receipt for staff records\n\n"
-                "You can also use `!sell` as a shortcut."
+                "Alias: `!sell`"
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="🔒 Restrictions",
+            name="🔒 Restriction System",
             value=(
                 "Guns have a restriction level: **basic**, **controlled**, or **restricted**.\n"
                 "- **Basic** — anyone can buy (default).\n"
                 "- **Controlled** — only buyers on your approved list can purchase.\n"
-                "- **Restricted** — approved list + an admin must approve each sale.\n\n"
+                "- **Restricted** — approved list + an admin must approve each sale (5-min timeout).\n\n"
                 "`!wh_approve @user` — add someone to your approved buyer list.\n"
                 "`!wh_unapprove @user` — remove someone.\n"
-                "`!wh_approved` — view your list."
+                "`!wh_approved` — view your approved buyer list."
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="🏪 Other Useful Commands",
+            name="🏪 Store & Shop Commands",
             value=(
-                "`!wh_shops` — see all registered shop aliases and owners."
+                "`!store_inv` — view your own store inventory.\n"
+                "`!store_inv @owner` — admins: view another owner's inventory.\n"
+                "`!wh_shops` — list all registered shop aliases and their owners."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="⚙️ Admin — Wholesaler Management",
+            value=(
+                "`!wh_setsheet <url>` — load the gun master sheet and refresh the gun catalog.\n"
+                "`!wh_restock` — force a fresh weekly wholesale lot rotation.\n"
+                "`!wh_add \"<name>\" <level> <price> <qty> [restriction]` — manually add a lot to the wholesaler.\n"
+                "  Example: `!wh_add \"Nue\" M 1300 5 controlled`\n"
+                "`!wh_remove <lot_id> [qty]` — remove a lot (or reduce qty) from the wholesaler.\n"
+                "`!wh_clear` — wipe all wholesaler stock.\n"
+                "`!store_add @owner \"<name>\" <level> <price> <qty> [restriction]` — add a lot directly to a store.\n"
+                "`!store_remove @owner <lot_id> [qty]` — remove a lot from a store.\n"
+                "`!wh_retry_payout <tx_id>` — retry a failed sale payout.\n"
+                "`!wh_settings` — view or change wholesaler settings."
             ),
             inline=False,
         )
@@ -583,8 +603,8 @@ class Admin(commands.Cog):
             value=(
                 "- Wholesaler stock refreshes **weekly** — buy what you need before it's gone.\n"
                 "- You set your own sale prices — the wholesaler cost is your floor.\n"
-                "- If a sale's payout to you fails, staff can retry it with `!wh_retry_payout`.\n"
-                "- Your store inventory is separate from the wholesaler — clearing wholesaler stock won't touch your shelves."
+                "- Restriction levels carry over when you buy from the wholesaler.\n"
+                "- Your store inventory is separate from the wholesaler — clearing stock won't touch your shelves."
             ),
             inline=False,
         )
@@ -593,6 +613,7 @@ class Admin(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command(name="helpcyberware", aliases=["helpcw", "helpripper", "helpripperdoc"])
+    @commands.check_any(is_ripperdoc(), is_fixer(), commands.has_permissions(administrator=True))
     async def helpcyberware(self, ctx):
         """Display help for the Ripperdoc cyberware shop system."""
         embed = discord.Embed(
@@ -611,7 +632,7 @@ class Admin(commands.Cog):
             value=(
                 "**Ripperdocs** — hold the Ripperdoc role. They buy parts, stock their inventory, and install cyberware.\n"
                 "**Patients** — any server member. They pay the Ripperdoc for an installation.\n"
-                "**Admins** — load the catalogue from the master sheet and view all transactions."
+                "**Fixers/Admins** — manage the catalogue, adjust inventories, and run wholesale operations."
             ),
             inline=False,
         )
@@ -619,8 +640,8 @@ class Admin(commands.Cog):
         embed.add_field(
             name="📋 Browse the Full Catalogue",
             value=(
-                "`!cw_catalog` — view all cyberware parts and their reference prices.\n"
-                "Note: only a **weekly rotating subset** is actually available for purchase each week — "
+                "`!cw_catalog` — view all cyberware parts with price, CWP, and description.\n"
+                "Note: only a **weekly rotating subset** is available for purchase each week — "
                 "see `!cw_wh_list` for what's in stock right now."
             ),
             inline=False,
@@ -629,7 +650,7 @@ class Admin(commands.Cog):
         embed.add_field(
             name="🔩 Weekly Wholesale Stock",
             value=(
-                "`!cw_wh_list` — see this week's 15 available items with qty remaining and price.\n"
+                "`!cw_wh_list` — see this week's available items with qty remaining and price.\n"
                 "Stock rotates every Sunday. Items sell out fast — check before you order.\n"
                 "Aliases: `!cw_wholesale`, `!cw_stock`"
             ),
@@ -641,7 +662,7 @@ class Admin(commands.Cog):
             value=(
                 "`!cw_buy <item name>` — purchase a part from this week's wholesale stock.\n"
                 "Example: `!cw_buy Kiroshi Optics Mk.1`\n\n"
-                "The cost is deducted from your balance. The part is added to your inventory immediately.\n"
+                "Cost is deducted from your balance. Part is added to your inventory immediately.\n"
                 "Multi-word names don't need quotes. If the item isn't in this week's rotation, you'll be told."
             ),
             inline=False,
@@ -666,8 +687,7 @@ class Admin(commands.Cog):
                 "2. Credit the price to your (Ripperdoc's) balance\n"
                 "3. Remove the part from your inventory\n"
                 "4. Post an audit receipt to the Ripperdoc log channel\n\n"
-                "The item name must be in quotes if it contains spaces. "
-                "The price you set is your call — charge what the market will bear."
+                "Item name must be in quotes if it contains spaces. Price is your call."
             ),
             inline=False,
         )
@@ -682,14 +702,34 @@ class Admin(commands.Cog):
         )
 
         embed.add_field(
-            name="⚙️ Admin — Catalogue & Wholesale",
+            name="⚙️ Admin — Catalogue Management",
             value=(
-                "`!cw_setsheet <url>` — load the cyberware master sheet and update the catalogue.\n"
-                "`!cw_wh_restock` — force a fresh weekly rotation (15 random items, 1–3 qty each).\n"
+                "`!cw_setsheet <url>` — load the master sheet and replace the full catalogue.\n"
+                "`!cw_add \"<name>\" <price> [cwp] [description...]` — add or update one item manually.\n"
+                "  Example: `!cw_add \"Kiroshi Optics Mk.2\" 5000 CWP-2 Enhanced optical interface`\n"
+                "`!cw_remove <item name>` — remove an item from the catalogue (does not affect inventories)."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="⚙️ Admin — Inventory Overrides",
+            value=(
+                "`!cw_give @ripperdoc <item name>` — give an item directly to a Ripperdoc (bypasses wholesale).\n"
+                "`!cw_take @ripperdoc <item name>` — remove an item from a Ripperdoc's inventory."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="⚙️ Admin — Weekly Wholesale",
+            value=(
+                "`!cw_wh_restock [seed]` — force a fresh weekly rotation.\n"
                 "`!cw_wh_add <qty> <item name>` — add/restock a specific item mid-week.\n"
                 "  Example: `!cw_wh_add 2 Kiroshi Optics Mk.1`\n"
-                "`!cw_wh_remove <item name>` — remove an item from this week's lots.\n"
-                "`!cw_wh_settings` — view or change restock settings (total_items, qty_min, qty_max).\n"
+                "`!cw_wh_remove <item name>` — pull an item from this week's rotation.\n"
+                "`!cw_wh_settings [key] [value]` — view or change restock settings.\n"
+                "  Keys: `total_items`, `qty_min`, `qty_max`\n"
                 "  Example: `!cw_wh_settings total_items 20`"
             ),
             inline=False,
@@ -703,7 +743,7 @@ class Admin(commands.Cog):
                 "- Only items in the **weekly wholesale rotation** can be purchased via `!cw_buy`.\n"
                 "- The rotation refreshes automatically every Sunday alongside the gun wholesaler.\n"
                 "- If a transaction fails partway through, compensating refunds are issued automatically.\n"
-                "- Catalogue prices are the supplier floor. You may charge patients more (or less) — that's your business."
+                "- Catalogue prices are the supplier floor. Charge patients more (or less) — that's your business."
             ),
             inline=False,
         )

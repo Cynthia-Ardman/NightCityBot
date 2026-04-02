@@ -21,8 +21,13 @@ from NightCityBot.services.cyberware_shop_data import (
     parse_cyberware_sheet,
 )
 from NightCityBot.utils import helpers
-from NightCityBot.utils.db import cw_catalog_get_all, cw_catalog_upsert_many
-from NightCityBot.utils.permissions import is_ripperdoc
+from NightCityBot.utils.db import (
+    cw_catalog_get_all,
+    cw_catalog_upsert_many,
+    cw_catalog_upsert_one,
+    cw_catalog_delete_one,
+)
+from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
 
 logger = logging.getLogger(__name__)
 
@@ -305,8 +310,15 @@ class CyberwareShop(commands.Cog):
             )
             return
 
-        lines = [f"`{item['name']}` — ${item['price']:,}" for item in catalog]
-        page_size = 20
+        lines = []
+        for item in catalog:
+            cwp_str = f" | CWP: **{item['cwp']}**" if item.get("cwp") else ""
+            line = f"`{item['name']}` — ${item['price']:,}{cwp_str}"
+            if item.get("description"):
+                line += f"\n> {item['description']}"
+            lines.append(line)
+
+        page_size = 10
         pages = [lines[i: i + page_size] for i in range(0, len(lines), page_size)]
         total = len(catalog)
 
@@ -318,6 +330,138 @@ class CyberwareShop(commands.Cog):
             )
             embed.set_footer(text=f"{total} item(s) total")
             await ctx.send(embed=embed)
+
+    # ------------------------------------------------------------------
+    # Admin catalog / inventory management
+    # ------------------------------------------------------------------
+
+    @commands.command(name="cw_add")
+    @is_fixer()
+    async def cw_add(
+        self,
+        ctx: commands.Context,
+        item_name: str,
+        price: int,
+        cwp: str = "",
+        *,
+        description: str = "",
+    ) -> None:
+        """Add or update a single item in the cyberware catalog.
+
+        Usage:
+          !cw_add "Item Name" <price> [cwp] [description...]
+
+        Examples:
+          !cw_add "Kiroshi Optics Mk.2" 5000
+          !cw_add "Kiroshi Optics Mk.2" 5000 CWP-2
+          !cw_add "Kiroshi Optics Mk.2" 5000 CWP-2 Enhanced optical neural interface
+        """
+        if price <= 0:
+            await ctx.send("❌ Price must be a positive number.")
+            return
+        ok = await cw_catalog_upsert_one(
+            {"name": item_name, "price": price, "cwp": cwp, "description": description}
+        )
+        if ok:
+            parts = [f"✅ **{item_name}** saved to catalog — ${price:,}"]
+            if cwp:
+                parts.append(f"CWP: {cwp}")
+            msg = " | ".join(parts)
+            if description:
+                msg += f"\n> {description}"
+            await ctx.send(msg)
+        else:
+            await ctx.send("❌ Failed to save item to catalog. Check the bot logs.")
+
+    @commands.command(name="cw_remove")
+    @is_fixer()
+    async def cw_remove(self, ctx: commands.Context, *, item_name: str) -> None:
+        """Remove an item from the cyberware catalog by name.
+
+        Usage: !cw_remove <item name>
+        This does NOT affect Ripperdocs' existing inventories.
+        """
+        deleted = await cw_catalog_delete_one(item_name)
+        if deleted:
+            await ctx.send(f"✅ **{item_name}** removed from the catalog.")
+        else:
+            await ctx.send(
+                f"❌ No catalog entry found matching **{item_name}**. "
+                "Check the spelling or use `!cw_catalog` to browse."
+            )
+
+    @commands.command(name="cw_give")
+    @is_fixer()
+    async def cw_give(
+        self, ctx: commands.Context, ripperdoc: discord.Member, *, item_name: str
+    ) -> None:
+        """Give a cyberware item directly to a Ripperdoc's inventory (bypasses wholesale).
+
+        Usage: !cw_give @ripperdoc <item name>
+        The item does not need to be in the weekly wholesale rotation.
+        """
+        async with self.lock:
+            inventory = await self._load_inventory(ripperdoc.id)
+            inventory.append(item_name)
+            await self._save_inventory(ripperdoc.id, inventory)
+
+        log_ch = await self._log_channel()
+        if log_ch:
+            embed = discord.Embed(
+                title="🔧 Admin: Cyberware Given",
+                color=discord.Color.orange(),
+            )
+            embed.add_field(name="Ripperdoc", value=ripperdoc.mention, inline=True)
+            embed.add_field(name="Item", value=item_name, inline=True)
+            embed.add_field(name="Admin", value=ctx.author.mention, inline=True)
+            await log_ch.send(embed=embed)
+
+        await ctx.send(
+            f"✅ **{item_name}** added to {ripperdoc.display_name}'s inventory."
+        )
+
+    @commands.command(name="cw_take")
+    @is_fixer()
+    async def cw_take(
+        self, ctx: commands.Context, ripperdoc: discord.Member, *, item_name: str
+    ) -> None:
+        """Remove a cyberware item from a Ripperdoc's inventory.
+
+        Usage: !cw_take @ripperdoc <item name>
+        Removes the first matching entry (case-insensitive).
+        """
+        async with self.lock:
+            inventory = await self._load_inventory(ripperdoc.id)
+            q = item_name.strip().lower()
+            idx = next(
+                (i for i, n in enumerate(inventory) if n.strip().lower() == q), None
+            )
+            if idx is None:
+                idx = next(
+                    (i for i, n in enumerate(inventory) if n.strip().lower().startswith(q)), None
+                )
+            if idx is None:
+                await ctx.send(
+                    f"❌ **{item_name}** not found in {ripperdoc.display_name}'s inventory."
+                )
+                return
+            removed = inventory.pop(idx)
+            await self._save_inventory(ripperdoc.id, inventory)
+
+        log_ch = await self._log_channel()
+        if log_ch:
+            embed = discord.Embed(
+                title="🔧 Admin: Cyberware Removed from Inventory",
+                color=discord.Color.red(),
+            )
+            embed.add_field(name="Ripperdoc", value=ripperdoc.mention, inline=True)
+            embed.add_field(name="Item Removed", value=removed, inline=True)
+            embed.add_field(name="Admin", value=ctx.author.mention, inline=True)
+            await log_ch.send(embed=embed)
+
+        await ctx.send(
+            f"✅ **{removed}** removed from {ripperdoc.display_name}'s inventory."
+        )
 
     @commands.command(name="cw_buy")
     @is_ripperdoc()

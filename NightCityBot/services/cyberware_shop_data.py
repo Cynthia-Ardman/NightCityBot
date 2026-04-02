@@ -56,10 +56,10 @@ async def download_sheet(url: str, save_path: Path) -> None:
 
 
 def parse_cyberware_sheet(xlsx_path: Path | str) -> list[dict[str, Any]]:
-    """Parse the first tab of the XLSX for item name and price.
+    """Parse the first tab of the XLSX for item name, price, CWP, and description.
 
-    Returns a list of dicts with keys ``name`` and ``price`` (int).
-    Skips rows without a name or a positive price.
+    Returns a list of dicts with keys ``name``, ``price`` (int), ``cwp`` (str),
+    and ``description`` (str).  Skips rows without a name or a positive price.
     """
     wb = load_workbook(filename=str(xlsx_path), read_only=True, data_only=True)
     ws = wb.worksheets[0]
@@ -90,12 +90,22 @@ def parse_cyberware_sheet(xlsx_path: Path | str) -> list[dict[str, Any]]:
         ],
         1,
     )
+    cwp_idx = _find_col(
+        ["cwp", "cyberware points", "cw points", "cyber points", "cwp cost", "cwp value"],
+        -1,
+    )
+    desc_idx = _find_col(
+        ["description", "desc", "effect", "effects", "details", "notes", "ability", "abilities"],
+        -1,
+    )
 
     logger.info(
-        "parse_cyberware_sheet: headers=%s | name_col=%d (%s) | price_col=%d (%s)",
+        "parse_cyberware_sheet: headers=%s | name_col=%d (%s) | price_col=%d (%s) | cwp_col=%d | desc_col=%d",
         header,
         name_idx, header[name_idx] if name_idx < len(header) else "?",
         price_idx, header[price_idx] if price_idx < len(header) else "?",
+        cwp_idx,
+        desc_idx,
     )
 
     items: list[dict[str, Any]] = []
@@ -115,7 +125,15 @@ def parse_cyberware_sheet(xlsx_path: Path | str) -> list[dict[str, Any]]:
         if price is None or price <= 0:
             continue
 
-        items.append({"name": item_name, "price": price})
+        cwp = ""
+        if cwp_idx >= 0 and cwp_idx < len(row) and row[cwp_idx] is not None:
+            cwp = str(row[cwp_idx]).strip()
+
+        description = ""
+        if desc_idx >= 0 and desc_idx < len(row) and row[desc_idx] is not None:
+            description = str(row[desc_idx]).strip()
+
+        items.append({"name": item_name, "price": price, "cwp": cwp, "description": description})
 
     wb.close()
     return items

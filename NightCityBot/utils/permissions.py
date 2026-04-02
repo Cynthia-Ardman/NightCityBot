@@ -75,3 +75,27 @@ def is_ripperdoc():
         raise commands.CheckFailure("Ripperdoc role required")
 
     return commands.check(predicate)
+
+
+def is_store_owner():
+    """Check that the command author has the Wholesaler Store role (gun store owner)."""
+
+    async def predicate(ctx):
+        guild = ctx.bot.get_guild(config.GUILD_ID)
+        if not guild:
+            raise commands.CheckFailure("Gun store owner role required")
+
+        member = ctx.author
+        if not isinstance(member, discord.Member):
+            member = guild.get_member(ctx.author.id)
+            if not member:
+                try:
+                    member = await guild.fetch_member(ctx.author.id)
+                except discord.NotFound:
+                    raise commands.CheckFailure("Gun store owner role required")
+
+        if any(r.id == config.WHOLESALER_STORE_ROLE_IDS for r in getattr(member, "roles", [])):
+            return True
+        raise commands.CheckFailure("Gun store owner role required")
+
+    return commands.check(predicate)
