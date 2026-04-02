@@ -317,7 +317,7 @@ class DMHandler(commands.Cog):
                     except Exception:
                         logger.warning("Suppressed exception", exc_info=True)
                     return
-                member = ctx.guild.get_member(user.id) or user
+                member = (ctx.guild.get_member(user.id) if ctx.guild else None) or user
                 fake_ctx = await self.bot.get_context(ctx.message)
                 fake_ctx.author = member
                 fake_ctx.channel = await user.create_dm()

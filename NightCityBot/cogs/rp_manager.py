@@ -113,8 +113,11 @@ class RPManager(commands.Cog):
     @is_fixer()
     async def end_rp(self, ctx):
         """Ends the RP session in the current channel."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         channel = ctx.channel
-        if not channel.name.startswith("text-rp-"):
+        if not getattr(channel, "name", "").startswith("text-rp-"):
             await ctx.send("❌ This command can only be used in an RP session channel.")
             return
 

@@ -441,6 +441,9 @@ class CyberwareManager(commands.Cog):
         self, ctx: commands.Context, member: Optional[discord.Member] = None
     ) -> None:
         """Give the checkup role to a member or everyone with cyberware."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         control = self.bot.get_cog("SystemControl")
         if control and not control.is_enabled("cyberware"):
             await ctx.send("⚠️ The cyberware system is currently disabled.")
@@ -481,6 +484,9 @@ class CyberwareManager(commands.Cog):
     )
     async def checkup_report(self, ctx: commands.Context) -> None:
         """Show who did a checkup and who paid or failed to pay this week."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         data = await cyberware_weekly_get_all()
         if not data:
             await ctx.send("❌ No weekly data recorded yet.")
@@ -567,6 +573,9 @@ class CyberwareManager(commands.Cog):
     )
     async def cyberware_status_cmd(self, ctx: commands.Context) -> None:
         """Display the current week status for all cyberware users."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         _last_row_id, last_entry = await cyberware_weekly_get_last_row()
         if last_entry:
             timestamp = last_entry.get("timestamp")
@@ -614,6 +623,9 @@ class CyberwareManager(commands.Cog):
     @commands.command(name="paycyberware", aliases=["pay_cyberware"])
     async def pay_cyberware(self, ctx: commands.Context, *args: str) -> None:
         """Pay your cyberware medication cost manually."""
+        if not ctx.guild or not isinstance(ctx.author, discord.Member):
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         verbose = any(a.lower() in {"-v", "--verbose", "verbose"} for a in args)
 
         last_row_id, last_entry = await cyberware_weekly_get_last_row()

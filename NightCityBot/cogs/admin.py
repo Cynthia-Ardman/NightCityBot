@@ -166,6 +166,9 @@ class Admin(commands.Cog):
     @is_fixer()
     async def post(self, ctx, destination: str, *, message: Optional[str] = None):
         """Posts a message to the specified channel or thread."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
         dest_channel = None
 
         # Normalize destination string
