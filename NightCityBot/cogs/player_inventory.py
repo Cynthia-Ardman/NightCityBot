@@ -137,6 +137,13 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             g["count"] = len(g["items"])
         return sorted(groups.values(), key=lambda g: (g["name"], g["acquired_date"]))
 
+    def _inv_system_enabled(self) -> bool:
+        """Return True if the player_inventory system is enabled."""
+        control = self.bot.get_cog("SystemControl")
+        if control and not control.is_enabled("player_inventory"):
+            return False
+        return True
+
     @staticmethod
     def _build_display(items: list[dict], char_filter: Optional[str] = None):
         """Build the display structure for !my_inventory.
@@ -200,6 +207,9 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
+            return
+        if not self._inv_system_enabled():
+            await ctx.send("⚠️ The player inventory system is currently offline.")
             return
 
         target: Optional[discord.Member] = None
@@ -328,6 +338,9 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
+            return
+        if not self._inv_system_enabled():
+            await ctx.send("⚠️ The player inventory system is currently offline.")
             return
 
         sender_char = sender_char.strip().strip('"').strip("'")
@@ -502,6 +515,9 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
+            return
+        if not self._inv_system_enabled():
+            await ctx.send("⚠️ The player inventory system is currently offline.")
             return
         if price < 0:
             await ctx.send("❌ Price cannot be negative.")

@@ -7,6 +7,7 @@ SYSTEMS = [
     "cyberware",
     "cyberware_shop",
     "gun_shop",
+    "player_inventory",
     "attend",
     "open_shop",
     "loa",
@@ -18,7 +19,7 @@ SYSTEMS = [
 ]
 
 # Systems that should be OFF by default; everything else defaults to ON.
-_OFF_BY_DEFAULT = {"auto_collect_rent"}
+_OFF_BY_DEFAULT = {"auto_collect_rent", "player_inventory"}
 
 
 class SystemControl(commands.Cog):
