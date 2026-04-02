@@ -1301,10 +1301,6 @@ class Economy(commands.Cog):
             await ctx.send(f"⏭️ <@{user.id}> has no approved character.")
             return
 
-        if not any(r.id == config.APPROVED_ROLE_ID for r in user.roles):
-            await ctx.send(f"⏭️ <@{user.id}> has no approved character.")
-            return
-
         if not force and await self._paid_this_month(user, "collect_housing_after"):
             await ctx.send(
                 "⏭️ Housing rent already collected this month. Use -force to override."
@@ -1332,10 +1328,6 @@ class Economy(commands.Cog):
                 await admin_cog.log_audit(ctx.author, "\n".join(log))
             return
 
-        await self.backup_balances([user], label="collect_trauma_before")
-
-        await self.backup_balances([user], label="collect_business_before")
-
         await self.backup_balances([user], label="collect_housing_before")
 
         cash = balance_data["cash"]
@@ -1362,14 +1354,9 @@ class Economy(commands.Cog):
             f"📊 Final balance — Cash: ${final_cash:,}, Bank: ${final_bank:,}, Total: ${final_total:,}"
         )
 
-        await self.backup_balances([user], label="collect_trauma_after")
-
-        await self.backup_balances([user], label="collect_business_after")
-
         await self.backup_balances([user], label="collect_housing_after")
 
-        for _lbl in ("collect_trauma_after", "collect_business_after", "collect_housing_after"):
-            await payment_label_set(str(user.id), _lbl)
+        await payment_label_set(str(user.id), "collect_housing_after")
 
         summary = "\n".join(log)
         if verbose:
