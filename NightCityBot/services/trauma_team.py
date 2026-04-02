@@ -102,14 +102,14 @@ class TraumaTeamService:
         success = True
         economy = self.bot.get_cog("Economy")
         if not dry_run and economy:
-            await economy.backup_balances([member], label="cyberware_before")
+            await economy.backup_balances([member], label="trauma_before")
             success = await economy.unbelievaboat.update_balance(
                 member.id,
                 payload,
                 reason="Trauma Team Subscription",
             )
             if success:
-                await economy.backup_balances([member], label="cyberware_after")
+                await economy.backup_balances([member], label="trauma_after")
 
         if success:
             if not dry_run and target_thread:

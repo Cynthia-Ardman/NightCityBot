@@ -268,9 +268,10 @@ class CyberwareManager(commands.Cog):
                     bank = int(balance.get("bank", 0))
                     total = cash + bank
                     if total >= cost:
+                        safe_cash = max(cash, 0)
                         ok = await self.unbelievaboat.update_balance(
                             member.id,
-                            {"cash": -min(cost, cash), "bank": -max(0, cost - cash)},
+                            {"cash": -min(cost, safe_cash), "bank": -max(0, cost - safe_cash)},
                             reason=f"Cyberware meds week {weeks}",
                         )
                         if ok:
@@ -553,8 +554,9 @@ class CyberwareManager(commands.Cog):
             last_row_id = await cyberware_weekly_insert_empty()
 
         if last_row_id is not None:
-            paid_set = set(last_entry.get("paid", []))
-            unpaid_set = set(last_entry.get("unpaid", []))
+            prior = last_entry or {}
+            paid_set = set(prior.get("paid", []))
+            unpaid_set = set(prior.get("unpaid", []))
             if member.id in result.get("paid", []):
                 paid_set.add(str(member.id))
                 unpaid_set.discard(str(member.id))
@@ -647,8 +649,9 @@ class CyberwareManager(commands.Cog):
             last_row_id = await cyberware_weekly_insert_empty()
 
         if last_row_id is not None:
-            paid_set = set(last_entry.get("paid", []))
-            unpaid_set = set(last_entry.get("unpaid", []))
+            prior = last_entry or {}
+            paid_set = set(prior.get("paid", []))
+            unpaid_set = set(prior.get("unpaid", []))
             if ctx.author.id in result.get("paid", []):
                 paid_set.add(str(ctx.author.id))
                 unpaid_set.discard(str(ctx.author.id))

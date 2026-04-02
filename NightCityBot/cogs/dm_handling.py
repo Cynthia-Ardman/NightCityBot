@@ -263,36 +263,6 @@ class DMHandler(commands.Cog):
             except Exception:
                 logger.warning("Suppressed exception", exc_info=True)
             return
-        try:
-            if not user:
-                raise ValueError("User fetch returned None.")
-        except discord.NotFound:
-            await ctx.send("❌ Could not resolve user.")
-            admin = self.bot.get_cog('Admin')
-            if admin:
-                await admin.log_audit(ctx.author, "❌ Failed DM: Could not resolve user.")
-            try:
-                await ctx.message.delete()
-                admin = self.bot.get_cog('Admin')
-                if admin:
-                    await admin.log_audit(ctx.author, f"🗑️ Deleted command: {ctx.message.content}")
-            except Exception:
-                logger.warning("Suppressed exception", exc_info=True)
-            return
-        except Exception as e:
-            await ctx.send(f"⚠️ Unexpected error: {str(e)}")
-            admin = self.bot.get_cog('Admin')
-            if admin:
-                await admin.log_audit(ctx.author, f"⚠️ Exception in DM: {str(e)}")
-            try:
-                await ctx.message.delete()
-                admin = self.bot.get_cog('Admin')
-                if admin:
-                    await admin.log_audit(ctx.author, f"🗑️ Deleted command: {ctx.message.content}")
-            except Exception:
-                logger.warning("Suppressed exception", exc_info=True)
-            return
-
         file_links = [attachment.url for attachment in ctx.message.attachments]
 
         # Handle roll command relay
