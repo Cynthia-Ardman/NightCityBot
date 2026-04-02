@@ -29,7 +29,6 @@ CHANNEL_ID_FIELDS: Iterable[str] = [
     "BUSINESS_ACTIVITY_CHANNEL_ID",
     "RENT_LOG_CHANNEL_ID",
     "EVICTION_CHANNEL_ID",
-    "TRAUMA_FORUM_CHANNEL_ID",
     "TRAUMA_NOTIFICATIONS_CHANNEL_ID",
     "AUDIT_LOG_CHANNEL_ID",
     "GROUP_AUDIT_LOG_CHANNEL_ID",
@@ -38,6 +37,15 @@ CHANNEL_ID_FIELDS: Iterable[str] = [
     "CYBERWARE_LOG_CHANNEL_ID",
     "GEAR_MISC_LOG_CHANNEL_ID",
     "RIPPERDOC_LOG_CHANNEL_ID",
+]
+
+# Channels that must exist AND be Discord ForumChannels.
+FORUM_CHANNEL_ID_FIELDS: Iterable[str] = [
+    "TRAUMA_FORUM_CHANNEL_ID",
+    "RP_LOG_FORUM_CHANNEL_ID",
+    "CHARACTER_SHEETS_CHANNEL_ID",
+    "RETIRED_SHEETS_CHANNEL_ID",
+    "NPC_SHEETS_CHANNEL_ID",
 ]
 
 # Additional config values that should not be empty
@@ -124,6 +132,26 @@ async def verify_config(bot: discord.Client) -> None:
         if ch_id and guild.get_channel(ch_id) is None:
             logger.warning("\u26a0\ufe0f Missing channel for %s: %s", field, ch_id)
             issues = True
+
+    # Check that channels expected to be ForumChannels exist AND are the right type.
+    for field in FORUM_CHANNEL_ID_FIELDS:
+        ch_id = getattr(config, field, 0)
+        logger.debug("Checking forum channel %s: %s", field, ch_id)
+        if not ch_id:
+            logger.warning("\u26a0\ufe0f %s is not configured (required ForumChannel)", field)
+            issues = True
+        else:
+            ch = guild.get_channel(ch_id)
+            if ch is None:
+                logger.warning("\u26a0\ufe0f Channel not found for %s: %s", field, ch_id)
+                issues = True
+            elif not isinstance(ch, discord.ForumChannel):
+                logger.warning(
+                    "\u26a0\ufe0f %s (id=%s) is %s, expected ForumChannel — "
+                    "commands that depend on this will fail.",
+                    field, ch_id, type(ch).__name__,
+                )
+                issues = True
 
     # Check bot permissions
     required_perms = [

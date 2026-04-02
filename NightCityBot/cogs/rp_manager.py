@@ -167,19 +167,23 @@ class RPManager(commands.Cog):
     ) -> Optional[discord.Thread]:
         """Archive and end an RP session and return the created log thread."""
         logger.debug("end_rp_session started for channel %s", channel)
-        log_channel = channel.guild.get_channel(config.GROUP_AUDIT_LOG_CHANNEL_ID)
-        logger.debug("audit channel resolved as %s", log_channel)
+        forum_id = getattr(config, "RP_LOG_FORUM_CHANNEL_ID", 0) or getattr(config, "GROUP_AUDIT_LOG_CHANNEL_ID", 0)
+        log_channel = channel.guild.get_channel(forum_id)
+        logger.debug("RP log forum resolved as %s (id=%s)", log_channel, forum_id)
         try:
             if not isinstance(log_channel, discord.ForumChannel):
+                ch_type = type(log_channel).__name__ if log_channel else "not found"
                 await channel.send(
-                    "⚠️ Logging failed: audit log channel is not a ForumChannel. "
-                    "Deleting session without logging."
+                    "❌ **Cannot archive RP session** — the RP log forum channel is not configured correctly "
+                    f"(expected ForumChannel, got `{ch_type}` for ID `{forum_id}`).\n"
+                    "**This channel has NOT been deleted.** Contact an admin to set `RP_LOG_FORUM_CHANNEL_ID` "
+                    "in config to the correct RP log forum channel ID."
                 )
-                logger.debug(
-                    "audit channel invalid, deleting channel %s without logging",
-                    channel,
+                logger.error(
+                    "end_rp: RP log forum ID %s resolved to %s, expected ForumChannel. "
+                    "Channel %s was NOT deleted to prevent data loss.",
+                    forum_id, ch_type, channel,
                 )
-                await channel.delete(reason="RP session ended without log channel")
                 return None
 
             participants = channel.name.replace("text-rp-", "").split("-")

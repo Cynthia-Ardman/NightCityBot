@@ -64,6 +64,9 @@ TIMEZONE = "America/Los_Angeles"
 RENT_COLLECTION_HOUR = 0    # 0-23, in TIMEZONE, for the auto monthly rent scheduler
 RENT_COLLECTION_MINUTE = 0  # 0-59, in TIMEZONE, for the auto monthly rent scheduler
 RP_IC_CATEGORY_ID = 1348605939527192576
+# Forum channel where ended RP sessions are archived. Must be a Discord ForumChannel.
+# Set this to the correct channel ID — leaving it 0 will block !end_rp safely.
+RP_LOG_FORUM_CHANNEL_ID = 0
 CHARACTER_SHEETS_CHANNEL_ID = 1366901669316657224
 RETIRED_SHEETS_CHANNEL_ID = 1392690680358244523
 NPC_SHEETS_CHANNEL_ID = 1395513949625127012
