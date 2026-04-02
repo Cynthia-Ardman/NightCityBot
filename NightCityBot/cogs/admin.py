@@ -439,7 +439,7 @@ class Admin(commands.Cog):
                 "⚙️ System Control",
                 "\n".join([
                     "`!enable_system <name>` / `!disable_system <name>` (aliases: !es/!ds) – toggle major subsystems by name. "
-                    "Valid names: `cyberware`, `cyberware_shop`, `attend`, `open_shop`, `loa`, `housing_rent`, `business_rent`, `trauma_team`, `dm`, `auto_collect_rent`.",
+                    "Valid names: `cyberware`, `cyberware_shop`, `gun_shop`, `attend`, `open_shop`, `loa`, `housing_rent`, `business_rent`, `trauma_team`, `dm`, `auto_collect_rent`.",
                     "`!system_status` – display the current enable/disable flags for all subsystems.",
                     "`!reload_config` – reload bot configuration from the database without restarting.",
                 ]),

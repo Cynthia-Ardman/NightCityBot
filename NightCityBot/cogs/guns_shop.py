@@ -1093,6 +1093,10 @@ class GunsShopCog(commands.Cog):
 
 
     async def _system_enabled(self, ctx: commands.Context) -> bool:
+        control = self.bot.get_cog("SystemControl")
+        if control and not control.is_enabled("gun_shop"):
+            await ctx.send("⚠️ The gun shop system is currently disabled.")
+            return False
         return True
 
     async def _ensure_member(self, ctx: commands.Context) -> Optional[discord.Member]:
@@ -1813,6 +1817,9 @@ class GunsShopCog(commands.Cog):
 
     async def _auto_restock_if_due(self, now: datetime, trigger: str) -> bool:
         """Run one weekly restock if we have not yet refreshed this Sunday."""
+        control = self.bot.get_cog("SystemControl")
+        if control and not control.is_enabled("gun_shop"):
+            return False
         try:
             guns = await self._load_master_guns()
         except Exception:

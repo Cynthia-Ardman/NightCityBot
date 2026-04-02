@@ -6,6 +6,7 @@ from NightCityBot.utils.db import system_settings_get_all, system_settings_set
 SYSTEMS = [
     "cyberware",
     "cyberware_shop",
+    "gun_shop",
     "attend",
     "open_shop",
     "loa",
@@ -29,7 +30,9 @@ class SystemControl(commands.Cog):
         self.bot.loop.create_task(self.load_status())
 
     async def load_status(self):
-        self.status = await system_settings_get_all()
+        raw = await system_settings_get_all()
+        # Only keep known systems; discard stale DB keys (e.g. old "wholesaler").
+        self.status = {k: v for k, v in raw.items() if k in SYSTEMS}
         updated = False
         for system in SYSTEMS:
             if system not in self.status:
@@ -83,5 +86,8 @@ class SystemControl(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def system_status(self, ctx):
         """Show current system enablement."""
-        lines = [f"{name}: {'ON' if state else 'OFF'}" for name, state in self.status.items()]
+        lines = [
+            f"{name}: {'ON' if self.status.get(name, False) else 'OFF'}"
+            for name in SYSTEMS
+        ]
         await ctx.send("\n".join(lines))
