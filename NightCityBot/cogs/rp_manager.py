@@ -74,7 +74,8 @@ class RPManager(commands.Cog):
                 logger.warning("Suppressed exception", exc_info=True)
             return
 
-        target_category = ctx.guild.get_channel(getattr(config, "RP_IC_CATEGORY_ID", ctx.channel.category.id))
+        _fallback_cat_id = ctx.channel.category.id if getattr(ctx.channel, "category", None) else None
+        target_category = ctx.guild.get_channel(getattr(config, "RP_IC_CATEGORY_ID", _fallback_cat_id))
         if not isinstance(target_category, discord.CategoryChannel):
             target_category = ctx.channel.category
         channel = await self.create_group_rp_channel(ctx.guild, users + [ctx.author], target_category)

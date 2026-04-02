@@ -1064,7 +1064,10 @@ class Admin(commands.Cog):
             return
         if isinstance(error, commands.CommandNotFound):
             # Ignore specific economy bot commands entirely
-            cmd = ctx.message.content.lstrip(self.bot.command_prefix).split()[0].lower()
+            _parts = ctx.message.content.lstrip(self.bot.command_prefix).split()
+            if not _parts:
+                return
+            cmd = _parts[0].lower()
             if cmd in constants.UNBELIEVABOAT_COMMANDS:
                 return
             # Otherwise show a basic notice but do not audit
