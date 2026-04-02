@@ -447,12 +447,22 @@ class Economy(commands.Cog):
                 reward += total_after - total_before
 
         if reward > 0:
-            await self.unbelievaboat.update_balance(
+            ok = await self.unbelievaboat.update_balance(
                 ctx.author.id, {"cash": reward}, reason="Business activity reward"
             )
-            await ctx.send(
-                f"✅ Business opening logged! You earned ${reward}. ({open_count_total} this month)"
-            )
+            if not ok:
+                await warn_db_failure(
+                    self.bot, "update_balance",
+                    f"user {user_id} — business reward ${reward} not credited",
+                )
+                await ctx.send(
+                    f"✅ Business opening logged! ({open_count_total} this month) "
+                    "⚠️ Balance update failed — please contact an admin if your reward is missing."
+                )
+            else:
+                await ctx.send(
+                    f"✅ Business opening logged! You earned ${reward}. ({open_count_total} this month)"
+                )
         else:
             await ctx.send(
                 f"✅ Business opening logged! ({open_count_total} this month)"
@@ -515,10 +525,20 @@ class Economy(commands.Cog):
                 )
 
         reward = _cfg.get_attend_reward()
-        await self.unbelievaboat.update_balance(
+        ok = await self.unbelievaboat.update_balance(
             ctx.author.id, {"cash": reward}, reason="Attendance reward"
         )
-        await ctx.send(f"✅ Attendance logged! You received ${reward}.")
+        if not ok:
+            await warn_db_failure(
+                self.bot, "update_balance",
+                f"user {user_id} — attendance reward ${reward} not credited",
+            )
+            await ctx.send(
+                "✅ Attendance logged! "
+                f"⚠️ Balance update failed — please contact an admin if your ${reward} reward is missing."
+            )
+        else:
+            await ctx.send(f"✅ Attendance logged! You received ${reward}.")
 
     def calculate_due(self, member: discord.Member) -> tuple[int, List[str]]:
         """Calculate upcoming rent, baseline, cyberware and subscription costs."""
@@ -929,10 +949,13 @@ class Economy(commands.Cog):
                 if delta_bank:
                     payload["bank"] = delta_bank
                 if payload:
-                    await self.unbelievaboat.update_balance(
+                    ok = await self.unbelievaboat.update_balance(
                         uid, payload, reason="Balance restore"
                     )
-                    restored += 1
+                    if ok:
+                        restored += 1
+                    else:
+                        logger.error("restore_balances: update_balance failed for uid=%s", uid)
             await ctx.send(
                 f"✅ Restored balances for {restored} members from `{identifier}`"
             )
@@ -969,10 +992,13 @@ class Economy(commands.Cog):
             if delta_bank:
                 payload["bank"] = delta_bank
             if payload:
-                await self.unbelievaboat.update_balance(
+                ok = await self.unbelievaboat.update_balance(
                     uid, payload, reason="Balance restore"
                 )
-                restored += 1
+                if ok:
+                    restored += 1
+                else:
+                    logger.error("restore_balances (label): update_balance failed for uid=%s", uid)
 
         await ctx.send(
             f"✅ Restored balances for {restored} members using label `{label}`"
@@ -1043,13 +1069,18 @@ class Economy(commands.Cog):
         if delta_bank:
             payload["bank"] = delta_bank
         if payload:
-            await self.unbelievaboat.update_balance(
+            ok = await self.unbelievaboat.update_balance(
                 member.id, payload, reason="Balance restore"
             )
             source = label if label else filename
-            await ctx.send(
-                f"✅ Restored balance for {member.display_name} from `{source}`"
-            )
+            if ok:
+                await ctx.send(
+                    f"✅ Restored balance for {member.display_name} from `{source}`"
+                )
+            else:
+                await ctx.send(
+                    f"❌ Balance update failed for {member.display_name}. Please try again."
+                )
         else:
             await ctx.send("⚠️ Balance already matches backup.")
 
