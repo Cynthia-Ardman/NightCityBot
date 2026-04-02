@@ -656,6 +656,39 @@ class TestCwGiveTake:
         inv = _run(cog._load_inventory(500))
         assert "Sandevistan Mk.1" in _inv_names(inv)
 
+    def test_cw_take_fifo_removes_oldest_by_purchased_at(self, tmp_path, monkeypatch):
+        """cw_take must select the item with the oldest purchased_at (FIFO), not list order."""
+        cog = _make_cog(tmp_path, monkeypatch)
+        # Seed with two Kiroshi items; newer one is listed first
+        _seed_inventory(cog, 500, [
+            {"item_id": "aaa", "name": "Kiroshi Optics Mk.1", "price_paid": 500, "purchased_at": "2026-04-10"},
+            {"item_id": "bbb", "name": "Kiroshi Optics Mk.1", "price_paid": 500, "purchased_at": "2026-04-01"},
+        ])
+        ctx = _ctx()
+        ripperdoc = _make_member(500, "Doc")
+        _run(_cmd(cog, "cw_take", ctx, ripperdoc, item_name="Kiroshi Optics Mk.1"))
+        inv = _run(cog._load_inventory(500))
+        # The oldest (bbb, 2026-04-01) should have been removed; newer (aaa) remains
+        remaining_ids = [e.get("item_id") for e in inv if isinstance(e, dict)]
+        assert "aaa" in remaining_ids
+        assert "bbb" not in remaining_ids
+
+    def test_cw_take_fifo_none_dates_sorted_last(self, tmp_path, monkeypatch):
+        """Items with purchased_at=None are treated as newest (sort last in FIFO)."""
+        cog = _make_cog(tmp_path, monkeypatch)
+        _seed_inventory(cog, 500, [
+            {"item_id": "no_date", "name": "Kiroshi Optics Mk.1", "price_paid": 500, "purchased_at": None},
+            {"item_id": "dated",   "name": "Kiroshi Optics Mk.1", "price_paid": 500, "purchased_at": "2026-04-01"},
+        ])
+        ctx = _ctx()
+        ripperdoc = _make_member(500, "Doc")
+        _run(_cmd(cog, "cw_take", ctx, ripperdoc, item_name="Kiroshi Optics Mk.1"))
+        inv = _run(cog._load_inventory(500))
+        remaining_ids = [e.get("item_id") for e in inv if isinstance(e, dict)]
+        # dated item (older) was removed first; no_date item remains
+        assert "no_date" in remaining_ids
+        assert "dated" not in remaining_ids
+
 
 # ------------------------------------------------------------------
 # cw_wh_restock tests

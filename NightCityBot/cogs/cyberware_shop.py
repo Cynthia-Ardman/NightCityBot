@@ -448,7 +448,7 @@ class CyberwareShop(commands.Cog):
             embed = discord.Embed(
                 title="🔧 Admin: Cyberware Given",
                 color=discord.Color.orange(),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(
                 name="Ripperdoc",
@@ -457,6 +457,7 @@ class CyberwareShop(commands.Cog):
             )
             embed.add_field(name="Admin", value=f"{ctx.author.mention} ({ctx.author.display_name})", inline=False)
             embed.add_field(name="Item", value=f"**{item_name}**", inline=True)
+            embed.add_field(name="Qty", value="1", inline=True)
             embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
@@ -480,18 +481,29 @@ class CyberwareShop(commands.Cog):
         async with self.lock:
             inventory = await self._load_inventory(ripperdoc.id)
             q = item_name.strip().lower()
-            idx = next(
-                (i for i, e in enumerate(inventory) if e["name"].strip().lower() == q), None
-            )
-            if idx is None:
-                idx = next(
-                    (i for i, e in enumerate(inventory) if e["name"].strip().lower().startswith(q)), None
-                )
-            if idx is None:
+            # Collect all exact-name matches, then all prefix matches as fallback.
+            # Among the matches, pick the one with the oldest purchased_at (FIFO).
+            exact_matches = [
+                (i, e) for i, e in enumerate(inventory)
+                if e.get("name", "").strip().lower() == q
+            ]
+            candidates = exact_matches or [
+                (i, e) for i, e in enumerate(inventory)
+                if e.get("name", "").strip().lower().startswith(q)
+            ]
+            if not candidates:
                 await ctx.send(
                     f"❌ **{item_name}** not found in {ripperdoc.display_name}'s inventory."
                 )
                 return
+            # FIFO: pick candidate with oldest purchased_at; None dates sort last.
+            idx, _ = min(
+                candidates,
+                key=lambda t: (
+                    t[1].get("purchased_at") is None,
+                    str(t[1].get("purchased_at") or ""),
+                ),
+            )
             removed = inventory.pop(idx)
             await self._save_inventory(ripperdoc.id, inventory)
 
@@ -501,7 +513,7 @@ class CyberwareShop(commands.Cog):
             embed = discord.Embed(
                 title="🔧 Admin: Cyberware Removed from Inventory",
                 color=discord.Color.red(),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(
                 name="Ripperdoc",
@@ -510,6 +522,7 @@ class CyberwareShop(commands.Cog):
             )
             embed.add_field(name="Admin", value=f"{ctx.author.mention} ({ctx.author.display_name})", inline=False)
             embed.add_field(name="Item Removed", value=f"**{removed_name}**", inline=True)
+            embed.add_field(name="Qty", value="1", inline=True)
             embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
@@ -694,10 +707,10 @@ class CyberwareShop(commands.Cog):
             embed = discord.Embed(
                 title="🛒 Cyberware Purchase",
                 color=discord.Color.blue(),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(
-                name="Ripperdoc",
+                name="Buyer (Ripperdoc)",
                 value=f"{ctx.author.mention} ({ctx.author.display_name})",
                 inline=False,
             )
@@ -988,7 +1001,7 @@ class CyberwareShop(commands.Cog):
             embed = discord.Embed(
                 title="💉 Cyberware Sell / Install",
                 color=discord.Color.dark_teal(),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(
                 name="Ripperdoc",
@@ -1103,7 +1116,7 @@ class CyberwareShop(commands.Cog):
             embed = discord.Embed(
                 title="💉 Cyberware Install (Free)",
                 color=discord.Color.teal(),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(
                 name="Ripperdoc",

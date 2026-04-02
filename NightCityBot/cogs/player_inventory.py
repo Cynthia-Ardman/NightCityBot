@@ -98,14 +98,15 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
     @staticmethod
     def _group_items(items: list[dict]) -> list[dict]:
-        """Group a flat item list by (name, item_type, price_paid, seller_name).
+        """Group a flat item list by (name, item_type, price_paid, seller_name, acquired_date).
 
-        All copies of the same item from the same seller at the same price are
-        collapsed into one group regardless of acquisition date. Items within
-        each group are sorted FIFO by acquired_at so the oldest is used first.
+        Items with the same name/type/price/seller acquired on the same calendar date
+        are collapsed into one group. Separate acquisition dates produce separate rows,
+        preserving correct FIFO row-number semantics for trade/give.
+        Items within each group are sorted FIFO by acquired_at so the oldest is first.
 
-        Returns a list of group dicts sorted alphabetically by name:
-          {name, item_type, price_paid, seller_name, count, items (FIFO)}
+        Returns a list of group dicts sorted alphabetically by (name, acquired_date):
+          {name, item_type, price_paid, seller_name, acquired_date, count, items (FIFO)}
         """
         groups: dict[tuple, dict] = {}
         for item in items:
@@ -113,13 +114,16 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             itype = item.get("item_type", "misc")
             price = item.get("price_paid")
             seller = item.get("seller_name", "")
-            key = (name, itype, price, seller)
+            raw_date = item.get("acquired_at") or item.get("created_at") or ""
+            date_str = str(raw_date)[:10]
+            key = (name, itype, price, seller, date_str)
             if key not in groups:
                 groups[key] = {
                     "name": name,
                     "item_type": itype,
                     "price_paid": price,
                     "seller_name": seller,
+                    "acquired_date": date_str,
                     "items": [],
                 }
             groups[key]["items"].append(item)
@@ -131,7 +135,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 )
             )
             g["count"] = len(g["items"])
-        return sorted(groups.values(), key=lambda g: g["name"])
+        return sorted(groups.values(), key=lambda g: (g["name"], g["acquired_date"]))
 
     @staticmethod
     def _build_display(items: list[dict], char_filter: Optional[str] = None):
@@ -164,9 +168,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             for g in groups:
                 price_str = f"${g['price_paid']:,}" if g["price_paid"] else "—"
                 seller_str = g["seller_name"] or "—"
-                earliest = g["items"][0] if g["items"] else {}
-                raw_date = earliest.get("acquired_at") or earliest.get("created_at")
-                date_str = str(raw_date)[:10] if raw_date else "—"
+                date_str = g.get("acquired_date") or "—"
                 count_str = f" ×{g['count']}" if g["count"] > 1 else ""
                 line = (
                     f"`{row_num}.` **{g['name']}**{count_str}"
@@ -377,10 +379,16 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
             log_ch = await self._cyberware_log_channel()
             if log_ch:
-                embed = discord.Embed(title="💉 Cyberware Returned to Ripperdoc Stock", color=discord.Color.teal())
-                embed.add_field(name="From", value=f"{ctx.author.mention} ({sender_char})", inline=True)
-                embed.add_field(name="Ripperdoc", value=target.mention, inline=True)
-                embed.add_field(name="Item", value=item_name, inline=False)
+                embed = discord.Embed(
+                    title="💉 Cyberware Returned to Ripperdoc Stock",
+                    color=discord.Color.teal(),
+                    timestamp=datetime.now(timezone.utc),
+                )
+                embed.add_field(name="From", value=f"{ctx.author.mention} ({ctx.author.display_name}) — {sender_char}", inline=False)
+                embed.add_field(name="Ripperdoc", value=f"{target.mention} ({target.display_name})", inline=False)
+                embed.add_field(name="Item", value=item_name, inline=True)
+                embed.add_field(name="Qty", value="1", inline=True)
+                embed.set_footer(text="NightCityBot Audit Log")
                 await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
             await ctx.send(
@@ -408,7 +416,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             embed = discord.Embed(
                 title="🎁 Item Given",
                 color=discord.Color.green(),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(
                 name="From",
@@ -422,6 +430,9 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             )
             embed.add_field(name="Item", value=f"**{item_name}**", inline=True)
             embed.add_field(name="Type", value=item_type, inline=True)
+            price_paid = selected_item.get("price_paid")
+            if price_paid is not None:
+                embed.add_field(name="Price Paid", value=f"${price_paid:,}", inline=True)
             embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
@@ -622,14 +633,15 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
         log_ch = await self._route_log_channel(item_type)
         if log_ch:
+            seller_char = selected_item.get("character_name") or "—"
             embed = discord.Embed(
                 title="💱 Item Traded",
                 color=discord.Color.gold(),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(
                 name="Seller",
-                value=f"{ctx.author.mention} ({ctx.author.display_name})",
+                value=f"{ctx.author.mention} ({ctx.author.display_name}) — {seller_char}",
                 inline=False,
             )
             embed.add_field(
@@ -724,7 +736,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             embed = discord.Embed(
                 title="🔧 Admin: Item(s) Added to Inventory",
                 color=discord.Color.orange(),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(
                 name="Player",
@@ -782,6 +794,8 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             return
 
         item_name = item.get("name", "?")
+        item_char = item.get("character_name") or "—"
+        item_price = item.get("price_paid")
         ok = await pi_delete_item(item_id)
         if not ok:
             await ctx.send("❌ Failed to remove item. Please try again.")
@@ -792,15 +806,17 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             embed = discord.Embed(
                 title="🗑️ Admin: Item Removed from Inventory",
                 color=discord.Color.red(),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(
                 name="Player",
-                value=f"{player.mention} ({player.display_name})",
+                value=f"{player.mention} ({player.display_name}) — {item_char}",
                 inline=False,
             )
             embed.add_field(name="Admin", value=f"{ctx.author.mention} ({ctx.author.display_name})", inline=False)
             embed.add_field(name="Item Removed", value=f"**{item_name}**", inline=True)
+            if item_price is not None:
+                embed.add_field(name="Price Paid", value=f"${item_price:,}", inline=True)
             embed.add_field(name="Item ID", value=f"`{item_id}`", inline=False)
             embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
@@ -860,7 +876,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             embed = discord.Embed(
                 title="✏️ Admin: Item Reassigned",
                 color=discord.Color.blurple(),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(
                 name="Player",

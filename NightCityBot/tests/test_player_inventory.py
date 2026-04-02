@@ -117,12 +117,35 @@ class TestGroupItems:
 
     def test_fifo_ordering_within_group(self):
         items = [
+            _item("Kiroshi", date="2026-04-01"),
+            _item("Kiroshi", date="2026-04-01"),
+        ]
+        # Two items on the same date stay in one group, FIFO by acquired_at
+        groups = PlayerInventoryCog._group_items(items)
+        assert len(groups) == 1
+        assert groups[0]["count"] == 2
+        assert groups[0]["items"][0]["acquired_at"] == "2026-04-01"
+
+    def test_different_dates_produce_separate_groups(self):
+        """Items with same name/price/seller but different acquisition dates → separate rows."""
+        items = [
             _item("Kiroshi", date="2026-04-02"),
             _item("Kiroshi", date="2026-04-01"),
         ]
         groups = PlayerInventoryCog._group_items(items)
-        # FIFO: earliest acquired_at first
-        assert groups[0]["items"][0]["acquired_at"] == "2026-04-01"
+        # Each distinct date is its own group
+        assert len(groups) == 2
+        # Sorted by (name, acquired_date): 2026-04-01 first
+        assert groups[0]["acquired_date"] == "2026-04-01"
+        assert groups[1]["acquired_date"] == "2026-04-02"
+        assert groups[0]["count"] == 1
+        assert groups[1]["count"] == 1
+
+    def test_acquired_date_in_group_key(self):
+        """acquired_date is included in each group dict for display."""
+        items = [_item("Sandevistan", date="2026-03-15")]
+        groups = PlayerInventoryCog._group_items(items)
+        assert groups[0]["acquired_date"] == "2026-03-15"
 
 
 # ------------------------------------------------------------------
