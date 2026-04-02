@@ -47,6 +47,25 @@ class CyberwareShop(commands.Cog):
         self.tx_file = data_dir / "transactions.json"
         self.inventory_dir = data_dir / "inventory"
         self.inventory_dir.mkdir(parents=True, exist_ok=True)
+        self._startup_done = False
+
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        if self._startup_done:
+            return
+        self._startup_done = True
+        if not self.state_file.exists():
+            state = {"sheet_url": getattr(config, "CYBERWARE_SHOP_SHEET_URL", ""), "items_count": 0}
+            await helpers.save_json_file(self.state_file, state)
+        if not self.tx_file.exists():
+            await helpers.save_json_file(self.tx_file, [])
+        logger.info(
+            "CyberwareShop data paths: data_dir=%s state=%s tx=%s inventory_dir=%s",
+            self.data_dir,
+            self.state_file,
+            self.tx_file,
+            self.inventory_dir,
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers

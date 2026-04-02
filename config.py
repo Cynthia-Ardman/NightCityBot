@@ -83,3 +83,4 @@ WHOLESALER_TX_FILE = WHOLESALER_DATA_DIR / "transactions.json"
 
 # Cyberware shop configuration
 CYBERWARE_SHOP_DATA_DIR = BASE_DIR / "data" / "cyberware_shop"
+CYBERWARE_SHOP_SHEET_URL = os.getenv("CYBERWARE_SHOP_SHEET_URL", "")
