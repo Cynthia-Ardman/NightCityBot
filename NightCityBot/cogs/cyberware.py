@@ -139,6 +139,30 @@ class CyberwareManager(commands.Cog):
                     except Exception:
                         logger.warning("Suppressed exception", exc_info=True)
 
+        cw_shop = self.bot.get_cog("CyberwareShop")
+        if cw_shop and hasattr(cw_shop, "auto_cw_restock_if_due"):
+            try:
+                from datetime import datetime, timezone as _tz
+                cw_refreshed = await cw_shop.auto_cw_restock_if_due(
+                    datetime.now(_tz.utc)
+                )
+                if notify_user:
+                    try:
+                        await notify_user.send(
+                            "🔩 Weekly cyberware wholesale rotation complete."
+                            if cw_refreshed
+                            else "⚠️ Weekly cyberware wholesale rotation skipped/failed."
+                        )
+                    except Exception:
+                        logger.warning("Suppressed exception", exc_info=True)
+            except Exception:
+                logger.exception("auto_cw_restock_if_due errored during weekly process")
+                if notify_user:
+                    try:
+                        await notify_user.send("❌ Weekly cyberware wholesale rotation errored.")
+                    except Exception:
+                        logger.warning("Suppressed exception", exc_info=True)
+
     async def process_week(
         self,
         *,

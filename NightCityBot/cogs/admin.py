@@ -617,11 +617,21 @@ class Admin(commands.Cog):
         )
 
         embed.add_field(
-            name="📋 Browse the Catalogue",
+            name="📋 Browse the Full Catalogue",
             value=(
-                "`!cw_catalog` — view all available cyberware parts and their supplier reference prices.\n"
-                "Prices shown are the **Ripperdoc's cost** — what they pay to stock an item. "
-                "Ripperdocs set their own installation price when selling to patients."
+                "`!cw_catalog` — view all cyberware parts and their reference prices.\n"
+                "Note: only a **weekly rotating subset** is actually available for purchase each week — "
+                "see `!cw_wh_list` for what's in stock right now."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🔩 Weekly Wholesale Stock",
+            value=(
+                "`!cw_wh_list` — see this week's 15 available items with qty remaining and price.\n"
+                "Stock rotates every Sunday. Items sell out fast — check before you order.\n"
+                "Aliases: `!cw_wholesale`, `!cw_stock`"
             ),
             inline=False,
         )
@@ -629,10 +639,10 @@ class Admin(commands.Cog):
         embed.add_field(
             name="🛒 Buy Parts (Ripperdoc only)",
             value=(
-                "`!cw_buy <item name>` — purchase a part from the supplier at catalogue price.\n"
+                "`!cw_buy <item name>` — purchase a part from this week's wholesale stock.\n"
                 "Example: `!cw_buy Kiroshi Optics Mk.1`\n\n"
                 "The cost is deducted from your balance. The part is added to your inventory immediately.\n"
-                "Multi-word names don't need quotes."
+                "Multi-word names don't need quotes. If the item isn't in this week's rotation, you'll be told."
             ),
             inline=False,
         )
@@ -672,12 +682,15 @@ class Admin(commands.Cog):
         )
 
         embed.add_field(
-            name="⚙️ Admin — Load the Catalogue",
+            name="⚙️ Admin — Catalogue & Wholesale",
             value=(
-                "`!cw_setsheet <google_sheet_url>` — download and parse the cyberware master sheet.\n"
-                "This updates the **cyberware_catalog** database table that all Ripperdocs read from. "
-                "Prices in the table can be edited directly in the database and take effect immediately — "
-                "no sheet reload required for price-only changes."
+                "`!cw_setsheet <url>` — load the cyberware master sheet and update the catalogue.\n"
+                "`!cw_wh_restock` — force a fresh weekly rotation (15 random items, 1–3 qty each).\n"
+                "`!cw_wh_add <qty> <item name>` — add/restock a specific item mid-week.\n"
+                "  Example: `!cw_wh_add 2 Kiroshi Optics Mk.1`\n"
+                "`!cw_wh_remove <item name>` — remove an item from this week's lots.\n"
+                "`!cw_wh_settings` — view or change restock settings (total_items, qty_min, qty_max).\n"
+                "  Example: `!cw_wh_settings total_items 20`"
             ),
             inline=False,
         )
@@ -687,6 +700,8 @@ class Admin(commands.Cog):
             value=(
                 "- You must buy a part **before** you can sell/install it — no selling from thin air.\n"
                 "- Stock is per-Ripperdoc: your inventory is yours alone.\n"
+                "- Only items in the **weekly wholesale rotation** can be purchased via `!cw_buy`.\n"
+                "- The rotation refreshes automatically every Sunday alongside the gun wholesaler.\n"
                 "- If a transaction fails partway through, compensating refunds are issued automatically.\n"
                 "- Catalogue prices are the supplier floor. You may charge patients more (or less) — that's your business."
             ),

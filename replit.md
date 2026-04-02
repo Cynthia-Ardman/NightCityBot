@@ -72,6 +72,26 @@ Admin command: `!db_health` — shows DB ping, write-failure count, and pool sta
 2. `!wh_buy` — store owners buy lots from wholesaler, creates per-store files in `inventory/stores/`
 3. `!wh_sell` — store owners sell weapons to players (syntax: `!wh_sell @buyer "character_name" <lot_id> <qty> <price>`; `!sell` kept as alias)
 
+## Cyberware Shop & Weekly Wholesale
+
+Two-table catalog system in PostgreSQL:
+- `cyberware_catalog` (name UNIQUE, price, updated_at) — full item list, populated by `!cw_setsheet`
+- Weekly wholesale lots stored as `cw_wholesale_lots` in `data/cyberware_shop/state.json`
+
+### Cyberware Wholesale Flow (mirrors gun wholesaler)
+
+1. Each Sunday (auto) or via `!cw_wh_restock`, 15 random items from the full catalog are selected with 1–3 qty each
+2. Ripperdocs use `!cw_wh_list` to see what's available this week
+3. `!cw_buy <item>` now checks weekly lots — limited stock, first-come first-served
+4. Sold-out items show ~~strikethrough~~ in the list; if a race occurs mid-purchase, funds are auto-refunded
+5. Auto-restock fires during the Sunday weekly cyberware process (same hook that triggers gun restock)
+
+### Admin commands
+- `!cw_wh_restock [seed]` — force restock
+- `!cw_wh_add <qty> <item>` — add/top-up a specific item mid-week
+- `!cw_wh_remove <item>` — pull an item from current week
+- `!cw_wh_settings [key] [value]` — tune total_items, qty_min, qty_max
+
 ## Gun Restriction System
 
 Each weapon lot has a `restriction` field (default: `basic`):

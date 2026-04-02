@@ -6,6 +6,7 @@ is audited to RIPPERDOC_LOG_CHANNEL_ID.
 """
 import asyncio
 import logging
+import random
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,12 @@ _TX_LIMIT = 20
 
 class CyberwareShop(commands.Cog):
     """Ripperdoc buy/sell cyberware marketplace."""
+
+    DEFAULT_CW_RESTOCK_SETTINGS: dict[str, int] = {
+        "total_items": 15,
+        "qty_min": 1,
+        "qty_max": 3,
+    }
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -161,6 +168,88 @@ class CyberwareShop(commands.Cog):
         return datetime.now(timezone.utc).isoformat()
 
     # ------------------------------------------------------------------
+    # Cyberware wholesale helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_cw_restock_settings(self, state: dict) -> dict:
+        """Merge saved settings over defaults."""
+        cfg = dict(self.DEFAULT_CW_RESTOCK_SETTINGS)
+        saved = state.get("settings", {}).get("cw_restock", {})
+        cfg.update({k: v for k, v in saved.items() if k in cfg})
+        return cfg
+
+    def _generate_cw_lots(
+        self, catalog: list[dict], cfg: dict, rng: random.Random
+    ) -> list[dict]:
+        """Randomly pick total_items items from catalog and assign qty."""
+        total = min(cfg.get("total_items", 15), len(catalog))
+        qty_min = max(1, cfg.get("qty_min", 1))
+        qty_max = max(qty_min, cfg.get("qty_max", 3))
+        sample = rng.sample(catalog, total)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+        return [
+            {
+                "lot_id": f"cwlot-{stamp}-{uuid.uuid4().hex[:6]}",
+                "item_name": item["name"],
+                "unit_cost": item["price"],
+                "qty_available": rng.randint(qty_min, qty_max),
+                "created_at": self._now_iso(),
+            }
+            for item in sample
+        ]
+
+    def _lookup_lot(
+        self, lots: list[dict], query: str
+    ) -> Optional[dict]:
+        """Case-insensitive exact then prefix match against lot item_name."""
+        q = query.strip().lower()
+        for lot in lots:
+            if lot.get("item_name", "").lower() == q:
+                return lot
+        for lot in lots:
+            if lot.get("item_name", "").lower().startswith(q):
+                return lot
+        return None
+
+    async def auto_cw_restock_if_due(self, now: datetime) -> bool:
+        """Run the weekly cyberware wholesale rotation if not yet done this Sunday.
+
+        Called by the cyberware weekly process (cyberware.py) on Sunday.
+        Returns True if a restock ran or was already done; False on failure.
+        """
+        control = self.bot.get_cog("SystemControl")
+        if control and not control.is_enabled("cyberware_shop"):
+            return False
+        catalog = await self._load_catalog()
+        if not catalog:
+            logger.warning("auto_cw_restock_if_due: catalog is empty, skipping")
+            return False
+
+        sunday_key = now.strftime("%Y-%m-%d")
+        async with self.lock:
+            state = await self._load_state()
+            settings = state.setdefault("settings", {})
+            if str(settings.get("last_cw_restock_sunday", "")) == sunday_key:
+                return True
+            cfg = self._resolve_cw_restock_settings(state)
+            rng = random.Random()
+            lots = self._generate_cw_lots(catalog, cfg, rng)
+            state["cw_wholesale_lots"] = lots
+            settings["last_cw_restock_sunday"] = sunday_key
+            saved = await self._save_state(state)
+            if not saved:
+                logger.error("auto_cw_restock_if_due: save failed")
+
+        logger.info("auto_cw_restock_if_due: rotated %d CW lots for %s", len(lots), sunday_key)
+        log_ch = await self._log_channel()
+        if log_ch:
+            await log_ch.send(
+                f"📦 [CW_AUTO_RESTOCK] {len(lots)} items rotated for week of {sunday_key}",
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        return True
+
+    # ------------------------------------------------------------------
     # Commands
     # ------------------------------------------------------------------
 
@@ -233,24 +322,32 @@ class CyberwareShop(commands.Cog):
     @commands.command(name="cw_buy")
     @is_ripperdoc()
     async def cw_buy(self, ctx: commands.Context, *, item_name: str) -> None:
-        """Purchase a cyberware part from the wholesaler at the sheet price."""
-        catalog = await self._load_catalog()
-        if not catalog:
+        """Purchase a cyberware part from this week's wholesale stock."""
+        state = await self._load_state()
+        lots = state.get("cw_wholesale_lots", [])
+
+        if not lots:
             await ctx.send(
-                "❌ Cyberware catalog is empty. "
-                "An admin must run `!cw_setsheet <url>` first."
+                "❌ No cyberware is available from the wholesaler this week. "
+                "Use `!cw_wh_list` to check stock, or ask an admin to run `!cw_wh_restock`."
             )
             return
 
-        item = self._lookup_item(catalog, item_name)
-        if item is None:
+        lot = self._lookup_lot(lots, item_name)
+        if lot is None:
             await ctx.send(
-                f"❌ Item **{item_name}** not found in catalog. "
-                "Use `!cw_catalog` to browse available items."
+                f"❌ **{item_name}** is not in this week's wholesale stock. "
+                "Use `!cw_wh_list` to see what's available."
             )
             return
 
-        price = item["price"]
+        if int(lot.get("qty_available", 0)) <= 0:
+            await ctx.send(
+                f"❌ **{lot['item_name']}** is sold out this week."
+            )
+            return
+
+        price = int(lot["unit_cost"])
 
         balance = await self.unbelievaboat.get_balance(ctx.author.id)
         if balance is None:
@@ -259,30 +356,44 @@ class CyberwareShop(commands.Cog):
 
         cash = int(balance.get("cash", 0))
         bank = int(balance.get("bank", 0))
-        total_funds = cash + bank
-        if total_funds < price:
+        if cash + bank < price:
             await ctx.send(
-                f"❌ Insufficient funds. **{item['name']}** costs ${price:,} "
-                f"but you only have ${total_funds:,}."
+                f"❌ Insufficient funds. **{lot['item_name']}** costs ${price:,} "
+                f"but you only have ${cash + bank:,}."
             )
             return
 
         cash_deduct = min(price, cash)
         bank_deduct = max(0, price - cash)
-
         ok = await self.unbelievaboat.update_balance(
             ctx.author.id,
             {"cash": -cash_deduct, "bank": -bank_deduct},
-            reason=f"Cyberware buy: {item['name']}",
+            reason=f"Cyberware wholesale buy: {lot['item_name']}",
         )
         if not ok:
             await ctx.send("❌ Balance update failed. Please try again.")
             return
 
         async with self.lock:
+            state = await self._load_state()
+            current_lot = self._lookup_lot(state.get("cw_wholesale_lots", []), lot["item_name"])
+            if current_lot is None or int(current_lot.get("qty_available", 0)) <= 0:
+                await self.unbelievaboat.update_balance(
+                    ctx.author.id,
+                    {"cash": cash_deduct, "bank": bank_deduct},
+                    reason=f"Cyberware wholesale buy refund (sold out): {lot['item_name']}",
+                )
+                await ctx.send(
+                    f"❌ **{lot['item_name']}** sold out while processing. "
+                    "Your payment has been refunded."
+                )
+                return
+
+            current_lot["qty_available"] = int(current_lot["qty_available"]) - 1
             inventory = await self._load_inventory(ctx.author.id)
-            inventory.append(item["name"])
+            inventory.append(lot["item_name"])
             await self._save_inventory(ctx.author.id, inventory)
+            await self._save_state(state)
 
             tx = {
                 "tx_id": str(uuid.uuid4()),
@@ -290,8 +401,9 @@ class CyberwareShop(commands.Cog):
                 "ts": self._now_iso(),
                 "ripperdoc_id": str(ctx.author.id),
                 "ripperdoc_name": ctx.author.display_name,
-                "item": item["name"],
+                "item": lot["item_name"],
                 "price": price,
+                "lot_id": lot.get("lot_id", ""),
             }
             await self._append_tx(tx)
 
@@ -299,14 +411,14 @@ class CyberwareShop(commands.Cog):
         receipt = (
             f"🛒 **CYBERWARE PURCHASE**\n"
             f"Ripperdoc: {ctx.author.mention}\n"
-            f"Item: **{item['name']}**\n"
+            f"Item: **{lot['item_name']}**\n"
             f"Price paid: **${price:,}**"
         )
         if log_ch:
             await log_ch.send(receipt, allowed_mentions=discord.AllowedMentions.none())
 
         await ctx.send(
-            f"✅ Purchased **{item['name']}** for **${price:,}**. "
+            f"✅ Purchased **{lot['item_name']}** for **${price:,}**. "
             "It is now in your inventory."
         )
 
@@ -550,3 +662,216 @@ class CyberwareShop(commands.Cog):
         )
         embed.set_footer(text=f"Showing last {len(recent)} of {len(filtered)} transaction(s)")
         await ctx.send(embed=embed)
+
+    # ------------------------------------------------------------------
+    # Cyberware wholesale commands
+    # ------------------------------------------------------------------
+
+    @commands.command(name="cw_wh_list", aliases=["cw_wholesale", "cw_stock"])
+    @commands.check_any(is_ripperdoc(), commands.has_permissions(administrator=True))
+    async def cw_wh_list(self, ctx: commands.Context) -> None:
+        """Show this week's cyberware available from the wholesaler."""
+        state = await self._load_state()
+        lots = state.get("cw_wholesale_lots", [])
+        if not lots:
+            await ctx.send(
+                "⚠️ No cyberware wholesale stock this week. "
+                "Ask an admin to run `!cw_wh_restock`."
+            )
+            return
+
+        settings = state.get("settings", {})
+        sunday_key = str(settings.get("last_cw_restock_sunday", "unknown"))
+        available = sorted(
+            [l for l in lots if int(l.get("qty_available", 0)) > 0],
+            key=lambda l: l["item_name"],
+        )
+        sold_out = sorted(
+            [l for l in lots if int(l.get("qty_available", 0)) <= 0],
+            key=lambda l: l["item_name"],
+        )
+
+        lines = []
+        for lot in available:
+            qty = int(lot["qty_available"])
+            price = int(lot["unit_cost"])
+            lines.append(f"`{lot['item_name']}` — ${price:,} × {qty}")
+        for lot in sold_out:
+            lines.append(f"~~`{lot['item_name']}`~~ — Sold out")
+
+        page_size = 20
+        pages = [lines[i: i + page_size] for i in range(0, len(lines), page_size)]
+        for page_num, page in enumerate(pages, 1):
+            embed = discord.Embed(
+                title=f"🔩 Cyberware Wholesale — Week of {sunday_key} ({page_num}/{len(pages)})",
+                description="\n".join(page),
+                color=discord.Color.teal(),
+            )
+            embed.set_footer(
+                text=f"{len(available)} of {len(lots)} items available | Use !cw_buy <name> to purchase"
+            )
+            await ctx.send(embed=embed)
+
+    @commands.command(name="cw_wh_restock")
+    @commands.has_permissions(administrator=True)
+    async def cw_wh_restock(
+        self, ctx: commands.Context, seed: Optional[int] = None
+    ) -> None:
+        """(Admin) Force a fresh weekly cyberware wholesale rotation."""
+        catalog = await self._load_catalog()
+        if not catalog:
+            await ctx.send(
+                "❌ Cyberware catalog is empty. Run `!cw_setsheet <url>` first."
+            )
+            return
+
+        if len(catalog) < 1:
+            await ctx.send("❌ Not enough items in catalog to generate lots.")
+            return
+
+        async with self.lock:
+            state = await self._load_state()
+            cfg = self._resolve_cw_restock_settings(state)
+            rng = random.Random(seed)
+            lots = self._generate_cw_lots(catalog, cfg, rng)
+            sunday_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            state["cw_wholesale_lots"] = lots
+            state.setdefault("settings", {})["last_cw_restock_sunday"] = sunday_key
+            saved = await self._save_state(state)
+
+        if not saved:
+            await ctx.send("❌ Failed to save restock state.")
+            return
+
+        total_units = sum(int(l["qty_available"]) for l in lots)
+        summary = (
+            f"✅ Cyberware wholesale restocked — **{len(lots)}** items, "
+            f"**{total_units}** units total."
+        )
+        item_lines = [
+            f"  `{lot['item_name']}` × {lot['qty_available']} @ ${lot['unit_cost']:,}"
+            for lot in sorted(lots, key=lambda l: l["item_name"])
+        ]
+        full = summary + "\n" + "\n".join(item_lines)
+        if len(full) <= 1900:
+            await ctx.send(full)
+        else:
+            await ctx.send(summary)
+            chunk = ""
+            for line in item_lines:
+                if len(chunk) + len(line) + 1 > 1900:
+                    await ctx.send(chunk)
+                    chunk = line
+                else:
+                    chunk = (chunk + "\n" + line).lstrip("\n")
+            if chunk:
+                await ctx.send(chunk)
+
+        log_ch = await self._log_channel()
+        if log_ch:
+            await log_ch.send(
+                f"📦 [CW_RESTOCK] by={ctx.author.mention} items={len(lots)} "
+                f"units={total_units} seed={seed}",
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+
+    @commands.command(name="cw_wh_add")
+    @commands.has_permissions(administrator=True)
+    async def cw_wh_add(
+        self, ctx: commands.Context, qty: int, *, item_name: str
+    ) -> None:
+        """(Admin) Add or restock an item in this week's cyberware wholesale.
+
+        Usage: !cw_wh_add <qty> <item name>
+        """
+        if qty <= 0:
+            await ctx.send("❌ qty must be positive.")
+            return
+
+        catalog = await self._load_catalog()
+        item = self._lookup_item(catalog, item_name)
+        if item is None:
+            await ctx.send(
+                f"❌ **{item_name}** not found in catalog. "
+                "Use `!cw_catalog` to browse available items."
+            )
+            return
+
+        async with self.lock:
+            state = await self._load_state()
+            lots = state.setdefault("cw_wholesale_lots", [])
+            existing = self._lookup_lot(lots, item["name"])
+            if existing:
+                existing["qty_available"] = int(existing["qty_available"]) + qty
+                msg = (
+                    f"✅ Added **{qty}** unit(s) to `{item['name']}` "
+                    f"(now ×{existing['qty_available']})."
+                )
+            else:
+                stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+                lots.append({
+                    "lot_id": f"cwlot-{stamp}-{uuid.uuid4().hex[:6]}",
+                    "item_name": item["name"],
+                    "unit_cost": item["price"],
+                    "qty_available": qty,
+                    "created_at": self._now_iso(),
+                })
+                msg = (
+                    f"✅ Added **{item['name']}** × {qty} "
+                    f"@ ${item['price']:,} to this week's wholesale."
+                )
+            await self._save_state(state)
+
+        await ctx.send(msg)
+
+    @commands.command(name="cw_wh_remove")
+    @commands.has_permissions(administrator=True)
+    async def cw_wh_remove(self, ctx: commands.Context, *, item_name: str) -> None:
+        """(Admin) Remove an item entirely from this week's cyberware wholesale."""
+        async with self.lock:
+            state = await self._load_state()
+            lots = state.get("cw_wholesale_lots", [])
+            lot = self._lookup_lot(lots, item_name)
+            if lot is None:
+                await ctx.send(
+                    f"❌ **{item_name}** not found in this week's wholesale lots."
+                )
+                return
+            lots.remove(lot)
+            state["cw_wholesale_lots"] = lots
+            await self._save_state(state)
+
+        await ctx.send(f"✅ Removed **{lot['item_name']}** from this week's wholesale.")
+
+    @commands.command(name="cw_wh_settings")
+    @commands.has_permissions(administrator=True)
+    async def cw_wh_settings(
+        self,
+        ctx: commands.Context,
+        key: Optional[str] = None,
+        value: Optional[int] = None,
+    ) -> None:
+        """(Admin) View or update cyberware wholesale restock settings.
+
+        Keys: total_items, qty_min, qty_max
+        Example: !cw_wh_settings total_items 20
+        """
+        async with self.lock:
+            state = await self._load_state()
+            cfg = self._resolve_cw_restock_settings(state)
+
+            if key and value is not None:
+                if key not in self.DEFAULT_CW_RESTOCK_SETTINGS:
+                    valid = ", ".join(f"`{k}`" for k in self.DEFAULT_CW_RESTOCK_SETTINGS)
+                    await ctx.send(f"❌ Invalid key. Valid keys: {valid}")
+                    return
+                cfg[key] = max(1, int(value))
+                state.setdefault("settings", {}).setdefault("cw_restock", {})[key] = cfg[key]
+                await self._save_state(state)
+                await ctx.send(f"✅ Set `{key}` = {cfg[key]}.")
+                return
+
+        lines = ["**Cyberware Wholesale Restock Settings**"]
+        for k in sorted(self.DEFAULT_CW_RESTOCK_SETTINGS):
+            lines.append(f"`{k}` = {cfg[k]}")
+        await ctx.send("\n".join(lines))
