@@ -2402,10 +2402,11 @@ async def cw_catalog_get_all() -> list[dict]:
 
 
 async def cw_catalog_upsert_many(items: list[dict]) -> bool:
-    """Bulk-upsert cyberware catalog items by name.
+    """Replace the cyberware catalog with exactly the provided items.
 
-    On conflict updates price and updated_at; preserves existing rows for
-    any names not present in *items*.
+    Deletes all existing rows then inserts the new set inside a single
+    transaction, so the table always mirrors the sheet exactly.  Items
+    removed from the sheet are no longer visible to Ripperdocs.
     """
     if not items:
         return True
@@ -2415,6 +2416,7 @@ async def cw_catalog_upsert_many(items: list[dict]) -> bool:
         async def _do():
             async with pool.acquire() as conn:
                 async with conn.transaction():
+                    await conn.execute("DELETE FROM cyberware_catalog")
                     for item in items:
                         name = str(item.get("name", "")).strip()
                         price = int(item.get("price", 0))

@@ -1676,6 +1676,7 @@ class WholesalerCog(commands.Cog):
             qty_count = sum(max(int(lot.get("qty_available", 0)), 0) for lot in lots)
             state["wholesale_lots"] = []
             await self._save_state(state)
+            await gun_catalog_sync_qty_from_lots([])
 
         await ctx.send(f"✅ Cleared wholesaler inventory ({lot_count} lots, {qty_count} units).")
         await self._audit_send(
@@ -2025,6 +2026,7 @@ class WholesalerCog(commands.Cog):
             state = await self._load_state()
             state.setdefault("wholesale_lots", []).append(lot)
             await self._save_state(state)
+            await gun_catalog_adjust_qty(gun_name, qty)
 
         tx = self._build_tx(
             "ADMIN_ADJUST",
@@ -2156,6 +2158,7 @@ class WholesalerCog(commands.Cog):
                 msg = f"✅ Reduced lot `{lot_id}` ({target['gun_name']}) from {old_qty} → {target['qty_available']} units."
 
             await self._save_state(state)
+            await gun_catalog_adjust_qty(target["gun_name"], -remove_qty)
 
         tx = self._build_tx(
             "ADMIN_REMOVE",
