@@ -29,7 +29,7 @@ from NightCityBot.utils.db import (
 logger = logging.getLogger(__name__)
 
 
-class WholesalerCog(commands.Cog):
+class GunsShopCog(commands.Cog):
     """Two-tier gun supply chain: corp wholesaler -> stores -> players.
 
     Uses read-only spreadsheet parsing and immutable receipt/audit logs.
@@ -432,7 +432,7 @@ class WholesalerCog(commands.Cog):
     @staticmethod
     def _normalize_sheet_source_url(value: str) -> str:
         """Normalize a Google Sheets URL to an XLSX export URL when possible."""
-        raw = WholesalerCog._clean_sheet_url_input(value)
+        raw = GunsShopCog._clean_sheet_url_input(value)
         if not raw:
             return raw
         parsed = urlparse(raw)
@@ -464,7 +464,7 @@ class WholesalerCog(commands.Cog):
     @staticmethod
     def _extract_sheet_gid(value: str) -> Optional[str]:
         """Extract a Google Sheets gid from a URL query or fragment."""
-        raw = WholesalerCog._clean_sheet_url_input(value)
+        raw = GunsShopCog._clean_sheet_url_input(value)
         if not raw:
             return None
         parsed = urlparse(raw)
@@ -554,7 +554,7 @@ class WholesalerCog(commands.Cog):
             effectiveness_raw = (
                 str(row[eff_idx]).strip() if eff_idx < len(row) and row[eff_idx] is not None else ""
             )
-            price_new = WholesalerCog._to_int(row[price_idx] if price_idx < len(row) else None)
+            price_new = GunsShopCog._to_int(row[price_idx] if price_idx < len(row) else None)
 
             if not gun_name:
                 continue
@@ -567,15 +567,15 @@ class WholesalerCog(commands.Cog):
             if price_new is None or price_new <= 0:
                 continue
 
-            weapon_type = WholesalerCog._derive_weapon_type(gun_name, effectiveness_raw) or current_section_type
+            weapon_type = GunsShopCog._derive_weapon_type(gun_name, effectiveness_raw) or current_section_type
 
             mag_raw = row[mag_idx] if mag_idx < len(row) else None
-            mag_size = WholesalerCog._to_int(mag_raw)
+            mag_size = GunsShopCog._to_int(mag_raw)
             if mag_size is None and mag_raw is not None:
                 mag_size = str(mag_raw)
 
             cyber_raw = row[cyberware_idx] if cyberware_idx < len(row) else ""
-            cyberware_needed = WholesalerCog._to_int(cyber_raw)
+            cyberware_needed = GunsShopCog._to_int(cyber_raw)
             if cyberware_needed is None:
                 cyberware_needed = "" if cyber_raw is None else str(cyber_raw)
 
@@ -595,8 +595,8 @@ class WholesalerCog(commands.Cog):
                     "mag_size": mag_size,
                     "price_new": price_new,
                     "cyberware_needed": cyberware_needed,
-                    "gun_level": WholesalerCog._derive_level(effectiveness_raw),
-                    "gun_category": WholesalerCog._derive_category(effectiveness_raw),
+                    "gun_level": GunsShopCog._derive_level(effectiveness_raw),
+                    "gun_category": GunsShopCog._derive_category(effectiveness_raw),
                     "weapon_type": weapon_type,
                     "restriction": restriction,
                     "status": status,

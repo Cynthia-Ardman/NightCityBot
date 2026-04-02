@@ -122,7 +122,7 @@ class CyberwareManager(commands.Cog):
                 )
             except Exception:
                 logger.warning("Suppressed exception", exc_info=True)
-        wholesaler = self.bot.get_cog("WholesalerCog")
+        wholesaler = self.bot.get_cog("GunsShopCog")
         if wholesaler and hasattr(wholesaler, "auto_refresh_weekly_after_cyberware"):
             try:
                 refreshed = await wholesaler.auto_refresh_weekly_after_cyberware()

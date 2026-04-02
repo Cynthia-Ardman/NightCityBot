@@ -10,7 +10,7 @@ import discord
 import pytest
 from openpyxl import Workbook
 
-from NightCityBot.cogs.wholesaler import WholesalerCog
+from NightCityBot.cogs.guns_shop import GunsShopCog as WholesalerCog
 
 
 def _make_cog(tmp_path: Path, monkeypatch):

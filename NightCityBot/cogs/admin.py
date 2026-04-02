@@ -354,7 +354,7 @@ class Admin(commands.Cog):
                 ]),
             ),
             (
-                "🔫 Wholesaler / Store Tools",
+                "🔫 Gun Shop Tools",
                 "\n".join([
                     "`!guns_wh_list` – view current wholesaler lots grouped by weapon type.",
                     "`!guns_store_inv [shop_name]` – view your store inventory.",
@@ -456,7 +456,7 @@ class Admin(commands.Cog):
                 ]),
             ),
             (
-                "🔫 Wholesaler Admin",
+                "🔫 Gun Shop Admin",
                 "\n".join([
                     "`!guns_wh_setshop <shop_name> @owner` – bind a shop alias to a specific owner account.",
                     "`!guns_wh_shops` – list all shop alias mappings.",
@@ -506,7 +506,7 @@ class Admin(commands.Cog):
     async def helpguns(self, ctx):
         """Display help for the wholesale gun system and gun store owners."""
         embed = discord.Embed(
-            title="🔫 NCRP Bot — Guns & Wholesaler Guide",
+            title="🔫 NCRP Bot — Gun Shop Guide",
             description=(
                 "Everything you need to know about the gun economy in Night City. "
                 "The corporate wholesaler stocks guns every week. "
@@ -516,7 +516,7 @@ class Admin(commands.Cog):
         )
 
         embed.add_field(
-            name="📋 Step 1 — Check Wholesaler Stock",
+            name="📋 Step 1 — Check Gun Shop Stock",
             value=(
                 "`!guns_wh_list` — see what the wholesaler currently has available.\n"
                 "Lots are grouped by weapon type (Pistol, Revolver, Shotgun, etc.).\n"
@@ -585,7 +585,7 @@ class Admin(commands.Cog):
         )
 
         embed.add_field(
-            name="⚙️ Admin — Wholesaler Management",
+            name="⚙️ Admin — Gun Shop Management",
             value=(
                 "`!guns_wh_setsheet <url>` — load the gun master sheet and refresh the gun catalog.\n"
                 "`!guns_wh_restock` — force a fresh weekly wholesale lot rotation.\n"
