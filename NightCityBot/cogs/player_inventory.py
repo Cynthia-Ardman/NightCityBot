@@ -166,15 +166,16 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             visible = (char_filter_lower is None) or (char.lower() == char_filter_lower)
             groups = PlayerInventoryCog._group_items(char_groups[char])
             if visible:
-                display.append((None, f"— **{char or '(no character)'}** —"))
+                display.append((None, f"**— {char or '(no character)'} —**"))
+                display.append((None, "*# · Item [type] · Price · Seller · Date*"))
             for g in groups:
                 price_str = f"${g['price_paid']:,}" if g["price_paid"] else "—"
                 seller_str = g["seller_name"] or "—"
                 date_str = g.get("acquired_date") or "—"
                 count_str = f" ×{g['count']}" if g["count"] > 1 else ""
                 line = (
-                    f"`{row_num}.` **{g['name']}**{count_str}"
-                    f" | {g['item_type']} | {price_str} | {seller_str} | {date_str}"
+                    f"`{row_num}.` **{g['name']}**{count_str} [{g['item_type']}]\n"
+                    f"  > Price: {price_str}  ·  Seller: {seller_str}  ·  {date_str}"
                 )
                 if visible:
                     display.append((row_num, line))
