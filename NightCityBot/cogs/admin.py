@@ -234,7 +234,14 @@ class Admin(commands.Cog):
         """Display help for regular users."""
         embed = discord.Embed(
             title="📘 NCRP Bot — Player Help",
-            description="Basic commands for RP, rent, and rolling dice. Use `!helpfixer` if you're a Fixer, or `!helpbusiness` if you run a gun store.",
+            description=(
+                "Basic commands for RP, rent, and daily life in Night City.\n\n"
+                "**Other help commands:**\n"
+                "`!helpguns` — gun store buying & selling guide\n"
+                "`!helpcyberware` — Ripperdoc cyberware shop guide\n"
+                "`!helpfixer` — messaging, RP management, and economy tools\n"
+                "`!helpadmin` — server administration commands"
+            ),
             color=discord.Color.teal(),
         )
 
@@ -288,12 +295,12 @@ class Admin(commands.Cog):
             value=(
                 "`!wh_list` – browse current wholesaler lots.\n"
                 "`!store_inv` – view your store's current inventory.\n\n"
-                "Own a gun store? Run `!helpbusiness` for the full buying & selling guide."
+                "Own a gun store? Run `!helpguns` for the full buying & selling guide."
             ),
             inline=False,
         )
 
-        embed.set_footer(text="Use !roll, pay your rent, stay alive.")
+        embed.set_footer(text="Use !roll, pay your rent, stay alive. | !helpguns • !helpcyberware • !helpfixer • !helpadmin")
         await ctx.send(embed=embed)
 
     @commands.command(name="helpfixer")
@@ -491,14 +498,15 @@ class Admin(commands.Cog):
         for e in embeds:
             await ctx.send(embed=e)
 
-    @commands.command(name="helpbusiness", aliases=["helpshop", "helpstore"])
-    async def helpbusiness(self, ctx):
-        """Display help for gun store business owners."""
+    @commands.command(name="helpguns", aliases=["helpbusiness", "helpshop", "helpstore"])
+    async def helpguns(self, ctx):
+        """Display help for the wholesale gun system and gun store owners."""
         embed = discord.Embed(
-            title="🔫 NCRP Bot — Gun Store Owner Help",
+            title="🔫 NCRP Bot — Guns & Wholesaler Guide",
             description=(
-                "Everything you need to run your gun store. "
-                "You buy stock from the corporate wholesaler, then sell to players at your own markup."
+                "Everything you need to know about the gun economy in Night City. "
+                "The corporate wholesaler stocks guns every week. "
+                "Store owners buy from the wholesaler, then sell to players at their own markup."
             ),
             color=discord.Color.orange(),
         )
@@ -581,7 +589,111 @@ class Admin(commands.Cog):
             inline=False,
         )
 
-        embed.set_footer(text="Buy low, sell high, stay strapped. | Use !helpme for general help.")
+        embed.set_footer(text="Buy low, sell high, stay strapped. | !helpme • !helpcyberware • !helpfixer • !helpadmin")
+        await ctx.send(embed=embed)
+
+    @commands.command(name="helpcyberware", aliases=["helpcw", "helpripper", "helpripperdoc"])
+    async def helpcyberware(self, ctx):
+        """Display help for the Ripperdoc cyberware shop system."""
+        embed = discord.Embed(
+            title="🦾 NCRP Bot — Cyberware Shop Guide",
+            description=(
+                "Night City's cyberware economy runs through licensed Ripperdocs. "
+                "Ripperdocs buy parts from the corporate supplier at catalogue price, "
+                "then install them for patients at their own rate. "
+                "Every transaction is logged for staff records."
+            ),
+            color=discord.Color.teal(),
+        )
+
+        embed.add_field(
+            name="👥 Who Can Do What",
+            value=(
+                "**Ripperdocs** — hold the Ripperdoc role. They buy parts, stock their inventory, and install cyberware.\n"
+                "**Patients** — any server member. They pay the Ripperdoc for an installation.\n"
+                "**Admins** — load the catalogue from the master sheet and view all transactions."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="📋 Browse the Catalogue",
+            value=(
+                "`!cw_catalog` — view all available cyberware parts and their supplier reference prices.\n"
+                "Prices shown are the **Ripperdoc's cost** — what they pay to stock an item. "
+                "Ripperdocs set their own installation price when selling to patients."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🛒 Buy Parts (Ripperdoc only)",
+            value=(
+                "`!cw_buy <item name>` — purchase a part from the supplier at catalogue price.\n"
+                "Example: `!cw_buy Kiroshi Optics Mk.1`\n\n"
+                "The cost is deducted from your balance. The part is added to your inventory immediately.\n"
+                "Multi-word names don't need quotes."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="📦 Check Your Stock (Ripperdoc only)",
+            value=(
+                "`!cw_inventory` — view parts currently in your inventory.\n"
+                "`!cw_inventory @ripperdoc` — admins can view another Ripperdoc's stock."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="💉 Install / Sell to a Patient (Ripperdoc only)",
+            value=(
+                '`!cw_sell @patient "item name" <price>`\n'
+                'Example: `!cw_sell @V "Kiroshi Optics Mk.1" 3500`\n\n'
+                "This will:\n"
+                "1. Deduct the price from the patient's balance\n"
+                "2. Credit the price to your (Ripperdoc's) balance\n"
+                "3. Remove the part from your inventory\n"
+                "4. Post an audit receipt to the Ripperdoc log channel\n\n"
+                "The item name must be in quotes if it contains spaces. "
+                "The price you set is your call — charge what the market will bear."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="📜 Transaction History",
+            value=(
+                "`!cw_tx` — view your last 20 transactions (buys and installs).\n"
+                "`!cw_tx @ripperdoc` — admins can pull any Ripperdoc's transaction log."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="⚙️ Admin — Load the Catalogue",
+            value=(
+                "`!cw_setsheet <google_sheet_url>` — download and parse the cyberware master sheet.\n"
+                "This updates the **cyberware_catalog** database table that all Ripperdocs read from. "
+                "Prices in the table can be edited directly in the database and take effect immediately — "
+                "no sheet reload required for price-only changes."
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="⚠️ Good to Know",
+            value=(
+                "- You must buy a part **before** you can sell/install it — no selling from thin air.\n"
+                "- Stock is per-Ripperdoc: your inventory is yours alone.\n"
+                "- If a transaction fails partway through, compensating refunds are issued automatically.\n"
+                "- Catalogue prices are the supplier floor. You may charge patients more (or less) — that's your business."
+            ),
+            inline=False,
+        )
+
+        embed.set_footer(text="Chrome up. | !helpme • !helpguns • !helpfixer • !helpadmin")
         await ctx.send(embed=embed)
 
     @commands.command(name="shutdown_bot", aliases=["shutdownbot", "forceshutdown"])

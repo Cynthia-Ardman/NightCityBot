@@ -24,6 +24,7 @@ from NightCityBot.utils.db import (
     wh_settings_get, wh_settings_save,
     wh_tx_append, wh_tx_get_all,
     gun_catalog_upsert_many, gun_catalog_sync_qty_from_lots, gun_catalog_adjust_qty,
+    gun_catalog_get_all,
 )
 
 logger = logging.getLogger(__name__)
@@ -339,6 +340,29 @@ class WholesalerCog(commands.Cog):
         )
         await wh_tx_get_all()
         await self.emit_inventory_snapshot_audit("BOT_READY")
+
+        # Populate gun_catalog on startup if the table is empty.
+        # This handles the case where the bot restarts after the table was first
+        # added but before any !wh_restock has been run.
+        try:
+            existing = await gun_catalog_get_all()
+            if not existing:
+                logger.info("gun_catalog is empty — attempting to populate from sheet on startup")
+                guns = await self._load_master_guns()
+                if guns:
+                    state = await self._load_state()
+                    lots = state.get("wholesale_lots", [])
+                    await gun_catalog_sync_qty_from_lots(lots)
+                    logger.info(
+                        "gun_catalog populated on startup: %d guns, %d lots synced",
+                        len(guns), len(lots),
+                    )
+                else:
+                    logger.info("gun_catalog startup populate: no guns found (sheet not configured?)")
+            else:
+                logger.info("gun_catalog already populated (%d entries) — skipping startup reload", len(existing))
+        except Exception:
+            logger.warning("gun_catalog startup populate failed (non-fatal)", exc_info=True)
 
     async def _ensure_inventory_files_exist(self) -> None:
         """Create baseline wholesaler/store persistence files during startup."""
