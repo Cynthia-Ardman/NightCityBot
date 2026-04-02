@@ -473,6 +473,9 @@ class Admin(commands.Cog):
                     "`!search_tickets <query>` (aliases: !searchtickets, !ticketsearch) – search the ticket index by name, user, ticket ID, reason, or any text.",
                     "`!db_health` – show database ping, pool stats, write-failure count, and last failure timestamp.",
                     "`!migrate_json_store` – one-time migration: copy all json_store blobs into normalized tables. Idempotent — safe to re-run.",
+                    "`!ticket_debug [index]` (alias: !ticketdebug) – show the raw stored text for a ticket index entry. Pass an index (0 = most recent). Useful when searches aren't matching.",
+                    "`!ticket_channel_preview [count]` (alias: !ticketchannelpreview) – preview recent messages in the Tickety log channel and show which would be indexed.",
+                    "`!ticket_scan [limit]` (alias: !ticketscan) – scan the log channel and show one sample embed per unique bot; helps identify the Tickety embed format.",
                     "`!test_bot [tests] [-silent] [-verbose]` – execute the built-in test suite *(bot owner only)*.",
                     "`!list_tests` – show all available self-test names *(bot owner only)*.",
                     "`!test__bot [pattern]` – run the PyTest suite optionally filtering by pattern *(bot owner only)*.",
@@ -494,7 +497,7 @@ class Admin(commands.Cog):
                     "`!guns_store_remove @owner <lot_id> [qty]` – remove or reduce a lot from a store.",
                     "`!guns_wh_tx <tx_id>` – inspect a wholesaler transaction by ID.",
                     "`!guns_wh_retry_payout <tx_id>` – retry a pending seller payout.",
-                    "`!guns_wh_paths` – show wholesaler data file paths (useful for debugging).",
+                    "`!guns_wh_paths` – show wholesaler data file paths and whether each file exists (diagnostic).",
                 ]),
             ),
         ]
