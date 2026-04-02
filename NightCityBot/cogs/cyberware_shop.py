@@ -313,13 +313,12 @@ class CyberwareShop(commands.Cog):
         self,
         ctx: commands.Context,
         patient: discord.Member,
-        price: int,
-        *,
         item_name: str,
+        price: int,
     ) -> None:
         """Sell/install a cyberware part to a patient at your stated price.
 
-        Usage: !cw_sell @patient <price> <item name>
+        Usage: !cw_sell @patient "item name" <price>
         """
         if price <= 0:
             await ctx.send("❌ Price must be a positive number.")
@@ -386,9 +385,33 @@ class CyberwareShop(commands.Cog):
             )
             if not ok_ripper:
                 logger.error(
-                    "cw_sell: credited patient but failed to credit Ripperdoc %s",
+                    "cw_sell: patient debited but Ripperdoc credit failed for %s — "
+                    "attempting refund to patient %s",
                     ctx.author.id,
+                    patient.id,
                 )
+                refund_ok = await self.unbelievaboat.update_balance(
+                    patient.id,
+                    {"cash": pat_cash_deduct, "bank": pat_bank_deduct},
+                    reason=f"Cyberware sale refund (Ripperdoc credit failure): {item['name']}",
+                )
+                if refund_ok:
+                    await ctx.send(
+                        "❌ Failed to credit your balance. "
+                        "Patient's payment has been refunded. No changes saved."
+                    )
+                else:
+                    await ctx.send(
+                        "❌ Critical error: Ripperdoc credit failed AND patient refund failed. "
+                        "Please contact an admin immediately to manually correct balances."
+                    )
+                    logger.error(
+                        "cw_sell: BOTH Ripperdoc credit and patient refund failed — "
+                        "manual balance correction required for patient %s amount %d",
+                        patient.id,
+                        price,
+                    )
+                return
 
             inventory.pop(idx)
             await self._save_inventory(ctx.author.id, inventory)
