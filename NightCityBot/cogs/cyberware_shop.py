@@ -573,11 +573,16 @@ class CyberwareShop(commands.Cog):
     ) -> None:
         """Show your (or another Ripperdoc's) current cyberware inventory."""
         target = member or ctx.author
-        if member and not any(
-            r.id == config.RIPPERDOC_ROLE_ID for r in ctx.author.roles
-        ) and not ctx.author.guild_permissions.administrator:
-            await ctx.send("❌ Only Ripperdocs or admins can view another member's inventory.")
-            return
+        if member:
+            author_roles = getattr(ctx.author, "roles", [])
+            is_privileged = (
+                any(r.id == config.RIPPERDOC_ROLE_ID for r in author_roles)
+                or any(r.id == config.FIXER_ROLE_ID for r in author_roles)
+                or ctx.author.guild_permissions.administrator
+            )
+            if not is_privileged:
+                await ctx.send("❌ Only Ripperdocs, Fixers, or admins can view another member's inventory.")
+                return
 
         inventory = await self._load_inventory(target.id)
         if not inventory:
@@ -635,80 +640,109 @@ class CyberwareShop(commands.Cog):
             )
             return
 
+        item_lower = item["name"].lower()
+
+        # Pre-flight inventory check outside the lock — fast feedback to user
+        pre_inv = await self._load_inventory(ctx.author.id)
+        if not any(n.lower() == item_lower for n in pre_inv):
+            await ctx.send(
+                f"❌ **{item['name']}** is not in your inventory. "
+                "Use `!cw_buy` to purchase it first."
+            )
+            return
+
+        # Balance check outside the lock
+        patient_balance = await self.unbelievaboat.get_balance(patient.id)
+        if patient_balance is None:
+            await ctx.send("❌ Could not fetch patient's balance. Please try again.")
+            return
+
+        pat_cash = int(patient_balance.get("cash", 0))
+        pat_bank = int(patient_balance.get("bank", 0))
+        pat_total = pat_cash + pat_bank
+        if pat_total < price:
+            await ctx.send(
+                f"❌ {patient.display_name} cannot afford **${price:,}** "
+                f"(they have **${pat_total:,}**)."
+            )
+            return
+
+        pat_cash_deduct = min(price, pat_cash)
+        pat_bank_deduct = max(0, price - pat_cash)
+
+        # Balance API calls outside the lock — these are external HTTP requests
+        ok_patient = await self.unbelievaboat.update_balance(
+            patient.id,
+            {"cash": -pat_cash_deduct, "bank": -pat_bank_deduct},
+            reason=f"Cyberware install: {item['name']}",
+        )
+        if not ok_patient:
+            await ctx.send("❌ Failed to deduct from patient's balance. Aborting.")
+            return
+
+        ok_ripper = await self.unbelievaboat.update_balance(
+            ctx.author.id,
+            {"cash": price},
+            reason=f"Cyberware sale: {item['name']} to {patient.display_name}",
+        )
+        if not ok_ripper:
+            logger.error(
+                "cw_sell: patient debited but Ripperdoc credit failed for %s — "
+                "attempting refund to patient %s",
+                ctx.author.id,
+                patient.id,
+            )
+            refund_ok = await self.unbelievaboat.update_balance(
+                patient.id,
+                {"cash": pat_cash_deduct, "bank": pat_bank_deduct},
+                reason=f"Cyberware sale refund (Ripperdoc credit failure): {item['name']}",
+            )
+            if refund_ok:
+                await ctx.send(
+                    "❌ Failed to credit your balance. "
+                    "Patient's payment has been refunded. No changes saved."
+                )
+            else:
+                await ctx.send(
+                    "❌ Critical error: Ripperdoc credit failed AND patient refund failed. "
+                    "Please contact an admin immediately to manually correct balances."
+                )
+                logger.error(
+                    "cw_sell: BOTH Ripperdoc credit and patient refund failed — "
+                    "manual balance correction required for patient %s amount %d",
+                    patient.id,
+                    price,
+                )
+            return
+
+        # Under the lock: re-verify item is still in inventory, pop, save, record tx
         async with self.lock:
             inventory = await self._load_inventory(ctx.author.id)
-            item_lower = item["name"].lower()
             idx = next(
                 (i for i, n in enumerate(inventory) if n.lower() == item_lower),
                 None,
             )
             if idx is None:
-                await ctx.send(
-                    f"❌ **{item['name']}** is not in your inventory. "
-                    "Use `!cw_buy` to purchase it first."
-                )
-                return
-
-            patient_balance = await self.unbelievaboat.get_balance(patient.id)
-            if patient_balance is None:
-                await ctx.send("❌ Could not fetch patient's balance. Please try again.")
-                return
-
-            pat_cash = int(patient_balance.get("cash", 0))
-            pat_bank = int(patient_balance.get("bank", 0))
-            pat_total = pat_cash + pat_bank
-            if pat_total < price:
-                await ctx.send(
-                    f"❌ {patient.display_name} cannot afford **${price:,}** "
-                    f"(they have **${pat_total:,}**)."
-                )
-                return
-
-            pat_cash_deduct = min(price, pat_cash)
-            pat_bank_deduct = max(0, price - pat_cash)
-
-            ok_patient = await self.unbelievaboat.update_balance(
-                patient.id,
-                {"cash": -pat_cash_deduct, "bank": -pat_bank_deduct},
-                reason=f"Cyberware install: {item['name']}",
-            )
-            if not ok_patient:
-                await ctx.send("❌ Failed to deduct from patient's balance. Aborting.")
-                return
-
-            ok_ripper = await self.unbelievaboat.update_balance(
-                ctx.author.id,
-                {"cash": price},
-                reason=f"Cyberware sale: {item['name']} to {patient.display_name}",
-            )
-            if not ok_ripper:
-                logger.error(
-                    "cw_sell: patient debited but Ripperdoc credit failed for %s — "
-                    "attempting refund to patient %s",
+                # Item removed between pre-check and lock acquisition — refund both parties
+                logger.warning(
+                    "cw_sell: '%s' not in inventory under lock for %s — refunding",
+                    item["name"],
                     ctx.author.id,
-                    patient.id,
                 )
-                refund_ok = await self.unbelievaboat.update_balance(
+                await self.unbelievaboat.update_balance(
                     patient.id,
                     {"cash": pat_cash_deduct, "bank": pat_bank_deduct},
-                    reason=f"Cyberware sale refund (Ripperdoc credit failure): {item['name']}",
+                    reason=f"Cyberware sale refund (item no longer in inventory): {item['name']}",
                 )
-                if refund_ok:
-                    await ctx.send(
-                        "❌ Failed to credit your balance. "
-                        "Patient's payment has been refunded. No changes saved."
-                    )
-                else:
-                    await ctx.send(
-                        "❌ Critical error: Ripperdoc credit failed AND patient refund failed. "
-                        "Please contact an admin immediately to manually correct balances."
-                    )
-                    logger.error(
-                        "cw_sell: BOTH Ripperdoc credit and patient refund failed — "
-                        "manual balance correction required for patient %s amount %d",
-                        patient.id,
-                        price,
-                    )
+                await self.unbelievaboat.update_balance(
+                    ctx.author.id,
+                    {"cash": -price},
+                    reason=f"Cyberware sale refund (item no longer in inventory): {item['name']}",
+                )
+                await ctx.send(
+                    f"❌ **{item['name']}** was no longer in your inventory when the "
+                    "sale was processed. All payments have been refunded."
+                )
                 return
 
             inventory.pop(idx)
@@ -750,13 +784,17 @@ class CyberwareShop(commands.Cog):
         member: Optional[discord.Member] = None,
     ) -> None:
         """Show recent cyberware transactions (admin or own transactions only)."""
-        is_admin = ctx.author.guild_permissions.administrator
-        if member and not is_admin and member.id != ctx.author.id:
+        author_roles = getattr(ctx.author, "roles", [])
+        is_privileged = (
+            ctx.author.guild_permissions.administrator
+            or any(r.id == config.FIXER_ROLE_ID for r in author_roles)
+        )
+        if member and not is_privileged and member.id != ctx.author.id:
             await ctx.send("❌ You can only view your own transactions.")
             return
 
         target = member
-        if not is_admin and target is None:
+        if not is_privileged and target is None:
             target = ctx.author
 
         all_tx = await self._load_tx()

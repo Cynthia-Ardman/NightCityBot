@@ -7,7 +7,7 @@ def is_fixer():
     async def predicate(ctx):
         # in-guild messages
         if isinstance(ctx.author, discord.Member):
-            if discord.utils.get(ctx.author.roles, name=config.FIXER_ROLE_NAME) is not None:
+            if any(r.id == config.FIXER_ROLE_ID for r in ctx.author.roles):
                 return True
             raise commands.CheckFailure("Fixer role required")
 
@@ -23,7 +23,7 @@ def is_fixer():
             except discord.NotFound:
                 raise commands.CheckFailure("Fixer role required")
 
-        if discord.utils.get(member.roles, name=config.FIXER_ROLE_NAME) is not None:
+        if any(r.id == config.FIXER_ROLE_ID for r in member.roles):
             return True
         raise commands.CheckFailure("Fixer role required")
 
@@ -94,7 +94,9 @@ def is_store_owner():
                 except discord.NotFound:
                     raise commands.CheckFailure("Gun store owner role required")
 
-        if any(r.id == config.WHOLESALER_STORE_ROLE_IDS for r in getattr(member, "roles", [])):
+        raw = config.WHOLESALER_STORE_ROLE_IDS
+        store_ids = {int(raw)} if isinstance(raw, (int, float, str)) and str(raw).strip().isdigit() else {int(x) for x in raw}
+        if any(r.id in store_ids for r in getattr(member, "roles", [])):
             return True
         raise commands.CheckFailure("Gun store owner role required")
 
