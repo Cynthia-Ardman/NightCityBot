@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 
+import config
 from NightCityBot.cogs.player_hub import (
     PlayerHubCog,
     PlayerHubView,
@@ -112,6 +113,13 @@ SAMPLE_ITEMS = [{
     "item_id": "uuid-1", "owner_id": "100", "character_name": "V",
     "name": "Katana", "item_type": "gun", "restriction": "basic",
     "price_paid": 500, "seller_name": "", "acquired_at": "2025-01-01",
+    "created_at": "2025-01-01",
+}]
+
+NO_CHAR_ITEMS = [{
+    "item_id": "uuid-nc", "owner_id": "100", "character_name": "",
+    "name": "Loose Knife", "item_type": "melee", "restriction": "basic",
+    "price_paid": 100, "seller_name": "", "acquired_at": "2025-01-01",
     "created_at": "2025-01-01",
 }]
 
@@ -1898,3 +1906,263 @@ class TestInventoryDisplayFormat:
         headers = [line for num, line in display if num is None]
         assert any("V" in h for h in headers)
         assert any("Johnny" in h for h in headers)
+
+
+class TestTradeSellerCharacterPrompt:
+    def test_trade_uses_item_char_when_present(self):
+        async def _test():
+            cog = _make_cog()
+            cog.bot.get_cog = MagicMock(return_value=None)
+            buyer = _make_buyer()
+            groups = _build_groups(SAMPLE_ITEMS)
+            inter = _make_interaction()
+            with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}):
+                with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=True):
+                    with patch("NightCityBot.cogs.player_hub._route_log_channel", new_callable=AsyncMock, return_value=None):
+                        with patch("NightCityBot.cogs.player_hub.ih_record_event", new_callable=AsyncMock) as mock_record:
+                            with patch("NightCityBot.cogs.player_hub.TradeConfirmView") as MockConfirm:
+                                confirm_inst = MagicMock()
+                                confirm_inst.accepted = True
+                                confirm_inst.wait = AsyncMock()
+                                MockConfirm.return_value = confirm_inst
+                                await _process_trade(cog, inter, buyer, groups[0], "Johnny", 0, "V")
+                            meta = mock_record.call_args.kwargs["metadata"]
+                            assert meta["seller_character"] == "V"
+        _run(_test())
+
+    def test_trade_seller_char_in_audit_embed(self):
+        async def _test():
+            cog = _make_cog()
+            cog.bot.get_cog = MagicMock(return_value=None)
+            buyer = _make_buyer()
+            groups = _build_groups(SAMPLE_ITEMS)
+            inter = _make_interaction()
+            log_ch = AsyncMock()
+            with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}):
+                with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=True):
+                    with patch("NightCityBot.cogs.player_hub._route_log_channel", new_callable=AsyncMock, return_value=log_ch):
+                        with patch("NightCityBot.cogs.player_hub.ih_record_event", new_callable=AsyncMock):
+                            with patch("NightCityBot.cogs.player_hub.TradeConfirmView") as MockConfirm:
+                                confirm_inst = MagicMock()
+                                confirm_inst.accepted = True
+                                confirm_inst.wait = AsyncMock()
+                                MockConfirm.return_value = confirm_inst
+                                await _process_trade(cog, inter, buyer, groups[0], "Johnny", 0, "SellerChar")
+                            embed = log_ch.send.call_args.kwargs["embed"]
+                            seller_field = embed.fields[0]
+                            assert "SellerChar" in seller_field.value
+        _run(_test())
+
+    def test_trade_seller_char_falls_back_to_item_char(self):
+        async def _test():
+            cog = _make_cog()
+            cog.bot.get_cog = MagicMock(return_value=None)
+            buyer = _make_buyer()
+            groups = _build_groups(SAMPLE_ITEMS)
+            inter = _make_interaction()
+            with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}):
+                with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=True):
+                    with patch("NightCityBot.cogs.player_hub._route_log_channel", new_callable=AsyncMock, return_value=None):
+                        with patch("NightCityBot.cogs.player_hub.ih_record_event", new_callable=AsyncMock) as mock_record:
+                            with patch("NightCityBot.cogs.player_hub.TradeConfirmView") as MockConfirm:
+                                confirm_inst = MagicMock()
+                                confirm_inst.accepted = True
+                                confirm_inst.wait = AsyncMock()
+                                MockConfirm.return_value = confirm_inst
+                                await _process_trade(cog, inter, buyer, groups[0], "Johnny", 0)
+                            meta = mock_record.call_args.kwargs["metadata"]
+                            assert meta["seller_character"] == "V"
+        _run(_test())
+
+    def test_continue_btn_uses_item_char_skips_prompt(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(SAMPLE_ITEMS)
+            view = TradeSetupView(cog, ctx, groups)
+            view.selected_buyer = _make_buyer()
+            view.selected_group_idx = 0
+            view.selected_buyer_char_name = "Johnny"
+            inter = _make_interaction()
+            inter.channel_id = 123
+            with patch("NightCityBot.cogs.player_hub.collect_text_input", new_callable=AsyncMock, return_value="0"):
+                with patch("NightCityBot.cogs.player_hub._process_trade", new_callable=AsyncMock) as mock_trade:
+                    btn = _find_button(view, "Continue →")
+                    await btn.callback(inter)
+                    mock_trade.assert_called_once()
+                    args = mock_trade.call_args
+                    assert args[0][6] == "V"
+        _run(_test())
+
+    def test_continue_btn_prompts_seller_char_when_no_item_char(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(NO_CHAR_ITEMS)
+            view = TradeSetupView(cog, ctx, groups)
+            view.selected_buyer = _make_buyer()
+            view.selected_group_idx = 0
+            view.selected_buyer_char_name = "Johnny"
+            inter = _make_interaction()
+            inter.channel_id = 123
+            with patch("NightCityBot.cogs.player_hub.collect_text_input", new_callable=AsyncMock, return_value="0"):
+                with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_SELLER_CHARS):
+                    with patch("NightCityBot.cogs.player_hub._process_trade", new_callable=AsyncMock) as mock_trade:
+                        btn = _find_button(view, "Continue →")
+                        await btn.callback(inter)
+                        mock_trade.assert_called_once()
+                        args = mock_trade.call_args
+                        assert args[0][6] == "V"
+        _run(_test())
+
+    def test_continue_btn_no_active_chars_aborts(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(NO_CHAR_ITEMS)
+            view = TradeSetupView(cog, ctx, groups)
+            view.selected_buyer = _make_buyer()
+            view.selected_group_idx = 0
+            view.selected_buyer_char_name = "Johnny"
+            inter = _make_interaction()
+            inter.channel_id = 123
+            with patch("NightCityBot.cogs.player_hub.collect_text_input", new_callable=AsyncMock, return_value="0"):
+                with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=[]):
+                    with patch("NightCityBot.cogs.player_hub._process_trade", new_callable=AsyncMock) as mock_trade:
+                        btn = _find_button(view, "Continue →")
+                        await btn.callback(inter)
+                        mock_trade.assert_not_called()
+                        msg = inter.followup.send.call_args[0][0]
+                        assert "no active characters" in msg.lower()
+        _run(_test())
+
+    def test_continue_btn_multi_chars_shows_picker(self):
+        async def _test():
+            from NightCityBot.cogs.player_hub import _SenderCharSelectView
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(NO_CHAR_ITEMS)
+            view = TradeSetupView(cog, ctx, groups)
+            view.selected_buyer = _make_buyer()
+            view.selected_group_idx = 0
+            view.selected_buyer_char_name = "Johnny"
+            inter = _make_interaction()
+            inter.channel_id = 123
+
+            async def fake_wait(self_view):
+                self_view.selected_name = "V"
+
+            with patch("NightCityBot.cogs.player_hub.collect_text_input", new_callable=AsyncMock, return_value="0"):
+                with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_ACTIVE_CHARS):
+                    with patch.object(_SenderCharSelectView, "wait", fake_wait):
+                        with patch("NightCityBot.cogs.player_hub._process_trade", new_callable=AsyncMock) as mock_trade:
+                            btn = _find_button(view, "Continue →")
+                            await btn.callback(inter)
+                            mock_trade.assert_called_once()
+                            args = mock_trade.call_args
+                            assert args[0][6] == "V"
+                            send_calls = [c[0][0] for c in inter.followup.send.call_args_list if c[0]]
+                            assert any("selling" in s.lower() for s in send_calls)
+        _run(_test())
+
+
+class TestSimulateAllPaidIndicator:
+    def test_simulate_shows_already_paid_tag(self):
+        from NightCityBot.cogs.economy import Economy
+        async def _test():
+            bot = MagicMock()
+            bot.unbelievaboat = MagicMock()
+            with patch("NightCityBot.services.unbelievaboat.aiohttp.ClientSession", new=MagicMock()):
+                econ = Economy(bot)
+
+            approved = MagicMock(spec=discord.Role)
+            approved.name = "Approved Character"
+            approved.id = config.APPROVED_ROLE_ID
+            verified = MagicMock(spec=discord.Role)
+            verified.name = "Verified"
+            verified.id = config.VERIFIED_ROLE_ID
+            tier = MagicMock(spec=discord.Role)
+            tier.name = "Tier 1"
+
+            member = MagicMock(spec=discord.Member)
+            member.id = 42
+            member.display_name = "TestUser"
+            member.roles = [approved, verified, tier]
+            member.guild = MagicMock()
+            member.guild.get_role = MagicMock(return_value=None)
+
+            ctx = MagicMock()
+            ctx.guild = MagicMock()
+            ctx.guild.members = [member]
+            ctx.send = AsyncMock()
+            ctx.author = MagicMock()
+
+            admin_mock = MagicMock()
+            admin_mock.log_audit = AsyncMock()
+            cyber_mock = MagicMock()
+            econ.bot.get_cog = MagicMock(side_effect=lambda n: cyber_mock if n == "CyberwareManager" else admin_mock if n == "Admin" else None)
+            econ.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 5000, "bank": 0})
+            econ.unbelievaboat.verify_balance_ops = AsyncMock(return_value=True)
+            econ.deduct_flat_fee = AsyncMock(return_value=(True, 4500, 0))
+            econ.process_housing_rent = AsyncMock(return_value=(4000, 0))
+            econ.process_business_rent = AsyncMock(return_value=(3500, 0))
+            econ.trauma_service = MagicMock()
+            econ.trauma_service.process_trauma_team_payment = AsyncMock()
+
+            with patch.object(econ, "_paid_any_this_month", new_callable=AsyncMock, return_value=True):
+                await econ.simulate_all.callback(econ, ctx, target_user=member)
+
+            messages = [c.args[0] for c in ctx.send.await_args_list if c.args]
+            working_line = [m for m in messages if "Working on" in m][0]
+            assert "already paid this month" in working_line
+        _run(_test())
+
+    def test_simulate_no_tag_when_not_paid(self):
+        from NightCityBot.cogs.economy import Economy
+        async def _test():
+            bot = MagicMock()
+            bot.unbelievaboat = MagicMock()
+            with patch("NightCityBot.services.unbelievaboat.aiohttp.ClientSession", new=MagicMock()):
+                econ = Economy(bot)
+
+            approved = MagicMock(spec=discord.Role)
+            approved.name = "Approved Character"
+            approved.id = config.APPROVED_ROLE_ID
+            verified = MagicMock(spec=discord.Role)
+            verified.name = "Verified"
+            verified.id = config.VERIFIED_ROLE_ID
+            tier = MagicMock(spec=discord.Role)
+            tier.name = "Tier 1"
+
+            member = MagicMock(spec=discord.Member)
+            member.id = 42
+            member.display_name = "TestUser"
+            member.roles = [approved, verified, tier]
+            member.guild = MagicMock()
+            member.guild.get_role = MagicMock(return_value=None)
+
+            ctx = MagicMock()
+            ctx.guild = MagicMock()
+            ctx.guild.members = [member]
+            ctx.send = AsyncMock()
+            ctx.author = MagicMock()
+
+            admin_mock = MagicMock()
+            admin_mock.log_audit = AsyncMock()
+            cyber_mock = MagicMock()
+            econ.bot.get_cog = MagicMock(side_effect=lambda n: cyber_mock if n == "CyberwareManager" else admin_mock if n == "Admin" else None)
+            econ.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 5000, "bank": 0})
+            econ.unbelievaboat.verify_balance_ops = AsyncMock(return_value=True)
+            econ.deduct_flat_fee = AsyncMock(return_value=(True, 4500, 0))
+            econ.process_housing_rent = AsyncMock(return_value=(4000, 0))
+            econ.process_business_rent = AsyncMock(return_value=(3500, 0))
+            econ.trauma_service = MagicMock()
+            econ.trauma_service.process_trauma_team_payment = AsyncMock()
+
+            with patch.object(econ, "_paid_any_this_month", new_callable=AsyncMock, return_value=False):
+                await econ.simulate_all.callback(econ, ctx, target_user=member)
+
+            messages = [c.args[0] for c in ctx.send.await_args_list if c.args]
+            working_line = [m for m in messages if "Working on" in m][0]
+            assert "already paid" not in working_line
+        _run(_test())

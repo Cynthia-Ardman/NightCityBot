@@ -2146,7 +2146,14 @@ class Economy(commands.Cog):
             if not any(r.id == config.APPROVED_ROLE_ID for r in member.roles):
                 await ctx.send(f"⏭️ Skipping <@{member.id}> — no approved character.")
                 continue
-            log: List[str] = [f"🔍 **Working on:** <@{member.id}>"]
+            already_paid = await self._paid_any_this_month(member, [
+                "collect_rent_after",
+                "collect_housing_after",
+                "collect_business_after",
+                "collect_trauma_after",
+            ])
+            paid_tag = " ✅ **(already paid this month)**" if already_paid else ""
+            log: List[str] = [f"🔍 **Working on:** <@{member.id}>{paid_tag}"]
             role_names = [r.name for r in member.roles]
             app_roles = [r for r in role_names if "Tier" in r]
             log.append(f"🏷️ Detected roles: {', '.join(app_roles) or 'None'}")

@@ -782,14 +782,40 @@ class TradeSetupView(SafeView):
             await interaction.followup.send("❌ Price cannot be negative.", ephemeral=True)
             self.stop()
             return
+
+        item_char = selected_item.get("character_name", "")
+        if item_char:
+            seller_char = item_char
+        else:
+            seller_chars = await get_active_characters(str(interaction.user.id))
+            if not seller_chars:
+                await interaction.followup.send("❌ You have no active characters.", ephemeral=True)
+                self.stop()
+                return
+            if len(seller_chars) == 1:
+                seller_char = seller_chars[0]["name"]
+            else:
+                char_view = _SenderCharSelectView(interaction.user.id, seller_chars)
+                await interaction.followup.send(
+                    "📝 **Which of your characters is selling this item?**",
+                    view=char_view,
+                    ephemeral=True,
+                )
+                await char_view.wait()
+                if char_view.selected_name is None:
+                    await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+                    self.stop()
+                    return
+                seller_char = char_view.selected_name
+
         await _process_trade(
             self.cog, interaction, self.selected_buyer, group,
-            self.selected_buyer_char_name, price,
+            self.selected_buyer_char_name, price, seller_char,
         )
         self.stop()
 
 
-async def _process_trade(cog, interaction, buyer, group, buyer_character, price):
+async def _process_trade(cog, interaction, buyer, group, buyer_character, price, seller_character=None):
     guild = interaction.guild
     if not guild:
         await interaction.followup.send("Must be used in server.", ephemeral=True)
@@ -997,7 +1023,7 @@ async def _process_trade(cog, interaction, buyer, group, buyer_character, price)
 
     log_ch = await _route_log_channel(cog.bot, item_type)
     if log_ch:
-        seller_char = selected_item.get("character_name") or "—"
+        seller_char = seller_character or selected_item.get("character_name") or "—"
         embed = discord.Embed(
             title="💱 Item Traded",
             color=discord.Color.gold(),
@@ -1028,7 +1054,7 @@ async def _process_trade(cog, interaction, buyer, group, buyer_character, price)
             "item_name": item_name,
             "item_type": item_type,
             "buyer_character": buyer_character,
-            "seller_character": selected_item.get("character_name", ""),
+            "seller_character": seller_character or selected_item.get("character_name", ""),
         },
     )
 
