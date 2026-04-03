@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 
+import config
+
 from NightCityBot.cogs.ripperdoc_hub import (
     RipperdocHub,
     RipperdocMenuView,
@@ -220,6 +222,7 @@ class TestRipperdocMenuView:
         async def run():
             cog = _make_ripperdoc_cog()
             cw_cog = MagicMock()
+            cw_cog._load_state = AsyncMock(return_value={"ripperdoc_stores": {}})
             cw_cog._load_inventory = AsyncMock(return_value=[
                 {"item_id": "x", "name": "Optics", "price_paid": 100}
             ])
@@ -246,6 +249,7 @@ class TestRipperdocMenuView:
         async def run():
             cog = _make_ripperdoc_cog()
             cw_cog = MagicMock()
+            cw_cog._load_state = AsyncMock(return_value={"ripperdoc_stores": {}})
             cw_cog._load_inventory = AsyncMock(return_value=[
                 {"item_id": "x", "name": "Optics", "price_paid": 100}
             ])
@@ -357,14 +361,18 @@ class TestGunstoreMenuView:
 
     def test_sell_opens_setup_view(self, monkeypatch):
         monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
+        owner_role_id = config.WHOLESALER_STORE_ROLE_IDS
+        if isinstance(owner_role_id, (list, tuple, set)):
+            owner_role_id = list(owner_role_id)[0]
+        owner_role_id = int(owner_role_id)
 
         async def run():
             cog = _make_gunstore_cog()
             guns_cog = MagicMock()
-            guns_cog._store_id = MagicMock(return_value="s1")
+            guns_cog._store_id = MagicMock(return_value="999:111")
             guns_cog._load_state = AsyncMock(return_value={
                 "stores": {
-                    "s1": {
+                    "999:111": {
                         "owner_id": 111,
                         "lots": [{
                             "lot_id": "lot-1",
@@ -380,7 +388,9 @@ class TestGunstoreMenuView:
             })
             cog.bot.cogs = {"GunsShopCog": guns_cog}
             view = GunstoreMenuView()
-            inter = _make_interaction()
+            owner_role = MagicMock()
+            owner_role.id = owner_role_id
+            inter = _make_interaction(roles=[owner_role])
             inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "GunstoreHub" else None)
             btn = _find_button(view, "Sell to Customer")
             await btn.callback(inter)

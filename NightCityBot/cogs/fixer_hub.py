@@ -266,13 +266,26 @@ class StoreSubView(SafeView):
         if not guild:
             await interaction.followup.send("Must be used in a server.", ephemeral=True)
             return
+        cw_cog = interaction.client.get_cog("CyberwareShop")
+        rd_stores = {}
+        if cw_cog:
+            state = await cw_cog._load_state()
+            rd_stores = state.get("ripperdoc_stores", {})
         role = guild.get_role(RIPPERDOC_ROLE_ID)
         if not role or not role.members:
             await interaction.followup.send("No Ripperdocs found.", ephemeral=True)
             return
         options = []
+        guild_prefix = f"rd:{guild.id}:"
         for m in role.members[:25]:
-            options.append(discord.SelectOption(label=m.display_name, value=str(m.id)))
+            store_name = None
+            for sid, s in rd_stores.items():
+                if sid.startswith(guild_prefix) and s.get("owner_id") == m.id and s.get("store_name"):
+                    store_name = s["store_name"]
+                    break
+            label = store_name or m.display_name
+            options.append(discord.SelectOption(label=label[:100], value=str(m.id),
+                                               description=m.display_name[:100] if store_name else None))
         view = StoreOwnerPickerView(self.cog, self.ctx, options, store_type="cw")
         await interaction.followup.send(
             "💉 **Ripperdoc Store** — Select a Ripperdoc:", view=view, ephemeral=True

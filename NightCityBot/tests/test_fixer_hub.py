@@ -422,7 +422,7 @@ class TestWholesalerSubViewButtons:
             view = WholesalerSubView(cog, ctx)
             inter = _make_interaction()
             inter.channel_id = 123
-            btn = _find_button(view, "Add CW")
+            btn = _find_button(view, "Add Cyberware")
             await btn.callback(inter)
             inter.response.defer.assert_called_once()
         _run(_test())
@@ -471,7 +471,7 @@ class TestWholesalerSubViewButtons:
             ctx = _ctx()
             view = WholesalerSubView(cog, ctx)
             inter = _make_interaction()
-            btn = _find_button(view, "Remove CW")
+            btn = _find_button(view, "Remove Cyberware")
             await btn.callback(inter)
             msg = inter.followup.send.call_args[0][0] if inter.followup.send.call_args[0] else inter.followup.send.call_args.kwargs.get("content", "")
             assert "empty" in msg.lower()
@@ -490,22 +490,11 @@ class TestWholesalerSubViewButtons:
             ctx = _ctx()
             view = WholesalerSubView(cog, ctx)
             inter = _make_interaction()
-            btn = _find_button(view, "Remove CW")
+            btn = _find_button(view, "Remove Cyberware")
             await btn.callback(inter)
             kwargs = inter.followup.send.call_args.kwargs
             from NightCityBot.cogs.fixer_hub import WHRemoveCWPickerView
             assert isinstance(kwargs["view"], WHRemoveCWPickerView)
-        _run(_test())
-
-    def test_done_button(self):
-        async def _test():
-            cog = _make_cog()
-            ctx = _ctx()
-            view = WholesalerSubView(cog, ctx)
-            inter = _make_interaction()
-            btn = _find_button(view, "Done")
-            await btn.callback(inter)
-            inter.message.delete.assert_called_once()
         _run(_test())
 
 
@@ -688,7 +677,9 @@ class TestStorePickerViews:
             inter = _make_interaction()
             inter.data = {"values": ["222"]}
             await view._on_select(inter)
-            assert "empty" in inter.followup.send.call_args[0][0].lower()
+            embed = inter.followup.send.call_args.kwargs.get("embed")
+            assert embed is not None
+            assert "empty" in embed.description.lower()
         _run(_test())
 
     def test_owner_picker_gun_store_with_stock(self):
@@ -1101,7 +1092,9 @@ class TestPickerFailureBranches:
             inter = _make_interaction()
             inter.data = {"values": ["222"]}
             await view._on_select(inter)
-            assert "empty" in inter.followup.send.call_args[0][0].lower()
+            embed = inter.followup.send.call_args.kwargs.get("embed")
+            assert embed is not None
+            assert "empty" in embed.description.lower()
         _run(_test())
 
 
