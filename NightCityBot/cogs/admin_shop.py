@@ -26,10 +26,13 @@ from NightCityBot.utils.db import (
     wh_lots_get_all,
     wh_lots_replace_all,
     cw_catalog_get_all,
+    cw_catalog_upsert_many,
+    gun_catalog_upsert_many,
 )
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active, get_character_by_name
 from NightCityBot.utils.permissions import is_fixer
 from NightCityBot.utils.inline_helpers import collect_text_input
+from NightCityBot.services.cyberware_shop_data import download_sheet, parse_cyberware_sheet
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +219,98 @@ class AdminShopMenuView(SafeView):
             view=confirm_view,
             ephemeral=True,
         )
+
+    @discord.ui.button(label="Set Gun Sheet", style=discord.ButtonStyle.secondary, emoji="🔫", row=4)
+    async def set_gun_sheet(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        guns_cog = self.cog.bot.cogs.get("GunsShopCog")
+        if not guns_cog:
+            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            return
+        state = await guns_cog._load_state()
+        current = str(state.get("settings", {}).get("master_sheet_url", "")).strip()
+        prompt = "📝 **Paste the Google Sheets URL** for the gun catalog"
+        if current:
+            prompt += f"\nCurrent: `{current[:80]}{'…' if len(current) > 80 else ''}`"
+        prompt += "\nType `cancel` to abort."
+        await interaction.followup.send(prompt, ephemeral=True)
+        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        if text is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            return
+        url = text.strip().strip("<>")
+        if not url.startswith(("http://", "https://")):
+            await interaction.followup.send("❌ Invalid URL.", ephemeral=True)
+            return
+        normalized = guns_cog._normalize_sheet_source_url(url)
+        async with guns_cog.lock:
+            latest = await guns_cog._load_state()
+            latest.setdefault("settings", {})["master_sheet_url"] = normalized
+            await guns_cog._save_state(latest)
+        await interaction.followup.send(f"✅ Gun sheet URL updated.", ephemeral=True)
+
+    @discord.ui.button(label="Set CW Sheet", style=discord.ButtonStyle.secondary, emoji="💉", row=4)
+    async def set_cw_sheet(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
+        if not cw_cog:
+            await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+            return
+        state = await cw_cog._load_state()
+        current = str(state.get("sheet_url", "")).strip()
+        prompt = "📝 **Paste the Google Sheets URL** for the cyberware catalog"
+        if current:
+            prompt += f"\nCurrent: `{current[:80]}{'…' if len(current) > 80 else ''}`"
+        prompt += "\nType `cancel` to abort."
+        await interaction.followup.send(prompt, ephemeral=True)
+        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        if text is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            return
+        url = text.strip().strip("<>")
+        if not url.startswith(("http://", "https://")):
+            await interaction.followup.send("❌ Invalid URL.", ephemeral=True)
+            return
+        async with cw_cog.lock:
+            cw_state = await cw_cog._load_state()
+            cw_state["sheet_url"] = url
+            await cw_cog._save_state(cw_state)
+        await interaction.followup.send(f"✅ Cyberware sheet URL updated.", ephemeral=True)
+
+    @discord.ui.button(label="Reload Sheets", style=discord.ButtonStyle.success, emoji="🔄", row=4)
+    async def reload_sheets(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        results = []
+        guns_cog = self.cog.bot.cogs.get("GunsShopCog")
+        if guns_cog:
+            try:
+                guns = await guns_cog._load_master_guns()
+                results.append(f"🔫 Gun catalog reloaded — **{len(guns)}** item(s)")
+            except Exception as e:
+                logger.warning("Gun sheet reload failed", exc_info=True)
+                results.append(f"🔫 Gun catalog reload failed: {e}")
+        else:
+            results.append("🔫 Gun shop system unavailable")
+        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
+        if cw_cog:
+            try:
+                cw_state = await cw_cog._load_state()
+                sheet_url = str(cw_state.get("sheet_url", "")).strip()
+                if not sheet_url:
+                    results.append("💉 CW catalog — no sheet URL configured")
+                else:
+                    await download_sheet(sheet_url, cw_cog.sheet_cache_path)
+                    items = parse_cyberware_sheet(cw_cog.sheet_cache_path)
+                    if items:
+                        await cw_catalog_upsert_many(items)
+                        await cw_cog._save_catalog(items)
+                    results.append(f"💉 CW catalog reloaded — **{len(items)}** item(s)")
+            except Exception as e:
+                logger.warning("CW sheet reload failed", exc_info=True)
+                results.append(f"💉 CW catalog reload failed: {e}")
+        else:
+            results.append("💉 Cyberware system unavailable")
+        await interaction.followup.send("\n".join(results), ephemeral=True)
 
 
 class AdminAddItemPickerView(SafeView):
@@ -825,7 +920,9 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
                 "**Restock Wholesale** — Add guns to wholesale\n"
                 "**Clear Gun WH** — Remove all gun wholesale lots\n"
                 "**Restock CW** — Add cyberware to wholesale\n"
-                "**Clear CW WH** — Remove all CW wholesale lots"
+                "**Clear CW WH** — Remove all CW wholesale lots\n"
+                "**Set Gun/CW Sheet** — Set Google Sheet URL for catalogs\n"
+                "**Reload Sheets** — Re-download and refresh both catalogs"
             ),
             color=discord.Color.orange(),
         )
