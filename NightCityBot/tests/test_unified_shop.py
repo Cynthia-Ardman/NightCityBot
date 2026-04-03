@@ -18,6 +18,12 @@ from NightCityBot.cogs.gunstore_hub import (
     GunDMConfirmView,
     InlineApproveView,
     GunSellSetupView,
+    GUN_STORE_EMPLOYEE_ROLE_ID,
+    _is_store_owner_member,
+    _is_employee_member,
+    _find_employee_store,
+    _ManageEmployeesView,
+    _EmployeePickerView,
 )
 from NightCityBot.cogs.admin_shop import (
     AdminShopCog,
@@ -113,6 +119,13 @@ def _find_button(view, label):
         if getattr(child, "label", None) == label:
             return child
     raise ValueError(f"No button with label '{label}' in view")
+
+
+def _find_user_select(view):
+    for child in view.children:
+        if isinstance(child, discord.ui.UserSelect):
+            return child
+    raise ValueError("No UserSelect in view")
 
 
 def _make_ripperdoc_cog():
@@ -1275,3 +1288,356 @@ class TestAdminPanelNoAddRemoveButtons:
         assert "Add Item" not in desc
         assert "Remove Item" not in desc
         assert "Reassign" in desc
+
+
+class TestHelperFunctions:
+    def test_is_store_owner_member(self, monkeypatch):
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+        role = MagicMock()
+        role.id = 777
+        member = _make_member(111, roles=[role])
+        assert _is_store_owner_member(member) is True
+
+    def test_is_store_owner_member_false(self, monkeypatch):
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+        member = _make_member(111, roles=[])
+        assert _is_store_owner_member(member) is False
+
+    def test_is_employee_member(self):
+        role = MagicMock()
+        role.id = GUN_STORE_EMPLOYEE_ROLE_ID
+        member = _make_member(222, roles=[role])
+        assert _is_employee_member(member) is True
+
+    def test_is_employee_member_false(self):
+        member = _make_member(222, roles=[])
+        assert _is_employee_member(member) is False
+
+    def test_find_employee_store_found(self):
+        state = {
+            "stores": {
+                "999:100": {
+                    "owner_id": 100,
+                    "employees": [222],
+                    "lots": [],
+                },
+            }
+        }
+        sid, store = _find_employee_store(state, 999, 222)
+        assert sid == "999:100"
+        assert store["owner_id"] == 100
+
+    def test_find_employee_store_not_found(self):
+        state = {"stores": {"999:100": {"owner_id": 100, "employees": [], "lots": []}}}
+        sid, store = _find_employee_store(state, 999, 222)
+        assert sid is None
+        assert store is None
+
+
+class TestGunstoreInteractionCheckEmployee:
+    def test_employee_passes(self, monkeypatch):
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+
+        async def run():
+            view = GunstoreMenuView()
+            role = MagicMock()
+            role.id = GUN_STORE_EMPLOYEE_ROLE_ID
+            inter = _make_interaction(user_id=222, roles=[role])
+            return await view.interaction_check(inter)
+
+        assert _run(run()) is True
+
+    def test_employee_blocked_from_wholesale(self, monkeypatch):
+        monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+
+        async def run():
+            cog = _make_gunstore_cog()
+            view = GunstoreMenuView()
+            emp_role = MagicMock()
+            emp_role.id = GUN_STORE_EMPLOYEE_ROLE_ID
+            inter = _make_interaction(user_id=222, roles=[emp_role])
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "GunstoreHub" else None)
+            btn = _find_button(view, "Buy from Wholesale")
+            await btn.callback(inter)
+            return inter.response.send_message.call_args[0][0]
+
+        msg = _run(run())
+        assert "only store owners" in msg.lower()
+
+    def test_employee_can_sell(self, monkeypatch):
+        monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+
+        async def run():
+            cog = _make_gunstore_cog()
+            guns_cog = MagicMock()
+            guns_cog._store_id = MagicMock(return_value="999:100")
+            guns_cog._load_state = AsyncMock(return_value={
+                "stores": {
+                    "999:100": {
+                        "owner_id": 100,
+                        "employees": [222],
+                        "lots": [{
+                            "lot_id": "lot-1",
+                            "gun_name": "Pistol",
+                            "gun_level": "L",
+                            "unit_cost": 100,
+                            "qty_remaining": 1,
+                            "restriction": "basic",
+                        }],
+                        "controlled_buyers": [],
+                    }
+                }
+            })
+            cog.bot.cogs = {"GunsShopCog": guns_cog}
+            view = GunstoreMenuView()
+            emp_role = MagicMock()
+            emp_role.id = GUN_STORE_EMPLOYEE_ROLE_ID
+            inter = _make_interaction(user_id=222, roles=[emp_role])
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "GunstoreHub" else None)
+            btn = _find_button(view, "Sell to Customer")
+            await btn.callback(inter)
+            call_kwargs = inter.followup.send.call_args[1]
+            return isinstance(call_kwargs.get("view"), GunSellSetupView)
+
+        assert _run(run()) is True
+
+    def test_employee_not_assigned_to_store(self, monkeypatch):
+        monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+
+        async def run():
+            cog = _make_gunstore_cog()
+            guns_cog = MagicMock()
+            guns_cog._load_state = AsyncMock(return_value={"stores": {}})
+            cog.bot.cogs = {"GunsShopCog": guns_cog}
+            view = GunstoreMenuView()
+            emp_role = MagicMock()
+            emp_role.id = GUN_STORE_EMPLOYEE_ROLE_ID
+            inter = _make_interaction(user_id=222, roles=[emp_role])
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "GunstoreHub" else None)
+            btn = _find_button(view, "Sell to Customer")
+            await btn.callback(inter)
+            return inter.followup.send.call_args[0][0]
+
+        msg = _run(run())
+        assert "not assigned" in msg.lower()
+
+
+class TestSetStoreName:
+    @patch("NightCityBot.cogs.gunstore_hub.collect_text_input", new_callable=AsyncMock, return_value="Hellfire Arms")
+    def test_set_name_success(self, mock_collect, monkeypatch):
+        monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+
+        async def run():
+            cog = _make_gunstore_cog()
+            guns_cog = MagicMock()
+            state = {"stores": {}}
+            guns_cog._load_state = AsyncMock(return_value=state)
+            guns_cog._save_state = AsyncMock()
+            guns_cog._store_id = MagicMock(return_value="999:111")
+            guns_cog.lock = asyncio.Lock()
+            cog.bot.cogs = {"GunsShopCog": guns_cog}
+            view = GunstoreMenuView()
+            owner_role = MagicMock()
+            owner_role.id = 777
+            inter = _make_interaction(user_id=111, roles=[owner_role])
+            inter.channel_id = 123
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "GunstoreHub" else None)
+            btn = _find_button(view, "Set Store Name")
+            await btn.callback(inter)
+            return inter.followup.send.call_args[0][0]
+
+        msg = _run(run())
+        assert "Hellfire Arms" in msg
+
+    def test_set_name_employee_blocked(self, monkeypatch):
+        monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+
+        async def run():
+            view = GunstoreMenuView()
+            emp_role = MagicMock()
+            emp_role.id = GUN_STORE_EMPLOYEE_ROLE_ID
+            inter = _make_interaction(user_id=222, roles=[emp_role])
+            btn = _find_button(view, "Set Store Name")
+            await btn.callback(inter)
+            return inter.response.send_message.call_args[0][0]
+
+        msg = _run(run())
+        assert "only store owners" in msg.lower()
+
+
+class TestManageEmployees:
+    def test_manage_employees_blocked_for_employee(self, monkeypatch):
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+
+        async def run():
+            view = GunstoreMenuView()
+            emp_role = MagicMock()
+            emp_role.id = GUN_STORE_EMPLOYEE_ROLE_ID
+            inter = _make_interaction(user_id=222, roles=[emp_role])
+            btn = _find_button(view, "Manage Employees")
+            await btn.callback(inter)
+            return inter.response.send_message.call_args[0][0]
+
+        msg = _run(run())
+        assert "only store owners" in msg.lower()
+
+    def test_manage_employees_opens_view_for_owner(self, monkeypatch):
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+
+        async def run():
+            cog = _make_gunstore_cog()
+            view = GunstoreMenuView()
+            owner_role = MagicMock()
+            owner_role.id = 777
+            inter = _make_interaction(user_id=111, roles=[owner_role])
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "GunstoreHub" else None)
+            btn = _find_button(view, "Manage Employees")
+            await btn.callback(inter)
+            call_kwargs = inter.response.send_message.call_args[1]
+            return isinstance(call_kwargs.get("view"), _ManageEmployeesView)
+
+        assert _run(run()) is True
+
+    def test_add_employee(self, monkeypatch):
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+
+        async def run():
+            cog = _make_gunstore_cog()
+            guns_cog = MagicMock()
+            state = {"stores": {"999:111": {"owner_id": 111, "lots": [], "controlled_buyers": []}}}
+            guns_cog._load_state = AsyncMock(return_value=state)
+            guns_cog._save_state = AsyncMock()
+            guns_cog._store_id = MagicMock(return_value="999:111")
+            guns_cog.lock = asyncio.Lock()
+            cog.bot.cogs = {"GunsShopCog": guns_cog}
+            ctx = _ctx(author_id=111)
+            view = _EmployeePickerView(cog, ctx, add=True)
+            select = _find_user_select(view)
+            new_emp = _make_member(333, "Employee1")
+            select._values = [new_emp]
+            inter = _make_interaction()
+            await select.callback(inter)
+            saved_state = guns_cog._save_state.call_args[0][0]
+            assert 333 in saved_state["stores"]["999:111"]["employees"]
+            assert "added" in inter.followup.send.call_args[0][0].lower()
+
+        _run(run())
+
+    def test_remove_employee(self, monkeypatch):
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+
+        async def run():
+            cog = _make_gunstore_cog()
+            guns_cog = MagicMock()
+            state = {"stores": {"999:111": {"owner_id": 111, "lots": [], "controlled_buyers": [], "employees": [333]}}}
+            guns_cog._load_state = AsyncMock(return_value=state)
+            guns_cog._save_state = AsyncMock()
+            guns_cog._store_id = MagicMock(return_value="999:111")
+            guns_cog.lock = asyncio.Lock()
+            cog.bot.cogs = {"GunsShopCog": guns_cog}
+            ctx = _ctx(author_id=111)
+            view = _EmployeePickerView(cog, ctx, add=False)
+            select = _find_user_select(view)
+            emp = _make_member(333, "Employee1")
+            select._values = [emp]
+            inter = _make_interaction()
+            await select.callback(inter)
+            saved_state = guns_cog._save_state.call_args[0][0]
+            assert 333 not in saved_state["stores"]["999:111"]["employees"]
+            assert "removed" in inter.followup.send.call_args[0][0].lower()
+
+        _run(run())
+
+    def test_add_employee_already_added(self, monkeypatch):
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+
+        async def run():
+            cog = _make_gunstore_cog()
+            guns_cog = MagicMock()
+            state = {"stores": {"999:111": {"owner_id": 111, "lots": [], "controlled_buyers": [], "employees": [333]}}}
+            guns_cog._load_state = AsyncMock(return_value=state)
+            guns_cog._save_state = AsyncMock()
+            guns_cog._store_id = MagicMock(return_value="999:111")
+            guns_cog.lock = asyncio.Lock()
+            cog.bot.cogs = {"GunsShopCog": guns_cog}
+            ctx = _ctx(author_id=111)
+            view = _EmployeePickerView(cog, ctx, add=True)
+            select = _find_user_select(view)
+            emp = _make_member(333, "Employee1")
+            select._values = [emp]
+            inter = _make_interaction()
+            await select.callback(inter)
+            guns_cog._save_state.assert_not_called()
+            assert "already" in inter.followup.send.call_args[0][0].lower()
+
+        _run(run())
+
+    def test_view_employees(self, monkeypatch):
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+
+        async def run():
+            cog = _make_gunstore_cog()
+            guns_cog = MagicMock()
+            guns_cog._load_state = AsyncMock(return_value={
+                "stores": {"999:111": {"owner_id": 111, "lots": [], "employees": [333, 444], "store_name": "Hellfire Arms"}}
+            })
+            guns_cog._store_id = MagicMock(return_value="999:111")
+            cog.bot.cogs = {"GunsShopCog": guns_cog}
+            ctx = _ctx(author_id=111)
+            view = _ManageEmployeesView(cog, ctx)
+            inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "GunstoreHub" else None)
+            btn = _find_button(view, "View Employees")
+            await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "Hellfire Arms" in msg
+            assert "<@333>" in msg
+            assert "<@444>" in msg
+
+        _run(run())
+
+
+class TestStoreNameInInventory:
+    def test_inventory_shows_store_name(self, monkeypatch):
+        monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
+
+        async def run():
+            cog = _make_gunstore_cog()
+            guns_cog = MagicMock()
+            guns_cog._store_id = MagicMock(return_value="999:111")
+            guns_cog._load_state = AsyncMock(return_value={
+                "stores": {
+                    "999:111": {
+                        "owner_id": 111,
+                        "store_name": "Hellfire Arms",
+                        "lots": [{
+                            "lot_id": "lot-1",
+                            "gun_name": "Pistol",
+                            "gun_level": "L",
+                            "unit_cost": 100,
+                            "qty_remaining": 2,
+                            "restriction": "basic",
+                        }],
+                        "controlled_buyers": [],
+                    }
+                }
+            })
+            cog.bot.cogs = {"GunsShopCog": guns_cog}
+            view = GunstoreMenuView()
+            owner_role = MagicMock()
+            owner_role.id = 777
+            inter = _make_interaction(user_id=111, roles=[owner_role])
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "GunstoreHub" else None)
+            btn = _find_button(view, "My Store Inventory")
+            await btn.callback(inter)
+            embed = inter.followup.send.call_args.kwargs["embed"]
+            return embed.title
+
+        title = _run(run())
+        assert "Hellfire Arms" in title

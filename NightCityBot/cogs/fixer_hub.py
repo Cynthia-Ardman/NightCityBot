@@ -1398,8 +1398,10 @@ class StoreOwnerPickerView(SafeView):
                 lines.append(
                     f"`{i}.` **{l['gun_name']}**{r_tag} — ${int(l['unit_cost']):,} × {l['qty_remaining']}"
                 )
+            store_data = state.get("stores", {}).get(store_id, {})
+            store_title = store_data.get("store_name") or f"{owner.display_name}'s Gun Store"
             embed = discord.Embed(
-                title=f"🔫 {owner.display_name}'s Gun Store",
+                title=f"🔫 {store_title}",
                 description="\n".join(lines),
                 color=discord.Color.dark_green(),
             )

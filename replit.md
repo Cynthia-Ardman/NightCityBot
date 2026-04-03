@@ -177,7 +177,7 @@ Consolidates separate command sets into interactive hub commands with Discord UI
 
 ### New Cogs
 - `NightCityBot/cogs/ripperdoc_hub.py` — `/ripperdoc` interactive panel (Buy/Sell/Install/Stock/Wholesale)
-- `NightCityBot/cogs/gunstore_hub.py` — `/gunstore` interactive panel (Buy/Sell/Inventory/Approve/Unapprove/Wholesale/Approved Buyers)
+- `NightCityBot/cogs/gunstore_hub.py` — `/gunstore` interactive panel (Buy/Sell/Inventory/Approve/Unapprove/Wholesale/Approved Buyers/Set Store Name/Manage Employees). Store owners can nickname their store (stored as `store_name` in store data). Owners can add/remove employees (stored as `employees` list of user IDs). Employees (role ID `1489618157722275910`) can sell from their mapped store, approve/unapprove buyers, view inventory, but CANNOT buy from wholesale or manage employees/name.
 - `NightCityBot/cogs/admin_shop.py` — `/admin` admin panel (Add/Remove/Reassign/History/Inventory); alias `!admin_shop` still works
 - `NightCityBot/cogs/fixer_hub.py` — `/fixer` Fixer management panel with three-tier menu (Player/Store/Wholesaler sub-menus for inventory, items, LOA, store stock, wholesale management)
 - `NightCityBot/cogs/player_hub.py` — `/player` Player hub for viewing inventory, trading items, and giving items (replaces individual `!trade`, `!inv_give` commands in help)
