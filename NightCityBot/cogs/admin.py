@@ -290,7 +290,7 @@ class Admin(commands.Cog):
         embed.add_field(
             name="📦 Inventories & Trading",
             value=(
-                f"Head to <#{config.PLAYER_HUB_CHANNEL_ID}> for the **Player Hub** — view your inventory, trade items, give items.\n\n"
+                f"Head to <#{config.PLAYER_HUB_CHANNEL_ID}> for the **Player Hub** — view your inventory, sell to players, give items.\n\n"
                 f"**🔫 Gun store** — own a shop? Use the panel in <#{config.GUN_HUB_CHANNEL_ID}>.\n"
                 f"**💉 Ripperdoc** — licensed doc? Use the panel in <#{config.RIPPERDOC_HUB_CHANNEL_ID}>."
             ),

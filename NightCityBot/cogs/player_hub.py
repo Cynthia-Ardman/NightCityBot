@@ -130,7 +130,7 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
                 "• **Sell to Player** — sell an item to another player (with payment)\n"
                 "• **Give Item** — transfer an item for free\n"
                 "• **Sell to Store** — sell any gun to a gunstore owner\n"
-                "• **Create / Manage Characters** — create, deactivate, or reactivate characters"
+                "• **Create Character / View Characters / Deactivate Character** — create, view, deactivate, or reactivate characters"
             ),
             color=discord.Color.blue(),
         )
@@ -436,7 +436,7 @@ class PlayerHubView(SafeView):
         ctx = PanelContext(interaction)
         view = ManageCharactersView(cog, ctx)
         await interaction.followup.send(
-            "📋 **Manage Characters** — Choose an action:",
+            "📋 **Deactivate Character** — Choose an action:",
             view=view,
             ephemeral=True,
         )
