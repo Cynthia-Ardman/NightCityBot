@@ -3030,19 +3030,36 @@ async def pi_update_character(
     item_id: str,
     new_character: str,
     expected_owner_id: str | None = None,
+    *,
+    new_character_id: str | None = None,
 ) -> bool:
-    """Update only the character_name of an existing player_inventory item.
+    """Update the character_name (and optionally character_id) of a player_inventory item.
 
     When *expected_owner_id* is supplied the UPDATE includes an owner guard
     so a concurrent ownership change will cause this to return False instead
     of silently overwriting the new owner's character name.
+
+    When *new_character_id* is provided it is also written to the row.
 
     Returns True only when exactly one row was updated.
     Returns False if item_id was not found (UPDATE 0) or a DB error occurred.
     """
     try:
         pool = await get_pool()
-        if expected_owner_id is not None:
+        if new_character_id is not None:
+            if expected_owner_id is not None:
+                query = (
+                    "UPDATE player_inventory SET character_name = $2, character_id = $3 "
+                    "WHERE item_id = $1 AND owner_id = $4"
+                )
+                args = (str(item_id), str(new_character), str(new_character_id), str(expected_owner_id))
+            else:
+                query = (
+                    "UPDATE player_inventory SET character_name = $2, character_id = $3 "
+                    "WHERE item_id = $1"
+                )
+                args = (str(item_id), str(new_character), str(new_character_id))
+        elif expected_owner_id is not None:
             query = (
                 "UPDATE player_inventory SET character_name = $2 "
                 "WHERE item_id = $1 AND owner_id = $3"

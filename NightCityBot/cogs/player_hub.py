@@ -25,6 +25,7 @@ from NightCityBot.utils.characters import (
     create_character,
     get_active_characters,
     get_all_characters,
+    get_character_by_name,
     get_inactive_characters,
     deactivate_character,
     reactivate_character,
@@ -970,8 +971,11 @@ async def _process_trade(cog, interaction, buyer, group, buyer_character, price,
             )
             return
 
+    buyer_char_record = await get_character_by_name(str(buyer.id), buyer_character)
+    buyer_char_id = buyer_char_record["character_id"] if buyer_char_record else None
     ok_transfer = await pi_update_owner(
-        item_id, str(buyer.id), buyer_character, str(interaction.user.id)
+        item_id, str(buyer.id), buyer_character, str(interaction.user.id),
+        new_character_id=buyer_char_id,
     )
     if not ok_transfer:
         if price > 0 and buyer.id != interaction.user.id:
@@ -1305,18 +1309,19 @@ async def _process_give(cog, interaction, target, group, receiver_character, sen
             await interaction.followup.send("❌ Failed to remove item from your inventory.", ephemeral=True)
             return
 
-        rd_inventory = await cw_cog._load_inventory(target.id)
-        rd_inventory.append({
-            "item_id": item_id,
-            "name": item_name,
-            "price_paid": selected_item.get("price_paid"),
-            "purchased_at": (
-                selected_item.get("acquired_at")
-                or selected_item.get("created_at")
-                or datetime.now(timezone.utc).isoformat()
-            ),
-        })
-        ok_save = await cw_cog._save_inventory(target.id, rd_inventory)
+        async with cw_cog._locks.acquire(str(target.id)):
+            rd_inventory = await cw_cog._load_inventory(target.id)
+            rd_inventory.append({
+                "item_id": item_id,
+                "name": item_name,
+                "price_paid": selected_item.get("price_paid"),
+                "purchased_at": (
+                    selected_item.get("acquired_at")
+                    or selected_item.get("created_at")
+                    or datetime.now(timezone.utc).isoformat()
+                ),
+            })
+            ok_save = await cw_cog._save_inventory(target.id, rd_inventory)
         if not ok_save:
             logger.error(
                 "player_hub give: _save_inventory failed for ripperdoc=%s item=%s — attempting restore",
@@ -1380,7 +1385,12 @@ async def _process_give(cog, interaction, target, group, receiver_character, sen
         )
         return
 
-    ok = await pi_update_owner(item_id, str(target.id), receiver_char, str(interaction.user.id))
+    recv_char_record = await get_character_by_name(str(target.id), receiver_char)
+    recv_char_id = recv_char_record["character_id"] if recv_char_record else None
+    ok = await pi_update_owner(
+        item_id, str(target.id), receiver_char, str(interaction.user.id),
+        new_character_id=recv_char_id,
+    )
     if not ok:
         await interaction.followup.send("❌ Failed to transfer item. Please try again.", ephemeral=True)
         return

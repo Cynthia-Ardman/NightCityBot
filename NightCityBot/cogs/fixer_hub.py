@@ -574,10 +574,11 @@ class ReassignCharPickerView(SafeView):
             )
             return
 
+        new_char_id = char_record["character_id"] if char_record else None
         if str(self.dest_owner.id) == old_owner_id:
-            ok = await pi_update_character(item_id, new_char_name, expected_owner_id=old_owner_id)
+            ok = await pi_update_character(item_id, new_char_name, expected_owner_id=old_owner_id, new_character_id=new_char_id)
         else:
-            ok = await pi_update_owner(item_id, str(self.dest_owner.id), new_char_name, old_owner_id)
+            ok = await pi_update_owner(item_id, str(self.dest_owner.id), new_char_name, old_owner_id, new_character_id=new_char_id)
         if not ok:
             await interaction.followup.send("Failed to reassign item.", ephemeral=True)
             return
@@ -1709,6 +1710,7 @@ class StoreRemoveLotPickerView(SafeView):
     async def _on_select(self, interaction: discord.Interaction):
         item_id = interaction.data["values"][0]
         await interaction.response.defer(ephemeral=True)
+        self.stop()
         if self.store_type == "gun":
             await _process_store_remove_gun(self.cog, interaction, self.owner, item_id)
         else:

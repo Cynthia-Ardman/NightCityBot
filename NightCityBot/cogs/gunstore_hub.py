@@ -737,9 +737,10 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                     )
             await ctx.send("Store not found. Refunded.")
             return
+        lot_id = lot.get("lot_id")
         target_lot = None
         for l in store.get("lots", []):
-            if l.get("lot_id") == lot.get("lot_id"):
+            if l.get("lot_id") == lot_id:
                 target_lot = l
                 break
         if not target_lot or int(target_lot.get("qty_remaining", 0)) < 1:
@@ -778,6 +779,29 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
     })
     if not pi_ok:
         logger.error("gunstore sell: pi_add_item failed — attempting compensation")
+        async with guns_cog.lock:
+            state = await guns_cog._load_state()
+            store = state.get("stores", {}).get(store_id)
+            if store is not None:
+                existing_lot = next((l for l in store.get("lots", []) if l.get("lot_id") == lot_id), None)
+                if existing_lot is not None:
+                    existing_lot["qty_remaining"] = int(existing_lot.get("qty_remaining", 0)) + 1
+                    existing_lot.setdefault("item_ids", []).insert(0, item_id)
+                else:
+                    store.setdefault("lots", []).append({
+                        "lot_id": lot_id,
+                        "gun_name": gun_name,
+                        "unit_cost": price,
+                        "restriction": restriction,
+                        "qty_remaining": 1,
+                        "item_ids": [item_id],
+                        "gun_level": lot.get("gun_level", ""),
+                        "weapon_type": lot.get("weapon_type", ""),
+                    })
+                await guns_cog._save_state(state)
+                logger.info("gunstore sell: restored item_id=%s to store lot=%s", item_id, lot_id)
+            else:
+                logger.error("gunstore sell: could not restore item_id=%s — store not found for store_id=%s", item_id, store_id)
         if price > 0:
             await cog.unbelievaboat.update_balance(
                 customer.id, {"cash": cash_ded, "bank": bank_ded}, reason="Gun sale refund — item grant failed"

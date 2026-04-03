@@ -703,6 +703,16 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
     })
     if not pi_ok:
         logger.error("ripperdoc sell: pi_add_item failed — attempting compensation")
+        async with cw_cog._locks.acquire(str(owner_id)):
+            inv_restore = await cw_cog._load_inventory(owner_id)
+            inv_restore.append({
+                "item_id": item_id,
+                "name": item_name,
+                "price_paid": price,
+                "purchased_at": datetime.now(timezone.utc).isoformat(),
+            })
+            await cw_cog._save_inventory(owner_id, inv_restore)
+            logger.info("ripperdoc sell: restored item_id=%s to ripperdoc=%s stock", item_id, owner_id)
         if price > 0:
             await cog.unbelievaboat.update_balance(
                 patient.id, {"cash": cash_ded, "bank": bank_ded}, reason="CW sale refund — item grant failed"
@@ -713,7 +723,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
                 )
         await ctx.send(
             f"⚠️ Failed to add **{item_name}** to {patient.display_name}'s inventory. "
-            "Payment has been refunded. Please contact an admin."
+            "Payment has been refunded and item has been restored to stock. Please contact an admin."
         )
         return
 

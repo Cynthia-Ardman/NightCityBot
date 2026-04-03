@@ -48,20 +48,28 @@ async def get_player_item(item_id: str) -> Optional[dict]:
     return await pi_get_item(item_id)
 
 
-async def delete_player_item(item_id: str) -> bool:
+async def delete_player_item(item_id: str, *, expected_owner_id: str | None = None) -> bool:
     """Delete the ``player_inventory`` row with the given *item_id*.
+
+    When *expected_owner_id* is provided the DELETE includes an owner guard.
 
     Returns ``True`` if the row was deleted, ``False`` if not found or on error.
     """
-    return await pi_delete_item(item_id)
+    return await pi_delete_item(item_id, expected_owner_id=expected_owner_id)
 
 
-async def reassign_player_item(item_id: str, new_character: str) -> bool:
-    """Update the ``character_name`` field of one item row.
+async def reassign_player_item(
+    item_id: str,
+    new_character: str,
+    expected_owner_id: str | None = None,
+    *,
+    new_character_id: str | None = None,
+) -> bool:
+    """Update the ``character_name`` (and optionally ``character_id``) of one item row.
 
     Returns ``True`` when exactly one row was updated, ``False`` otherwise.
     """
-    return await pi_update_character(item_id, new_character)
+    return await pi_update_character(item_id, new_character, expected_owner_id, new_character_id=new_character_id)
 
 
 async def transfer_player_item(
@@ -69,12 +77,16 @@ async def transfer_player_item(
     new_owner_id: str,
     new_character: str,
     old_owner_id: str,
+    *,
+    new_character_id: str | None = None,
 ) -> bool:
     """Transfer ownership of an item to a new player/character.
 
     Includes an owner guard (``old_owner_id``) so that stale or concurrent
     commands cannot re-transfer an item that is no longer owned by the sender.
 
+    When *new_character_id* is provided it is also written to the row.
+
     Returns ``True`` when exactly one row was updated, ``False`` otherwise.
     """
-    return await pi_update_owner(item_id, new_owner_id, new_character, old_owner_id)
+    return await pi_update_owner(item_id, new_owner_id, new_character, old_owner_id, new_character_id=new_character_id)
