@@ -240,10 +240,10 @@ class Admin(commands.Cog):
             description=(
                 "Basic commands for RP, rent, and daily life in Night City.\n\n"
                 "**Other help commands:**\n"
-                "`!helpguns` — gun store buying & selling guide\n"
-                "`!helpcyberware` — Ripperdoc cyberware shop guide\n"
-                "`!helpfixer` — messaging, RP management, and economy tools\n"
-                "`!helpadmin` — server administration commands"
+                "`!helpguns` — gun store guide\n"
+                "`!helpcyberware` — ripperdoc guide\n"
+                "`!helpfixer` — fixer & admin tools\n"
+                "`!helpadmin` — server administration"
             ),
             color=discord.Color.teal(),
         )
@@ -251,7 +251,7 @@ class Admin(commands.Cog):
         embed.add_field(
             name="🎲 Dice Rolls",
             value=(
-                "`!roll [XdY+Z]` – roll dice using standard notation, e.g. `!roll 2d6+1`. "
+                "`!roll [XdY+Z]` – roll dice, e.g. `!roll 2d6+1`. "
                 "Mention another user to roll for them.\n"
                 "Rolls made in DMs are recorded in your private log thread."
             ),
@@ -261,16 +261,12 @@ class Admin(commands.Cog):
         embed.add_field(
             name="💰 Rent & Cost of Living",
             value=(
-                "Everyone pays a **$500/month** baseline fee for survival (food, water, etc).\n"
-                "Even if you don't have a house or business — you're still eating Prepack.\n\n"
-                "`!open_shop` (aliases: !openshop, !os) — Sundays only\n"
-                "→ Log up to 4 openings per month. Each opening grants an immediate cash payout based on your business tier.\n"
-                "→ Requires a Business role.\n"
-                "`!attend` — Sundays only\n"
-                "→ Verified players earn $250 every week they attend.\n"
-                "`!due` — Estimate what you'll owe on the 1st.\n"
-                "`!paydue [-v]` — pay your monthly obligations early.\n"
-                "`!last_payment` — view the details of your last automated payment."
+                "Everyone pays a **$500/month** baseline fee for survival.\n\n"
+                "`!open_shop` — Sundays only. Log a business opening for a cash payout.\n"
+                "`!attend` — Sundays only. Verified players earn $250.\n"
+                "`!due` — See what you'll owe on the 1st.\n"
+                "`!paydue` — Pay your monthly obligations early.\n"
+                "`!last_payment` — View your last automated payment."
             ),
             inline=False,
         )
@@ -278,45 +274,31 @@ class Admin(commands.Cog):
         embed.add_field(
             name="🏖️ Leave of Absence",
             value=(
-                "`!start_loa` (aliases: !startloa, !loa_start, !loastart) – pause your baseline fees, housing rent and Trauma Team while away.\n"
-                "`!end_loa` (aliases: !endloa, !loa_end, !loaend) – resume all costs when you return. Fixers can specify a member for both commands."
+                "`!start_loa` – pause your fees while away.\n"
+                "`!end_loa` – resume costs when you return."
             ),
             inline=False,
         )
+
         embed.add_field(
             name="🚑 Medical",
             value=(
-                "`!call_trauma` – ping the Trauma Team channel with your plan role.\n"
-                "`!paycyberware [-v]` – pay your cyberware meds manually."
-            ),
-            inline=False,
-        )
-
-
-        embed.add_field(
-            name="📦 Your Three Inventories",
-            value=(
-                "**🎒 Personal inventory** — items you personally own (guns you bought, cyberware installed in you, gear, etc.):\n"
-                "`!my_inventory` (alias: `!myinv`) — see everything you own, grouped by character.\n"
-                "`!my_inventory \"character_name\"` — filter to one character. `!my_inventory 2` — page 2.\n\n"
-                "**🔫 Gun store stock** — guns sitting in your store, ready to sell to players (not yours personally):\n"
-                "`!gunstore` — open the interactive gun store hub (buy, sell, view stock).\n"
-                "`!guns_store_inv` — see what's currently in your shop. Run `!helpguns` for the full guide.\n\n"
-                "**💉 Ripperdoc stock** — cyberware your doc has on hand, ready to install (not a personal item):\n"
-                "`!ripperdoc` — open the interactive ripperdoc hub (buy, sell, install, view stock).\n"
-                "`!cw_inventory` — see what's in your ripperdoc stock. Run `!helpcyberware` for the full guide.\n\n"
-                "**Moving items between players:**\n"
-                "`!trade @buyer <row> <price> character_name` — sell a personal item to another player.\n"
-                "`!inv_give @target <row> \"sender_char\" [\"receiver_char\"]` — give a personal item for free."
+                "`!call_trauma` – ping the Trauma Team channel.\n"
+                "`!paycyberware` – pay your cyberware meds manually."
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="🔫 Gun Store Wholesaler",
+            name="📦 Inventories",
             value=(
-                "`!guns_wh_list` – browse lots available to buy for your store (not personal items).\n"
-                "Own a gun store? Run `!helpguns` for the full buying & selling guide."
+                "**🎒 Personal inventory** — items you own:\n"
+                "`!my_inventory` (alias: `!myinv`) — see everything, grouped by character.\n\n"
+                "**🔫 Gun store** — own a shop? Use `!gunstore` to manage everything.\n"
+                "**💉 Ripperdoc** — licensed doc? Use `!ripperdoc` to manage everything.\n\n"
+                "**Trading between players:**\n"
+                "`!trade @buyer <row> <price> character_name` — sell a personal item.\n"
+                "`!inv_give @target <row> \"sender_char\"` — give a personal item for free."
             ),
             inline=False,
         )
@@ -330,86 +312,67 @@ class Admin(commands.Cog):
 
         fields = [
             (
-                "✉️ Messaging Tools",
+                "🏪 Interactive Hubs",
                 "\n".join([
-                    "`!dm @user <text>` – send an anonymous DM with optional attachments. The conversation is logged in a private thread. Use `!roll` within that thread to relay dice results.",
-                    "`!post <channel|thread> <message>` – send a message or execute a command in another location.",
-                    "`!npc_button` – send the NPC role assignment button in the current channel.",
+                    "`!gunstore` – gun store hub: buy wholesale, sell to customers, view stock.",
+                    "`!ripperdoc` – ripperdoc hub: buy wholesale, sell/install to patients, view stock.",
+                    "`!admin_shop` – admin panel: add/remove items, reassign, history lookup, wholesale management.",
+                ]),
+            ),
+            (
+                "✉️ Messaging",
+                "\n".join([
+                    "`!dm @user <text>` – anonymous DM with attachments. Logged in a private thread.",
+                    "`!post <channel|thread> <message>` – send a message in another channel.",
+                    "`!npc_button` – send the NPC role assignment button.",
                 ]),
             ),
             (
                 "📑 RP Management",
                 "\n".join([
-                    "`!start_rp @users...` (aliases: !startrp, !rp_start, !rpstart) – create a locked RP channel for the listed users and ping Fixers.",
-                    "`!end_rp` (aliases: !endrp, !rp_end, !rpend) – archive the current RP channel to the log forum and then delete it.",
-                    "`!export_threads #channel` – export all threads from a channel into a downloadable HTML file.",
+                    "`!start_rp @users...` – create a locked RP channel for the listed users.",
+                    "`!end_rp` – archive the current RP channel and delete it.",
+                    "`!export_threads #channel` – export threads to a downloadable HTML file.",
                 ]),
             ),
             (
                 "📋 Character Sheets",
                 "\n".join([
-                    "`!search_characters <keyword> [-depth N]` – search thread titles, tags and posts with fuzzy matching.",
-                    "`!retire` – move threads tagged 'Retired' to the archive forum.",
+                    "`!search_characters <keyword>` – search thread titles, tags and posts.",
+                    "`!retire` – move threads tagged 'Retired' to the archive.",
                     "`!move_npcs` – move threads tagged 'NPC' to the NPC forum.",
-                    "`!unretire <thread_id>` – move a retired thread back to the active forum.",
-                    "`!backup_sheets` – export a snapshot of all character sheet threads.",
+                    "`!unretire <thread_id>` – move a retired thread back.",
+                    "`!backup_sheets` – export all character sheet threads.",
                 ]),
             ),
             (
                 "💵 Economy & Rent",
                 "\n".join([
-                    "`!open_shop` (aliases: !openshop, !os) – record a business opening on Sunday and grant passive income immediately.",
-                    "`!attend` – log weekly attendance for a $250 payout.",
-                    "`!event_start` (aliases: !eventstart, !open_event, !start_event) – allow !attend and !open_shop for 4 hours outside Sunday when run in #attendance.",
-                    "`!due [@user]` – display a detailed breakdown of what a user owes on the 1st.",
-                    "`!paydue [-v]` – pay your monthly obligations early.",
-                    "`!collect_rent [@user] [-v] [-force]` (alias: !collectrent) – run the monthly rent cycle. Use `-force` to override the this-month guard.",
-                    "`!collect_housing @user [-v] [-force]` / `!collect_business @user [-v] [-force]` / `!collect_trauma @user [-v] [-force]` – charge specific fees with optional verbose logs. (aliases: !collecthousing / !collectbusiness / !collecttrauma)",
+                    "`!event_start` – allow `!attend` and `!open_shop` outside Sunday (4 hr window).",
+                    "`!due [@user]` – breakdown of what a user owes on the 1st.",
+                    "`!collect_rent [@user] [-v] [-force]` – run the monthly rent cycle.",
                     "`!list_deficits` – list members who can't cover upcoming charges.",
-                    "`!simulate_rent [@user] [-v]` (alias: !simulaterent) – dry run of rent collection without charging anyone.",
-                    "`!simulate_cyberware [@user] [week]` – preview cyberware medication costs for a member or the whole server.",
+                    "`!simulate_rent [@user]` – dry run of rent collection.",
+                    "`!simulate_cyberware [@user]` – preview cyberware medication costs.",
                     "`!simulate_all [@user]` – run both simulations at once.",
                 ]),
             ),
             (
-                "🔫 Gun Shop Tools",
+                "💉 Cyberware Admin",
                 "\n".join([
-                    "`!gunstore` – **interactive hub** — buy from wholesale, sell to customers, and view stock via dropdowns.",
-                    "`!guns_wh_list` – view current wholesaler lots grouped by weapon type.",
-                    "`!guns_store_inv [shop_name]` – view your store inventory.",
-                    '`!guns_wh_buy <lot_id> <qty>` – buy stock from the wholesaler into your store.',
-                    '`!guns_wh_sell @buyer "character_name" <lot_id> <qty> <price>` – sell to a player (text fallback). Alias: `!guns_sell`.',
-                    "`!guns_wh_approve @user` – add a user to your controlled-buyer list.",
-                    "`!guns_wh_unapprove @user` – remove a user from your controlled-buyer list.",
-                    "`!guns_wh_approved` – view your controlled-buyer list.",
-                    "`!guns_wh_gunlist` (aliases: !guns_wh_guns, !guns_wh_masterlist) – list every gun parsed from the master sheet with type, tier and price.",
+                    "`!checkup @user` – remove the checkup role after an exam.",
+                    "`!give_checkup_role [@user]` – give the checkup role to a member or all CW users.",
+                    "`!checkup_report` – list checkup/meds status for all CW users.",
+                    "`!cyberware_status` – current week status for all CW users.",
+                    "`!collect_cyberware @user` – manually charge a member for meds.",
                 ]),
             ),
             (
-                "💉 Ripperdoc & Cyberware",
+                "🔫 Gun Shop Admin",
                 "\n".join([
-                    "`!ripperdoc` – **interactive hub** — buy wholesale, sell/install to patients, and view stock via dropdowns.",
-                    "`!start_loa [@user]` (aliases: !startloa, !loa_start, !loastart) / `!end_loa [@user]` (aliases: !endloa, !loa_end, !loaend) – toggle LOA for yourself or the specified member.",
-                    "`!checkup @user` (aliases: !check-up, !check_up, !cu, !cup) – remove the checkup role once an in-character exam is completed.",
-                    "`!weeks_without_checkup @user` (aliases: !wwocup, !wwc) – show how many weeks a member has kept the role without a checkup.",
-                    "`!give_checkup_role [@user]` (aliases: !givecheckuprole, !cuall) – give the check-up role to a member or all cyberware users.",
-                    "`!checkup_report` (aliases: !cu_report, !cur) – list who did a checkup, who paid meds, and who couldn't pay.",
-                    "`!cyberware_status` (aliases: !cstatus, !cstat) – show current week status for all cyberware users.",
-                    "`!collect_cyberware @user [-v]` – manually charge a member for their meds.",
-                    "`!manual_cyberware_log @user <week> <status>` (alias: !mcl) – manually record a cyberware log entry without charging.",
-                    "`!paycyberware [-v]` – pay your own cyberware meds manually.",
-                ]),
-            ),
-            (
-                "🎒 Inventory Management",
-                "\n".join([
-                    "`!my_inventory [@player] [\"char\"] [page]` (alias: !myinv) – view your items or another player's, grouped by character. Fixers can view any player.",
-                    "`!inv_add @player \"name\" <qty> \"character_name\" [item_type] [restriction] [\"description\"] [price] [\"seller\"]` – add qty items directly to a player's inventory (each gets a unique UUID). "
-                    "item_type: `gun`, `cyberware`, `gear`, `misc` (default: misc). "
-                    "restriction: `basic`, `controlled`, `restricted` (default: basic). "
-                    "Examples: `!inv_add @V \"Militech M10AF\" 1 \"V\" gun controlled` | `!inv_add @V \"Kiroshi Optics Mk.1\" 2 \"V\" cyberware basic \"\" 3000`",
-                    "`!inv_remove @player <item_id>` – remove a specific item by UUID.",
-                    "`!inv_reassign <item_id> @player \"character_name\"` – move an item to a different character (keeps the same owner).",
+                    "`!guns_wh_approve @user` – add a user to a controlled-buyer list.",
+                    "`!guns_wh_unapprove @user` – remove from the list.",
+                    "`!guns_wh_approved` – view the approved buyer list.",
                 ]),
             ),
         ]
@@ -417,7 +380,10 @@ class Admin(commands.Cog):
         embeds = []
         current = discord.Embed(
             title="🛠️ NCRP Bot — Fixer Help",
-            description="Advanced commands for messaging, RP management, and rent.",
+            description=(
+                "Most day-to-day work is done through the interactive hubs.\n"
+                "Commands below are for things the hubs don't cover."
+            ),
             color=discord.Color.purple(),
         )
         for name, value in fields:
@@ -545,55 +511,21 @@ class Admin(commands.Cog):
         embed = discord.Embed(
             title="🔫 NCRP Bot — Gun Shop Guide",
             description=(
-                "Everything you need to know about the gun economy in Night City. "
                 "The corporate wholesaler stocks guns every week. "
-                "Store owners buy from the wholesaler, then sell to players at their own markup."
+                "Store owners buy from the wholesaler, then sell to players at their own markup.\n\n"
+                "**Run `!gunstore` to open the interactive hub** — buy, sell, and view stock all from one place."
             ),
             color=discord.Color.orange(),
         )
 
         embed.add_field(
-            name="📋 Step 1 — Check Gun Shop Stock",
+            name="📖 How It Works",
             value=(
-                "`!guns_wh_list` — see what the wholesaler currently has available.\n"
-                "Lots are grouped by weapon type (Pistol, Revolver, Shotgun, etc.).\n"
-                "Each lot shows: **Lot ID**, gun name, tier (L/M/H), cost per unit, and quantity."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🛒 Step 2 — Buy Stock for Your Store",
-            value=(
-                "`!guns_wh_buy <lot_id> <qty>`\n"
-                "Example: `!guns_wh_buy lot-a3f2 5` — buys 5 units from that lot.\n\n"
-                "The total cost (unit price x qty) is deducted from your balance.\n"
-                "The guns move into your store inventory automatically."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="📦 Step 3 — Check Your Store Inventory",
-            value=(
-                "`!guns_store_inv` — view what you currently have in stock.\n"
-                "Each item shows a **Lot ID** you'll use when selling to players."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="💰 Step 4 — Sell to a Player",
-            value=(
-                "**Recommended: use `!gunstore`** — opens an interactive hub where you can:\n"
-                "• Pick the customer from a dropdown\n"
-                "• Pick the item from your stock\n"
-                "• Enter the character name and price (enter 0 to gift)\n"
-                "• The customer gets a DM to accept or decline\n\n"
-                "**Text command** (still works as a fallback):\n"
-                '`!guns_wh_sell @buyer "character_name" <lot_id> <qty> <price>`\n'
-                'Example: `!guns_wh_sell @Johnny "V" lot-a3f2 1 2500`\n'
-                "Alias: `!guns_sell`"
+                "1. **Browse wholesale** — see what's available this week\n"
+                "2. **Buy stock** — pay wholesale price, guns go into your store\n"
+                "3. **Sell to players** — pick the customer, pick the gun, set your price\n"
+                "4. **Customer confirms** — they get a DM to accept or decline\n\n"
+                "All of this is handled through the `!gunstore` hub with dropdowns."
             ),
             inline=False,
         )
@@ -602,39 +534,11 @@ class Admin(commands.Cog):
             name="🔒 Restriction System",
             value=(
                 "Guns have a restriction level: **basic**, **controlled**, or **restricted**.\n"
-                "- **Basic** — anyone can buy (default).\n"
-                "- **Controlled** — only buyers on your approved list can purchase.\n"
-                "- **Restricted** — approved list + an admin must approve each sale (5-min timeout).\n\n"
-                "`!guns_wh_approve @user` — add someone to your approved buyer list.\n"
-                "`!guns_wh_unapprove @user` — remove someone.\n"
-                "`!guns_wh_approved` — view your approved buyer list."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🏪 Store & Shop Commands",
-            value=(
-                "`!guns_store_inv` — view your own store inventory.\n"
-                "`!guns_store_inv @owner` — admins: view another owner's inventory.\n"
-                "`!guns_wh_shops` — list all registered shop aliases and their owners."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="⚙️ Admin — Gun Shop Management",
-            value=(
-                "`!guns_wh_setsheet <url>` — load the gun master sheet and refresh the gun catalog.\n"
-                "`!guns_wh_restock` — force a fresh weekly wholesale lot rotation.\n"
-                "`!guns_wh_add \"<name>\" <level> <price> <qty> [restriction]` — manually add a lot to the wholesaler.\n"
-                "  Example: `!guns_wh_add \"Nue\" M 1300 5 controlled`\n"
-                "`!guns_wh_remove <lot_id> [qty]` — remove a lot (or reduce qty) from the wholesaler.\n"
-                "`!guns_wh_clear_inventory` — wipe all wholesaler stock.\n"
-                "`!guns_store_add @owner \"<name>\" <level> <price> <qty> [restriction]` — add a lot directly to a store.\n"
-                "`!guns_store_remove @owner <lot_id> [qty]` — remove a lot from a store.\n"
-                "`!guns_wh_retry_payout <tx_id>` — retry a failed sale payout.\n"
-                "`!guns_wh_restock_settings` — view or change wholesaler settings."
+                "- **Basic** — anyone can buy.\n"
+                "- **Controlled** — only buyers on your approved list.\n"
+                "- **Restricted** — approved list + admin approval per sale.\n\n"
+                "Manage your approved list through the hub or with:\n"
+                "`!guns_wh_approve @user` / `!guns_wh_unapprove @user` / `!guns_wh_approved`"
             ),
             inline=False,
         )
@@ -642,10 +546,10 @@ class Admin(commands.Cog):
         embed.add_field(
             name="⚠️ Good to Know",
             value=(
-                "- Wholesaler stock refreshes **weekly** — buy what you need before it's gone.\n"
-                "- You set your own sale prices — the wholesaler cost is your floor.\n"
-                "- Restriction levels carry over when you buy from the wholesaler.\n"
-                "- Your store inventory is separate from the wholesaler — clearing stock won't touch your shelves."
+                "- Wholesale stock refreshes **weekly** — buy before it's gone.\n"
+                "- You set your own sale prices — wholesale cost is your floor.\n"
+                "- Restriction levels carry over from the wholesaler.\n"
+                "- Admin tools are available via `!admin_shop`."
             ),
             inline=False,
         )
@@ -660,122 +564,23 @@ class Admin(commands.Cog):
         embed = discord.Embed(
             title="🦾 NCRP Bot — Cyberware Shop Guide",
             description=(
-                "Night City's cyberware economy runs through licensed Ripperdocs. "
                 "Ripperdocs buy parts from the corporate supplier at catalogue price, "
-                "then install them for patients at their own rate. "
-                "Every transaction is logged for staff records.\n\n"
-                "**Quick start:** Run `!ripperdoc` to open the interactive hub — "
-                "buy, sell, install, and view stock all from one place with dropdowns."
+                "then install them for patients at their own rate.\n\n"
+                "**Run `!ripperdoc` to open the interactive hub** — buy, sell, install, "
+                "and view stock all from one place."
             ),
             color=discord.Color.teal(),
         )
 
         embed.add_field(
-            name="👥 Who Can Do What",
+            name="📖 How It Works",
             value=(
-                "**Ripperdocs** — hold the Ripperdoc role. They buy parts, stock their inventory, and install cyberware.\n"
-                "**Patients** — any server member. They pay the Ripperdoc for an installation.\n"
-                "**Fixers/Admins** — manage the catalogue, adjust inventories, and run wholesale operations."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="📋 Browse the Full Catalogue",
-            value=(
-                "`!cw_catalog` — view all cyberware parts with price, CWP, and description.\n"
-                "Note: only a **weekly rotating subset** is available for purchase each week — "
-                "see `!cw_wh_list` for what's in stock right now."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🔩 Weekly Wholesale Stock",
-            value=(
-                "`!cw_wh_list` — see this week's available items with qty remaining and price.\n"
-                "Stock rotates every Sunday. Items sell out fast — check before you order.\n"
-                "Aliases: `!cw_wholesale`, `!cw_stock`"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🛒 Buy Parts (Ripperdoc only)",
-            value=(
-                "`!cw_buy <lot_number> [qty=1]` — purchase a part from this week's wholesale stock.\n"
-                "Example: `!cw_buy 3` or `!cw_buy 3 2`\n\n"
-                "Use `!cw_wh_list` to find lot numbers. "
-                "Cost is deducted from your balance. Part is added to your inventory immediately."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="📦 Check Your Stock (Ripperdoc only)",
-            value=(
-                "`!cw_inventory` — view parts currently in your inventory, grouped and numbered.\n"
-                "`!cw_inventory @ripperdoc` — admins can view another Ripperdoc's stock."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="💉 Sell / Install (Ripperdoc only)",
-            value=(
-                "**Recommended: use `!ripperdoc`** — opens an interactive hub where you:\n"
-                "1. Pick the patient from a dropdown (no need to type @mentions)\n"
-                "2. Pick the item from your stock (no row numbers needed)\n"
-                "3. Enter the character name and price (enter 0 to gift for free)\n"
-                "4. The patient gets a DM to accept or decline\n\n"
-                "**Text commands** (still work as a fallback):\n"
-                '`!cw_sell @patient <inv_row> <price> character_name`\n'
-                '`!cw_install @patient "character_name" <inv_row>`\n\n'
-                "Both sell and install will deduct from the patient, credit you, "
-                "move the item, and post an audit log."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="📜 Transaction History",
-            value=(
-                "`!cw_tx` — view your last 20 transactions (buys and installs).\n"
-                "`!cw_tx @ripperdoc` — admins can pull any Ripperdoc's transaction log."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="⚙️ Admin — Catalogue Management",
-            value=(
-                "`!cw_setsheet <url>` — load the master sheet and replace the full catalogue.\n"
-                "`!cw_add \"<name>\" <price> [cwp] [description...]` — add or update one item manually.\n"
-                "  Example: `!cw_add \"Kiroshi Optics Mk.2\" 5000 CWP-2 Enhanced optical interface`\n"
-                "`!cw_remove <item name>` — remove an item from the catalogue (does not affect inventories)."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="⚙️ Admin — Inventory Overrides",
-            value=(
-                "`!cw_give @ripperdoc <item name>` — give an item directly to a Ripperdoc (bypasses wholesale).\n"
-                "`!cw_take @ripperdoc <item name>` — remove an item from a Ripperdoc's inventory."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="⚙️ Admin — Weekly Wholesale",
-            value=(
-                "`!cw_wh_restock [seed]` — force a fresh weekly rotation.\n"
-                "`!cw_wh_add <qty> <item name>` — add/restock a specific item mid-week.\n"
-                "  Example: `!cw_wh_add 2 Kiroshi Optics Mk.1`\n"
-                "`!cw_wh_remove <item name>` — pull an item from this week's rotation.\n"
-                "`!cw_wh_settings [key] [value]` — view or change restock settings.\n"
-                "  Keys: `total_items`, `qty_min`, `qty_max`\n"
-                "  Example: `!cw_wh_settings total_items 20`"
+                "1. **Browse wholesale** — see what's in rotation this week\n"
+                "2. **Buy parts** — pay catalogue price, parts go into your stock\n"
+                "3. **Sell or install** — pick the patient, pick the part, set your price\n"
+                "4. **Patient confirms** — they get a DM to accept or decline\n\n"
+                "All of this is handled through the `!ripperdoc` hub with dropdowns.\n"
+                "Use `!cw_catalog` to browse the full catalogue (not just this week's stock)."
             ),
             inline=False,
         )
@@ -783,12 +588,11 @@ class Admin(commands.Cog):
         embed.add_field(
             name="⚠️ Good to Know",
             value=(
-                "- You must buy a part **before** you can sell/install it — no selling from thin air.\n"
+                "- You must buy a part **before** you can sell/install it.\n"
                 "- Stock is per-Ripperdoc: your inventory is yours alone.\n"
-                "- Only items in the **weekly wholesale rotation** can be purchased via `!cw_buy`.\n"
-                "- The rotation refreshes automatically every Sunday alongside the gun wholesaler.\n"
-                "- If a transaction fails partway through, compensating refunds are issued automatically.\n"
-                "- Catalogue prices are the supplier floor. Charge patients more (or less) — that's your business."
+                "- Wholesale stock rotates every **Sunday**.\n"
+                "- Catalogue prices are the supplier floor — charge what you want.\n"
+                "- Admin tools are available via `!admin_shop`."
             ),
             inline=False,
         )
