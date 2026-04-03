@@ -18,9 +18,11 @@ from NightCityBot.cogs.fixer_hub import (
     PlayerRemoveItemView,
     RemoveItemPickerView,
     LOAPickerView,
-    StoreInvPickerView,
-    StoreAddPickerView,
-    StoreRemovePickerView,
+    StoreOwnerPickerView,
+    StoreActionView,
+    StoreRemoveLotPickerView,
+    GUN_STORE_OWNER_ROLE_ID,
+    RIPPERDOC_ROLE_ID,
 )
 
 
@@ -301,56 +303,70 @@ class TestPlayerSubViewButtons:
 
 
 class TestStoreSubViewButtons:
-    def test_view_gun_store_sends_picker(self):
+    def test_view_gun_store_with_role_members(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
+            member1 = _make_member(200, "GunGuy")
+            role = MagicMock()
+            role.members = [member1]
+            ctx.guild.get_role = MagicMock(side_effect=lambda rid: role if rid == GUN_STORE_OWNER_ROLE_ID else None)
             view = StoreSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "View Gun Store")
             await btn.callback(inter)
             kwargs = inter.followup.send.call_args.kwargs
             picker = kwargs["view"]
-            assert isinstance(picker, StoreInvPickerView)
+            assert isinstance(picker, StoreOwnerPickerView)
             assert picker.store_type == "gun"
         _run(_test())
 
-    def test_view_cw_store_sends_picker(self):
+    def test_view_gun_store_no_owners(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
+            role = MagicMock()
+            role.members = []
+            ctx.guild.get_role = MagicMock(return_value=role)
             view = StoreSubView(cog, ctx)
             inter = _make_interaction()
-            btn = _find_button(view, "View CW Store")
+            btn = _find_button(view, "View Gun Store")
+            await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "no gun store owners" in msg.lower()
+        _run(_test())
+
+    def test_view_ripperdoc_store_with_role_members(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            member1 = _make_member(300, "DocRipper")
+            role = MagicMock()
+            role.members = [member1]
+            ctx.guild.get_role = MagicMock(side_effect=lambda rid: role if rid == RIPPERDOC_ROLE_ID else None)
+            view = StoreSubView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "View Ripperdoc Store")
             await btn.callback(inter)
             kwargs = inter.followup.send.call_args.kwargs
             picker = kwargs["view"]
-            assert isinstance(picker, StoreInvPickerView)
+            assert isinstance(picker, StoreOwnerPickerView)
             assert picker.store_type == "cw"
         _run(_test())
 
-    def test_add_to_store_sends_picker(self):
+    def test_view_ripperdoc_store_no_docs(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
+            role = MagicMock()
+            role.members = []
+            ctx.guild.get_role = MagicMock(return_value=role)
             view = StoreSubView(cog, ctx)
             inter = _make_interaction()
-            btn = _find_button(view, "Add to Gun Store")
+            btn = _find_button(view, "View Ripperdoc Store")
             await btn.callback(inter)
-            kwargs = inter.followup.send.call_args.kwargs
-            assert isinstance(kwargs["view"], StoreAddPickerView)
-        _run(_test())
-
-    def test_remove_from_store_sends_picker(self):
-        async def _test():
-            cog = _make_cog()
-            ctx = _ctx()
-            view = StoreSubView(cog, ctx)
-            inter = _make_interaction()
-            btn = _find_button(view, "Remove from Gun Store")
-            await btn.callback(inter)
-            kwargs = inter.followup.send.call_args.kwargs
-            assert isinstance(kwargs["view"], StoreRemovePickerView)
+            msg = inter.followup.send.call_args[0][0]
+            assert "no ripperdocs" in msg.lower()
         _run(_test())
 
     def test_done_button(self):
@@ -670,28 +686,30 @@ class TestLOAPickerView:
 
 
 class TestStorePickerViews:
-    def test_view_gun_store_empty(self):
+    def test_owner_picker_gun_store_empty(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
             owner = _make_member(222, "ShopOwner")
+            ctx.guild.get_member = MagicMock(return_value=owner)
             guns_cog = MagicMock()
             guns_cog._load_state = AsyncMock(return_value={"stores": {}})
             guns_cog._store_id = MagicMock(return_value="999:222")
             cog.bot.cogs["GunsShopCog"] = guns_cog
-            view = StoreInvPickerView(cog, ctx, store_type="gun")
-            select = _find_user_select(view)
-            select._values = [owner]
+            options = [discord.SelectOption(label="ShopOwner", value="222")]
+            view = StoreOwnerPickerView(cog, ctx, options, store_type="gun")
             inter = _make_interaction()
-            await select.callback(inter)
+            inter.data = {"values": ["222"]}
+            await view._on_select(inter)
             assert "empty" in inter.followup.send.call_args[0][0].lower()
         _run(_test())
 
-    def test_view_gun_store_with_stock(self):
+    def test_owner_picker_gun_store_with_stock(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
             owner = _make_member(222, "ShopOwner")
+            ctx.guild.get_member = MagicMock(return_value=owner)
             guns_cog = MagicMock()
             guns_cog._load_state = AsyncMock(return_value={
                 "stores": {"999:222": {"lots": [
@@ -700,20 +718,23 @@ class TestStorePickerViews:
             })
             guns_cog._store_id = MagicMock(return_value="999:222")
             cog.bot.cogs["GunsShopCog"] = guns_cog
-            view = StoreInvPickerView(cog, ctx, store_type="gun")
-            select = _find_user_select(view)
-            select._values = [owner]
+            options = [discord.SelectOption(label="ShopOwner", value="222")]
+            view = StoreOwnerPickerView(cog, ctx, options, store_type="gun")
             inter = _make_interaction()
-            await select.callback(inter)
+            inter.data = {"values": ["222"]}
+            await view._on_select(inter)
             embed = inter.followup.send.call_args.kwargs["embed"]
             assert "Rifle" in embed.description
+            action_view = inter.followup.send.call_args.kwargs["view"]
+            assert isinstance(action_view, StoreActionView)
         _run(_test())
 
-    def test_view_cw_store(self):
+    def test_owner_picker_cw_store(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
             owner = _make_member(222, "Doc")
+            ctx.guild.get_member = MagicMock(return_value=owner)
             cw_cog = MagicMock()
             cw_cog._load_inventory = AsyncMock(return_value=[
                 {"name": "Sandevistan", "price_paid": 5000, "purchased_at": "2025-01-01"},
@@ -722,44 +743,19 @@ class TestStorePickerViews:
                 {"name": "Sandevistan", "price_paid": 5000, "count": 1, "date": "2025-01-01"},
             ])
             cog.bot.cogs["CyberwareShop"] = cw_cog
-            view = StoreInvPickerView(cog, ctx, store_type="cw")
-            select = _find_user_select(view)
-            select._values = [owner]
+            options = [discord.SelectOption(label="Doc", value="222")]
+            view = StoreOwnerPickerView(cog, ctx, options, store_type="cw")
             inter = _make_interaction()
-            await select.callback(inter)
+            inter.data = {"values": ["222"]}
+            await view._on_select(inter)
             embed = inter.followup.send.call_args.kwargs["embed"]
             assert "Sandevistan" in embed.description
         _run(_test())
 
-    def test_store_add_picker_continue_no_owner(self):
-        async def _test():
-            cog = _make_cog()
-            ctx = _ctx()
-            view = StoreAddPickerView(cog, ctx)
-            inter = _make_interaction()
-            btn = _find_button(view, "Continue →")
-            await btn.callback(inter)
-            assert "select" in inter.response.send_message.call_args[0][0].lower()
-        _run(_test())
-
-    @patch("NightCityBot.cogs.fixer_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
-    def test_store_add_picker_continue_starts_inline_flow(self, mock_collect):
-        async def _test():
-            cog = _make_cog()
-            ctx = _ctx()
-            view = StoreAddPickerView(cog, ctx)
-            view.selected_owner = _make_member(222, "ShopOwner")
-            inter = _make_interaction()
-            inter.channel_id = 123
-            btn = _find_button(view, "Continue →")
-            await btn.callback(inter)
-            inter.response.defer.assert_called_once()
-        _run(_test())
-
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
-    def test_store_add_details_success(self, mock_audit):
+    def test_store_add_gun_success(self, mock_audit):
         async def _test():
-            from NightCityBot.cogs.fixer_hub import _process_store_add
+            from NightCityBot.cogs.fixer_hub import _process_store_add_gun
             cog = _make_cog()
             owner = _make_member(222, "ShopOwner")
             guns_cog = MagicMock()
@@ -770,26 +766,34 @@ class TestStorePickerViews:
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
             inter = _make_interaction()
-            await _process_store_add(cog, inter, owner, "TestGun, 5, 1000, basic")
+            await _process_store_add_gun(cog, inter, owner, "TestGun, 5, 1000, basic")
             guns_cog._save_state.assert_called_once()
             assert "TestGun" in inter.followup.send.call_args[0][0]
         _run(_test())
 
-    def test_store_remove_picker_continue_no_owner(self):
+    @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
+    def test_store_add_cw_success(self, mock_audit):
         async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_store_add_cw
             cog = _make_cog()
-            ctx = _ctx()
-            view = StoreRemovePickerView(cog, ctx)
+            owner = _make_member(222, "Doc")
+            cw_cog = MagicMock()
+            cw_cog._load_inventory = AsyncMock(return_value=[])
+            cw_cog._save_inventory = AsyncMock(return_value=True)
+            cog.bot.cogs["CyberwareShop"] = cw_cog
             inter = _make_interaction()
-            btn = _find_button(view, "Continue →")
-            await btn.callback(inter)
-            assert "select" in inter.response.send_message.call_args[0][0].lower()
+            await _process_store_add_cw(cog, inter, owner, "Kiroshi Optics, 3, 8000")
+            cw_cog._save_inventory.assert_called_once()
+            saved_inv = cw_cog._save_inventory.call_args[0][1]
+            assert len(saved_inv) == 3
+            assert all(i["name"] == "Kiroshi Optics" for i in saved_inv)
+            assert "Kiroshi Optics" in inter.followup.send.call_args[0][0]
         _run(_test())
 
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
-    def test_store_remove_details_success(self, mock_audit):
+    def test_store_remove_gun_success(self, mock_audit):
         async def _test():
-            from NightCityBot.cogs.fixer_hub import _process_store_remove
+            from NightCityBot.cogs.fixer_hub import _process_store_remove_gun
             cog = _make_cog()
             owner = _make_member(222, "ShopOwner")
             guns_cog = MagicMock()
@@ -802,9 +806,27 @@ class TestStorePickerViews:
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
             inter = _make_interaction()
-            await _process_store_remove(cog, inter, owner, "lot-1")
+            await _process_store_remove_gun(cog, inter, owner, "lot-1")
             assert "Removed" in inter.followup.send.call_args[0][0]
             assert "Pistol" in inter.followup.send.call_args[0][0]
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
+    def test_store_remove_cw_success(self, mock_audit):
+        async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_store_remove_cw
+            cog = _make_cog()
+            owner = _make_member(222, "Doc")
+            cw_cog = MagicMock()
+            cw_cog._load_inventory = AsyncMock(return_value=[
+                {"item_id": "abc-123", "name": "Sandevistan", "price_paid": 5000},
+            ])
+            cw_cog._save_inventory = AsyncMock(return_value=True)
+            cog.bot.cogs["CyberwareShop"] = cw_cog
+            inter = _make_interaction()
+            await _process_store_remove_cw(cog, inter, owner, "abc-123")
+            assert "Removed" in inter.followup.send.call_args[0][0]
+            assert "Sandevistan" in inter.followup.send.call_args[0][0]
         _run(_test())
 
 
@@ -915,9 +937,9 @@ def _make_guns_cog(state_dict):
     return guns_cog
 
 
-def test_store_remove_negative_qty():
+def test_store_remove_gun_lot_not_found():
     async def _test():
-        from NightCityBot.cogs.fixer_hub import _process_store_remove
+        from NightCityBot.cogs.fixer_hub import _process_store_remove_gun
         cog = _make_cog()
         store_key = "999:111"
         owner = _make_member(111, "TestOwner")
@@ -931,29 +953,24 @@ def test_store_remove_negative_qty():
         guns_cog._store_id = MagicMock(return_value=store_key)
         cog.bot.cogs["GunsShopCog"] = guns_cog
         inter = _make_interaction()
-        await _process_store_remove(cog, inter, owner, "L1, -3")
-        assert "positive" in inter.followup.send.call_args[0][0].lower()
+        await _process_store_remove_gun(cog, inter, owner, "NONEXISTENT")
+        assert "not found" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
-def test_store_remove_zero_qty():
+def test_store_remove_cw_item_not_found():
     async def _test():
-        from NightCityBot.cogs.fixer_hub import _process_store_remove
+        from NightCityBot.cogs.fixer_hub import _process_store_remove_cw
         cog = _make_cog()
-        store_key = "999:111"
         owner = _make_member(111, "TestOwner")
-        guns_cog = _make_guns_cog({
-            "stores": {
-                store_key: {
-                    "lots": [{"lot_id": "L1", "gun_name": "Pistol", "qty_remaining": 5}]
-                }
-            }
-        })
-        guns_cog._store_id = MagicMock(return_value=store_key)
-        cog.bot.cogs["GunsShopCog"] = guns_cog
+        cw_cog = MagicMock()
+        cw_cog._load_inventory = AsyncMock(return_value=[
+            {"item_id": "abc-1", "name": "Sandevistan", "price_paid": 5000},
+        ])
+        cog.bot.cogs["CyberwareShop"] = cw_cog
         inter = _make_interaction()
-        await _process_store_remove(cog, inter, owner, "L1, 0")
-        assert "positive" in inter.followup.send.call_args[0][0].lower()
+        await _process_store_remove_cw(cog, inter, owner, "NONEXISTENT")
+        assert "not found" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
@@ -976,46 +993,45 @@ class TestPickerUserSelectCallbacks:
             assert "TestPlayer" in inter.response.edit_message.call_args.kwargs["content"]
         _run(_test())
 
-    def test_store_add_picker_select_sets_owner(self):
+    def test_store_owner_picker_selects_member(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            view = StoreAddPickerView(cog, ctx)
-            select = _find_user_select(view)
-            member = _make_member(222, "ShopOwner")
-            select._values = [member]
+            owner = _make_member(222, "ShopOwner")
+            ctx.guild.get_member = MagicMock(return_value=owner)
+            guns_cog = MagicMock()
+            guns_cog._load_state = AsyncMock(return_value={"stores": {}})
+            guns_cog._store_id = MagicMock(return_value="999:222")
+            cog.bot.cogs["GunsShopCog"] = guns_cog
+            options = [discord.SelectOption(label="ShopOwner", value="222")]
+            view = StoreOwnerPickerView(cog, ctx, options, store_type="gun")
             inter = _make_interaction()
-            await select.callback(inter)
-            assert view.selected_owner is member
-            inter.response.send_message.assert_called_once()
-            assert "ShopOwner" in inter.response.send_message.call_args[0][0]
-        _run(_test())
-
-    def test_store_remove_picker_select_sets_owner(self):
-        async def _test():
-            cog = _make_cog()
-            ctx = _ctx()
-            view = StoreRemovePickerView(cog, ctx)
-            select = _find_user_select(view)
-            member = _make_member(222, "ShopOwner")
-            select._values = [member]
-            inter = _make_interaction()
-            await select.callback(inter)
-            assert view.selected_owner is member
-        _run(_test())
-
-    @patch("NightCityBot.cogs.fixer_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
-    def test_store_remove_picker_continue_starts_inline_flow(self, mock_collect):
-        async def _test():
-            cog = _make_cog()
-            ctx = _ctx()
-            view = StoreRemovePickerView(cog, ctx)
-            view.selected_owner = _make_member(222, "ShopOwner")
-            inter = _make_interaction()
-            inter.channel_id = 123
-            btn = _find_button(view, "Continue →")
-            await btn.callback(inter)
+            inter.data = {"values": ["222"]}
+            await view._on_select(inter)
             inter.response.defer.assert_called_once()
+        _run(_test())
+
+    def test_store_remove_lot_picker_selects_lot(self):
+        async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_store_remove_gun
+            cog = _make_cog()
+            ctx = _ctx()
+            owner = _make_member(222, "ShopOwner")
+            guns_cog = MagicMock()
+            state = {"stores": {"999:222": {"lots": [
+                {"lot_id": "lot-1", "gun_name": "Pistol", "qty_remaining": 3},
+            ]}}}
+            guns_cog._load_state = AsyncMock(return_value=state)
+            guns_cog._save_state = AsyncMock(return_value=True)
+            guns_cog._store_id = MagicMock(return_value="999:222")
+            guns_cog.lock = asyncio.Lock()
+            cog.bot.cogs["GunsShopCog"] = guns_cog
+            options = [discord.SelectOption(label="Pistol", value="lot-1")]
+            view = StoreRemoveLotPickerView(cog, ctx, owner, options, store_type="gun")
+            inter = _make_interaction()
+            inter.data = {"values": ["lot-1"]}
+            await view._on_select(inter)
+            assert "Removed" in inter.followup.send.call_args[0][0]
         _run(_test())
 
 
@@ -1050,45 +1066,48 @@ class TestPickerFailureBranches:
             assert "not configured" in inter.followup.send.call_args[0][0].lower()
         _run(_test())
 
-    def test_store_inv_picker_gun_cog_missing(self):
+    def test_store_owner_picker_gun_cog_missing(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
             owner = _make_member(222, "ShopOwner")
-            view = StoreInvPickerView(cog, ctx, store_type="gun")
-            select = _find_user_select(view)
-            select._values = [owner]
+            ctx.guild.get_member = MagicMock(return_value=owner)
+            options = [discord.SelectOption(label="ShopOwner", value="222")]
+            view = StoreOwnerPickerView(cog, ctx, options, store_type="gun")
             inter = _make_interaction()
-            await select.callback(inter)
+            inter.data = {"values": ["222"]}
+            await view._on_select(inter)
             assert "unavailable" in inter.followup.send.call_args[0][0].lower()
         _run(_test())
 
-    def test_store_inv_picker_cw_cog_missing(self):
+    def test_store_owner_picker_cw_cog_missing(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
             owner = _make_member(222, "Doc")
-            view = StoreInvPickerView(cog, ctx, store_type="cw")
-            select = _find_user_select(view)
-            select._values = [owner]
+            ctx.guild.get_member = MagicMock(return_value=owner)
+            options = [discord.SelectOption(label="Doc", value="222")]
+            view = StoreOwnerPickerView(cog, ctx, options, store_type="cw")
             inter = _make_interaction()
-            await select.callback(inter)
+            inter.data = {"values": ["222"]}
+            await view._on_select(inter)
             assert "unavailable" in inter.followup.send.call_args[0][0].lower()
         _run(_test())
 
-    def test_store_inv_picker_cw_empty(self):
+    def test_store_owner_picker_cw_empty(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
             owner = _make_member(222, "Doc")
+            ctx.guild.get_member = MagicMock(return_value=owner)
             cw_cog = MagicMock()
             cw_cog._load_inventory = AsyncMock(return_value=[])
             cog.bot.cogs["CyberwareShop"] = cw_cog
-            view = StoreInvPickerView(cog, ctx, store_type="cw")
-            select = _find_user_select(view)
-            select._values = [owner]
+            options = [discord.SelectOption(label="Doc", value="222")]
+            view = StoreOwnerPickerView(cog, ctx, options, store_type="cw")
             inter = _make_interaction()
-            await select.callback(inter)
+            inter.data = {"values": ["222"]}
+            await view._on_select(inter)
             assert "empty" in inter.followup.send.call_args[0][0].lower()
         _run(_test())
 
