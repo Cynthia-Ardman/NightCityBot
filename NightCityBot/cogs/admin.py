@@ -300,8 +300,10 @@ class Admin(commands.Cog):
                 "`!my_inventory` (alias: `!myinv`) — see everything you own, grouped by character.\n"
                 "`!my_inventory \"character_name\"` — filter to one character. `!my_inventory 2` — page 2.\n\n"
                 "**🔫 Gun store stock** — guns sitting in your store, ready to sell to players (not yours personally):\n"
-                "`!guns_store_inv` — see what's currently in your shop. Run `!helpguns` for buying & selling.\n\n"
+                "`!gunstore` — open the interactive gun store hub (buy, sell, view stock).\n"
+                "`!guns_store_inv` — see what's currently in your shop. Run `!helpguns` for the full guide.\n\n"
                 "**💉 Ripperdoc stock** — cyberware your doc has on hand, ready to install (not a personal item):\n"
+                "`!ripperdoc` — open the interactive ripperdoc hub (buy, sell, install, view stock).\n"
                 "`!cw_inventory` — see what's in your ripperdoc stock. Run `!helpcyberware` for the full guide.\n\n"
                 "**Moving items between players:**\n"
                 "`!trade @buyer <row> <price> character_name` — sell a personal item to another player.\n"
@@ -372,10 +374,11 @@ class Admin(commands.Cog):
             (
                 "🔫 Gun Shop Tools",
                 "\n".join([
+                    "`!gunstore` – **interactive hub** — buy from wholesale, sell to customers, and view stock via dropdowns.",
                     "`!guns_wh_list` – view current wholesaler lots grouped by weapon type.",
                     "`!guns_store_inv [shop_name]` – view your store inventory.",
                     '`!guns_wh_buy <lot_id> <qty>` – buy stock from the wholesaler into your store.',
-                    '`!guns_wh_sell @buyer "character_name" <lot_id> <qty> <price>` – sell to a player (debit buyer, credit seller, post receipt). Alias: `!guns_sell`.',
+                    '`!guns_wh_sell @buyer "character_name" <lot_id> <qty> <price>` – sell to a player (text fallback). Alias: `!guns_sell`.',
                     "`!guns_wh_approve @user` – add a user to your controlled-buyer list.",
                     "`!guns_wh_unapprove @user` – remove a user from your controlled-buyer list.",
                     "`!guns_wh_approved` – view your controlled-buyer list.",
@@ -383,8 +386,9 @@ class Admin(commands.Cog):
                 ]),
             ),
             (
-                "🏖️ LOA & Cyberware",
+                "💉 Ripperdoc & Cyberware",
                 "\n".join([
+                    "`!ripperdoc` – **interactive hub** — buy wholesale, sell/install to patients, and view stock via dropdowns.",
                     "`!start_loa [@user]` (aliases: !startloa, !loa_start, !loastart) / `!end_loa [@user]` (aliases: !endloa, !loa_end, !loaend) – toggle LOA for yourself or the specified member.",
                     "`!checkup @user` (aliases: !check-up, !check_up, !cu, !cup) – remove the checkup role once an in-character exam is completed.",
                     "`!weeks_without_checkup @user` (aliases: !wwocup, !wwc) – show how many weeks a member has kept the role without a checkup.",
@@ -581,13 +585,14 @@ class Admin(commands.Cog):
         embed.add_field(
             name="💰 Step 4 — Sell to a Player",
             value=(
+                "**Recommended: use `!gunstore`** — opens an interactive hub where you can:\n"
+                "• Pick the customer from a dropdown\n"
+                "• Pick the item from your stock\n"
+                "• Enter the character name and price (enter 0 to gift)\n"
+                "• The customer gets a DM to accept or decline\n\n"
+                "**Text command** (still works as a fallback):\n"
                 '`!guns_wh_sell @buyer "character_name" <lot_id> <qty> <price>`\n'
-                'Example: `!guns_wh_sell @Johnny "V" lot-a3f2 1 2500`\n\n'
-                "This will:\n"
-                "1. Deduct the price from the buyer's balance\n"
-                "2. Credit the price to your balance\n"
-                "3. Remove the item(s) from your inventory\n"
-                "4. Post an audit receipt for staff records\n\n"
+                'Example: `!guns_wh_sell @Johnny "V" lot-a3f2 1 2500`\n'
                 "Alias: `!guns_sell`"
             ),
             inline=False,
@@ -658,7 +663,9 @@ class Admin(commands.Cog):
                 "Night City's cyberware economy runs through licensed Ripperdocs. "
                 "Ripperdocs buy parts from the corporate supplier at catalogue price, "
                 "then install them for patients at their own rate. "
-                "Every transaction is logged for staff records."
+                "Every transaction is logged for staff records.\n\n"
+                "**Quick start:** Run `!ripperdoc` to open the interactive hub — "
+                "buy, sell, install, and view stock all from one place with dropdowns."
             ),
             color=discord.Color.teal(),
         )
@@ -708,35 +715,24 @@ class Admin(commands.Cog):
             name="📦 Check Your Stock (Ripperdoc only)",
             value=(
                 "`!cw_inventory` — view parts currently in your inventory, grouped and numbered.\n"
-                "`!cw_inventory @ripperdoc` — admins can view another Ripperdoc's stock.\n"
-                "Row numbers shown here are used with `!cw_sell` and `!cw_install`."
+                "`!cw_inventory @ripperdoc` — admins can view another Ripperdoc's stock."
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="💉 Sell to a Patient (Ripperdoc only)",
+            name="💉 Sell / Install (Ripperdoc only)",
             value=(
+                "**Recommended: use `!ripperdoc`** — opens an interactive hub where you:\n"
+                "1. Pick the patient from a dropdown (no need to type @mentions)\n"
+                "2. Pick the item from your stock (no row numbers needed)\n"
+                "3. Enter the character name and price (enter 0 to gift for free)\n"
+                "4. The patient gets a DM to accept or decline\n\n"
+                "**Text commands** (still work as a fallback):\n"
                 '`!cw_sell @patient <inv_row> <price> character_name`\n'
-                'Example: `!cw_sell @V 1 3500 V`\n\n'
-                "This will:\n"
-                "1. Deduct the price from the patient's balance\n"
-                "2. Credit the price to your (Ripperdoc's) balance\n"
-                "3. Remove the part from your inventory (FIFO)\n"
-                "4. Add the item to the patient's inventory record\n"
-                "5. Post an audit receipt to the Ripperdoc log channel\n\n"
-                "Use `!cw_inventory` to find row numbers."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🔧 Free Install (Ripperdoc only)",
-            value=(
-                '`!cw_install @patient "character_name" <inv_row>`\n'
-                'Example: `!cw_install @V "V" 1`\n\n'
-                "Transfers the item with no payment — use for comped installs or staff-directed ops. "
-                "Part is removed from your stock and recorded in the patient's inventory."
+                '`!cw_install @patient "character_name" <inv_row>`\n\n'
+                "Both sell and install will deduct from the patient, credit you, "
+                "move the item, and post an audit log."
             ),
             inline=False,
         )
