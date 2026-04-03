@@ -450,7 +450,7 @@ def test_trade_setup_continue_restricted_blocked():
     _run(_test())
 
 
-# --- Trade Details Modal tests ---
+# --- Trade Details (collect_text_input / _process_trade) tests ---
 
 def test_trade_process_no_guild():
     async def _test():

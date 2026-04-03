@@ -1172,7 +1172,7 @@ class TestRemoveItemDropdownFlow:
             inter.data = {"values": ["Pistol"]}
             view.item_dropdown._values = ["Pistol"]
             await view.item_dropdown.callback(inter)
-            mock_delete.assert_called_once_with("uuid-b1")
+            mock_delete.assert_called_once_with("uuid-b1", expected_owner_id="200")
             msg = inter.followup.send.call_args[0][0]
             assert "Pistol" in msg
             assert "Removed" in msg
@@ -1259,7 +1259,7 @@ class TestRemoveItemDropdownFlow:
             view.item_dropdown._values = ["Katana"]
             await view.item_dropdown.callback(inter)
             mock_get_item.assert_called_with("real-uuid-123")
-            mock_delete.assert_called_with("real-uuid-123")
+            mock_delete.assert_called_with("real-uuid-123", expected_owner_id="200")
         _run(_test())
 
     @patch("NightCityBot.cogs.fixer_hub.pi_delete_item", new_callable=AsyncMock, return_value=True)

@@ -1137,7 +1137,7 @@ class RemoveItemPickerView(SafeView):
             fresh = await pi_get_item(item_id)
             if fresh is None or fresh.get("owner_id") != str(self.player.id):
                 continue
-            ok = await pi_delete_item(item_id)
+            ok = await pi_delete_item(item_id, expected_owner_id=str(self.player.id))
             if ok:
                 removed += 1
                 await ih_record_event(
@@ -1293,6 +1293,7 @@ class FixerItemHistorySourceView(SafeView):
 
     @discord.ui.button(label="Player Item", style=discord.ButtonStyle.primary, emoji="👤", row=0)
     async def player_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
         view = FixerItemHistoryPlayerPickerView(self.cog, self.ctx)
         await interaction.response.edit_message(
             content="📜 **Item History** — Select the player:",
@@ -1301,6 +1302,7 @@ class FixerItemHistorySourceView(SafeView):
 
     @discord.ui.button(label="Store Item", style=discord.ButtonStyle.primary, emoji="🏪", row=0)
     async def store_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
         view = FixerItemHistoryStorePickerView(self.cog, self.ctx)
         await interaction.response.edit_message(
             content="📜 **Item History** — Select the store owner:",
@@ -1341,6 +1343,7 @@ class FixerItemHistoryPlayerPickerView(SafeView):
             label = f"{name} [{itype}]"[:100]
             desc = f"{char} — {iid[:8]}…"[:100]
             options.append(discord.SelectOption(label=label, value=iid, description=desc))
+        self.stop()
         view = FixerItemHistoryItemPickerView(self.cog, self.ctx, options, member.display_name)
         await interaction.edit_original_response(
             content=f"📜 **{member.display_name}** — Select an item to view history:",
@@ -1399,6 +1402,7 @@ class FixerItemHistoryStorePickerView(SafeView):
             )
             return
         options = options[:25]
+        self.stop()
         view = FixerItemHistoryItemPickerView(self.cog, self.ctx, options, owner.display_name)
         await interaction.edit_original_response(
             content=f"📜 **{owner.display_name}'s Store** — Select an item to view history:",
@@ -1781,15 +1785,16 @@ async def _process_store_add_cw(cog, interaction, owner, text):
     if qty < 1 or cost < 0:
         await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
         return
-    inventory = await cw_cog._load_inventory(owner.id)
-    for _ in range(qty):
-        inventory.append({
-            "item_id": str(uuid.uuid4()),
-            "name": item_name,
-            "price_paid": cost,
-            "purchased_at": datetime.now(timezone.utc).isoformat(),
-        })
-    await cw_cog._save_inventory(owner.id, inventory)
+    async with cw_cog._locks.acquire(str(owner.id)):
+        inventory = await cw_cog._load_inventory(owner.id)
+        for _ in range(qty):
+            inventory.append({
+                "item_id": str(uuid.uuid4()),
+                "name": item_name,
+                "price_paid": cost,
+                "purchased_at": datetime.now(timezone.utc).isoformat(),
+            })
+        await cw_cog._save_inventory(owner.id, inventory)
     await interaction.followup.send(
         f"Added **{item_name}** ×{qty} at ${cost:,} to {owner.display_name}'s Ripperdoc store.",
         ephemeral=True,
@@ -1830,14 +1835,15 @@ async def _process_store_remove_cw(cog, interaction, owner, item_id):
     if not cw_cog:
         await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
         return
-    inventory = await cw_cog._load_inventory(owner.id)
-    item = next((i for i in inventory if i.get("item_id") == item_id), None)
-    if not item:
-        await interaction.followup.send("Item not found in store.", ephemeral=True)
-        return
-    item_name = item.get("name", "?")
-    inventory.remove(item)
-    await cw_cog._save_inventory(owner.id, inventory)
+    async with cw_cog._locks.acquire(str(owner.id)):
+        inventory = await cw_cog._load_inventory(owner.id)
+        item = next((i for i in inventory if i.get("item_id") == item_id), None)
+        if not item:
+            await interaction.followup.send("Item not found in store.", ephemeral=True)
+            return
+        item_name = item.get("name", "?")
+        inventory.remove(item)
+        await cw_cog._save_inventory(owner.id, inventory)
     await interaction.followup.send(
         f"Removed **{item_name}** from {owner.display_name}'s Ripperdoc store.", ephemeral=True
     )

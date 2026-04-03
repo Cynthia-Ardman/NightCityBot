@@ -1006,7 +1006,7 @@ async def _process_trade(cog, interaction, buyer, group, buyer_character, price,
                 )
                 await ub.update_balance(
                     interaction.user.id,
-                    {"cash": -price},
+                    {"bank": -price},
                     reason=f"Trade refund (DB failure): {item_name}",
                 )
             await interaction.followup.send(
@@ -1300,7 +1300,7 @@ async def _process_give(cog, interaction, target, group, receiver_character, sen
             await interaction.followup.send("❌ CyberwareShop cog unavailable. Contact an admin.", ephemeral=True)
             return
 
-        ok_del = await pi_delete_item(item_id)
+        ok_del = await pi_delete_item(item_id, expected_owner_id=str(interaction.user.id))
         if not ok_del:
             await interaction.followup.send("❌ Failed to remove item from your inventory.", ephemeral=True)
             return
@@ -1743,7 +1743,7 @@ async def _process_sell_to_store(cog, interaction, store_owner, group, seller_ch
             )
             return
 
-    ok_delete = await pi_delete_item(item_id)
+    ok_delete = await pi_delete_item(item_id, expected_owner_id=str(interaction.user.id))
     if not ok_delete:
         if price > 0:
             ub = getattr(inv_cog, "unbelievaboat", None) if inv_cog else None
@@ -1755,8 +1755,8 @@ async def _process_sell_to_store(cog, interaction, store_owner, group, seller_ch
                 )
                 await ub.update_balance(
                     interaction.user.id,
-                    {"cash": -price},
-                    reason=f"Store buy refund (DB failure): {item_name}",
+                    {"bank": -price},
+                    reason=f"Store sale refund (DB failure): {item_name}",
                 )
         await interaction.followup.send(
             "❌ Failed to remove item from your inventory. Refunds attempted. Please contact an admin.",

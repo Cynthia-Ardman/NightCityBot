@@ -2931,8 +2931,13 @@ async def pi_get_item(item_id: str) -> Optional[dict]:
         return None
 
 
-async def pi_delete_item(item_id: str) -> bool:
-    """Delete a player_inventory row. Returns True if a row was deleted."""
+async def pi_delete_item(item_id: str, *, expected_owner_id: str | None = None) -> bool:
+    """Delete a player_inventory row. Returns True if a row was deleted.
+
+    If *expected_owner_id* is provided the DELETE additionally checks
+    ``AND owner_id = $2`` so a stale caller can never remove another
+    player's item (TOCTOU guard).
+    """
     try:
         pool = await get_pool()
         deleted = False
@@ -2940,10 +2945,17 @@ async def pi_delete_item(item_id: str) -> bool:
         async def _do():
             nonlocal deleted
             async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
-                result = await conn.execute(
-                    "DELETE FROM player_inventory WHERE item_id = $1",
-                    str(item_id),
-                )
+                if expected_owner_id is not None:
+                    result = await conn.execute(
+                        "DELETE FROM player_inventory WHERE item_id = $1 AND owner_id = $2",
+                        str(item_id),
+                        str(expected_owner_id),
+                    )
+                else:
+                    result = await conn.execute(
+                        "DELETE FROM player_inventory WHERE item_id = $1",
+                        str(item_id),
+                    )
                 deleted = result != "DELETE 0"
 
         await _with_retry(_do, label="pi_delete_item")

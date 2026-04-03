@@ -39,6 +39,10 @@ All hardcoded dollar amounts (baseline living cost, housing/business/trauma rent
 
 DB helpers: `NightCityBot/utils/db.py` — `get_pool()`, `db_load(key, default, seed_path)`, `db_save(key, value)`, `close_pool()`. On first `db_load` for a key not yet in DB, seeds automatically from the legacy JSON file on disk (one-time migration).
 
+`pi_delete_item(item_id, *, expected_owner_id=None)` — accepts an optional `expected_owner_id` kwarg; when provided, the SQL uses `AND owner_id = $2` as a TOCTOU guard so a stale caller cannot delete another player's item. All player-facing callers (give, sell-to-store) pass the current user's ID; admin callers (fixer remove) pass the target player's ID.
+
+Seller refund convention: all rollback/refund paths that claw back money from the seller must use `{"bank": -price}`, never `{"cash": -price}`, to avoid pushing the seller's cash balance negative.
+
 ### DB Resilience (Task #3)
 
 All write-path helpers in `db.py` are wrapped with `_with_retry()` — 2 automatic retries with exponential backoff on transient errors (`PostgresConnectionError`, `InterfaceError`, `TooManyConnectionsError`). Non-transient errors (constraint violations, etc.) propagate immediately.

@@ -360,6 +360,7 @@ class ItemHistorySourceView(SafeView):
 
     @discord.ui.button(label="Player Item", style=discord.ButtonStyle.primary, emoji="👤", row=0)
     async def player_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
         view = ItemHistoryPlayerPickerView(self.cog, self.ctx)
         await interaction.response.edit_message(
             content="📜 **Item History** — Select the player:",
@@ -368,6 +369,7 @@ class ItemHistorySourceView(SafeView):
 
     @discord.ui.button(label="Store Item", style=discord.ButtonStyle.primary, emoji="🏪", row=0)
     async def store_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
         view = ItemHistoryStorePickerView(self.cog, self.ctx)
         await interaction.response.edit_message(
             content="📜 **Item History** — Select the store owner:",
@@ -408,6 +410,7 @@ class ItemHistoryPlayerPickerView(SafeView):
             label = f"{name} [{itype}]"[:100]
             desc = f"{char} — {iid[:8]}…"[:100]
             options.append(discord.SelectOption(label=label, value=iid, description=desc))
+        self.stop()
         view = ItemHistoryItemPickerView(self.cog, self.ctx, options, member.display_name)
         await interaction.edit_original_response(
             content=f"📜 **{member.display_name}** — Select an item to view history:",
@@ -466,6 +469,7 @@ class ItemHistoryStorePickerView(SafeView):
             )
             return
         options = options[:25]
+        self.stop()
         view = ItemHistoryItemPickerView(self.cog, self.ctx, options, owner.display_name)
         await interaction.edit_original_response(
             content=f"📜 **{owner.display_name}'s Store** — Select an item to view history:",

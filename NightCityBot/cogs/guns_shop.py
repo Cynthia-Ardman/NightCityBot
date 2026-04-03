@@ -360,7 +360,7 @@ class GunsShopCog(commands.Cog):
 
         # Populate gun_catalog on startup if the table is empty.
         # This handles the case where the bot restarts after the table was first
-        # added but before any !wh_restock has been run.
+        # added but before any restock has been run.
         try:
             existing = await gun_catalog_get_all()
             if not existing:

@@ -104,7 +104,7 @@ class CyberwareShop(commands.Cog):
                     await cw_catalog_upsert_many(cached)
                     logger.info("cyberware_catalog populated on startup: %d items", len(cached))
                 else:
-                    logger.info("cyberware_catalog startup populate: no cached catalog found (run cw_setsheet first)")
+                    logger.info("cyberware_catalog startup populate: no cached catalog found (use Admin Hub → Set CW Sheet)")
             else:
                 logger.info("cyberware_catalog already populated (%d entries) — skipping startup reload", len(existing))
         except Exception:
@@ -653,7 +653,7 @@ class CyberwareShop(commands.Cog):
                 )
                 await self.unbelievaboat.update_balance(
                     ctx.author.id,
-                    {"cash": -price},
+                    {"bank": -price},
                     reason=f"Cyberware sale refund (item no longer in inventory): {item_name}",
                 )
                 await ctx.send(
@@ -671,7 +671,7 @@ class CyberwareShop(commands.Cog):
                 )
                 await self.unbelievaboat.update_balance(
                     ctx.author.id,
-                    {"cash": -price},
+                    {"bank": -price},
                     reason=f"Cyberware sale refund (inventory changed): {item_name}",
                 )
                 await ctx.send(
@@ -710,7 +710,7 @@ class CyberwareShop(commands.Cog):
                 )
                 await self.unbelievaboat.update_balance(
                     ctx.author.id,
-                    {"cash": -price},
+                    {"bank": -price},
                     reason=f"Cyberware sale refund (DB write failed): {item_name}",
                 )
                 await ctx.send(

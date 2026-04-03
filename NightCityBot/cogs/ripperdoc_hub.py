@@ -479,9 +479,9 @@ class SellSetupView(SafeView):
         self._character_select = char_select
         self._characters = characters
         self.add_item(char_select)
-        await interaction.response.send_message(
-            f"Patient: **{self.selected_patient.display_name}** ✓ — Now select their character.",
-            ephemeral=True,
+        await interaction.response.edit_message(
+            content=f"Patient: **{self.selected_patient.display_name}** ✓ — Now select their character.",
+            view=self,
         )
 
     async def _on_character_select(self, interaction: discord.Interaction):
@@ -682,7 +682,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
                 )
                 if seller_credited:
                     await cog.unbelievaboat.update_balance(
-                        owner_id, {"cash": -price}, reason="CW sale refund — item missing"
+                        owner_id, {"bank": -price}, reason="CW sale refund — item missing"
                     )
             await ctx.send("Item no longer in stock. Refunded.")
             return
@@ -709,7 +709,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
             )
             if seller_credited:
                 await cog.unbelievaboat.update_balance(
-                    owner_id, {"cash": -price}, reason="CW sale refund — item grant failed"
+                    owner_id, {"bank": -price}, reason="CW sale refund — item grant failed"
                 )
         await ctx.send(
             f"⚠️ Failed to add **{item_name}** to {patient.display_name}'s inventory. "
@@ -866,7 +866,7 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
                 )
                 if seller_credited:
                     await cog.unbelievaboat.update_balance(
-                        owner_id, {"cash": -price}, reason="CW install refund — item missing"
+                        owner_id, {"bank": -price}, reason="CW install refund — item missing"
                     )
             await ctx.send("Item no longer in stock. Refunded.")
             return

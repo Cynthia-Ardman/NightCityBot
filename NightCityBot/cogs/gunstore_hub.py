@@ -513,9 +513,9 @@ class GunSellSetupView(SafeView):
         self._character_select = char_select
         self._characters = characters
         self.add_item(char_select)
-        await interaction.response.send_message(
-            f"Customer: **{self.selected_customer.display_name}** ✓ — Now select their character.",
-            ephemeral=True,
+        await interaction.response.edit_message(
+            content=f"Customer: **{self.selected_customer.display_name}** ✓ — Now select their character.",
+            view=self,
         )
 
     async def _on_character_select(self, interaction: discord.Interaction):
@@ -733,7 +733,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                 )
                 if seller_credited:
                     await cog.unbelievaboat.update_balance(
-                        owner_id, {"cash": -price}, reason="Gun sale refund"
+                        owner_id, {"bank": -price}, reason="Gun sale refund"
                     )
             await ctx.send("Store not found. Refunded.")
             return
@@ -749,7 +749,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                 )
                 if seller_credited:
                     await cog.unbelievaboat.update_balance(
-                        owner_id, {"cash": -price}, reason="Gun sale refund — out of stock"
+                        owner_id, {"bank": -price}, reason="Gun sale refund — out of stock"
                     )
             await ctx.send("Item out of stock. Refunded.")
             return
@@ -784,7 +784,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
             )
             if seller_credited:
                 await cog.unbelievaboat.update_balance(
-                    owner_id, {"cash": -price}, reason="Gun sale refund — item grant failed"
+                    owner_id, {"bank": -price}, reason="Gun sale refund — item grant failed"
                 )
         await ctx.send(
             f"⚠️ Failed to add **{gun_name}** to {customer.display_name}'s inventory. "
