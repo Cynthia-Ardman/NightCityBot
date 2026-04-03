@@ -1028,8 +1028,10 @@ class TestAdminWholesaleButtons:
 
         _run(run())
 
-    def test_restock_cw_button_starts_inline_flow(self, monkeypatch):
+    @patch("NightCityBot.cogs.admin_shop.cw_catalog_get_all", new_callable=AsyncMock)
+    def test_restock_cw_button_starts_inline_flow(self, mock_catalog, monkeypatch):
         monkeypatch.setattr("NightCityBot.cogs.admin_shop.collect_text_input", AsyncMock(return_value=None))
+        mock_catalog.return_value = [{"name": "Neural Link", "price": 5000}]
 
         async def run():
             cog = _make_admin_cog()
@@ -1040,6 +1042,22 @@ class TestAdminWholesaleButtons:
             btn = _find_button(view, "Restock CW")
             await btn.callback(inter)
             inter.response.defer.assert_called_once()
+            msg = inter.followup.send.call_args[0][0]
+            assert "total_items" in msg or "timed out" in msg.lower()
+
+        _run(run())
+
+    @patch("NightCityBot.cogs.admin_shop.cw_catalog_get_all", new_callable=AsyncMock, return_value=[])
+    def test_restock_cw_empty_catalog(self, mock_catalog):
+        async def run():
+            cog = _make_admin_cog()
+            view = AdminShopMenuView()
+            inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
+            btn = _find_button(view, "Restock CW")
+            await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "empty" in msg.lower()
 
         _run(run())
 

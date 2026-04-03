@@ -5,6 +5,7 @@ look up item history, add/remove items, and view audit trails.
 """
 import logging
 import re
+import random
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -183,17 +184,23 @@ class AdminShopMenuView(SafeView):
     async def restock_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("AdminShop")
+        catalog = await cw_catalog_get_all()
+        if not catalog:
+            await interaction.followup.send("❌ CW catalog is empty. Set a sheet and reload first.", ephemeral=True)
+            return
         await interaction.followup.send(
-            "📝 **Enter:** `cyberware_name, quantity, unit_cost`\n"
-            "Example: `Neural Link Mk.2, 10, 8000`\n"
-            "Type `cancel` to abort.",
+            f"📦 **CW catalog has {len(catalog)} items.**\n"
+            f"How many unique items to stock, and max qty per item?\n"
+            f"**Enter:** `total_items, max_qty`\n"
+            f"Example: `5, 3` — stocks 5 random items, up to 3 each\n"
+            f"Type `cancel` to abort.",
             ephemeral=True,
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
-        await _inline_restock_cw(cog, interaction, text)
+        await _inline_restock_cw(cog, interaction, text, catalog)
 
     @discord.ui.button(label="Clear CW WH", style=discord.ButtonStyle.danger, emoji="🧹", row=3, custom_id="admin_shop:clear_cw_wholesale")
     async def clear_cw_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -501,44 +508,51 @@ async def _inline_restock_wholesale(cog, interaction, text):
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-async def _inline_restock_cw(cog, interaction, text):
+async def _inline_restock_cw(cog, interaction, text, catalog):
     parts = [p.strip() for p in text.split(",")]
-    if len(parts) < 3:
+    if len(parts) < 2:
         await interaction.followup.send(
-            "❌ Please provide: `cyberware_name, quantity, unit_cost`",
+            "❌ Please provide: `total_items, max_qty`",
             ephemeral=True,
         )
         return
-    item_name = parts[0]
-    if not item_name:
-        await interaction.followup.send("❌ Item name is required.", ephemeral=True)
-        return
     try:
-        qty = int(parts[1])
-        cost = int(parts[2])
+        total_items = int(parts[0])
+        max_qty = int(parts[1])
     except ValueError:
-        await interaction.followup.send("Quantity and cost must be numbers.", ephemeral=True)
+        await interaction.followup.send("Both values must be numbers.", ephemeral=True)
         return
-    if qty < 1 or cost < 0:
-        await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
+    if total_items < 1:
+        await interaction.followup.send("Total items must be at least 1.", ephemeral=True)
         return
+    if max_qty < 1:
+        await interaction.followup.send("Max qty must be at least 1.", ephemeral=True)
+        return
+    total_items = min(total_items, len(catalog))
     cw_cog = cog.bot.cogs.get("CyberwareShop")
     if not cw_cog:
         await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
         return
+    chosen = random.sample(catalog, total_items)
     async with cw_cog.lock:
         state = await cw_cog._load_state()
         lots = state.setdefault("cw_wholesale_lots", [])
-        lot_id = f"admin-cw-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
-        lots.append({
-            "lot_id": lot_id,
-            "item_name": item_name,
-            "unit_cost": cost,
-            "qty_available": qty,
-        })
+        stocked = []
+        for item in chosen:
+            qty = random.randint(1, max_qty)
+            cost = item.get("price", 0) or 0
+            lot_id = f"admin-cw-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
+            lots.append({
+                "lot_id": lot_id,
+                "item_name": item["name"],
+                "unit_cost": cost,
+                "qty_available": qty,
+            })
+            stocked.append(f"**{item['name']}** ×{qty} at ${cost:,}")
         await cw_cog._save_state(state)
+    summary = "\n".join(stocked)
     await interaction.followup.send(
-        f"Restocked CW **{item_name}** ×{qty} at ${cost:,}.", ephemeral=True
+        f"✅ Restocked **{len(stocked)}** CW items:\n{summary}", ephemeral=True
     )
     log_ch = await cog._audit_channel()
     if log_ch:
@@ -548,9 +562,9 @@ async def _inline_restock_cw(cog, interaction, text):
             timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(name="Admin", value=f"{interaction.user.mention}", inline=False)
-        embed.add_field(name="Item", value=item_name, inline=True)
-        embed.add_field(name="Qty", value=str(qty), inline=True)
-        embed.add_field(name="Cost", value=f"${cost:,}", inline=True)
+        embed.add_field(name="Items", value=str(len(stocked)), inline=True)
+        embed.add_field(name="Max Qty", value=str(max_qty), inline=True)
+        embed.add_field(name="Details", value=summary[:1024], inline=False)
         embed.set_footer(text="NightCityBot Audit Log")
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
@@ -662,7 +676,7 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
                 "**Wholesale Stock** — View gun + CW wholesale inventory\n"
                 "**Restock Wholesale** — Add guns to wholesale\n"
                 "**Clear Gun WH** — Remove all gun wholesale lots\n"
-                "**Restock CW** — Add cyberware to wholesale\n"
+                "**Restock CW** — Stock random CW from catalog\n"
                 "**Clear CW WH** — Remove all CW wholesale lots\n"
                 "**Set Gun/CW Sheet** — Set Google Sheet URL for catalogs\n"
                 "**Reload Sheets** — Re-download and refresh both catalogs"
