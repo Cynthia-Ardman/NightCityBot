@@ -1,0 +1,677 @@
+Got it. Here’s a tighter engineering handoff with the new decisions locked in.
+
+---
+
+# NightCityBot Character Ownership Refactor
+
+## Engineering Handoff for Replit Agent
+
+## Overview
+
+Refactor NightCityBot so that inventory is owned by **characters**, not directly by Discord users.
+
+A Discord user can have multiple characters. Each character belongs to exactly one Discord user. Guns, cyberware, installed cyberware, and future inventory-like items must all be tied to a specific `character_id`.
+
+This feature also adds character lifecycle management:
+
+* create character
+* deactivate character
+* reactivate character
+
+All character actions must be logged to the same logging channels used for other player actions.
+
+---
+
+# Final Decisions
+
+These are the decisions already made and should be treated as requirements:
+
+1. Inventory is **character-owned**, not user-owned.
+2. A Discord user can have multiple characters.
+3. Character creation only requires a **name**.
+4. Character names must be unique **per Discord user**, not globally.
+5. We are **not** using hard delete.
+6. We are using **inactive/active state** instead.
+7. Inactive characters cannot:
+
+   * receive items
+   * buy items
+   * sell items
+   * transfer items
+   * install cyberware
+   * be used in normal item flows
+8. We need a way to **reactivate** inactive characters.
+9. All character actions must be logged to the same player-action logging channels.
+10. Do **not** use Discord modals.
+11. Do **not** use the inline text-entry UX the user dislikes.
+12. Use Discord UI patterns that fit the existing bot flow better, such as:
+
+* buttons
+* select menus
+* step-by-step interaction flows
+* follow-up prompts in-channel or ephemeral prompts, if needed
+
+---
+
+# Primary Goal
+
+Create a character ownership system that supports:
+
+* multiple characters per Discord user
+* active/inactive character state
+* character-based inventory ownership
+* character selection in guns and cyberware flows
+* migration of existing user-owned inventory to character-owned inventory
+* audit/logging consistency
+
+---
+
+# Scope
+
+## In Scope
+
+* new `characters` data model
+* character creation
+* character deactivation
+* character reactivation
+* character-aware inventory ownership
+* updates to guns and cyberware flows
+* migration of existing inventory
+* logging of all character actions
+* blocking inactive characters from all active item workflows
+
+## Out of Scope for this phase
+
+* full character sheet system
+* lore data
+* portraits
+* cross-user shared characters
+* permanent delete
+* advanced rename flow unless easy to add
+* large admin UI overhaul unless needed for support
+
+---
+
+# UX Requirements
+
+## Player Panel Actions
+
+Add character-related actions to the player panel.
+
+Required actions:
+
+* **Create Character**
+* **Manage Characters**
+
+  * deactivate character
+  * reactivate character
+  * optionally view status
+* existing inventory-related systems must become character-aware
+
+## Do Not Use
+
+* Discord modals
+* inline free-text dropdown-style entry UX the user dislikes
+
+## Preferred Interaction Style
+
+Use button/select-menu driven flows.
+
+Because free text is still required for character creation, use a controlled interaction flow that fits the bot better. Acceptable options include:
+
+### Preferred approach
+
+* user clicks **Create Character**
+* bot opens an ephemeral or controlled reply flow asking for the character name
+* user replies with plain text
+* bot validates and creates the character
+
+This should feel like a guided bot interaction, not a modal.
+
+### For deactivate/reactivate
+
+Use:
+
+* button click
+* select menu of owned characters
+* confirm button
+
+---
+
+# Core Data Model
+
+## Ownership Hierarchy
+
+New ownership chain:
+
+**Discord User -> Character -> Inventory / Installed Cyberware / Transaction History**
+
+Not:
+
+**Discord User -> Inventory**
+
+---
+
+# Database Requirements
+
+## 1. Characters Table
+
+Create a first-class `characters` table.
+
+### Required fields
+
+* `character_id` primary key
+* `discord_user_id`
+* `character_name`
+* `normalized_character_name`
+* `status`
+* `created_at`
+* `updated_at`
+* `deactivated_at` nullable
+* `reactivated_at` nullable, optional
+
+### Status values
+
+Use a string/enum status.
+
+Required values:
+
+* `active`
+* `inactive`
+
+Do not use hard delete for normal flows.
+
+### Constraints
+
+* primary key on `character_id`
+* unique constraint on (`discord_user_id`, `normalized_character_name`)
+* index on `discord_user_id`
+* index on `status`
+* optional composite index on (`discord_user_id`, `status`)
+
+## 2. Name Normalization
+
+Character names must be unique per user.
+
+Normalization rules:
+
+* trim leading/trailing whitespace
+* compare case-insensitively
+* reject empty or whitespace-only names
+
+Example duplicates for same user:
+
+* `Corpse`
+* `corpse`
+* `Corpse`
+
+These should count as the same name.
+
+Two different users may have the same character name.
+
+---
+
+# Character Lifecycle Requirements
+
+## Create Character
+
+### Trigger
+
+Player clicks **Create Character**.
+
+### Flow
+
+1. Bot begins guided interaction
+2. Bot asks for character name via plain text response flow
+3. User submits name
+4. Validate input
+5. Create character record owned by submitting Discord user
+6. Set status = `active`
+7. Log action
+8. Return success/error response
+
+### Validation
+
+* name cannot be empty
+* name cannot be whitespace-only
+* name must be unique per user after normalization
+* enforce reasonable max length
+
+Recommended max length:
+
+* 50 or 64 characters
+
+---
+
+## Deactivate Character
+
+### Trigger
+
+Player clicks **Manage Characters** then chooses deactivate
+
+### Flow
+
+1. Show active characters owned by that user
+2. User selects one
+3. Show confirmation
+4. Set status = `inactive`
+5. Set `deactivated_at`
+6. Log action
+7. Return success response
+
+### Effects of deactivation
+
+Inactive characters must not be allowed to:
+
+* receive items
+* buy items
+* sell items
+* transfer items
+* install cyberware
+* appear in normal active transaction dropdowns
+
+### Important behavior
+
+Use **Option A**:
+
+When a character is made inactive:
+
+* keep all inventory attached
+* keep installed cyberware attached
+* keep all history attached
+* do not require inventory cleanup first
+
+This is intentional and required.
+
+---
+
+## Reactivate Character
+
+### Trigger
+
+Player clicks **Manage Characters** then chooses reactivate
+
+### Flow
+
+1. Show inactive characters owned by that user
+2. User selects one
+3. Show confirmation
+4. Set status = `active`
+5. Optionally set `reactivated_at`
+6. Log action
+7. Return success response
+
+### Effects of reactivation
+
+Reactivated characters become eligible again for:
+
+* receiving items
+* buying
+* selling
+* transferring
+* cyberware installation
+* appearing in normal active character lists
+
+---
+
+# Inventory Refactor Requirements
+
+## Core Rule
+
+All player-owned inventory must be tied to `character_id`, not directly to `discord_user_id`.
+
+This applies to:
+
+* guns
+* cyberware inventory
+* installed cyberware
+* future item systems that behave like inventory
+* transfers
+* grants
+* sales
+* buys
+* admin-issued items
+
+## Required Principle
+
+No normal gameplay item flow may assign an item directly to a user without a character target.
+
+---
+
+# Guns Flow Changes
+
+## Current problem
+
+If guns are currently assigned directly to Discord users, that must change.
+
+## New behavior
+
+Whenever a gun is sold, granted, or transferred:
+
+1. Select Discord user
+2. Load that user’s **active** characters
+3. Select character
+4. Assign or remove inventory using `character_id`
+
+## Validation
+
+Must verify:
+
+* selected character belongs to selected user
+* selected character is active
+* item exists
+* quantity is valid
+* source character owns enough quantity for removal flows
+
+---
+
+# Cyberware Flow Changes
+
+## Cyberware acquisition
+
+Whenever cyberware is bought or granted:
+
+1. Select Discord user
+2. Load active characters
+3. Select character
+4. Add inventory to that `character_id`
+
+## Cyberware installation
+
+Installed cyberware must also be character-scoped.
+
+### Install flow
+
+1. Select Discord user
+2. Select active character
+3. Show that character’s cyberware inventory only
+4. Select item
+5. Install onto that same `character_id`
+
+## Validation
+
+Must verify:
+
+* character is active
+* character owns the cyberware item
+* item is installable
+* existing cyberware rules still apply
+
+---
+
+# Character Selection Rules
+
+## Active-only in normal flows
+
+Normal gameplay dropdowns/select menus must only show **active** characters.
+
+Inactive characters must not appear in:
+
+* buying
+* selling
+* giving
+* transferring
+* installing
+* other standard inventory actions
+
+## No active characters case
+
+If a selected user has no active characters:
+
+* show useful error
+* block transaction
+
+Example:
+“This user has no active characters and cannot receive items.”
+
+---
+
+# Migration Requirements
+
+This part is mandatory.
+
+## Existing data problem
+
+There is already inventory likely tied directly to Discord users.
+
+## Required migration strategy
+
+Use **Option A**:
+
+For each user with existing inventory but no character mapping:
+
+1. create a fallback legacy character
+2. attach their existing inventory to that character
+3. preserve all inventory and history
+
+### Fallback character naming
+
+Use a clear default naming scheme, for example:
+
+* `Legacy Character`
+* `Imported Character`
+* `Primary Character`
+
+Pick one and use it consistently.
+
+### Important migration rule
+
+Do not leave the system half-converted.
+
+After migration:
+
+* relevant inventory ownership must resolve through `character_id`
+* no orphaned inventory rows
+* no normal user-facing flow should continue using direct user-owned inventory
+
+---
+
+# Logging Requirements
+
+All character actions must be logged to the same channels used for other player actions.
+
+## Required logged actions
+
+At minimum, log:
+
+* character created
+* character deactivated
+* character reactivated
+* character inventory-affecting transactions if already logged elsewhere
+* migration-created fallback characters, ideally in admin logs only
+
+## Log details
+
+Each log entry should include enough context to be useful.
+
+Recommended fields:
+
+* action type
+* Discord user
+* Discord user ID
+* character name
+* character ID
+* actor who triggered the action
+* timestamp
+* old status -> new status when applicable
+
+### Example action types
+
+* `CHARACTER_CREATED`
+* `CHARACTER_DEACTIVATED`
+* `CHARACTER_REACTIVATED`
+
+If your existing logging system uses a different pattern, follow that pattern consistently.
+
+---
+
+# Permissions
+
+## Player permissions
+
+Players can:
+
+* create their own characters
+* deactivate their own characters
+* reactivate their own characters
+* use their own active characters in relevant player flows
+
+Players cannot:
+
+* manage other users’ characters
+* deactivate/reactivate other users’ characters
+* use inactive characters in active workflows
+
+## Admin/staff support
+
+Admin tools should still be able to:
+
+* view all characters if needed
+* view inactive characters
+* repair data manually if needed
+
+Not all admin tools need to be built now, but nothing in this design should block them.
+
+---
+
+# Data Integrity Rules
+
+These must always be true:
+
+1. Every character belongs to exactly one Discord user
+2. Every inventory item belongs to exactly one character
+3. Every installed cyberware record belongs to exactly one character
+4. Character names are unique per user after normalization
+5. Inactive characters cannot be used in active item flows
+6. Active item flows must resolve to a valid active character
+7. Migration must not leave orphaned inventory rows
+8. Historical inventory and transaction records must remain preserved when a character is deactivated
+
+---
+
+# Error Handling
+
+Use clear failure messages.
+
+## Character creation errors
+
+* empty name
+* invalid name
+* duplicate name for same user
+* name too long
+
+## Deactivate/reactivate errors
+
+* character not found
+* character does not belong to user
+* character already in requested state
+
+## Transaction errors
+
+* selected user has no active characters
+* selected character not found
+* selected character does not belong to selected user
+* character inactive
+* insufficient inventory
+* invalid item
+
+Bad:
+
+* “Something went wrong”
+
+Good:
+
+* “You already have a character with that name.”
+* “That character is inactive and cannot receive items.”
+* “This user has no active characters.”
+
+---
+
+# API / Service Layer Expectations
+
+Replit Agent should create or update service logic so character operations are centralized.
+
+Recommended service responsibilities:
+
+* create character
+* normalize/validate name
+* list active characters by user
+* list inactive characters by user
+* deactivate character
+* reactivate character
+* resolve character ownership
+* block inactive-character transactions
+* migrate legacy inventory ownership
+
+Do not scatter character-status checks randomly across handlers if avoidable. Centralize where possible.
+
+---
+
+# Suggested Implementation Order
+
+## Phase 1: Data model
+
+* create `characters` table
+* add constraints and indexes
+* add any needed schema changes to inventory tables
+
+## Phase 2: Migration
+
+* create fallback legacy characters for existing inventory owners
+* move inventory ownership to `character_id`
+* validate that no orphaned rows remain
+
+## Phase 3: Character actions
+
+* add Create Character flow
+* add Manage Characters flow
+* support deactivate/reactivate
+* add logging
+
+## Phase 4: Inventory flows
+
+* update guns panel to require character selection
+* update cyberware panel to require character selection
+* update install flows to use `character_id`
+* block inactive characters everywhere
+
+## Phase 5: Validation and cleanup
+
+* verify logs
+* verify migration correctness
+* verify inactive-state enforcement
+* verify duplicate-name rules
+
+---
+
+# Acceptance Criteria
+
+The work is complete only when all of the following are true:
+
+1. A Discord user can create multiple characters.
+2. Character creation only requires a name.
+3. Character names are unique per user after normalization.
+4. Characters can be marked inactive.
+5. Inactive characters can later be reactivated.
+6. Inactive characters cannot buy, sell, receive, transfer, or install items.
+7. Guns are owned by `character_id`.
+8. Cyberware inventory is owned by `character_id`.
+9. Installed cyberware is owned by `character_id`.
+10. Guns and cyberware transaction flows require selecting both user and character.
+11. Normal transaction flows only show active characters.
+12. Existing direct user-owned inventory is migrated to fallback legacy characters.
+13. All character actions are logged to the same player-action logging channels.
+14. No normal inventory flow still relies on character-less user ownership.
+15. No hard delete is used in standard player-facing character management.
+
+---
+
+# Replit Agent Task Summary
+
+Implement a character ownership system for NightCityBot. Add a `characters` table where each character belongs to a Discord user and has a name plus an active/inactive status. Character names must be unique per user after normalization. Add player-panel flows for creating a character, deactivating a character, and reactivating a character. Do not use Discord modals. Use guided button/select-menu interaction patterns and plain text reply flow where character-name entry is required.
+
+Refactor guns, cyberware inventory, and installed cyberware so they are owned by `character_id` rather than directly by `discord_user_id`. Update all relevant item flows so they first resolve a Discord user and then one of that user’s active characters. Inactive characters must be blocked from all normal inventory actions. Use migration Option A: create fallback legacy characters for existing user-owned inventory and move those records under the fallback character. Preserve all history and inventory when characters are deactivated. Log all character actions to the same logging channels used for other player actions.
+
+---
+
+If you want, I can do one more pass and make this even more stripped down into a **copy-paste prompt for Replit Agent** with almost no prose and just hard requirements.
