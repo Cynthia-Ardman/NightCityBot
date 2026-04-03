@@ -13,6 +13,7 @@ import discord
 from discord.ext import commands
 
 import config
+from NightCityBot.utils.interaction_safety import SafeView, SafeModal
 from NightCityBot.utils.db import (
     cw_catalog_get_all,
     pi_add_item,
@@ -28,7 +29,7 @@ from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
 logger = logging.getLogger(__name__)
 
 
-class RipperdocMenuView(discord.ui.View):
+class RipperdocMenuView(SafeView):
     def __init__(self, cog: "RipperdocHub", ctx: commands.Context):
         super().__init__(timeout=120)
         self.cog = cog
@@ -166,7 +167,7 @@ class RipperdocMenuView(discord.ui.View):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-class WholesaleBuySelect(discord.ui.View):
+class WholesaleBuySelect(SafeView):
     def __init__(self, cog: "RipperdocHub", ctx: commands.Context, lots: list, cw_cog):
         super().__init__(timeout=60)
         self.cog = cog
@@ -198,98 +199,88 @@ class WholesaleBuySelect(discord.ui.View):
         if qty_view.result is None:
             await interaction.followup.send("⏰ Timed out.", ephemeral=True)
             return
-        await _process_cw_buy(self.cog, interaction, self.ctx, lot, self.cw_cog, qty_view.result)
 
+        qty = qty_view.result
+        unit_cost = int(lot["unit_cost"])
+        total = unit_cost * qty
+        member = self.ctx.author
 
-async def _process_cw_buy(cog, interaction, ctx, lot, cw_cog, qty):
-    if qty < 1:
-        await interaction.followup.send("Quantity must be at least 1.", ephemeral=True)
-        return
-    if qty > int(lot.get("qty_available", 0)):
-        await interaction.followup.send(
-            f"Only {lot['qty_available']} available.", ephemeral=True
-        )
-        return
-
-    unit_cost = int(lot["unit_cost"])
-    total = unit_cost * qty
-    member = ctx.author
-
-    balance = await cog.unbelievaboat.get_balance(member.id)
-    if balance is None:
-        await interaction.followup.send("Could not fetch your balance.", ephemeral=True)
-        return
-    cash = int(balance.get("cash", 0))
-    bank = int(balance.get("bank", 0))
-    if cash + bank < total:
-        await interaction.followup.send(
-            f"You cannot afford ${total:,} (you have ${cash + bank:,}).", ephemeral=True
-        )
-        return
-
-    cash_deduct = min(max(cash, 0), total)
-    bank_deduct = max(0, total - cash_deduct)
-    ok = await cog.unbelievaboat.update_balance(
-        member.id,
-        {"cash": -cash_deduct, "bank": -bank_deduct},
-        reason=f"CW wholesale buy: {lot['item_name']} x{qty}",
-    )
-    if not ok:
-        await interaction.followup.send("Payment failed.", ephemeral=True)
-        return
-
-    async with cw_cog.lock:
-        state = await cw_cog._load_state()
-        lots = state.get("cw_wholesale_lots", [])
-        target_lot = cw_cog._lookup_lot(lots, lot["item_name"])
-        if not target_lot or int(target_lot.get("qty_available", 0)) < qty:
-            await cog.unbelievaboat.update_balance(
-                member.id,
-                {"cash": cash_deduct, "bank": bank_deduct},
-                reason="CW wholesale buy refund — stock depleted",
-            )
-            await interaction.followup.send("Stock depleted. Refunded.", ephemeral=True)
+        balance = await self.cog.unbelievaboat.get_balance(member.id)
+        if balance is None:
+            await interaction.followup.send("Could not fetch your balance.", ephemeral=True)
             return
-        target_lot["qty_available"] = int(target_lot["qty_available"]) - qty
-        await cw_cog._save_state(state)
-
-        inventory = await cw_cog._load_inventory(member.id)
-        for _ in range(qty):
-            item_id = str(uuid.uuid4())
-            inventory.append({
-                "item_id": item_id,
-                "name": lot["item_name"],
-                "price_paid": unit_cost,
-                "purchased_at": datetime.now(timezone.utc).isoformat(),
-            })
-            await ih_record_event(
-                item_id, "cw_wholesale_buy",
-                actor_id=str(member.id),
-                price=unit_cost,
-                metadata={"item_name": lot["item_name"], "lot_id": lot.get("lot_id")},
+        cash = int(balance.get("cash", 0))
+        bank = int(balance.get("bank", 0))
+        if cash + bank < total:
+            await interaction.followup.send(
+                f"You cannot afford ${total:,} (you have ${cash + bank:,}).", ephemeral=True
             )
-        await cw_cog._save_inventory(member.id, inventory)
+            return
 
-    await interaction.followup.send(
-        f"Purchased **{lot['item_name']}** ×{qty} for **${total:,}**.",
-        ephemeral=True,
-    )
-    log_ch = await cog._log_channel()
-    if log_ch:
-        embed = discord.Embed(
-            title="🛒 CW Wholesale Purchase",
-            color=discord.Color.teal(),
-            timestamp=datetime.now(timezone.utc),
+        cash_deduct = min(max(cash, 0), total)
+        bank_deduct = max(0, total - cash_deduct)
+        ok = await self.cog.unbelievaboat.update_balance(
+            member.id,
+            {"cash": -cash_deduct, "bank": -bank_deduct},
+            reason=f"CW wholesale buy: {lot['item_name']} x{qty}",
         )
-        embed.add_field(name="Ripperdoc", value=f"{member.mention}", inline=False)
-        embed.add_field(name="Item", value=lot["item_name"], inline=True)
-        embed.add_field(name="Qty", value=str(qty), inline=True)
-        embed.add_field(name="Total", value=f"${total:,}", inline=True)
-        embed.set_footer(text="NightCityBot Audit Log")
-        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        if not ok:
+            await interaction.followup.send("Payment failed.", ephemeral=True)
+            return
+
+        async with self.cw_cog._locks.pin("state"):
+            state = await self.cw_cog._load_state()
+            lots = state.get("cw_wholesale_lots", [])
+            target_lot = self.cw_cog._lookup_lot(lots, lot["item_name"])
+            if not target_lot or int(target_lot.get("qty_available", 0)) < qty:
+                await self.cog.unbelievaboat.update_balance(
+                    member.id,
+                    {"cash": cash_deduct, "bank": bank_deduct},
+                    reason="CW wholesale buy refund — stock depleted",
+                )
+                await interaction.followup.send("Stock depleted. Refunded.", ephemeral=True)
+                return
+            target_lot["qty_available"] = int(target_lot["qty_available"]) - qty
+            await self.cw_cog._save_state(state)
+
+        async with self.cw_cog._locks.acquire(str(member.id)):
+            inventory = await self.cw_cog._load_inventory(member.id)
+            for _ in range(qty):
+                item_id = str(uuid.uuid4())
+                inventory.append({
+                    "item_id": item_id,
+                    "name": lot["item_name"],
+                    "price_paid": unit_cost,
+                    "purchased_at": datetime.now(timezone.utc).isoformat(),
+                })
+                await ih_record_event(
+                    item_id, "cw_wholesale_buy",
+                    actor_id=str(member.id),
+                    price=unit_cost,
+                    metadata={"item_name": lot["item_name"], "lot_id": lot.get("lot_id")},
+                )
+            await self.cw_cog._save_inventory(member.id, inventory)
+
+        await interaction.followup.send(
+            f"Purchased **{lot['item_name']}** ×{qty} for **${total:,}**.",
+            ephemeral=True,
+        )
+        log_ch = await self.cog._log_channel()
+        if log_ch:
+            embed = discord.Embed(
+                title="🛒 CW Wholesale Purchase",
+                color=discord.Color.teal(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.add_field(name="Ripperdoc", value=f"{member.mention}", inline=False)
+            embed.add_field(name="Item", value=lot["item_name"], inline=True)
+            embed.add_field(name="Qty", value=str(qty), inline=True)
+            embed.add_field(name="Total", value=f"${total:,}", inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
+            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-class SellSetupView(discord.ui.View):
+class SellSetupView(SafeView):
     def __init__(self, cog: "RipperdocHub", ctx: commands.Context,
                  groups: list[dict], *, mode: str = "sell"):
         super().__init__(timeout=120)
@@ -554,14 +545,14 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
                 "buyer_id": str(patient.id),
                 "item_id": item_id,
                 "amount": price,
-                "reason": f"CW sell credit failed: {item_name}",
+                "reason": f"CW sale credit failed: {item_name}",
             })
             await ctx.send(
                 f"⚠️ Payment from {patient.display_name} succeeded but seller payout failed. "
                 "A pending transfer has been created — an admin will resolve it."
             )
 
-    async with cw_cog.lock:
+    async with cw_cog._locks.acquire(str(ctx.author.id)):
         inv = await cw_cog._load_inventory(ctx.author.id)
         inv_updated = [it for it in inv if it.get("item_id") != item_id]
         if len(inv_updated) == len(inv):
@@ -735,7 +726,7 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
                 "A pending transfer has been created — an admin will resolve it."
             )
 
-    async with cw_cog.lock:
+    async with cw_cog._locks.acquire(str(ctx.author.id)):
         inv = await cw_cog._load_inventory(ctx.author.id)
         inv_updated = [it for it in inv if it.get("item_id") != item_id]
         if len(inv_updated) == len(inv):
@@ -772,7 +763,6 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
         embed = discord.Embed(
             title="💉 Cyberware Installed",
             color=discord.Color.teal(),
-            timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(name="Ripperdoc", value=f"{ctx.author.mention}", inline=False)
         embed.add_field(name="Patient", value=f"{patient.mention} — {character_name}", inline=False)
@@ -781,7 +771,7 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-class DMConfirmView(discord.ui.View):
+class DMConfirmView(SafeView):
     def __init__(self, timeout: float = 60):
         super().__init__(timeout=timeout)
         self.accepted: Optional[bool] = None
@@ -836,6 +826,8 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
 
     @commands.command(name="ripperdoc")
     @is_ripperdoc()
+    @commands.max_concurrency(1, per=commands.BucketType.user)
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def ripperdoc_hub(self, ctx: commands.Context):
         """Open the Ripperdoc interactive shop panel.
 
@@ -885,7 +877,7 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
 
         lines = []
         for entry in history:
-            ts = str(entry.get("created_at", ""))[:19].replace("T", " ")
+            ts = str(entry.get("timestamp", entry.get("created_at", "")))[:19].replace("T", " ")
             event = entry.get("event_type", "?")
             actor = entry.get("actor_id", "—")
             target = entry.get("target_id", "")

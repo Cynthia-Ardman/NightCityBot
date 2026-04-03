@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 _pool: asyncpg.Pool | None = None
 _pool_lock: asyncio.Lock | None = None
 
+POOL_ACQUIRE_TIMEOUT: float = 10.0
+
 # ---------------------------------------------------------------------------
 # Retry / resilience helpers
 # ---------------------------------------------------------------------------
@@ -29,6 +31,7 @@ _TRANSIENT_ERRORS = (
     asyncpg.PostgresConnectionError,
     asyncpg.InterfaceError,
     asyncpg.TooManyConnectionsError,
+    asyncio.TimeoutError,
 )
 
 
@@ -132,6 +135,48 @@ DB_LOAD_FAILED = _DBLoadFailed()
 
 
 # ---------------------------------------------------------------------------
+# Per-resource lock manager (replaces global asyncio.Lock in cogs)
+# ---------------------------------------------------------------------------
+
+class ResourceLockManager:
+    """Provides per-key asyncio locks so different resources don't block each other.
+
+    Usage::
+
+        _locks = ResourceLockManager()
+
+        async with _locks.acquire(user_id):
+            ...  # only serialises operations for *this* user_id
+
+    Stale locks are cleaned up automatically when the internal dict exceeds
+    *max_size* entries.  Pinned keys (registered via *pin*) are never evicted.
+    """
+
+    def __init__(self, max_size: int = 1024) -> None:
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._pinned: set[str] = set()
+        self._max_size = max_size
+
+    def pin(self, key: str) -> asyncio.Lock:
+        self._pinned.add(key)
+        return self.acquire(key)
+
+    def acquire(self, key: str) -> asyncio.Lock:
+        lock = self._locks.get(key)
+        if lock is None:
+            if len(self._locks) >= self._max_size:
+                unlocked = [
+                    k for k, v in self._locks.items()
+                    if not v.locked() and k not in self._pinned
+                ]
+                for k in unlocked[:len(unlocked) // 2]:
+                    del self._locks[k]
+            lock = asyncio.Lock()
+            self._locks[key] = lock
+        return lock
+
+
+# ---------------------------------------------------------------------------
 # Connection pool
 # ---------------------------------------------------------------------------
 
@@ -157,8 +202,11 @@ async def get_pool() -> asyncpg.Pool:
             raise RuntimeError(
                 "Neither PROD_DATABASE_URL nor DATABASE_URL environment variable is set."
             )
-        _pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
-        logger.info("PostgreSQL connection pool created.")
+        _pool = await asyncpg.create_pool(
+            dsn, min_size=2, max_size=20,
+            command_timeout=60,
+        )
+        logger.info("PostgreSQL connection pool created (max_size=20).")
         await _ensure_schema(_pool)
     return _pool
 
@@ -458,7 +506,7 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         """,
     ]
 
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
         for stmt in statements:
             await conn.execute(stmt)
 
@@ -595,7 +643,7 @@ async def _seed_attendance_log_from_file(pool: asyncpg.Pool) -> None:
         if not isinstance(attend_data, dict):
             return
         inserted = 0
-        async with pool.acquire() as conn:
+        async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
             async with conn.transaction():
                 for user_id, timestamps in attend_data.items():
                     if not isinstance(timestamps, list):
@@ -643,7 +691,7 @@ async def _migrate_business_open_log(pool: asyncpg.Pool) -> None:
         if not isinstance(data, dict):
             return
         inserted = 0
-        async with pool.acquire() as conn:
+        async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
             async with conn.transaction():
                 for user_id, timestamps in data.items():
                     if not isinstance(timestamps, list):
@@ -690,7 +738,7 @@ async def _migrate_last_payment(pool: asyncpg.Pool) -> None:
         if not isinstance(data, dict):
             return
         inserted = 0
-        async with pool.acquire() as conn:
+        async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
             async with conn.transaction():
                 for user_id, summary in data.items():
                     if not isinstance(summary, str):
@@ -765,7 +813,7 @@ async def _migrate_system_settings(pool: asyncpg.Pool) -> None:
         if not isinstance(data, dict):
             return
         inserted = 0
-        async with pool.acquire() as conn:
+        async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
             async with conn.transaction():
                 for system_name, enabled in data.items():
                     await conn.execute(
@@ -805,7 +853,7 @@ async def _migrate_cyberware_status(pool: asyncpg.Pool) -> None:
         if not isinstance(data, dict):
             return
         inserted = 0
-        async with pool.acquire() as conn:
+        async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
             async with conn.transaction():
                 for user_id, v in data.items():
                     if user_id == "_last_run":
@@ -868,7 +916,7 @@ async def _migrate_cyberware_weekly(pool: asyncpg.Pool) -> None:
         if not isinstance(data, list):
             return
         inserted = 0
-        async with pool.acquire() as conn:
+        async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
             async with conn.transaction():
                 for entry in data:
                     if not isinstance(entry, dict):
@@ -920,7 +968,7 @@ async def _migrate_dm_threads(pool: asyncpg.Pool) -> None:
         if not isinstance(data, dict):
             return
         inserted = 0
-        async with pool.acquire() as conn:
+        async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
             async with conn.transaction():
                 for user_id, thread_id in data.items():
                     try:
@@ -953,7 +1001,7 @@ async def _migrate_wholesaler(pool: asyncpg.Pool) -> None:
             raw = state_row["value"]
             state = json.loads(raw) if isinstance(raw, str) else raw
             if isinstance(state, dict):
-                async with pool.acquire() as conn:
+                async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                     async with conn.transaction():
                         # wholesale_lots
                         for lot in state.get("wholesale_lots", []):
@@ -1032,7 +1080,7 @@ async def _migrate_wholesaler(pool: asyncpg.Pool) -> None:
             tx_list = json.loads(raw) if isinstance(raw, str) else raw
             if isinstance(tx_list, list):
                 imported = 0
-                async with pool.acquire() as conn:
+                async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                     async with conn.transaction():
                         for tx in tx_list:
                             if not isinstance(tx, dict):
@@ -1438,7 +1486,7 @@ async def cyberware_status_upsert_many(data: dict[str, dict]) -> bool:
             rows.append((user_id, weeks, last_dt))
 
         async def _do():
-            async with pool.acquire() as conn:
+            async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                 async with conn.transaction():
                     for user_id, weeks, last_dt in rows:
                         await conn.execute(
@@ -1677,7 +1725,7 @@ async def wh_lots_replace_all(lots: list[dict]) -> bool:
         pool = await get_pool()
 
         async def _do():
-            async with pool.acquire() as conn:
+            async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                 async with conn.transaction():
                     await conn.execute("DELETE FROM wholesale_lots")
                     for lot in lots:
@@ -1730,7 +1778,7 @@ async def wh_stores_replace_all(stores: dict[str, dict]) -> bool:
         pool = await get_pool()
 
         async def _do():
-            async with pool.acquire() as conn:
+            async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                 async with conn.transaction():
                     await conn.execute("DELETE FROM wholesaler_stores")
                     for store_id, store in stores.items():
@@ -1776,7 +1824,7 @@ async def wh_shops_replace_all(shops: dict[str, Any]) -> bool:
         pool = await get_pool()
 
         async def _do():
-            async with pool.acquire() as conn:
+            async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                 async with conn.transaction():
                     await conn.execute("DELETE FROM wholesaler_shops")
                     for shop_key, data in shops.items():
@@ -2009,7 +2057,7 @@ async def bot_config_seed(defaults: dict[str, tuple[Any, str]]) -> int:
     inserted = 0
     try:
         pool = await get_pool()
-        async with pool.acquire() as conn:
+        async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
             for key, (value, description) in defaults.items():
                 result = await conn.execute(
                     """
@@ -2136,7 +2184,7 @@ async def _mig_attendance(pool: asyncpg.Pool, data) -> dict:
     if not isinstance(data, dict):
         return _mig_result(target, 0, 0, 1)
     found = inserted = errors = 0
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
         for user_id, timestamps in data.items():
             if not isinstance(timestamps, list):
                 continue
@@ -2163,7 +2211,7 @@ async def _mig_open_log(pool: asyncpg.Pool, data) -> dict:
     if not isinstance(data, dict):
         return _mig_result(target, 0, 0, 1)
     found = inserted = errors = 0
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
         for user_id, timestamps in data.items():
             if not isinstance(timestamps, list):
                 continue
@@ -2190,7 +2238,7 @@ async def _mig_last_payment(pool: asyncpg.Pool, data) -> dict:
     if not isinstance(data, dict):
         return _mig_result(target, 0, 0, 1)
     found = inserted = errors = 0
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
         for user_id, summary in data.items():
             found += 1
             if not isinstance(summary, str):
@@ -2244,7 +2292,7 @@ async def _mig_cyberware_status(pool: asyncpg.Pool, data) -> dict:
     if not isinstance(data, dict):
         return _mig_result(target, 0, 0, 1)
     found = inserted = errors = 0
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
         for user_id, v in data.items():
             if user_id == "_last_run":
                 continue
@@ -2304,7 +2352,7 @@ async def _mig_cyberware_weekly(pool: asyncpg.Pool, data) -> dict:
     if not isinstance(data, list):
         return _mig_result(target, 0, 0, 1)
     found = inserted = errors = 0
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
         for entry in data:
             if not isinstance(entry, dict):
                 continue
@@ -2339,7 +2387,7 @@ async def _mig_system_status(pool: asyncpg.Pool, data) -> dict:
     if not isinstance(data, dict):
         return _mig_result(target, 0, 0, 1)
     found = inserted = errors = 0
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
         for system_name, enabled in data.items():
             found += 1
             try:
@@ -2360,7 +2408,7 @@ async def _mig_wholesaler_lots(pool: asyncpg.Pool, data) -> dict:
     if not isinstance(data, list):
         return _mig_result(target, 0, 0, 1)
     found = inserted = errors = 0
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
         for lot in data:
             if not isinstance(lot, dict):
                 continue
@@ -2390,7 +2438,7 @@ async def _mig_wholesaler_stores(pool: asyncpg.Pool, data) -> dict:
     if not isinstance(data, dict):
         return _mig_result(target, 0, 0, 1)
     found = inserted = errors = 0
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
         for store_id, store in data.items():
             if not isinstance(store, dict):
                 continue
@@ -2415,7 +2463,7 @@ async def _mig_wholesaler_shops(pool: asyncpg.Pool, data) -> dict:
     if not isinstance(data, dict):
         return _mig_result(target, 0, 0, 1)
     found = inserted = errors = 0
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
         for shop_key, shop_data in data.items():
             found += 1
             try:
@@ -2471,7 +2519,7 @@ async def _mig_thread_map(pool: asyncpg.Pool, data) -> dict:
     if not isinstance(data, dict):
         return _mig_result(target, 0, 0, 1)
     found = inserted = errors = 0
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
         for user_id, thread_id in data.items():
             found += 1
             try:
@@ -2525,7 +2573,7 @@ async def cw_catalog_upsert_many(items: list[dict]) -> bool:
         pool = await get_pool()
 
         async def _do():
-            async with pool.acquire() as conn:
+            async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                 async with conn.transaction():
                     await conn.execute("DELETE FROM cyberware_catalog")
                     for item in items:
@@ -2567,7 +2615,7 @@ async def cw_catalog_upsert_one(item: dict) -> bool:
         pool = await get_pool()
 
         async def _do():
-            async with pool.acquire() as conn:
+            async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                 await conn.execute(
                     """
                     INSERT INTO cyberware_catalog (name, price, cwp, description, updated_at)
@@ -2599,7 +2647,7 @@ async def cw_catalog_delete_one(name: str) -> bool:
 
         async def _do():
             nonlocal deleted
-            async with pool.acquire() as conn:
+            async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                 result = await conn.execute(
                     "DELETE FROM cyberware_catalog WHERE LOWER(name) = LOWER($1)",
                     name,
@@ -2648,7 +2696,7 @@ async def gun_catalog_upsert_many(guns: list[dict]) -> bool:
         pool = await get_pool()
 
         async def _do():
-            async with pool.acquire() as conn:
+            async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                 async with conn.transaction():
                     for gun in guns:
                         name = str(gun.get("gun_name", "")).strip()
@@ -2703,7 +2751,7 @@ async def gun_catalog_sync_qty_from_lots(lots: list[dict]) -> bool:
                 aggregates[name] = aggregates.get(name, 0) + max(qty, 0)
 
         async def _do():
-            async with pool.acquire() as conn:
+            async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                 async with conn.transaction():
                     await conn.execute(
                         "UPDATE gun_catalog SET qty_available = 0, updated_at = NOW()"
@@ -2892,7 +2940,7 @@ async def pi_delete_item(item_id: str) -> bool:
 
         async def _do():
             nonlocal deleted
-            async with pool.acquire() as conn:
+            async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                 result = await conn.execute(
                     "DELETE FROM player_inventory WHERE item_id = $1",
                     str(item_id),
@@ -3181,7 +3229,7 @@ async def migrate_inventory_to_characters(pool: asyncpg.Pool | None = None) -> i
         owner_id = row["owner_id"]
         norm_name = "legacy character"
 
-        async with pool.acquire() as conn:
+        async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
             async with conn.transaction():
                 existing = await conn.fetchrow(
                     """

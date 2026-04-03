@@ -40,6 +40,7 @@ from NightCityBot.utils.db import (
     gun_catalog_upsert_many, gun_catalog_sync_qty_from_lots, gun_catalog_adjust_qty,
     gun_catalog_get_all,
     pi_add_item,
+    ResourceLockManager,
 )
 
 logger = logging.getLogger(__name__)
@@ -133,7 +134,8 @@ class GunsShopCog(commands.Cog):
         self._migrate_legacy_files(default_data_dir)
         self.wholesale_inventory_file.parent.mkdir(parents=True, exist_ok=True)
         self.store_inventory_dir.mkdir(parents=True, exist_ok=True)
-        self.lock = asyncio.Lock()
+        self._locks = ResourceLockManager()
+        self.lock = self._locks.pin("state")
         self._startup_audit_sent = False
         self.weekly_sunday_restock.start()
 

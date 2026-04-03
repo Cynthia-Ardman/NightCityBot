@@ -11,6 +11,7 @@ import discord
 from discord.ext import commands
 
 import config
+from NightCityBot.utils.interaction_safety import SafeView, SafeModal
 from NightCityBot.utils.player_inventory import (
     query_player_inventory as pi_get_by_owner,
     get_player_item as pi_get_item,
@@ -89,6 +90,8 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
         return True
 
     @commands.command(name="player")
+    @commands.max_concurrency(1, per=commands.BucketType.user)
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def player_cmd(self, ctx: commands.Context):
         """Open the player hub — view inventory, trade items, give items."""
         if not ctx.guild:
@@ -173,7 +176,7 @@ def _build_inventory_embed(
     return embed
 
 
-class InventoryCharFilterView(discord.ui.View):
+class InventoryCharFilterView(SafeView):
     def __init__(self, cog, ctx, items, inv_cog, char_names: list[str]):
         super().__init__(timeout=60)
         self.cog = cog
@@ -204,7 +207,7 @@ class InventoryCharFilterView(discord.ui.View):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-class PlayerHubView(discord.ui.View):
+class PlayerHubView(SafeView):
     def __init__(self, cog: PlayerHubCog, ctx: commands.Context):
         super().__init__(timeout=120)
         self.cog = cog
@@ -400,7 +403,7 @@ class PlayerHubView(discord.ui.View):
         )
 
 
-class ManageCharactersView(discord.ui.View):
+class ManageCharactersView(SafeView):
     def __init__(self, cog: PlayerHubCog, ctx: commands.Context):
         super().__init__(timeout=120)
         self.cog = cog
@@ -438,7 +441,7 @@ class ManageCharactersView(discord.ui.View):
         )
 
 
-class DeactivateCharacterView(discord.ui.View):
+class DeactivateCharacterView(SafeView):
     def __init__(self, cog: PlayerHubCog, ctx: commands.Context, chars: list[dict]):
         super().__init__(timeout=60)
         self.cog = cog
@@ -502,7 +505,7 @@ class DeactivateCharacterView(discord.ui.View):
         self.stop()
 
 
-class ReactivateCharacterView(discord.ui.View):
+class ReactivateCharacterView(SafeView):
     def __init__(self, cog: PlayerHubCog, ctx: commands.Context, chars: list[dict]):
         super().__init__(timeout=60)
         self.cog = cog
@@ -566,7 +569,7 @@ class ReactivateCharacterView(discord.ui.View):
         self.stop()
 
 
-class TradeConfirmView(discord.ui.View):
+class TradeConfirmView(SafeView):
     def __init__(self, timeout: float = 60):
         super().__init__(timeout=timeout)
         self.accepted: Optional[bool] = None
@@ -584,7 +587,7 @@ class TradeConfirmView(discord.ui.View):
         self.stop()
 
 
-class TradeSetupView(discord.ui.View):
+class TradeSetupView(SafeView):
     def __init__(self, cog: PlayerHubCog, ctx: commands.Context, all_groups: list):
         super().__init__(timeout=120)
         self.cog = cog
@@ -992,7 +995,7 @@ async def _process_trade(cog, interaction, buyer, group, buyer_character, price)
     )
 
 
-class GiveSetupView(discord.ui.View):
+class GiveSetupView(SafeView):
     def __init__(self, cog: PlayerHubCog, ctx: commands.Context, all_groups: list):
         super().__init__(timeout=120)
         self.cog = cog
@@ -1354,7 +1357,7 @@ async def _process_give(cog, interaction, target, group, receiver_character, sen
     )
 
 
-class SellToStoreSetupView(discord.ui.View):
+class SellToStoreSetupView(SafeView):
     def __init__(self, cog: PlayerHubCog, ctx: commands.Context, all_groups: list, seller_chars: list | None = None):
         super().__init__(timeout=120)
         self.cog = cog
@@ -1504,7 +1507,7 @@ class SellToStoreSetupView(discord.ui.View):
         self.stop()
 
 
-class StoreBuyConfirmView(discord.ui.View):
+class StoreBuyConfirmView(SafeView):
     def __init__(self, timeout: float = 60):
         super().__init__(timeout=timeout)
         self.accepted: Optional[bool] = None

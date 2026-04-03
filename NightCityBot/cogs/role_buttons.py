@@ -4,10 +4,11 @@ import discord
 from discord.ext import commands
 
 import config
+from NightCityBot.utils.interaction_safety import SafeView
 from NightCityBot.utils.permissions import is_fixer
 
 
-class NPCButtonView(discord.ui.View):
+class NPCButtonView(SafeView):
     """View providing a button to assign the NPC role."""
 
     def __init__(self, bot: commands.Bot):

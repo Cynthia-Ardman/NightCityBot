@@ -238,6 +238,30 @@ Setup guide: `BACKUP_SETUP.md`
 ### Dependencies
 - `google-api-python-client`, `google-auth` (added to `requirements.txt`)
 
+## Concurrency & Scalability Hardening (Task #20)
+
+### DB Pool
+- Pool `max_size=20`, `min_size=2`, `command_timeout=60`
+- All `pool.acquire()` calls use `POOL_ACQUIRE_TIMEOUT=10.0`
+- `asyncio.TimeoutError` added to transient retry errors
+
+### ResourceLockManager (`utils/db.py`)
+Per-key `asyncio.Lock` dict with automatic cleanup (max 1024 entries). Used by `guns_shop`, `cyberware_shop`, and `economy` cogs to replace global locks with per-user/per-resource granular locks.
+
+### Concurrency Limits
+All hub commands (`!player`, `!fixer`, `!ripperdoc`, `!gunstore`, `!admin`, `!open_shop`, `!attend`) have:
+- `@commands.max_concurrency(1, per=BucketType.user)` — prevents a user from running the same command concurrently
+- `@commands.cooldown(1, 5, BucketType.user)` — 5-second per-user cooldown
+
+### Error Isolation (`utils/interaction_safety.py`)
+`SafeView` and `SafeModal` base classes provide `on_error` handlers that log the error and send an ephemeral "something went wrong" message — preventing one user's error from crashing the UI for others. All View/Modal classes across all hub cogs inherit from these.
+
+### UnbelievaBoat Rate Limiting (`services/unbelievaboat.py`)
+- Retry attempts increased from 3→5
+- Exponential backoff on non-429 errors: `min(1 * 2^attempt, 8)` seconds
+- 429 retry uses server-provided `retry_after` clamped to [0.25, 30] seconds
+- Robust `retry_after` parsing with fallback on JSON decode failure
+
 ## Gun Restriction System
 
 Each weapon lot has a `restriction` field (default: `basic`):

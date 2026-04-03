@@ -23,20 +23,37 @@ class UnbelievaBoatAPI:
     async def close(self) -> None:
         await self.session.close()
 
+    @staticmethod
+    def _parse_retry_after(data: dict, attempt: int) -> float:
+        try:
+            raw = float(data.get("retry_after", 1))
+        except (TypeError, ValueError):
+            raw = 1.0
+        if raw > 1000:
+            raw /= 1000
+        delay = min(max(raw, 0.25), 30.0)
+        return delay
+
     async def get_balance(self, user_id: int) -> Optional[Dict]:
         """Get a user's balance from UnbelievaBoat."""
         url = f"{self.base_url}/users/{user_id}"
-        for attempt in range(3):
+        max_attempts = 5
+        for attempt in range(max_attempts):
             try:
                 async with self.session.get(url, headers=self.headers) as resp:
                     if resp.status == 200:
                         return await resp.json()
                     if resp.status == 429:
-                        data = await resp.json()
-                        retry = float(data.get("retry_after", 1))
-                        if retry > 1000:
-                            retry /= 1000
-                        await asyncio.sleep(retry)
+                        try:
+                            data = await resp.json()
+                        except Exception:
+                            data = {}
+                        delay = self._parse_retry_after(data, attempt)
+                        logger.info(
+                            "UnbelievaBoat 429 on GET user %s (attempt %d/%d), retry after %.1fs",
+                            user_id, attempt + 1, max_attempts, delay,
+                        )
+                        await asyncio.sleep(delay)
                         continue
                     logger.warning(
                         "Balance fetch failed (%s): %s", resp.status, await resp.text()
@@ -45,7 +62,7 @@ class UnbelievaBoatAPI:
                 logger.warning(
                     "Balance request error on attempt %s: %s", attempt + 1, e
                 )
-            await asyncio.sleep(1)
+            await asyncio.sleep(min(1 * (2 ** attempt), 8))
         return None
 
     async def update_balance(
@@ -56,7 +73,8 @@ class UnbelievaBoatAPI:
         payload = amount_dict.copy()
         payload["reason"] = reason
 
-        for attempt in range(3):
+        max_attempts = 5
+        for attempt in range(max_attempts):
             try:
                 async with self.session.patch(
                     url, headers=self.headers, json=payload
@@ -64,17 +82,22 @@ class UnbelievaBoatAPI:
                     if resp.status == 200:
                         return True
                     if resp.status == 429:
-                        data = await resp.json()
-                        retry = float(data.get("retry_after", 1))
-                        if retry > 1000:
-                            retry /= 1000
-                        await asyncio.sleep(retry)
+                        try:
+                            data = await resp.json()
+                        except Exception:
+                            data = {}
+                        delay = self._parse_retry_after(data, attempt)
+                        logger.info(
+                            "UnbelievaBoat 429 on PATCH user %s (attempt %d/%d), retry after %.1fs",
+                            user_id, attempt + 1, max_attempts, delay,
+                        )
+                        await asyncio.sleep(delay)
                         continue
                     error = await resp.text()
                     logger.warning("PATCH failed (%s): %s", resp.status, error)
             except aiohttp.ClientError as e:
                 logger.warning("Balance PATCH error on attempt %s: %s", attempt + 1, e)
-            await asyncio.sleep(1)
+            await asyncio.sleep(min(1 * (2 ** attempt), 8))
         return False
 
     async def verify_balance_ops(self, user_id: int) -> bool:

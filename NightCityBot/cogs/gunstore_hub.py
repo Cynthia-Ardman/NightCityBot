@@ -14,6 +14,7 @@ import discord
 from discord.ext import commands
 
 import config
+from NightCityBot.utils.interaction_safety import SafeView, SafeModal
 from NightCityBot.utils.db import (
     pi_add_item,
     ih_record_event,
@@ -26,7 +27,7 @@ from NightCityBot.utils.permissions import is_store_owner
 logger = logging.getLogger(__name__)
 
 
-class GunstoreMenuView(discord.ui.View):
+class GunstoreMenuView(SafeView):
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context):
         super().__init__(timeout=120)
         self.cog = cog
@@ -191,7 +192,7 @@ class GunstoreMenuView(discord.ui.View):
         )
 
 
-class GunBuySelect(discord.ui.View):
+class GunBuySelect(SafeView):
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context, lots: list, guns_cog):
         super().__init__(timeout=60)
         self.cog = cog
@@ -330,7 +331,7 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty):
 GUN_APPROVALS_CHANNEL_ID = 1489460511199465693
 
 
-class GunSellSetupView(discord.ui.View):
+class GunSellSetupView(SafeView):
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context,
                  lots: list, store_id: str):
         super().__init__(timeout=120)
@@ -812,7 +813,7 @@ async def _request_fixer_approval(cog, interaction, ctx, customer, gun_name, lot
         return False
 
 
-class InlineApproveView(discord.ui.View):
+class InlineApproveView(SafeView):
     def __init__(self, cog, ctx, guns_cog, store_id, customer):
         super().__init__(timeout=30)
         self.cog = cog
@@ -854,7 +855,7 @@ class InlineApproveView(discord.ui.View):
         self.stop()
 
 
-class _ApproveBuyerView(discord.ui.View):
+class _ApproveBuyerView(SafeView):
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context, approve: bool = True):
         super().__init__(timeout=60)
         self.cog = cog
@@ -924,7 +925,7 @@ class _ApproveBuyerView(discord.ui.View):
         self.stop()
 
 
-class GunDMConfirmView(discord.ui.View):
+class GunDMConfirmView(SafeView):
     def __init__(self, timeout: float = 60):
         super().__init__(timeout=timeout)
         self.accepted: Optional[bool] = None
@@ -981,6 +982,8 @@ class GunstoreHub(commands.Cog, name="GunstoreHub"):
 
     @commands.command(name="gunstore")
     @is_store_owner()
+    @commands.max_concurrency(1, per=commands.BucketType.user)
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def gunstore_hub(self, ctx: commands.Context):
         """Open the Gun Store interactive panel.
 

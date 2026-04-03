@@ -20,6 +20,7 @@ from NightCityBot.utils.db import (
     payment_labels_any_this_month,
     rent_run_get_last, rent_run_record,
     warn_db_failure,
+    ResourceLockManager,
 )
 
 safe_filename = helpers.safe_filename
@@ -65,8 +66,8 @@ class Economy(commands.Cog):
         self.bot = bot
         self.unbelievaboat = bot.unbelievaboat
         self.trauma_service = TraumaTeamService(bot)
-        self.open_log_lock = asyncio.Lock()
-        self.attend_lock = asyncio.Lock()
+        self._open_log_locks = ResourceLockManager()
+        self._attend_locks = ResourceLockManager()
         self.rent_lock = asyncio.Lock()
         self.event_expires_at: Optional[datetime] = None
         self.event_started_at: Optional[datetime] = None
@@ -382,6 +383,8 @@ class Economy(commands.Cog):
 
     @commands.command(aliases=["openshop", "os"])
     @commands.has_permissions(send_messages=True)
+    @commands.max_concurrency(1, per=commands.BucketType.user)
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def open_shop(self, ctx):
         """Log a business opening and grant income immediately."""
         control = self.bot.get_cog("SystemControl")
@@ -413,7 +416,7 @@ class Economy(commands.Cog):
         open_count_before = 0
         open_count_after = 0
         open_count_total = 0
-        async with self.open_log_lock:
+        async with self._open_log_locks.acquire(user_id):
             if await open_log_exists_today(user_id):
                 duplicate = True
             else:
@@ -470,6 +473,8 @@ class Economy(commands.Cog):
             )
 
     @commands.command()
+    @commands.max_concurrency(1, per=commands.BucketType.user)
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def attend(self, ctx):
         """Log attendance for players with the verified role and award cash."""
         control = self.bot.get_cog("SystemControl")
@@ -511,7 +516,7 @@ class Economy(commands.Cog):
         user_id = str(ctx.author.id)
         now_str = now.isoformat()
 
-        async with self.attend_lock:
+        async with self._attend_locks.acquire(user_id):
             all_logs = await attendance_get_user(user_id)
             parsed = [datetime.fromisoformat(ts) for ts in all_logs]
             if any(ts >= event_start for ts in parsed):

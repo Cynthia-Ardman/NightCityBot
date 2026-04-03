@@ -476,9 +476,8 @@ class TestAdminShopMenuView:
             inter = _make_interaction()
             inter.channel_id = 123
             btn = _find_button(view, "Remove Item")
-            with patch("NightCityBot.cogs.admin_shop.collect_text_input", new_callable=AsyncMock, return_value=None):
-                await btn.callback(inter)
-            inter.response.defer.assert_called_once()
+            await btn.callback(inter)
+            inter.response.send_modal.assert_called_once()
 
         _run(run())
 
@@ -492,9 +491,8 @@ class TestAdminShopMenuView:
             inter = _make_interaction()
             inter.channel_id = 123
             btn = _find_button(view, "Reassign Item")
-            with patch("NightCityBot.cogs.admin_shop.collect_text_input", new_callable=AsyncMock, return_value=None):
-                await btn.callback(inter)
-            inter.response.defer.assert_called_once()
+            await btn.callback(inter)
+            inter.response.send_modal.assert_called_once()
 
         _run(run())
 
@@ -508,9 +506,8 @@ class TestAdminShopMenuView:
             inter = _make_interaction()
             inter.channel_id = 123
             btn = _find_button(view, "Item History")
-            with patch("NightCityBot.cogs.admin_shop.collect_text_input", new_callable=AsyncMock, return_value=None):
-                await btn.callback(inter)
-            inter.response.defer.assert_called_once()
+            await btn.callback(inter)
+            inter.response.send_modal.assert_called_once()
 
         _run(run())
 
@@ -1063,9 +1060,8 @@ class TestAdminWholesaleButtons:
             inter = _make_interaction()
             inter.channel_id = 123
             btn = _find_button(view, "Restock Wholesale")
-            with patch("NightCityBot.cogs.admin_shop.collect_text_input", new_callable=AsyncMock, return_value=None):
-                await btn.callback(inter)
-            inter.response.defer.assert_called_once()
+            await btn.callback(inter)
+            inter.response.send_modal.assert_called_once()
 
         _run(run())
 
@@ -1095,9 +1091,8 @@ class TestAdminWholesaleButtons:
             inter = _make_interaction()
             inter.channel_id = 123
             btn = _find_button(view, "Restock CW")
-            with patch("NightCityBot.cogs.admin_shop.collect_text_input", new_callable=AsyncMock, return_value=None):
-                await btn.callback(inter)
-            inter.response.defer.assert_called_once()
+            await btn.callback(inter)
+            inter.response.send_modal.assert_called_once()
 
         _run(run())
 

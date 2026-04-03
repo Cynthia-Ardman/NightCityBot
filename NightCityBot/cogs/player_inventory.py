@@ -19,6 +19,7 @@ import discord
 from discord.ext import commands
 
 import config
+from NightCityBot.utils.interaction_safety import SafeView
 from NightCityBot.utils.player_inventory import (
     insert_player_item as pi_add_item,
     query_player_inventory as pi_get_by_owner,
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 GROUPS_PER_PAGE = 15
 
 
-class TradeConfirmView(discord.ui.View):
+class TradeConfirmView(SafeView):
     def __init__(self, timeout: float = 60):
         super().__init__(timeout=timeout)
         self.accepted: Optional[bool] = None
