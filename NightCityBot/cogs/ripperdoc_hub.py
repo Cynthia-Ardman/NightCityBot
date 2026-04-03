@@ -420,7 +420,7 @@ class SellSetupView(SafeView):
             f"📝 **Enter the {label}** (number only, `0` for free), or type `cancel`:",
             ephemeral=True,
         )
-        price_text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        price_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if price_text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             self.stop()

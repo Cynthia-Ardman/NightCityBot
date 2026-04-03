@@ -419,7 +419,7 @@ class AdminAddItemPickerView(SafeView):
             "Type `cancel` to abort.",
             ephemeral=True,
         )
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             self.stop()

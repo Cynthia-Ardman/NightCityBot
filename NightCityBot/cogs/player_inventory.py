@@ -37,26 +37,7 @@ logger = logging.getLogger(__name__)
 GROUPS_PER_PAGE = 15
 
 
-class TradeConfirmView(SafeView):
-    def __init__(self, recipient_id: int, timeout: float = 60):
-        super().__init__(timeout=timeout)
-        self.recipient_id = recipient_id
-        self.accepted: Optional[bool] = None
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        return interaction.user.id == self.recipient_id
-
-    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, emoji="✅")
-    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.accepted = True
-        await interaction.response.edit_message(content="You accepted the trade.", view=None)
-        self.stop()
-
-    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, emoji="❌")
-    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.accepted = False
-        await interaction.response.edit_message(content="You declined the trade.", view=None)
-        self.stop()
+from NightCityBot.cogs.player_hub import TradeConfirmView  # noqa: F401 — re-export for backward compat
 
 
 class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):

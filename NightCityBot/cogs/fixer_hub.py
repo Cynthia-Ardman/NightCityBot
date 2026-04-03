@@ -202,7 +202,7 @@ class PlayerSubView(SafeView):
             "Type `cancel` to abort.",
             ephemeral=True,
         )
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
@@ -215,7 +215,7 @@ class PlayerSubView(SafeView):
             "📝 **Enter the Item UUID** to look up (or type `cancel`):",
             ephemeral=True,
         )
-        item_id = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        item_id = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if item_id is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
@@ -376,7 +376,7 @@ class WholesalerSubView(SafeView):
             "Restriction is optional (defaults to `basic`). Type `cancel` to abort.",
             ephemeral=True,
         )
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
@@ -392,7 +392,7 @@ class WholesalerSubView(SafeView):
             "Type `cancel` to abort.",
             ephemeral=True,
         )
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
@@ -409,7 +409,7 @@ class WholesalerSubView(SafeView):
             "Type `cancel` to abort.",
             ephemeral=True,
         )
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
@@ -845,7 +845,7 @@ class PlayerAddItemPickerView(SafeView):
             "Type and price are optional (defaults: `misc`, no price). Type `cancel` to abort.",
             ephemeral=True,
         )
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             self.stop()
@@ -971,7 +971,7 @@ class PlayerRemoveItemView(SafeView):
             "📝 **Enter the Item UUID** to remove (or type `cancel`):",
             ephemeral=True,
         )
-        item_id = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        item_id = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if item_id is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
@@ -1193,7 +1193,7 @@ class StoreAddPickerView(SafeView):
             "Restriction is optional (defaults to `basic`). Type `cancel` to abort.",
             ephemeral=True,
         )
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
@@ -1283,7 +1283,7 @@ class StoreRemovePickerView(SafeView):
             "Type `cancel` to abort.",
             ephemeral=True,
         )
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
