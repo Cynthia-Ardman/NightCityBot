@@ -531,7 +531,7 @@ class TestAdminShopMenuView:
 class TestTradeConfirmView:
     def test_accept_sets_flag(self):
         async def run():
-            view = TradeConfirmView(timeout=10)
+            view = TradeConfirmView(recipient_id=111, timeout=10)
             assert view.accepted is None
             inter = _make_interaction()
             btn = _find_button(view, "Accept")
@@ -542,7 +542,7 @@ class TestTradeConfirmView:
 
     def test_decline_sets_flag(self):
         async def run():
-            view = TradeConfirmView(timeout=10)
+            view = TradeConfirmView(recipient_id=111, timeout=10)
             assert view.accepted is None
             inter = _make_interaction()
             btn = _find_button(view, "Decline")

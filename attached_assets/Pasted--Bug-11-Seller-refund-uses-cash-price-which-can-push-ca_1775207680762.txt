@@ -1,0 +1,76 @@
+
+Bug 11: Seller refund uses {"cash": -price} which can push cash balance negative
+Severity: Medium
+
+Where: 11 instances across 4 files:
+
+File	Line(s)	Refund reason
+player_hub.py	939	Trade refund — ownership DB write failed
+player_hub.py	1683	Sell-to-store refund — item delete failed
+gunstore_hub.py	637	Gun sale refund — store not found after payment
+gunstore_hub.py	653	Gun sale refund — lot out of stock after payment
+gunstore_hub.py	688	Gun sale refund — player inventory write failed
+ripperdoc_hub.py	565	CW sale refund — item missing from stock after payment
+ripperdoc_hub.py	592	CW sale refund — player inventory write failed
+ripperdoc_hub.py	739	CW install refund — item missing from stock after payment
+cyberware_shop.py	643	CW sell refund — item gone from inventory between pre-check and lock
+cyberware_shop.py	661	CW sell refund — inventory group changed between pre-check and lock
+cyberware_shop.py	700	CW sell refund — pi_add_item DB write failed
+Why it's a bug: In every sale flow, the seller is credited with {"cash": price} (adding to their cash balance). When the sale fails downstream and a refund is needed, the code reverses the credit with {"cash": -price}. The problem: the seller's cash balance at refund time may be lower than price. This happens when:
+
+The seller had $0 cash before the sale
+The credit put them at $price in cash
+Between the credit and the refund, another operation (rent collection, another purchase, etc.) reduced their cash
+Now {"cash": -price} pushes cash below zero
+The UnbelievaBoat API may reject negative cash values, causing the refund to silently fail. The seller keeps money they shouldn't have, and the buyer/patient loses money with no item. The fix applied to player_inventory.py in the old text-command code was to use {"bank": -price} instead, which absorbs the deduction without going negative.
+
+Bug 13: Hub filtered inventory view shows wrong row numbers
+Severity: Low
+
+Where: player_hub.py:142-150 (_build_inventory_embed function)
+
+Code:
+
+
+player_hub.py
+Lines 143-150
+        filtered = [i for i in items if i.get("character_name") == char_filter]
+        label = f"{display_name}'s Inventory — {char_filter}"
+    else:
+        filtered = items
+        label = f"{display_name}'s Inventory"
+    if not filtered:
+        return discord.Embed(title=f"📦 {label}", description="No items.", color=discord.Color.blue())
+    display_lines, _ = inv_cog._build_display(filtered)
+Why it's a bug: When a player uses the "View Inventory" button in the !player hub and selects a specific character from the dropdown, _build_inventory_embed filters the items to only that character's items, then passes that subset to inv_cog._build_display(). The _build_display function was previously fixed to assign global row numbers that stay consistent whether you're viewing all characters or a single one -- but it achieves this by iterating all characters and only displaying rows for the requested filter. When you pass a pre-filtered subset instead, there's only one character in the input, so row numbers reset to 1.
+
+This means: if a player has 5 items on character "V" (global rows 3-7) and 2 items on character "Jackie" (global rows 1-2), the hub's filtered "V" view shows rows 1-5 instead of 3-7. If that player then uses the text command !trade @buyer 1 500 V, the text command resolves row 1 against the full unfiltered inventory, which is Jackie's item -- not V's.
+
+The hub's own button-based trade/give flows use item_id (UUID) directly and are unaffected. This only bites players who mix the hub view with text commands.
+
+Bug 14: Character filter uses exact case match
+Severity: Trivial
+
+Where: player_hub.py:143
+
+Code:
+
+
+player_hub.py
+Lines 143-143
+        filtered = [i for i in items if i.get("character_name") == char_filter]
+Why it's a bug: The filter compares character names with == (exact string match, case-sensitive). The dropdown values come from the character names as stored in the database, so they usually match. But items created before the character system existed (added via !inv_add or from purchases before character tracking) may have a different casing than the character's canonical name. For example, a character named "V" might have items with character_name: "v" from a manual admin add. When the player selects "V" from the dropdown, "v" == "V" is False, and the item vanishes from the filtered view despite appearing in the "All Characters" view. Should use .lower() on both sides.
+
+Bug 10: cw_buy deducts money before acquiring the lock (Known/Accepted)
+Severity: Low (accepted trade-off)
+
+Where: cyberware_shop.py:624-677
+
+Why it's a bug: The Ripperdoc's balance check and deduction happen outside the asyncio.Lock. The lock is then acquired to update the wholesale stock quantity. If two Ripperdocs try to buy the last unit simultaneously:
+
+Both check availability outside the lock -- both see qty=1, both pass
+Both deduct payment from their own balance
+First one acquires the lock, decrements qty to 0, gets the item
+Second one acquires the lock, sees qty=0, triggers a refund
+No money is permanently lost -- the refund path exists and works. But the second Ripperdoc experiences a confusing UX: money leaves their account, then comes back a moment later. The same pattern exists in the gun shop for the same reason (taking the lock before the API call would hold it for the duration of an HTTP request, blocking all other shop operations). This is an accepted design trade-off, not a data integrity issue.
+

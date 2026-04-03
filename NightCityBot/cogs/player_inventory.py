@@ -38,9 +38,13 @@ GROUPS_PER_PAGE = 15
 
 
 class TradeConfirmView(SafeView):
-    def __init__(self, timeout: float = 60):
+    def __init__(self, recipient_id: int, timeout: float = 60):
         super().__init__(timeout=timeout)
+        self.recipient_id = recipient_id
         self.accepted: Optional[bool] = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.recipient_id
 
     @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, emoji="✅")
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):

@@ -140,7 +140,8 @@ def _build_inventory_embed(
     char_filter: str | None = None,
 ) -> discord.Embed:
     if char_filter:
-        filtered = [i for i in items if i.get("character_name") == char_filter]
+        cf_lower = char_filter.lower()
+        filtered = [i for i in items if (i.get("character_name") or "").lower() == cf_lower]
         label = f"{display_name}'s Inventory — {char_filter}"
     else:
         filtered = items
@@ -570,9 +571,13 @@ class ReactivateCharacterView(SafeView):
 
 
 class TradeConfirmView(SafeView):
-    def __init__(self, timeout: float = 60):
+    def __init__(self, recipient_id: int, timeout: float = 60):
         super().__init__(timeout=timeout)
+        self.recipient_id = recipient_id
         self.accepted: Optional[bool] = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.recipient_id
 
     @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, emoji="✅")
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -793,7 +798,7 @@ async def _process_trade(cog, interaction, buyer, group, buyer_character, price)
 
     if buyer.id != interaction.user.id:
         price_str = f"**${price:,}**" if price > 0 else "**free**"
-        confirm_view = TradeConfirmView(timeout=60)
+        confirm_view = TradeConfirmView(recipient_id=buyer.id, timeout=60)
         try:
             dm_msg = await buyer.send(
                 f"**{interaction.user.display_name}** wants to trade you **{item_name}** "
@@ -936,7 +941,7 @@ async def _process_trade(cog, interaction, buyer, group, buyer_character, price)
                 )
                 await ub.update_balance(
                     interaction.user.id,
-                    {"cash": -price},
+                    {"bank": -price},
                     reason=f"Trade refund (DB failure): {item_name}",
                 )
             await interaction.followup.send(
@@ -1508,9 +1513,13 @@ class SellToStoreSetupView(SafeView):
 
 
 class StoreBuyConfirmView(SafeView):
-    def __init__(self, timeout: float = 60):
+    def __init__(self, recipient_id: int, timeout: float = 60):
         super().__init__(timeout=timeout)
+        self.recipient_id = recipient_id
         self.accepted: Optional[bool] = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.recipient_id
 
     @discord.ui.button(label="Buy", style=discord.ButtonStyle.success, emoji="✅")
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1561,7 +1570,7 @@ async def _process_sell_to_store(cog, interaction, store_owner, group, seller_ch
     store_id = guns_cog._store_id(guild.id, store_owner.id)
 
     price_str = f"**${price:,}**" if price > 0 else "**free**"
-    confirm_view = StoreBuyConfirmView(timeout=60)
+    confirm_view = StoreBuyConfirmView(recipient_id=store_owner.id, timeout=60)
     try:
         dm_msg = await store_owner.send(
             f"**{interaction.user.display_name}** wants to sell you **{item_name}** "
@@ -1680,7 +1689,7 @@ async def _process_sell_to_store(cog, interaction, store_owner, group, seller_ch
                 )
                 await ub.update_balance(
                     interaction.user.id,
-                    {"cash": -price},
+                    {"bank": -price},
                     reason=f"Store buy refund (DB failure): {item_name}",
                 )
         await interaction.followup.send(

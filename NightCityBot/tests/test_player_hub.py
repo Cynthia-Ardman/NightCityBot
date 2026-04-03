@@ -754,7 +754,7 @@ def test_give_process_transfer_fails():
 
 def test_trade_confirm_view_accept():
     async def _test():
-        view = TradeConfirmView(timeout=5)
+        view = TradeConfirmView(recipient_id=100, timeout=5)
         inter = _make_interaction()
         btn = _find_button(view, "Accept")
         await btn.callback(inter)
@@ -764,7 +764,7 @@ def test_trade_confirm_view_accept():
 
 def test_trade_confirm_view_decline():
     async def _test():
-        view = TradeConfirmView(timeout=5)
+        view = TradeConfirmView(recipient_id=100, timeout=5)
         inter = _make_interaction()
         btn = _find_button(view, "Decline")
         await btn.callback(inter)
@@ -1267,7 +1267,7 @@ class TestSellToStoreProcessFunction:
 class TestStoreBuyConfirmView:
     def test_accept(self):
         async def _test():
-            view = StoreBuyConfirmView()
+            view = StoreBuyConfirmView(recipient_id=100)
             inter = _make_interaction()
             btn = _find_button(view, "Buy")
             await btn.callback(inter)
@@ -1276,7 +1276,7 @@ class TestStoreBuyConfirmView:
 
     def test_decline(self):
         async def _test():
-            view = StoreBuyConfirmView()
+            view = StoreBuyConfirmView(recipient_id=100)
             inter = _make_interaction()
             btn = _find_button(view, "Decline")
             await btn.callback(inter)

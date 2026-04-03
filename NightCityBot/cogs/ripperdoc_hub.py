@@ -562,7 +562,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
                 )
                 if seller_credited:
                     await cog.unbelievaboat.update_balance(
-                        ctx.author.id, {"cash": -price}, reason="CW sale refund — item missing"
+                        ctx.author.id, {"bank": -price}, reason="CW sale refund — item missing"
                     )
             await ctx.send("Item no longer in stock. Refunded.")
             return
@@ -589,7 +589,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
             )
             if seller_credited:
                 await cog.unbelievaboat.update_balance(
-                    ctx.author.id, {"cash": -price}, reason="CW sale refund — item grant failed"
+                    ctx.author.id, {"bank": -price}, reason="CW sale refund — item grant failed"
                 )
         await ctx.send(
             f"⚠️ Failed to add **{item_name}** to {patient.display_name}'s inventory. "
@@ -736,7 +736,7 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
                 )
                 if seller_credited:
                     await cog.unbelievaboat.update_balance(
-                        ctx.author.id, {"cash": -price}, reason="CW install refund — item missing"
+                        ctx.author.id, {"bank": -price}, reason="CW install refund — item missing"
                     )
             await ctx.send("Item no longer in stock. Refunded.")
             return

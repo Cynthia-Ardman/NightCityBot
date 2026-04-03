@@ -634,7 +634,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                 )
                 if seller_credited:
                     await cog.unbelievaboat.update_balance(
-                        ctx.author.id, {"cash": -price}, reason="Gun sale refund"
+                        ctx.author.id, {"bank": -price}, reason="Gun sale refund"
                     )
             await ctx.send("Store not found. Refunded.")
             return
@@ -650,7 +650,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                 )
                 if seller_credited:
                     await cog.unbelievaboat.update_balance(
-                        ctx.author.id, {"cash": -price}, reason="Gun sale refund — out of stock"
+                        ctx.author.id, {"bank": -price}, reason="Gun sale refund — out of stock"
                     )
             await ctx.send("Item out of stock. Refunded.")
             return
@@ -685,7 +685,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
             )
             if seller_credited:
                 await cog.unbelievaboat.update_balance(
-                    ctx.author.id, {"cash": -price}, reason="Gun sale refund — item grant failed"
+                    ctx.author.id, {"bank": -price}, reason="Gun sale refund — item grant failed"
                 )
         await ctx.send(
             f"⚠️ Failed to add **{gun_name}** to {customer.display_name}'s inventory. "
