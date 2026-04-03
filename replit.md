@@ -13,7 +13,7 @@ A Discord bot for NCRP (Cyberpunk-themed RP server) managing economy, roleplay u
 
 ## Data Storage
 
-Operational state is now persisted to **PostgreSQL** via the `json_store` table (key TEXT PK, value JSONB). File-based JSON storage is retained only for per-member balance backups.
+Operational state is persisted to **PostgreSQL** via normalized tables (24 tables total, including `item_history`). The legacy `json_store` key-value table remains for backward compatibility. File-based JSON storage is retained for per-member balance backups and wholesaler local fallback.
 
 ### `bot_config` table — runtime-editable economy constants
 
@@ -62,6 +62,14 @@ Admin command: `!db_health` — shows DB ping, write-failure count, and pool sta
 
 - `data/wholesaler/state.json`, `stores.json`, `inventory/wholesale.json`, `inventory/stores/<store_id>.json`, `transactions.json`
 
+## Post-Merge Setup
+
+`scripts/post-merge.sh` runs automatically after task agent merges to install dependencies. Configured via `.replit` `[postMerge]` section.
+
+## Config cleanup notes
+
+Removed dead constants: `TICKET_INDEX_FILE`, `WHOLESALER_RESTOCK_SCHEDULE`, `FIXER_ROLE_NAME` (only the ID is used).
+
 ## Key Dependencies
 
 - discord.py, aiohttp, Flask, openpyxl, aiofiles, python-dotenv, rapidfuzz, asyncpg
@@ -76,7 +84,7 @@ Admin command: `!db_health` — shows DB ping, write-failure count, and pool sta
 
 Two-table catalog system in PostgreSQL:
 - `cyberware_catalog` (name UNIQUE, price, updated_at) — full item list, populated by `!cw_setsheet`
-- Weekly wholesale lots stored as `cw_wholesale_lots` in `data/cyberware_shop/state.json`
+- Weekly wholesale lots stored in PostgreSQL via the cyberware shop cog (local file fallback in `data/cyberware_shop/state.json`)
 
 ### Cyberware Wholesale Flow (mirrors gun wholesaler)
 

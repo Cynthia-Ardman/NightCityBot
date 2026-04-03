@@ -74,7 +74,7 @@ Key features:
 
 * `!dm @user <message>` – send an anonymous DM to a player. Attachments are forwarded and the entire exchange is logged in a private thread so staff can review it later.
 * Commands typed from a DM log thread (for example `!roll` or `!start_rp`) are relayed back to the user, allowing full interaction without revealing your identity.
-* The mapping of users to logging threads is persisted in `thread_map.json` and loaded on startup.
+* The mapping of users to logging threads is persisted in the `dm_threads` PostgreSQL table and cached on startup.
 
 ### Economy
 *File: `NightCityBot/cogs/economy.py`*
@@ -102,7 +102,7 @@ Main commands:
   is provided (or the user's automatic backup file is used) the latest entry is
   applied.
 
-The cog stores logs in JSON files such as `business_open_log.json` and `attendance_log.json` and consults `NightCityBot/utils/constants.py` for role costs.
+Economy data (attendance, business opens, payments) is stored in PostgreSQL tables. Role costs are defined in `NightCityBot/utils/constants.py` and runtime-editable via the `bot_config` table.
 
 ### CyberwareManager
 *File: `NightCityBot/cogs/cyberware.py`*
@@ -123,10 +123,7 @@ Commands:
 * `!collect_cyberware @user [-v]` – manually charge a member for their meds unless they already paid or did a checkup this week. Without `-v` only the last few log lines are shown.
 * `!paycyberware [-v]` – pay your own cyberware meds manually. Mirrors `!collect_cyberware` but only affects you.
 
-All data is stored in `cyberware_log.json`. The file now keeps each user's
-streak together with a ``last`` timestamp indicating when that player was last
-processed. The file also stores a `_last_run` timestamp for the most recent
-weekly task. Weekly results are appended to `cyberware_weekly.json`.
+Cyberware status and streak data is stored in the `cyberware_status` and `cyberware_meta` PostgreSQL tables. Weekly results are recorded in the `cyberware_weekly_runs` table.
 
 ### RPManager
 *File: `NightCityBot/cogs/rp_manager.py`*
@@ -181,10 +178,47 @@ Commands:
 * `!call_trauma` – notify the Trauma Team channel with your plan role.
 
 
-### WholesalerCog
-*File: `NightCityBot/cogs/wholesaler.py`*
+### PlayerInventory
+*File: `NightCityBot/cogs/player_inventory.py`*
 
-Implements a two-tier gun supply chain with scarcity: corporate wholesaler lots are generated from the Master Gun List spreadsheet, store owners purchase those lots, then sell to players using UnbelievaBoat balance transfers. Wholesaler state, transaction logs, sheet cache, wholesale lots, and per-store inventories are persisted under `data/wholesaler/` so stock survives restarts. The wholesaler auto-refreshes weekly right after cyberware processing, and all sales produce immutable receipts in the wholesaler audit channel for manual staff spreadsheet updates.
+Tracks all items (guns, gear, cyberware) owned by players in the `player_inventory` PostgreSQL table. Supports admin management, player-to-player trading, and full audit trails.
+
+* `!inv @user` – view a player's inventory.
+* `!inv_add @player "name" <qty> "character_name"` – add items to a player's inventory (admin/fixer only).
+* `!inv_remove @player <item_id>` – remove an item from inventory (admin/fixer only).
+* `!inv_trade @from @to <item_id>` – transfer an item between players (admin/fixer only).
+* `!item_history <item_id>` – view the full audit trail of an item (admin/fixer only).
+
+### AdminShop
+*File: `NightCityBot/cogs/admin_shop.py`*
+
+A unified interactive panel for admins and fixers to manage the shop system. Provides button-based UI for adding/removing items, viewing inventories, and reviewing transaction history without memorizing commands.
+
+* `!admin_shop` – open the interactive admin shop panel.
+
+### GunstoreHub
+*File: `NightCityBot/cogs/gunstore_hub.py`*
+
+Interactive hub for gun store owners. Provides a Discord button/menu UI to buy from wholesale, sell to customers, and manage store inventory without using text commands.
+
+* `!gunstore` – open the interactive gun store panel.
+
+### RipperdocHub
+*File: `NightCityBot/cogs/ripperdoc_hub.py`*
+
+Interactive hub for Ripperdocs. Provides a Discord button/menu UI to buy cyberware from wholesale, sell/install for patients, and manage stock.
+
+* `!ripperdoc` – open the interactive ripperdoc panel.
+
+### CyberwareShop
+*File: `NightCityBot/cogs/cyberware_shop.py`*
+
+Implements the Ripperdoc marketplace where Ripperdocs buy parts from a weekly wholesale rotation and sell/install them for patients. Manages the cyberware wholesale supply chain.
+
+### GunsShopCog
+*File: `NightCityBot/cogs/guns_shop.py`*
+
+Implements a two-tier gun supply chain with scarcity: corporate wholesaler lots are generated from the Master Gun List spreadsheet, store owners purchase those lots, then sell to players using UnbelievaBoat balance transfers. Wholesaler state, transaction logs, sheet cache, wholesale lots, and per-store inventories are persisted in PostgreSQL (with local file fallback under `data/wholesaler/`) so stock survives restarts. The wholesaler auto-refreshes weekly right after cyberware processing, and all sales produce immutable receipts in the wholesaler audit channel for manual staff spreadsheet updates.
 
 Lots are grouped by weapon type (Pistol, Revolver, Shotgun, Submachine Gun, Assault Rifle, etc.) based on section headers in the source spreadsheet. During restock, duplicate guns with the same name, level, cost and type are automatically consolidated into a single lot with combined quantity.
 
@@ -226,11 +260,11 @@ Main commands (separated by role):
 ### SystemControl
 *File: `NightCityBot/cogs/system_control.py`*
 
-A small cog that allows administrators to enable or disable major subsystems at runtime. States are persisted in `system_status.json`, and the `wholesaler` subsystem defaults to enabled when no prior status exists.
+A small cog that allows administrators to enable or disable major subsystems at runtime. States are persisted in the `system_settings` PostgreSQL table.
 
 Commands:
 
-* `!enable_system <name>` / `!disable_system <name>` – flip a specific subsystem such as `cyberware` or `open_shop` on or off at runtime. The setting persists in `system_status.json`.
+* `!enable_system <name>` / `!disable_system <name>` – flip a specific subsystem such as `cyberware` or `open_shop` on or off at runtime.
 * `!system_status` – list every tracked subsystem and whether it is currently enabled.
 
 ### Admin
@@ -271,18 +305,17 @@ Utility helpers reside in `NightCityBot/utils`:
 * `permissions.py` – custom checks such as `is_fixer` and `is_ripperdoc`.
 * `constants.py` – economy related constants and command filters.
 
-## Data files
+## Data storage
 
-Several JSON files store runtime data:
+All operational state is persisted to **PostgreSQL** via normalized tables (economy, inventory, cyberware, wholesaler, system settings, etc.). Legacy JSON files on disk are retained only as seed sources for one-time migration and for per-member balance backups.
 
-* `thread_map.json` – mapping of user IDs to DM log thread IDs.
-* `business_open_log.json` – timestamps of each user's `!open_shop` usage.
-* `attendance_log.json` – records weekly attendance.
-* `cyberware_log.json` – for each user stores the streak and the last time they
-  were processed, plus the last run timestamp for the weekly task.
-* `system_status.json` – persisted enable/disable flags for subsystems.
+Key local data directories:
 
-These files are loaded on startup via `utils.helpers.load_json_file`.
+* `data/wholesaler/` – local file fallback for wholesaler state, store inventories, and transactions.
+* `data/cyberware_shop/` – local file fallback for cyberware shop state and transactions.
+* `backups/` – balance backup snapshots.
+* `sheet_backups/` – character sheet backups.
+* `rent_audits/` – monthly rent audit logs.
 
 ## Testing
 
