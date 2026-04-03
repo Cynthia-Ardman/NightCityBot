@@ -377,6 +377,38 @@ def test_trade_setup_continue_opens_modal():
     _run(_test())
 
 
+def test_trade_setup_continue_self_trade_blocked():
+    async def _test():
+        cog = _make_cog()
+        ctx = _make_ctx()
+        groups = _build_groups(SAMPLE_ITEMS)
+        view = TradeSetupView(cog, ctx, groups)
+        view.selected_buyer = _make_buyer(uid=100)
+        view.selected_group_idx = 0
+        inter = _make_interaction(user_id=100)
+        btn = _find_button(view, "Continue →")
+        await btn.callback(inter)
+        assert "cannot trade items to yourself" in inter.response.send_message.call_args[0][0].lower()
+        inter.response.send_modal.assert_not_called()
+    _run(_test())
+
+
+def test_trade_setup_continue_restricted_blocked():
+    async def _test():
+        cog = _make_cog()
+        ctx = _make_ctx()
+        groups = _build_groups(RESTRICTED_ITEMS)
+        view = TradeSetupView(cog, ctx, groups)
+        view.selected_buyer = _make_buyer()
+        view.selected_group_idx = 0
+        inter = _make_interaction()
+        btn = _find_button(view, "Continue →")
+        await btn.callback(inter)
+        assert "restricted" in inter.response.send_message.call_args[0][0].lower()
+        inter.response.send_modal.assert_not_called()
+    _run(_test())
+
+
 # --- Trade Details Modal tests ---
 
 def test_trade_details_no_guild():
@@ -441,18 +473,18 @@ def test_trade_details_bad_price():
     _run(_test())
 
 
-def test_trade_details_self_trade_nonzero():
+def test_trade_details_self_trade_blocked():
     async def _test():
         cog = _make_cog()
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer(uid=100)
         groups = _build_groups(SAMPLE_ITEMS)
         modal = TradeDetailsModal(cog, buyer, groups[0])
-        modal.price_input = MagicMock(value="500")
+        modal.price_input = MagicMock(value="0")
         modal.buyer_char_input = MagicMock(value="Johnny")
         inter = _make_interaction(user_id=100)
         await modal.on_submit(inter)
-        assert "self-trade" in inter.followup.send.call_args[0][0].lower()
+        assert "cannot trade items to yourself" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
@@ -489,11 +521,9 @@ def test_trade_details_restricted_item():
     _run(_test())
 
 
-def test_trade_details_self_trade_success():
+def test_trade_details_self_trade_blocked_free():
     async def _test():
         cog = _make_cog()
-        inv_cog = _make_inv_cog()
-        cog.bot.cogs["PlayerInventory"] = inv_cog
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer(uid=100, name="TestPlayer")
         groups = _build_groups(SAMPLE_ITEMS)
@@ -501,12 +531,8 @@ def test_trade_details_self_trade_success():
         modal.price_input = MagicMock(value="0")
         modal.buyer_char_input = MagicMock(value="Jackie")
         inter = _make_interaction(user_id=100)
-        with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value=SAMPLE_ITEMS[0]):
-            with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=True):
-                with patch("NightCityBot.cogs.player_hub.ih_record_event", new_callable=AsyncMock):
-                    with patch("NightCityBot.cogs.player_hub._route_log_channel", new_callable=AsyncMock, return_value=None):
-                        await modal.on_submit(inter)
-        assert "traded" in inter.followup.send.call_args[0][0].lower() or "✅" in inter.followup.send.call_args[0][0]
+        await modal.on_submit(inter)
+        assert "cannot trade items to yourself" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 

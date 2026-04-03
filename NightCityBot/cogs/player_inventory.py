@@ -204,7 +204,8 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                     detail_parts.append(seller_str)
                 detail_parts.append(date_str)
                 detail = " · ".join(detail_parts)
-                line = f"`{row_num}.` **{g['name']}**{count_str} [{g['item_type']}] — {detail}"
+                char_label = g["items"][0].get("character_name") or "(no character)"
+                line = f"`{row_num}.` **{g['name']}**{count_str} [{g['item_type']}] ({char_label}) — {detail}"
                 if visible:
                     display.append((row_num, line))
                     all_groups.append(g)

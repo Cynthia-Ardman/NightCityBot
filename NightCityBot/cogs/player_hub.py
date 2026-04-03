@@ -160,7 +160,7 @@ class PlayerHubView(discord.ui.View):
                         pending_header = None
                     page_lines.append(ln)
         embed = discord.Embed(
-            title=f"📦 Your Inventory (1/{total_pages})",
+            title=f"📦 {interaction.user.display_name}'s Inventory (1/{total_pages})",
             description="\n".join(page_lines) if page_lines else "No items.",
             color=discord.Color.blue(),
         )
@@ -315,7 +315,22 @@ class TradeSetupView(discord.ui.View):
         if self.selected_group_idx is None:
             await interaction.response.send_message("Please select an item first.", ephemeral=True)
             return
+        if self.selected_buyer.id == interaction.user.id:
+            await interaction.response.send_message(
+                "❌ You cannot trade items to yourself.", ephemeral=True
+            )
+            return
         group = self.all_groups[self.selected_group_idx]
+        selected_item = group["items"][0]
+        restriction = selected_item.get("restriction", "basic")
+        if restriction in ("controlled", "restricted"):
+            await interaction.response.send_message(
+                f"❌ **{group['name']}** is **{restriction}** — "
+                "trading controlled/restricted guns is not allowed. "
+                "Contact a Fixer for assistance.",
+                ephemeral=True,
+            )
+            return
         modal = TradeDetailsModal(self.cog, self.selected_buyer, group)
         await interaction.response.send_modal(modal)
         self.stop()
@@ -324,7 +339,7 @@ class TradeSetupView(discord.ui.View):
 class TradeDetailsModal(discord.ui.Modal, title="Trade — Finalize Details"):
     price_input = discord.ui.TextInput(
         label="Price ($)",
-        placeholder="0 for self-trade between characters",
+        placeholder="e.g. 5000 (0 for free)",
     )
     buyer_char_input = discord.ui.TextInput(
         label="Buyer's Character Name",
@@ -356,9 +371,9 @@ class TradeDetailsModal(discord.ui.Modal, title="Trade — Finalize Details"):
         if price < 0:
             await interaction.followup.send("❌ Price cannot be negative.", ephemeral=True)
             return
-        if buyer.id == interaction.user.id and price != 0:
+        if buyer.id == interaction.user.id:
             await interaction.followup.send(
-                "❌ Self-trades must use price **0** — they move items between your own characters.",
+                "❌ You cannot trade items to yourself.",
                 ephemeral=True,
             )
             return
