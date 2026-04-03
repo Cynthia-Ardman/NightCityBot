@@ -17,9 +17,7 @@ from NightCityBot.cogs.gunstore_hub import (
     GunstoreMenuView,
     GunDMConfirmView,
     InlineApproveView,
-    GunSellDetailsModal,
     GunSellSetupView,
-    GunBuyQtyModal,
 )
 from NightCityBot.cogs.admin_shop import (
     AdminShopCog,
@@ -29,10 +27,7 @@ from NightCityBot.cogs.admin_shop import (
     WholesaleClearConfirmView,
 )
 from NightCityBot.cogs.ripperdoc_hub import (
-    SellDetailsModal,
-    InstallDetailsModal,
     SellSetupView,
-    BuyQtyModal,
 )
 from NightCityBot.cogs.player_inventory import TradeConfirmView
 
@@ -479,13 +474,15 @@ class TestAdminShopMenuView:
             ctx = _ctx()
             view = AdminShopMenuView(cog, ctx)
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Remove Item")
-            await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            with patch("NightCityBot.cogs.admin_shop.collect_text_input", new_callable=AsyncMock, return_value=None):
+                await btn.callback(inter)
+            inter.response.defer.assert_called_once()
 
         _run(run())
 
-    def test_reassign_item_opens_modal(self, monkeypatch):
+    def test_reassign_item_starts_inline_flow(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
 
         async def run():
@@ -493,13 +490,15 @@ class TestAdminShopMenuView:
             ctx = _ctx()
             view = AdminShopMenuView(cog, ctx)
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Reassign Item")
-            await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            with patch("NightCityBot.cogs.admin_shop.collect_text_input", new_callable=AsyncMock, return_value=None):
+                await btn.callback(inter)
+            inter.response.defer.assert_called_once()
 
         _run(run())
 
-    def test_item_history_opens_modal(self, monkeypatch):
+    def test_item_history_starts_inline_flow(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
 
         async def run():
@@ -507,9 +506,11 @@ class TestAdminShopMenuView:
             ctx = _ctx()
             view = AdminShopMenuView(cog, ctx)
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Item History")
-            await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            with patch("NightCityBot.cogs.admin_shop.collect_text_input", new_callable=AsyncMock, return_value=None):
+                await btn.callback(inter)
+            inter.response.defer.assert_called_once()
 
         _run(run())
 
@@ -848,10 +849,10 @@ class TestGunSellUUIDContinuity:
             guns_cog._save_state = AsyncMock()
             cog.bot.cogs = {"GunsShopCog": guns_cog}
 
+            from NightCityBot.cogs.gunstore_hub import _process_gun_sell
             customer = _make_member(222, "Customer")
             lot = store_data["stores"]["test_store"]["lots"][0]
-            modal = GunSellDetailsModal(cog, ctx, customer, lot, "test_store", character={"character_id": "char-1", "name": "V"})
-            modal.price_input = MagicMock(value="0")
+            character = {"character_id": "char-1", "name": "V"}
 
             dm_view_cls = "NightCityBot.cogs.gunstore_hub.GunDMConfirmView"
             with patch(dm_view_cls) as MockView:
@@ -863,7 +864,7 @@ class TestGunSellUUIDContinuity:
                     with patch("NightCityBot.cogs.gunstore_hub.ih_record_event", new_callable=AsyncMock):
                         with patch("NightCityBot.cogs.gunstore_hub.ensure_character_active", new_callable=AsyncMock, return_value=True):
                             inter = _make_interaction()
-                            await modal.on_submit(inter)
+                            await _process_gun_sell(cog, inter, ctx, customer, lot, "test_store", character, 0)
                             if mock_pi.called:
                                 call_args = mock_pi.call_args[0][0]
                                 assert call_args["item_id"] == known_uuid
@@ -872,21 +873,9 @@ class TestGunSellUUIDContinuity:
 
 
 class TestInstallDMConfirmation:
-    def test_install_modal_has_price_field(self):
-        async def run():
-            cog = _make_ripperdoc_cog()
-            ctx = _ctx()
-            patient = _make_member(333, "Patient")
-            group = {"name": "Mantis Blades", "count": 1, "items": [
-                {"item_id": "test-uuid", "name": "Mantis Blades"}
-            ]}
-            modal = InstallDetailsModal(cog, ctx, patient, group, 1)
-            return hasattr(modal, "price_input")
-
-        assert _run(run())
-
     def test_install_sends_dm_to_patient(self):
         async def run():
+            from NightCityBot.cogs.ripperdoc_hub import _process_cw_install
             cog = _make_ripperdoc_cog()
             ctx = _ctx()
             patient = _make_member(333, "Patient")
@@ -907,8 +896,7 @@ class TestInstallDMConfirmation:
             group = {"name": "Mantis Blades", "count": 1, "items": [
                 {"item_id": "test-uuid", "name": "Mantis Blades"}
             ]}
-            modal = InstallDetailsModal(cog, ctx, patient, group, 1, character={"character_id": "char-1", "name": "V"})
-            modal.price_input = MagicMock(value="0")
+            character = {"character_id": "char-1", "name": "V"}
 
             dm_view_cls = "NightCityBot.cogs.ripperdoc_hub.DMConfirmView"
             with patch(dm_view_cls) as MockView:
@@ -919,7 +907,7 @@ class TestInstallDMConfirmation:
                 with patch("NightCityBot.cogs.ripperdoc_hub.ih_record_event", new_callable=AsyncMock):
                     with patch("NightCityBot.cogs.ripperdoc_hub.ensure_character_active", new_callable=AsyncMock, return_value=True):
                         inter = _make_interaction()
-                        await modal.on_submit(inter)
+                        await _process_cw_install(cog, inter, ctx, patient, group, character, 0)
                         patient.send.assert_called_once()
                         msg = patient.send.call_args[0][0]
                         assert "Mantis Blades" in msg
@@ -945,11 +933,11 @@ class TestSellRefundMath:
             cw_cog._save_inventory = AsyncMock()
             cog.bot.cogs = {"CyberwareShop": cw_cog}
 
+            from NightCityBot.cogs.ripperdoc_hub import _process_cw_sell
             group = {"name": "Chrome Arms", "count": 1, "items": [
                 {"item_id": "uid-1", "name": "Chrome Arms"}
             ]}
-            modal = SellDetailsModal(cog, ctx, patient, group, 1, character={"character_id": "char-1", "name": "V"})
-            modal.price_input = MagicMock(value="5000")
+            character = {"character_id": "char-1", "name": "V"}
 
             dm_view_cls = "NightCityBot.cogs.ripperdoc_hub.DMConfirmView"
             with patch(dm_view_cls) as MockView:
@@ -959,7 +947,7 @@ class TestSellRefundMath:
                 MockView.return_value = mock_view_inst
                 with patch("NightCityBot.cogs.ripperdoc_hub.ensure_character_active", new_callable=AsyncMock, return_value=True):
                     inter = _make_interaction()
-                    await modal.on_submit(inter)
+                    await _process_cw_sell(cog, inter, ctx, patient, group, character, 5000)
                     refund_call = None
                     for call in cog.unbelievaboat.update_balance.call_args_list:
                         args = call[0]
@@ -1005,11 +993,11 @@ class TestSellerCreditFailurePendingTransfer:
             cw_cog._save_inventory = AsyncMock()
             cog.bot.cogs = {"CyberwareShop": cw_cog}
 
+            from NightCityBot.cogs.ripperdoc_hub import _process_cw_sell
             group = {"name": "Optics", "count": 1, "items": [
                 {"item_id": "uid-2", "name": "Optics"}
             ]}
-            modal = SellDetailsModal(cog, ctx, patient, group, 1, character={"character_id": "char-1", "name": "V"})
-            modal.price_input = MagicMock(value="1000")
+            character = {"character_id": "char-1", "name": "V"}
 
             dm_view_cls = "NightCityBot.cogs.ripperdoc_hub.DMConfirmView"
             with patch(dm_view_cls) as MockView:
@@ -1022,7 +1010,7 @@ class TestSellerCreditFailurePendingTransfer:
                         with patch("NightCityBot.cogs.ripperdoc_hub.pi_add_item", new_callable=AsyncMock, return_value=True):
                             with patch("NightCityBot.cogs.ripperdoc_hub.ih_record_event", new_callable=AsyncMock):
                                 inter = _make_interaction()
-                                await modal.on_submit(inter)
+                                await _process_cw_sell(cog, inter, ctx, patient, group, character, 1000)
                                 mock_pt.assert_called_once()
 
         _run(run())
@@ -1051,11 +1039,11 @@ class TestPiAddItemFailureCompensation:
             cw_cog._save_inventory = AsyncMock()
             cog.bot.cogs = {"CyberwareShop": cw_cog}
 
+            from NightCityBot.cogs.ripperdoc_hub import _process_cw_sell
             group = {"name": "Neural Link", "count": 1, "items": [
                 {"item_id": "uid-3", "name": "Neural Link"}
             ]}
-            modal = SellDetailsModal(cog, ctx, patient, group, 1, character={"character_id": "char-1", "name": "V"})
-            modal.price_input = MagicMock(value="2000")
+            character = {"character_id": "char-1", "name": "V"}
 
             dm_view_cls = "NightCityBot.cogs.ripperdoc_hub.DMConfirmView"
             with patch(dm_view_cls) as MockView:
@@ -1067,7 +1055,7 @@ class TestPiAddItemFailureCompensation:
                     with patch("NightCityBot.cogs.ripperdoc_hub.pi_add_item", new_callable=AsyncMock, return_value=False):
                         with patch("NightCityBot.cogs.ripperdoc_hub.ih_record_event", new_callable=AsyncMock):
                             inter = _make_interaction()
-                            await modal.on_submit(inter)
+                            await _process_cw_sell(cog, inter, ctx, patient, group, character, 2000)
                             refund_calls = [
                                 c for c in cog.unbelievaboat.update_balance.call_args_list
                                 if "refund" in str(c).lower() or "grant failed" in str(c).lower()
@@ -1095,7 +1083,7 @@ class TestAdminWholesaleButtons:
 
         _run(run())
 
-    def test_restock_button_opens_modal(self, monkeypatch):
+    def test_restock_button_starts_inline_flow(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
 
         async def run():
@@ -1103,9 +1091,11 @@ class TestAdminWholesaleButtons:
             ctx = _ctx()
             view = AdminShopMenuView(cog, ctx)
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Restock Wholesale")
-            await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            with patch("NightCityBot.cogs.admin_shop.collect_text_input", new_callable=AsyncMock, return_value=None):
+                await btn.callback(inter)
+            inter.response.defer.assert_called_once()
 
         _run(run())
 
@@ -1125,7 +1115,7 @@ class TestAdminWholesaleButtons:
 
         _run(run())
 
-    def test_restock_cw_button_opens_modal(self, monkeypatch):
+    def test_restock_cw_button_starts_inline_flow(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
 
         async def run():
@@ -1133,9 +1123,11 @@ class TestAdminWholesaleButtons:
             ctx = _ctx()
             view = AdminShopMenuView(cog, ctx)
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Restock CW")
-            await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            with patch("NightCityBot.cogs.admin_shop.collect_text_input", new_callable=AsyncMock, return_value=None):
+                await btn.callback(inter)
+            inter.response.defer.assert_called_once()
 
         _run(run())
 

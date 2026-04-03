@@ -28,6 +28,7 @@ from NightCityBot.utils.db import (
 )
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active, get_character_by_name
 from NightCityBot.utils.permissions import is_fixer
+from NightCityBot.utils.inline_helpers import collect_text_input, QtySelectView
 
 logger = logging.getLogger(__name__)
 
@@ -75,15 +76,78 @@ class AdminShopMenuView(discord.ui.View):
 
     @discord.ui.button(label="Remove Item", style=discord.ButtonStyle.danger, emoji="🗑️", row=0)
     async def remove_item(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(AdminRemoveItemModal(self.cog, self.ctx))
+        await interaction.response.defer(ephemeral=True)
+        view = AdminRemoveItemView(self.cog, self.ctx)
+        await interaction.followup.send(
+            "**Remove Item** — Select the player, then enter the item UUID:",
+            view=view,
+            ephemeral=True,
+        )
 
     @discord.ui.button(label="Reassign Item", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
     async def reassign_item(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(AdminReassignModal(self.cog, self.ctx))
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "📝 **Enter the Item UUID** to reassign (or type `cancel`):",
+            ephemeral=True,
+        )
+        item_id = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        if item_id is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            return
+        item = await pi_get_item(item_id)
+        if item is None:
+            await interaction.followup.send(f"Item `{item_id}` not found.", ephemeral=True)
+            return
+        view = AdminReassignView(self.cog, self.ctx, item_id, item)
+        await interaction.followup.send(
+            f"Item: **{item.get('name', '?')}** (`{item_id[:12]}…`)\n"
+            "Now select the new owner:",
+            view=view,
+            ephemeral=True,
+        )
 
     @discord.ui.button(label="Item History", style=discord.ButtonStyle.secondary, emoji="📜", row=1)
     async def item_history(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(ItemHistoryModal(self.cog, self.ctx))
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "📝 **Enter the Item UUID** to look up (or type `cancel`):",
+            ephemeral=True,
+        )
+        item_id = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        if item_id is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            return
+        history = await ih_get_history(item_id, limit=50)
+        if not history:
+            await interaction.followup.send(f"No history for `{item_id}`.", ephemeral=True)
+            return
+        lines = []
+        for entry in history:
+            ts = str(entry.get("created_at", ""))[:19].replace("T", " ")
+            event = entry.get("event_type", "?")
+            actor = entry.get("actor_id", "—")
+            target = entry.get("target_id", "")
+            price = entry.get("price")
+            meta = entry.get("metadata", {})
+            detail = ""
+            if target:
+                detail += f" → <@{target}>"
+            if price is not None:
+                detail += f" ${price:,}"
+            if meta.get("item_name"):
+                detail += f" ({meta['item_name']})"
+            lines.append(f"`{ts}` **{event}** by <@{actor}>{detail}")
+        embed = discord.Embed(
+            title=f"📜 Item History — `{item_id[:12]}...`",
+            description="\n".join(lines[:25]),
+            color=discord.Color.greyple(),
+        )
+        embed.set_footer(text=f"{len(history)} event(s)")
+        await interaction.followup.send(
+            embed=embed, ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     @discord.ui.button(label="Player Inventory", style=discord.ButtonStyle.secondary, emoji="📦", row=1)
     async def player_inv(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -135,7 +199,19 @@ class AdminShopMenuView(discord.ui.View):
 
     @discord.ui.button(label="Restock Wholesale", style=discord.ButtonStyle.primary, emoji="📥", row=2)
     async def restock_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(WholesaleRestockModal(self.cog, self.ctx))
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "📝 **Enter gun wholesale details** in this format:\n"
+            "`gun name, quantity, unit cost, restriction`\n"
+            "Example: `Militech Mk.31, 10, 5000, basic`\n"
+            "Restriction is optional (defaults to `basic`). Type `cancel` to abort.",
+            ephemeral=True,
+        )
+        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        if text is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            return
+        await _process_wholesale_restock(self.cog, interaction, text)
 
     @discord.ui.button(label="Clear Gun WH", style=discord.ButtonStyle.danger, emoji="🗑️", row=2)
     async def clear_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -149,7 +225,19 @@ class AdminShopMenuView(discord.ui.View):
 
     @discord.ui.button(label="Restock CW", style=discord.ButtonStyle.primary, emoji="💉", row=3)
     async def restock_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(CWWholesaleRestockModal(self.cog, self.ctx))
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "📝 **Enter CW wholesale details** in this format:\n"
+            "`cyberware name, quantity, unit cost`\n"
+            "Example: `Neural Link, 10, 5000`\n"
+            "Type `cancel` to abort.",
+            ephemeral=True,
+        )
+        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        if text is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            return
+        await _process_cw_wholesale_restock(self.cog, interaction, text)
 
     @discord.ui.button(label="Clear CW WH", style=discord.ButtonStyle.danger, emoji="🧹", row=3)
     async def clear_cw_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -160,6 +248,117 @@ class AdminShopMenuView(discord.ui.View):
             view=confirm_view,
             ephemeral=True,
         )
+
+
+async def _process_wholesale_restock(cog, interaction, text):
+    guns_cog = cog.bot.cogs.get("GunsShopCog")
+    if not guns_cog:
+        await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+        return
+    parts = [p.strip() for p in text.split(",")]
+    if len(parts) < 3:
+        await interaction.followup.send(
+            "❌ Need at least: `gun name, quantity, unit cost`", ephemeral=True
+        )
+        return
+    gun_name = parts[0]
+    try:
+        qty = int(parts[1])
+        cost = int(parts[2])
+    except ValueError:
+        await interaction.followup.send("Quantity and cost must be numbers.", ephemeral=True)
+        return
+    if qty < 1 or cost < 0:
+        await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
+        return
+    restriction = parts[3].strip().lower() if len(parts) > 3 else "basic"
+    if restriction not in ("basic", "controlled", "restricted"):
+        restriction = "basic"
+
+    async with guns_cog.lock:
+        state = await guns_cog._load_state()
+        lots = state.setdefault("wholesale_lots", [])
+        lot_id = f"admin-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
+        lots.append({
+            "lot_id": lot_id,
+            "gun_name": gun_name,
+            "gun_level": "L",
+            "weapon_type": "",
+            "unit_cost": cost,
+            "qty_available": qty,
+            "restriction": restriction,
+        })
+        await guns_cog._save_state(state)
+
+    await interaction.followup.send(
+        f"Restocked **{gun_name}** ×{qty} at ${cost:,} [{restriction}].", ephemeral=True
+    )
+    log_ch = await cog._audit_channel()
+    if log_ch:
+        embed = discord.Embed(
+            title="📥 Admin: Wholesale Restocked",
+            color=discord.Color.orange(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Admin", value=f"{interaction.user.mention}", inline=False)
+        embed.add_field(name="Gun", value=gun_name, inline=True)
+        embed.add_field(name="Qty", value=str(qty), inline=True)
+        embed.add_field(name="Cost", value=f"${cost:,}", inline=True)
+        embed.add_field(name="Restriction", value=restriction, inline=True)
+        embed.set_footer(text="NightCityBot Audit Log")
+        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+
+async def _process_cw_wholesale_restock(cog, interaction, text):
+    cw_cog = cog.bot.cogs.get("CyberwareShop")
+    if not cw_cog:
+        await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+        return
+    parts = [p.strip() for p in text.split(",")]
+    if len(parts) < 3:
+        await interaction.followup.send(
+            "❌ Need at least: `cyberware name, quantity, unit cost`", ephemeral=True
+        )
+        return
+    item_name = parts[0]
+    try:
+        qty = int(parts[1])
+        cost = int(parts[2])
+    except ValueError:
+        await interaction.followup.send("Quantity and cost must be numbers.", ephemeral=True)
+        return
+    if qty < 1 or cost < 0:
+        await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
+        return
+
+    async with cw_cog.lock:
+        state = await cw_cog._load_state()
+        lots = state.setdefault("cw_wholesale_lots", [])
+        lot_id = f"admin-cw-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
+        lots.append({
+            "lot_id": lot_id,
+            "item_name": item_name,
+            "unit_cost": cost,
+            "qty_available": qty,
+        })
+        await cw_cog._save_state(state)
+
+    await interaction.followup.send(
+        f"Restocked CW **{item_name}** ×{qty} at ${cost:,}.", ephemeral=True
+    )
+    log_ch = await cog._audit_channel()
+    if log_ch:
+        embed = discord.Embed(
+            title="📥 Admin: CW Wholesale Restocked",
+            color=discord.Color.teal(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Admin", value=f"{interaction.user.mention}", inline=False)
+        embed.add_field(name="Item", value=item_name, inline=True)
+        embed.add_field(name="Qty", value=str(qty), inline=True)
+        embed.add_field(name="Cost", value=f"${cost:,}", inline=True)
+        embed.set_footer(text="NightCityBot Audit Log")
+        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
 class AdminAddItemPickerView(discord.ui.View):
@@ -244,113 +443,319 @@ class AdminAddItemPickerView(discord.ui.View):
                 ephemeral=True,
             )
             return
-        await interaction.response.send_modal(
-            AdminAddItemDetailsModal(self.cog, self.ctx, self.selected_player, self.selected_character)
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "📝 **Enter item details** in this format:\n"
+            "`item name, type, quantity, price`\n"
+            "Example: `Militech Pistol, gun, 1, 5000`\n"
+            "Type and price are optional (defaults: `misc`, no price). Type `cancel` to abort.",
+            ephemeral=True,
+        )
+        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        if text is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            self.stop()
+            return
+        await _process_admin_add_item(
+            self.cog, interaction, self.selected_player, self.selected_character, text
         )
         self.stop()
 
 
-class AdminAddItemDetailsModal(discord.ui.Modal, title="Add Item — Details"):
-    name_input = discord.ui.TextInput(label="Item Name")
-    item_type_input = discord.ui.TextInput(label="Type (gun/cyberware/gear/misc)", default="misc")
-    qty_price_input = discord.ui.TextInput(
-        label="Qty,Price (e.g. 1,5000 or just 1)",
-        default="1",
-        required=False,
-    )
+async def _process_admin_add_item(cog, interaction, player, character, text):
+    guild = interaction.guild
+    if not guild:
+        await interaction.followup.send("Must be used in server.", ephemeral=True)
+        return
 
-    def __init__(self, cog: "AdminShopCog", ctx: commands.Context,
-                 player: discord.Member, character: dict | None = None):
-        super().__init__()
+    char_name = character.get("name", "")
+    character_id = character.get("character_id")
+    if not char_name:
+        await interaction.followup.send("Character selection required.", ephemeral=True)
+        return
+    if character_id and not await ensure_character_active(character_id):
+        await interaction.followup.send(
+            f"❌ Character **{char_name}** is no longer active.", ephemeral=True
+        )
+        return
+
+    parts = [p.strip() for p in text.split(",")]
+    name = parts[0]
+    if not name:
+        await interaction.followup.send("❌ Item name is required.", ephemeral=True)
+        return
+    item_type = parts[1].strip().lower() if len(parts) > 1 and parts[1].strip() else "misc"
+    qty = 1
+    price = None
+    if len(parts) > 2:
+        try:
+            qty = int(parts[2].strip())
+        except ValueError:
+            qty = 1
+    if len(parts) > 3:
+        try:
+            price = int(parts[3].strip())
+        except ValueError:
+            pass
+    if qty < 1:
+        qty = 1
+
+    added = 0
+    now = datetime.now(timezone.utc).isoformat()
+    for _ in range(qty):
+        item_id = str(uuid.uuid4())
+        ok = await pi_add_item({
+            "item_id": item_id,
+            "owner_id": str(player.id),
+            "character_name": char_name,
+            "character_id": character_id,
+            "item_type": item_type,
+            "name": name,
+            "restriction": "basic",
+            "description": "",
+            "price_paid": price,
+            "seller_id": str(interaction.user.id),
+            "seller_name": interaction.user.display_name,
+            "acquired_at": now,
+        })
+        if ok:
+            added += 1
+            await ih_record_event(
+                item_id, "admin_add",
+                actor_id=str(interaction.user.id),
+                target_id=str(player.id),
+                price=price,
+                metadata={"item_name": name, "character": char_name, "item_type": item_type},
+            )
+
+    await interaction.followup.send(
+        f"Added **{name}** ×{added} to {player.display_name}'s inventory ({char_name}).",
+        ephemeral=True,
+    )
+    log_ch = await cog._audit_channel()
+    if log_ch:
+        embed = discord.Embed(
+            title="🔧 Admin: Item Added",
+            color=discord.Color.orange(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Admin", value=f"{interaction.user.mention}", inline=False)
+        embed.add_field(name="Player", value=f"{player.mention} — {char_name}", inline=False)
+        embed.add_field(name="Item", value=name, inline=True)
+        embed.add_field(name="Qty", value=str(added), inline=True)
+        embed.add_field(name="Type", value=item_type, inline=True)
+        embed.set_footer(text="NightCityBot Audit Log")
+        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+
+class AdminRemoveItemView(discord.ui.View):
+    def __init__(self, cog: "AdminShopCog", ctx: commands.Context):
+        super().__init__(timeout=120)
         self.cog = cog
         self.ctx = ctx
-        self.player = player
-        self.character = character or {}
+        self.selected_player: Optional[discord.Member] = None
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose the player…", row=0)
+    async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        user = select.values[0] if select.values else None
+        member = await _resolve_user_select(self.ctx, user)
+        if not member:
+            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            return
+        self.selected_player = member
+        await interaction.response.send_message(f"Player: **{member.display_name}** ✓", ephemeral=True)
+
+    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=1)
+    async def continue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.selected_player is None:
+            await interaction.response.send_message("Please select a player first.", ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
-        guild = self.ctx.guild
-        if not guild:
-            await interaction.followup.send("Must be used in server.", ephemeral=True)
+        await interaction.followup.send(
+            "📝 **Enter the Item UUID** to remove (or type `cancel`):",
+            ephemeral=True,
+        )
+        item_id = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        if item_id is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
 
-        player = self.player
-        name = self.name_input.value.strip()
-        character = self.character.get("name", "")
-        character_id = self.character.get("character_id")
-        if not character:
-            await interaction.followup.send("Character selection required.", ephemeral=True)
+        player = self.selected_player
+        item = await pi_get_item(item_id)
+        if item is None:
+            await interaction.followup.send(f"Item `{item_id}` not found.", ephemeral=True)
             return
-        if character_id and not await ensure_character_active(character_id):
+        if item.get("owner_id") != str(player.id):
             await interaction.followup.send(
-                f"❌ Character **{character}** is no longer active.", ephemeral=True
+                f"Item does not belong to {player.display_name}.", ephemeral=True
             )
             return
-        item_type = self.item_type_input.value.strip().lower() or "misc"
 
-        qty = 1
-        price = None
-        raw_qp = self.qty_price_input.value.strip()
-        if raw_qp:
-            parts = raw_qp.split(",")
-            try:
-                qty = int(parts[0].strip())
-            except ValueError:
-                qty = 1
-            if len(parts) > 1:
-                try:
-                    price = int(parts[1].strip())
-                except ValueError:
-                    pass
-        if qty < 1:
-            qty = 1
+        item_name = item.get("name", "?")
+        ok = await pi_delete_item(item_id)
+        if not ok:
+            await interaction.followup.send("Failed to remove item.", ephemeral=True)
+            return
 
-        added = 0
-        now = datetime.now(timezone.utc).isoformat()
-        for _ in range(qty):
-            item_id = str(uuid.uuid4())
-            ok = await pi_add_item({
-                "item_id": item_id,
-                "owner_id": str(player.id),
-                "character_name": character,
-                "character_id": character_id,
-                "item_type": item_type,
-                "name": name,
-                "restriction": "basic",
-                "description": "",
-                "price_paid": price,
-                "seller_id": str(self.ctx.author.id),
-                "seller_name": self.ctx.author.display_name,
-                "acquired_at": now,
-            })
-            if ok:
-                added += 1
-                await ih_record_event(
-                    item_id, "admin_add",
-                    actor_id=str(self.ctx.author.id),
-                    target_id=str(player.id),
-                    price=price,
-                    metadata={"item_name": name, "character": character, "item_type": item_type},
-                )
+        await ih_record_event(
+            item_id, "admin_remove",
+            actor_id=str(interaction.user.id),
+            target_id=str(player.id),
+            metadata={"item_name": item_name},
+        )
 
         await interaction.followup.send(
-            f"Added **{name}** ×{added} to {player.display_name}'s inventory ({character}).",
+            f"Removed **{item_name}** (`{item_id}`) from {player.display_name}.", ephemeral=True
+        )
+        log_ch = await self.cog._audit_channel()
+        if log_ch:
+            embed = discord.Embed(
+                title="🗑️ Admin: Item Removed",
+                color=discord.Color.red(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.add_field(name="Admin", value=f"{interaction.user.mention}", inline=False)
+            embed.add_field(name="Player", value=f"{player.mention}", inline=False)
+            embed.add_field(name="Item", value=f"**{item_name}** (`{item_id}`)", inline=False)
+            embed.set_footer(text="NightCityBot Audit Log")
+            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        self.stop()
+
+
+class AdminReassignView(discord.ui.View):
+    def __init__(self, cog: "AdminShopCog", ctx: commands.Context, item_id: str, item: dict):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.item_id = item_id
+        self.item = item
+        self.selected_owner: Optional[discord.Member] = None
+        self.selected_character: Optional[dict] = None
+        self._character_select: Optional[discord.ui.Select] = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose the new owner…", row=0)
+    async def owner_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        user = select.values[0] if select.values else None
+        member = await _resolve_user_select(self.ctx, user)
+        if not member:
+            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            return
+        self.selected_owner = member
+        self.selected_character = None
+        characters = await get_active_characters(str(member.id))
+        if not characters:
+            await interaction.response.send_message(
+                f"❌ {member.display_name} has no active characters.",
+                ephemeral=True,
+            )
+            self.selected_owner = None
+            return
+        if self._character_select is not None:
+            self.remove_item(self._character_select)
+        char_options = [
+            discord.SelectOption(label=ch["name"][:100], value=ch["character_id"])
+            for ch in characters[:25]
+        ]
+        char_select = discord.ui.Select(
+            placeholder="Choose character…",
+            options=char_options,
+            row=1,
+        )
+        char_select.callback = self._on_character_select
+        self._character_select = char_select
+        self._characters = characters
+        self.add_item(char_select)
+        await interaction.response.send_message(
+            f"New Owner: **{member.display_name}** ✓ — Now select their character.",
+            ephemeral=True,
+        )
+
+    async def _on_character_select(self, interaction: discord.Interaction):
+        char_id = interaction.data["values"][0]
+        for ch in self._characters:
+            if ch["character_id"] == char_id:
+                self.selected_character = ch
+                break
+        if self.selected_character:
+            await interaction.response.send_message(
+                f"Character: **{self.selected_character['name']}** ✓", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message("Character not found.", ephemeral=True)
+
+    @discord.ui.button(label="Reassign ✓", style=discord.ButtonStyle.primary, emoji="✏️", row=2)
+    async def confirm_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.selected_owner is None:
+            await interaction.response.send_message("Please select a new owner.", ephemeral=True)
+            return
+        if self.selected_character is None:
+            await interaction.response.send_message("Please select a character.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        new_owner = self.selected_owner
+        new_char_name = self.selected_character["name"]
+        char_record = self.selected_character
+        if char_record and not await ensure_character_active(char_record["character_id"]):
+            await interaction.followup.send(
+                f"❌ Character **{new_char_name}** is not active.", ephemeral=True
+            )
+            return
+        item_name = self.item.get("name", "?")
+        old_owner_id = self.item.get("owner_id", "")
+        old_char = self.item.get("character_name", "")
+        item_id = self.item_id
+
+        if str(new_owner.id) == old_owner_id:
+            ok = await pi_update_character(item_id, new_char_name, expected_owner_id=old_owner_id)
+        else:
+            ok = await pi_update_owner(item_id, str(new_owner.id), new_char_name, old_owner_id)
+
+        if not ok:
+            await interaction.followup.send("Failed to reassign item.", ephemeral=True)
+            return
+
+        await ih_record_event(
+            item_id, "admin_reassign",
+            actor_id=str(interaction.user.id),
+            target_id=str(new_owner.id),
+            metadata={
+                "item_name": item_name,
+                "old_owner": old_owner_id,
+                "old_character": old_char,
+                "new_character": new_char_name,
+            },
+        )
+
+        await interaction.followup.send(
+            f"Reassigned **{item_name}** to {new_owner.display_name} — {new_char_name}.",
             ephemeral=True,
         )
         log_ch = await self.cog._audit_channel()
         if log_ch:
             embed = discord.Embed(
-                title="🔧 Admin: Item Added",
-                color=discord.Color.orange(),
+                title="✏️ Admin: Item Reassigned",
+                color=discord.Color.blurple(),
                 timestamp=datetime.now(timezone.utc),
             )
-            embed.add_field(name="Admin", value=f"{self.ctx.author.mention}", inline=False)
-            embed.add_field(name="Player", value=f"{player.mention} — {character}", inline=False)
-            embed.add_field(name="Item", value=name, inline=True)
-            embed.add_field(name="Qty", value=str(added), inline=True)
-            embed.add_field(name="Type", value=item_type, inline=True)
+            embed.add_field(name="Admin", value=f"{interaction.user.mention}", inline=False)
+            embed.add_field(name="Item", value=f"**{item_name}** (`{item_id}`)", inline=False)
+            embed.add_field(name="Old", value=f"<@{old_owner_id}> — {old_char}", inline=True)
+            embed.add_field(name="New", value=f"{new_owner.mention} — {new_char_name}", inline=True)
             embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        self.stop()
 
 
 class PlayerInvPickerView(discord.ui.View):
@@ -391,321 +796,6 @@ class PlayerInvPickerView(discord.ui.View):
         )
         embed.set_footer(text=f"{len(items)} item(s) total")
         await interaction.followup.send(embed=embed, ephemeral=True)
-
-
-class AdminRemoveItemModal(discord.ui.Modal, title="Remove Item"):
-    player_input = discord.ui.TextInput(label="Player (mention or ID)")
-    item_id_input = discord.ui.TextInput(label="Item UUID")
-
-    def __init__(self, cog: "AdminShopCog", ctx: commands.Context):
-        super().__init__()
-        self.cog = cog
-        self.ctx = ctx
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        guild = self.ctx.guild
-        if not guild:
-            await interaction.followup.send("Must be used in server.", ephemeral=True)
-            return
-
-        player = await self.cog._resolve_member(guild, self.player_input.value)
-        if not player:
-            await interaction.followup.send("Could not find that player.", ephemeral=True)
-            return
-
-        item_id = self.item_id_input.value.strip()
-        item = await pi_get_item(item_id)
-        if item is None:
-            await interaction.followup.send(f"Item `{item_id}` not found.", ephemeral=True)
-            return
-        if item.get("owner_id") != str(player.id):
-            await interaction.followup.send(
-                f"Item does not belong to {player.display_name}.", ephemeral=True
-            )
-            return
-
-        item_name = item.get("name", "?")
-        ok = await pi_delete_item(item_id)
-        if not ok:
-            await interaction.followup.send("Failed to remove item.", ephemeral=True)
-            return
-
-        await ih_record_event(
-            item_id, "admin_remove",
-            actor_id=str(self.ctx.author.id),
-            target_id=str(player.id),
-            metadata={"item_name": item_name},
-        )
-
-        await interaction.followup.send(
-            f"Removed **{item_name}** (`{item_id}`) from {player.display_name}.", ephemeral=True
-        )
-        log_ch = await self.cog._audit_channel()
-        if log_ch:
-            embed = discord.Embed(
-                title="🗑️ Admin: Item Removed",
-                color=discord.Color.red(),
-                timestamp=datetime.now(timezone.utc),
-            )
-            embed.add_field(name="Admin", value=f"{self.ctx.author.mention}", inline=False)
-            embed.add_field(name="Player", value=f"{player.mention}", inline=False)
-            embed.add_field(name="Item", value=f"**{item_name}** (`{item_id}`)", inline=False)
-            embed.set_footer(text="NightCityBot Audit Log")
-            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
-
-
-class AdminReassignModal(discord.ui.Modal, title="Reassign Item"):
-    item_id_input = discord.ui.TextInput(label="Item UUID")
-    player_input = discord.ui.TextInput(label="New Owner (mention or ID)")
-    character_input = discord.ui.TextInput(label="New Character Name")
-
-    def __init__(self, cog: "AdminShopCog", ctx: commands.Context):
-        super().__init__()
-        self.cog = cog
-        self.ctx = ctx
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        guild = self.ctx.guild
-        if not guild:
-            await interaction.followup.send("Must be used in server.", ephemeral=True)
-            return
-
-        item_id = self.item_id_input.value.strip()
-        item = await pi_get_item(item_id)
-        if item is None:
-            await interaction.followup.send(f"Item `{item_id}` not found.", ephemeral=True)
-            return
-
-        new_owner = await self.cog._resolve_member(guild, self.player_input.value)
-        if not new_owner:
-            await interaction.followup.send("Could not find new owner.", ephemeral=True)
-            return
-
-        new_char_name = self.character_input.value.strip()
-        char_record = await get_character_by_name(str(new_owner.id), new_char_name)
-        if char_record and not await ensure_character_active(char_record["character_id"]):
-            await interaction.followup.send(
-                f"❌ Character **{new_char_name}** is not active.", ephemeral=True
-            )
-            return
-        new_char = new_char_name
-        item_name = item.get("name", "?")
-        old_owner_id = item.get("owner_id", "")
-        old_char = item.get("character_name", "")
-
-        if str(new_owner.id) == old_owner_id:
-            ok = await pi_update_character(item_id, new_char, expected_owner_id=old_owner_id)
-        else:
-            ok = await pi_update_owner(item_id, str(new_owner.id), new_char, old_owner_id)
-
-        if not ok:
-            await interaction.followup.send("Failed to reassign item.", ephemeral=True)
-            return
-
-        await ih_record_event(
-            item_id, "admin_reassign",
-            actor_id=str(self.ctx.author.id),
-            target_id=str(new_owner.id),
-            metadata={
-                "item_name": item_name,
-                "old_owner": old_owner_id,
-                "old_character": old_char,
-                "new_character": new_char,
-            },
-        )
-
-        await interaction.followup.send(
-            f"Reassigned **{item_name}** to {new_owner.display_name} — {new_char}.",
-            ephemeral=True,
-        )
-        log_ch = await self.cog._audit_channel()
-        if log_ch:
-            embed = discord.Embed(
-                title="✏️ Admin: Item Reassigned",
-                color=discord.Color.blurple(),
-                timestamp=datetime.now(timezone.utc),
-            )
-            embed.add_field(name="Admin", value=f"{self.ctx.author.mention}", inline=False)
-            embed.add_field(name="Item", value=f"**{item_name}** (`{item_id}`)", inline=False)
-            embed.add_field(name="Old", value=f"<@{old_owner_id}> — {old_char}", inline=True)
-            embed.add_field(name="New", value=f"{new_owner.mention} — {new_char}", inline=True)
-            embed.set_footer(text="NightCityBot Audit Log")
-            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
-
-
-class ItemHistoryModal(discord.ui.Modal, title="Item History Lookup"):
-    item_id_input = discord.ui.TextInput(label="Item UUID")
-
-    def __init__(self, cog: "AdminShopCog", ctx: commands.Context):
-        super().__init__()
-        self.cog = cog
-        self.ctx = ctx
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        item_id = self.item_id_input.value.strip()
-        history = await ih_get_history(item_id, limit=50)
-        if not history:
-            await interaction.followup.send(f"No history for `{item_id}`.", ephemeral=True)
-            return
-
-        lines = []
-        for entry in history:
-            ts = str(entry.get("created_at", ""))[:19].replace("T", " ")
-            event = entry.get("event_type", "?")
-            actor = entry.get("actor_id", "—")
-            target = entry.get("target_id", "")
-            price = entry.get("price")
-            meta = entry.get("metadata", {})
-            detail = ""
-            if target:
-                detail += f" → <@{target}>"
-            if price is not None:
-                detail += f" ${price:,}"
-            if meta.get("item_name"):
-                detail += f" ({meta['item_name']})"
-            lines.append(f"`{ts}` **{event}** by <@{actor}>{detail}")
-
-        embed = discord.Embed(
-            title=f"📜 Item History — `{item_id[:12]}...`",
-            description="\n".join(lines[:25]),
-            color=discord.Color.greyple(),
-        )
-        embed.set_footer(text=f"{len(history)} event(s)")
-        await interaction.followup.send(
-            embed=embed, ephemeral=True,
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
-
-
-class WholesaleRestockModal(discord.ui.Modal, title="Restock Gun Wholesale"):
-    gun_name_input = discord.ui.TextInput(label="Gun Name")
-    qty_input = discord.ui.TextInput(label="Quantity", default="10")
-    cost_input = discord.ui.TextInput(label="Unit Cost", placeholder="5000")
-    restriction_input = discord.ui.TextInput(
-        label="Restriction (basic/controlled/restricted)",
-        default="basic",
-        required=False,
-    )
-
-    def __init__(self, cog: "AdminShopCog", ctx: commands.Context):
-        super().__init__()
-        self.cog = cog
-        self.ctx = ctx
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        guns_cog = self.cog.bot.cogs.get("GunsShopCog")
-        if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
-            return
-
-        try:
-            qty = int(self.qty_input.value)
-            cost = int(self.cost_input.value)
-        except ValueError:
-            await interaction.followup.send("Quantity and cost must be numbers.", ephemeral=True)
-            return
-        if qty < 1 or cost < 0:
-            await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
-            return
-
-        gun_name = self.gun_name_input.value.strip()
-        restriction = (self.restriction_input.value.strip().lower() or "basic")
-
-        async with guns_cog.lock:
-            state = await guns_cog._load_state()
-            lots = state.setdefault("wholesale_lots", [])
-            lot_id = f"admin-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
-            lots.append({
-                "lot_id": lot_id,
-                "gun_name": gun_name,
-                "gun_level": "L",
-                "weapon_type": "",
-                "unit_cost": cost,
-                "qty_available": qty,
-                "restriction": restriction,
-            })
-            await guns_cog._save_state(state)
-
-        await interaction.followup.send(
-            f"Restocked **{gun_name}** ×{qty} at ${cost:,} [{restriction}].", ephemeral=True
-        )
-        log_ch = await self.cog._audit_channel()
-        if log_ch:
-            embed = discord.Embed(
-                title="📥 Admin: Wholesale Restocked",
-                color=discord.Color.orange(),
-                timestamp=datetime.now(timezone.utc),
-            )
-            embed.add_field(name="Admin", value=f"{self.ctx.author.mention}", inline=False)
-            embed.add_field(name="Gun", value=gun_name, inline=True)
-            embed.add_field(name="Qty", value=str(qty), inline=True)
-            embed.add_field(name="Cost", value=f"${cost:,}", inline=True)
-            embed.add_field(name="Restriction", value=restriction, inline=True)
-            embed.set_footer(text="NightCityBot Audit Log")
-            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
-
-
-class CWWholesaleRestockModal(discord.ui.Modal, title="Restock CW Wholesale"):
-    item_name_input = discord.ui.TextInput(label="Cyberware Name")
-    qty_input = discord.ui.TextInput(label="Quantity", default="10")
-    cost_input = discord.ui.TextInput(label="Unit Cost", placeholder="5000")
-
-    def __init__(self, cog: "AdminShopCog", ctx: commands.Context):
-        super().__init__()
-        self.cog = cog
-        self.ctx = ctx
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
-        if not cw_cog:
-            await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
-            return
-
-        try:
-            qty = int(self.qty_input.value)
-            cost = int(self.cost_input.value)
-        except ValueError:
-            await interaction.followup.send("Quantity and cost must be numbers.", ephemeral=True)
-            return
-        if qty < 1 or cost < 0:
-            await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
-            return
-
-        item_name = self.item_name_input.value.strip()
-
-        async with cw_cog.lock:
-            state = await cw_cog._load_state()
-            lots = state.setdefault("cw_wholesale_lots", [])
-            lot_id = f"admin-cw-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
-            lots.append({
-                "lot_id": lot_id,
-                "item_name": item_name,
-                "unit_cost": cost,
-                "qty_available": qty,
-            })
-            await cw_cog._save_state(state)
-
-        await interaction.followup.send(
-            f"Restocked CW **{item_name}** ×{qty} at ${cost:,}.", ephemeral=True
-        )
-        log_ch = await self.cog._audit_channel()
-        if log_ch:
-            embed = discord.Embed(
-                title="📥 Admin: CW Wholesale Restocked",
-                color=discord.Color.teal(),
-                timestamp=datetime.now(timezone.utc),
-            )
-            embed.add_field(name="Admin", value=f"{self.ctx.author.mention}", inline=False)
-            embed.add_field(name="Item", value=item_name, inline=True)
-            embed.add_field(name="Qty", value=str(qty), inline=True)
-            embed.add_field(name="Cost", value=f"${cost:,}", inline=True)
-            embed.set_footer(text="NightCityBot Audit Log")
-            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
 class WholesaleClearConfirmView(discord.ui.View):

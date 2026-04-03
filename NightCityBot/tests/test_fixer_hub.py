@@ -15,19 +15,10 @@ from NightCityBot.cogs.fixer_hub import (
     WholesalerSubView,
     PlayerInvPickerView,
     PlayerAddItemPickerView,
-    PlayerAddItemDetailsModal,
-    PlayerRemoveItemModal,
-    PlayerReassignModal,
-    ItemHistoryModal,
     LOAPickerView,
     StoreInvPickerView,
     StoreAddPickerView,
-    StoreAddDetailsModal,
     StoreRemovePickerView,
-    StoreRemoveDetailsModal,
-    WHAddGunModal,
-    WHAddCWModal,
-    WHRemoveLotModal,
 )
 
 
@@ -222,7 +213,7 @@ class TestPlayerSubViewButtons:
             assert isinstance(kwargs["view"], PlayerAddItemPickerView)
         _run(_test())
 
-    def test_remove_item_opens_modal(self):
+    def test_remove_item_starts_inline_flow(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
@@ -231,34 +222,37 @@ class TestPlayerSubViewButtons:
             inter = _make_interaction()
             btn = _find_button(view, "Remove Item")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, PlayerRemoveItemModal)
+            inter.response.defer.assert_called_once()
+            kwargs = inter.followup.send.call_args.kwargs
+            assert "view" in kwargs
         _run(_test())
 
-    def test_reassign_opens_modal(self):
+    @patch("NightCityBot.cogs.fixer_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
+    def test_reassign_starts_inline_flow(self, mock_collect):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
             parent = FixerTopView(cog, ctx)
             view = PlayerSubView(cog, ctx, parent)
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Reassign Item")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, PlayerReassignModal)
+            inter.response.defer.assert_called_once()
         _run(_test())
 
-    def test_item_history_opens_modal(self):
+    @patch("NightCityBot.cogs.fixer_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
+    def test_item_history_starts_inline_flow(self, mock_collect):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
             parent = FixerTopView(cog, ctx)
             view = PlayerSubView(cog, ctx, parent)
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Item History")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, ItemHistoryModal)
+            inter.response.defer.assert_called_once()
         _run(_test())
 
     def test_start_loa_sends_picker(self):
@@ -411,43 +405,46 @@ class TestWholesalerSubViewButtons:
             assert "TestGun" in embed.description
         _run(_test())
 
-    def test_add_gun_opens_modal(self):
+    @patch("NightCityBot.cogs.fixer_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
+    def test_add_gun_starts_inline_flow(self, mock_collect):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
             parent = FixerTopView(cog, ctx)
             view = WholesalerSubView(cog, ctx, parent)
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Add Gun")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, WHAddGunModal)
+            inter.response.defer.assert_called_once()
         _run(_test())
 
-    def test_add_cw_opens_modal(self):
+    @patch("NightCityBot.cogs.fixer_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
+    def test_add_cw_starts_inline_flow(self, mock_collect):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
             parent = FixerTopView(cog, ctx)
             view = WholesalerSubView(cog, ctx, parent)
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Add CW")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, WHAddCWModal)
+            inter.response.defer.assert_called_once()
         _run(_test())
 
-    def test_remove_lot_opens_modal(self):
+    @patch("NightCityBot.cogs.fixer_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
+    def test_remove_lot_starts_inline_flow(self, mock_collect):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
             parent = FixerTopView(cog, ctx)
             view = WholesalerSubView(cog, ctx, parent)
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Remove Lot")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, WHRemoveLotModal)
+            inter.response.defer.assert_called_once()
         _run(_test())
 
     def test_restock_guns_info(self):
@@ -535,8 +532,9 @@ class TestPlayerPickerViews:
             assert "select a player" in inter.response.send_message.call_args[0][0].lower()
         _run(_test())
 
+    @patch("NightCityBot.cogs.fixer_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
     @patch("NightCityBot.cogs.fixer_hub.ensure_character_active", new_callable=AsyncMock, return_value=True)
-    def test_add_item_picker_continue_opens_modal(self, mock_active):
+    def test_add_item_picker_continue_starts_inline_flow(self, mock_active, mock_collect):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
@@ -544,11 +542,10 @@ class TestPlayerPickerViews:
             view.selected_player = _make_member(222, "TestPlayer")
             view.selected_character = {"character_id": "char-1", "name": "V"}
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Continue →")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, PlayerAddItemDetailsModal)
-            assert modal.player.id == 222
+            inter.response.defer.assert_called_once()
         _run(_test())
 
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
@@ -557,105 +554,19 @@ class TestPlayerPickerViews:
     @patch("NightCityBot.cogs.fixer_hub.ensure_character_active", new_callable=AsyncMock, return_value=True)
     def test_add_item_details_success(self, mock_active, mock_add, mock_record, mock_audit):
         async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_fixer_add_item
             cog = _make_cog()
             member = _make_member(222, "TestPlayer")
-            modal = PlayerAddItemDetailsModal(cog, member, character={"character_id": "char-1", "name": "V"})
-            modal.name_input = MagicMock(value="Katana")
-            modal.item_type_input = MagicMock(value="gun")
-            modal.qty_price_input = MagicMock(value="2,3000")
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await _process_fixer_add_item(
+                cog, inter, member,
+                {"character_id": "char-1", "name": "V"},
+                "Katana, gun, 2, 3000",
+            )
             assert mock_add.call_count == 2
             assert "Katana" in inter.followup.send.call_args[0][0]
         _run(_test())
 
-
-class TestPlayerModals:
-    @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
-    @patch("NightCityBot.cogs.fixer_hub.ih_record_event", new_callable=AsyncMock)
-    @patch("NightCityBot.cogs.fixer_hub.pi_delete_item", new_callable=AsyncMock, return_value=True)
-    @patch("NightCityBot.cogs.fixer_hub.pi_get_item", new_callable=AsyncMock)
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_remove_item_success(self, mock_resolve, mock_get, mock_del, mock_record, mock_audit):
-        async def _test():
-            cog = _make_cog()
-            member = _make_member(222, "TestPlayer")
-            mock_resolve.return_value = member
-            item_id = str(uuid.uuid4())
-            mock_get.return_value = {"owner_id": "222", "name": "Pistol"}
-            modal = PlayerRemoveItemModal(cog)
-            modal.player_input = MagicMock(value="222")
-            modal.item_id_input = MagicMock(value=item_id)
-            inter = _make_interaction()
-            await modal.on_submit(inter)
-            mock_del.assert_called_once_with(item_id)
-            assert "Removed" in inter.followup.send.call_args[0][0]
-        _run(_test())
-
-    @patch("NightCityBot.cogs.fixer_hub.pi_get_item", new_callable=AsyncMock, return_value=None)
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_remove_item_not_found(self, mock_resolve, mock_get):
-        async def _test():
-            cog = _make_cog()
-            mock_resolve.return_value = _make_member(222)
-            modal = PlayerRemoveItemModal(cog)
-            modal.player_input = MagicMock(value="222")
-            modal.item_id_input = MagicMock(value="nope")
-            inter = _make_interaction()
-            await modal.on_submit(inter)
-            assert "not found" in inter.followup.send.call_args[0][0]
-        _run(_test())
-
-    @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
-    @patch("NightCityBot.cogs.fixer_hub.ih_record_event", new_callable=AsyncMock)
-    @patch("NightCityBot.cogs.fixer_hub.pi_update_owner", new_callable=AsyncMock, return_value=True)
-    @patch("NightCityBot.cogs.fixer_hub.pi_get_item", new_callable=AsyncMock)
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    @patch("NightCityBot.cogs.fixer_hub.get_character_by_name", new_callable=AsyncMock, return_value={"character_id": "char-1", "name": "NewChar", "status": "active"})
-    @patch("NightCityBot.cogs.fixer_hub.ensure_character_active", new_callable=AsyncMock, return_value=True)
-    def test_reassign_success(self, mock_active, mock_resolve_char, mock_resolve, mock_get, mock_update, mock_record, mock_audit):
-        async def _test():
-            cog = _make_cog()
-            new_owner = _make_member(333, "NewOwner")
-            mock_resolve.return_value = new_owner
-            item_id = str(uuid.uuid4())
-            mock_get.return_value = {"owner_id": "222", "name": "Katana", "character_name": "OldChar"}
-            modal = PlayerReassignModal(cog)
-            modal.item_id_input = MagicMock(value=item_id)
-            modal.player_input = MagicMock(value="333")
-            modal.character_input = MagicMock(value="NewChar")
-            inter = _make_interaction()
-            await modal.on_submit(inter)
-            mock_update.assert_called_once()
-            assert "Reassigned" in inter.followup.send.call_args[0][0]
-        _run(_test())
-
-    @patch("NightCityBot.cogs.fixer_hub.ih_get_history", new_callable=AsyncMock)
-    def test_item_history_success(self, mock_history):
-        async def _test():
-            cog = _make_cog()
-            item_id = str(uuid.uuid4())
-            mock_history.return_value = [
-                {"created_at": "2025-01-01T12:00:00", "event_type": "admin_add", "actor_id": "111", "target_id": "222", "price": 5000, "metadata": {"item_name": "Pistol"}},
-            ]
-            modal = ItemHistoryModal(cog)
-            modal.item_id_input = MagicMock(value=item_id)
-            inter = _make_interaction()
-            await modal.on_submit(inter)
-            embed = inter.followup.send.call_args.kwargs["embed"]
-            assert "admin_add" in embed.description
-        _run(_test())
-
-    @patch("NightCityBot.cogs.fixer_hub.ih_get_history", new_callable=AsyncMock, return_value=[])
-    def test_item_history_empty(self, mock_history):
-        async def _test():
-            cog = _make_cog()
-            modal = ItemHistoryModal(cog)
-            modal.item_id_input = MagicMock(value="nope")
-            inter = _make_interaction()
-            await modal.on_submit(inter)
-            assert "No history" in inter.followup.send.call_args[0][0]
-        _run(_test())
 
 
 class TestLOAPickerView:
@@ -813,22 +724,24 @@ class TestStorePickerViews:
             assert "select" in inter.response.send_message.call_args[0][0].lower()
         _run(_test())
 
-    def test_store_add_picker_continue_opens_modal(self):
+    @patch("NightCityBot.cogs.fixer_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
+    def test_store_add_picker_continue_starts_inline_flow(self, mock_collect):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
             view = StoreAddPickerView(cog, ctx)
             view.selected_owner = _make_member(222, "ShopOwner")
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Continue →")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, StoreAddDetailsModal)
+            inter.response.defer.assert_called_once()
         _run(_test())
 
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
     def test_store_add_details_success(self, mock_audit):
         async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_store_add
             cog = _make_cog()
             owner = _make_member(222, "ShopOwner")
             guns_cog = MagicMock()
@@ -838,13 +751,8 @@ class TestStorePickerViews:
             guns_cog._store_id = MagicMock(return_value="999:222")
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
-            modal = StoreAddDetailsModal(cog, owner)
-            modal.gun_name_input = MagicMock(value="TestGun")
-            modal.qty_input = MagicMock(value="5")
-            modal.cost_input = MagicMock(value="1000")
-            modal.restriction_input = MagicMock(value="basic")
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await _process_store_add(cog, inter, owner, "TestGun, 5, 1000, basic")
             guns_cog._save_state.assert_called_once()
             assert "TestGun" in inter.followup.send.call_args[0][0]
         _run(_test())
@@ -863,6 +771,7 @@ class TestStorePickerViews:
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
     def test_store_remove_details_success(self, mock_audit):
         async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_store_remove
             cog = _make_cog()
             owner = _make_member(222, "ShopOwner")
             guns_cog = MagicMock()
@@ -874,20 +783,18 @@ class TestStorePickerViews:
             guns_cog._store_id = MagicMock(return_value="999:222")
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
-            modal = StoreRemoveDetailsModal(cog, owner)
-            modal.lot_id_input = MagicMock(value="lot-1")
-            modal.qty_input = MagicMock(value="")
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await _process_store_remove(cog, inter, owner, "lot-1")
             assert "Removed" in inter.followup.send.call_args[0][0]
             assert "Pistol" in inter.followup.send.call_args[0][0]
         _run(_test())
 
 
-class TestWholesaleModals:
+class TestWholesaleProcessFunctions:
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
     def test_add_gun_to_wholesale(self, mock_audit):
         async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_wh_add_gun
             cog = _make_cog()
             guns_cog = MagicMock()
             state = {"wholesale_lots": []}
@@ -895,13 +802,8 @@ class TestWholesaleModals:
             guns_cog._save_state = AsyncMock(return_value=True)
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
-            modal = WHAddGunModal(cog)
-            modal.gun_name_input = MagicMock(value="TestGun")
-            modal.qty_input = MagicMock(value="10")
-            modal.cost_input = MagicMock(value="5000")
-            modal.restriction_input = MagicMock(value="basic")
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await _process_wh_add_gun(cog, inter, "TestGun, 10, 5000, basic")
             guns_cog._save_state.assert_called_once()
             assert len(state["wholesale_lots"]) == 1
             assert "TestGun" in inter.followup.send.call_args[0][0]
@@ -910,6 +812,7 @@ class TestWholesaleModals:
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
     def test_add_cw_to_wholesale(self, mock_audit):
         async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_wh_add_cw
             cog = _make_cog()
             cw_cog = MagicMock()
             state = {"cw_wholesale_lots": []}
@@ -917,12 +820,8 @@ class TestWholesaleModals:
             cw_cog._save_state = AsyncMock(return_value=True)
             cw_cog.lock = asyncio.Lock()
             cog.bot.cogs["CyberwareShop"] = cw_cog
-            modal = WHAddCWModal(cog)
-            modal.item_name_input = MagicMock(value="Sandevistan")
-            modal.qty_input = MagicMock(value="5")
-            modal.cost_input = MagicMock(value="8000")
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await _process_wh_add_cw(cog, inter, "Sandevistan, 5, 8000")
             cw_cog._save_state.assert_called_once()
             assert len(state["cw_wholesale_lots"]) == 1
             assert "Sandevistan" in inter.followup.send.call_args[0][0]
@@ -931,6 +830,7 @@ class TestWholesaleModals:
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
     def test_remove_gun_lot(self, mock_audit):
         async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_wh_remove_lot
             cog = _make_cog()
             guns_cog = MagicMock()
             state = {"wholesale_lots": [
@@ -940,11 +840,8 @@ class TestWholesaleModals:
             guns_cog._save_state = AsyncMock(return_value=True)
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
-            modal = WHRemoveLotModal(cog)
-            modal.lot_id_input = MagicMock(value="lot-g1")
-            modal.qty_input = MagicMock(value="")
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await _process_wh_remove_lot(cog, inter, "lot-g1")
             assert len(state["wholesale_lots"]) == 0
             assert "Removed" in inter.followup.send.call_args[0][0]
         _run(_test())
@@ -952,6 +849,7 @@ class TestWholesaleModals:
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
     def test_remove_cw_lot(self, mock_audit):
         async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_wh_remove_lot
             cog = _make_cog()
             cw_cog = MagicMock()
             state = {"cw_wholesale_lots": [
@@ -961,11 +859,8 @@ class TestWholesaleModals:
             cw_cog._save_state = AsyncMock(return_value=True)
             cw_cog.lock = asyncio.Lock()
             cog.bot.cogs["CyberwareShop"] = cw_cog
-            modal = WHRemoveLotModal(cog)
-            modal.lot_id_input = MagicMock(value="lot-cw1")
-            modal.qty_input = MagicMock(value="")
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await _process_wh_remove_lot(cog, inter, "lot-cw1")
             assert len(state["cw_wholesale_lots"]) == 0
             assert "Kiroshi" in inter.followup.send.call_args[0][0]
         _run(_test())
@@ -973,6 +868,7 @@ class TestWholesaleModals:
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
     def test_remove_lot_partial(self, mock_audit):
         async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_wh_remove_lot
             cog = _make_cog()
             guns_cog = MagicMock()
             state = {"wholesale_lots": [
@@ -982,41 +878,32 @@ class TestWholesaleModals:
             guns_cog._save_state = AsyncMock(return_value=True)
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
-            modal = WHRemoveLotModal(cog)
-            modal.lot_id_input = MagicMock(value="lot-g2")
-            modal.qty_input = MagicMock(value="3")
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await _process_wh_remove_lot(cog, inter, "lot-g2, 3")
             assert state["wholesale_lots"][0]["qty_available"] == 7
             assert "SMG" in inter.followup.send.call_args[0][0]
         _run(_test())
 
     def test_remove_lot_not_found(self):
         async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_wh_remove_lot
             cog = _make_cog()
             guns_cog = MagicMock()
             guns_cog._load_state = AsyncMock(return_value={"wholesale_lots": []})
             cog.bot.cogs["GunsShopCog"] = guns_cog
-            modal = WHRemoveLotModal(cog)
-            modal.lot_id_input = MagicMock(value="nope")
-            modal.qty_input = MagicMock(value="")
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await _process_wh_remove_lot(cog, inter, "nope")
             assert "not found" in inter.followup.send.call_args[0][0]
         _run(_test())
 
     def test_add_gun_bad_input(self):
         async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_wh_add_gun
             cog = _make_cog()
             guns_cog = MagicMock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
-            modal = WHAddGunModal(cog)
-            modal.gun_name_input = MagicMock(value="TestGun")
-            modal.qty_input = MagicMock(value="abc")
-            modal.cost_input = MagicMock(value="xyz")
-            modal.restriction_input = MagicMock(value="basic")
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await _process_wh_add_gun(cog, inter, "TestGun, abc, xyz")
             assert "numbers" in inter.followup.send.call_args[0][0].lower()
         _run(_test())
 
@@ -1031,6 +918,7 @@ def _make_guns_cog(state_dict):
 
 def test_store_remove_negative_qty():
     async def _test():
+        from NightCityBot.cogs.fixer_hub import _process_store_remove
         cog = _make_cog()
         store_key = "999:111"
         owner = _make_member(111, "TestOwner")
@@ -1043,17 +931,15 @@ def test_store_remove_negative_qty():
         })
         guns_cog._store_id = MagicMock(return_value=store_key)
         cog.bot.cogs["GunsShopCog"] = guns_cog
-        modal = StoreRemoveDetailsModal(cog, owner)
-        modal.lot_id_input = MagicMock(value="L1")
-        modal.qty_input = MagicMock(value="-3")
         inter = _make_interaction()
-        await modal.on_submit(inter)
+        await _process_store_remove(cog, inter, owner, "L1, -3")
         assert "positive" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
 def test_store_remove_zero_qty():
     async def _test():
+        from NightCityBot.cogs.fixer_hub import _process_store_remove
         cog = _make_cog()
         store_key = "999:111"
         owner = _make_member(111, "TestOwner")
@@ -1066,34 +952,30 @@ def test_store_remove_zero_qty():
         })
         guns_cog._store_id = MagicMock(return_value=store_key)
         cog.bot.cogs["GunsShopCog"] = guns_cog
-        modal = StoreRemoveDetailsModal(cog, owner)
-        modal.lot_id_input = MagicMock(value="L1")
-        modal.qty_input = MagicMock(value="0")
         inter = _make_interaction()
-        await modal.on_submit(inter)
+        await _process_store_remove(cog, inter, owner, "L1, 0")
         assert "positive" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
 def test_wh_remove_negative_qty_gun():
     async def _test():
+        from NightCityBot.cogs.fixer_hub import _process_wh_remove_lot
         cog = _make_cog()
         guns_cog = _make_guns_cog({
             "wholesale_lots": [{"lot_id": "WL1", "gun_name": "Rifle", "qty_available": 10}]
         })
         cog.bot.cogs["GunsShopCog"] = guns_cog
         cog.bot.cogs["CyberwareShop"] = MagicMock()
-        modal = WHRemoveLotModal(cog)
-        modal.lot_id_input = MagicMock(value="WL1")
-        modal.qty_input = MagicMock(value="-5")
         inter = _make_interaction()
-        await modal.on_submit(inter)
+        await _process_wh_remove_lot(cog, inter, "WL1, -5")
         assert "positive" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
 def test_wh_remove_negative_qty_cw():
     async def _test():
+        from NightCityBot.cogs.fixer_hub import _process_wh_remove_lot
         cog = _make_cog()
         guns_cog = _make_guns_cog({"wholesale_lots": []})
         cog.bot.cogs["GunsShopCog"] = guns_cog
@@ -1103,11 +985,8 @@ def test_wh_remove_negative_qty_cw():
         cw_cog._load_state = AsyncMock(return_value=cw_state)
         cw_cog._save_state = AsyncMock()
         cog.bot.cogs["CyberwareShop"] = cw_cog
-        modal = WHRemoveLotModal(cog)
-        modal.lot_id_input = MagicMock(value="CW1")
-        modal.qty_input = MagicMock(value="-2")
         inter = _make_interaction()
-        await modal.on_submit(inter)
+        await _process_wh_remove_lot(cog, inter, "CW1, -2")
         assert "positive" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
@@ -1157,17 +1036,18 @@ class TestPickerUserSelectCallbacks:
             assert view.selected_owner is member
         _run(_test())
 
-    def test_store_remove_picker_continue_opens_modal(self):
+    @patch("NightCityBot.cogs.fixer_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
+    def test_store_remove_picker_continue_starts_inline_flow(self, mock_collect):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
             view = StoreRemovePickerView(cog, ctx)
             view.selected_owner = _make_member(222, "ShopOwner")
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Continue →")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, StoreRemoveDetailsModal)
+            inter.response.defer.assert_called_once()
         _run(_test())
 
 

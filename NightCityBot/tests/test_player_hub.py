@@ -10,18 +10,18 @@ from NightCityBot.cogs.player_hub import (
     PlayerHubCog,
     PlayerHubView,
     TradeSetupView,
-    TradeDetailsModal,
     TradeConfirmView,
     GiveSetupView,
-    GiveDetailsModal,
     SellToStoreSetupView,
-    SellToStoreDetailsModal,
     StoreBuyConfirmView,
     ManageCharactersView,
     DeactivateCharacterView,
     ReactivateCharacterView,
     InventoryCharFilterView,
     _build_inventory_embed,
+    _process_trade,
+    _process_give,
+    _process_sell_to_store,
 )
 
 MOCK_ACTIVE_CHARS = [
@@ -382,7 +382,8 @@ def test_trade_setup_continue_no_item():
     _run(_test())
 
 
-def test_trade_setup_continue_opens_modal():
+@patch("NightCityBot.cogs.player_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
+def test_trade_setup_continue_starts_inline_flow(mock_collect):
     async def _test():
         cog = _make_cog()
         ctx = _make_ctx()
@@ -392,11 +393,10 @@ def test_trade_setup_continue_opens_modal():
         view.selected_group_idx = 0
         view.selected_buyer_char_name = "Johnny"
         inter = _make_interaction()
+        inter.channel_id = 123
         btn = _find_button(view, "Continue →")
         await btn.callback(inter)
-        inter.response.send_modal.assert_called_once()
-        modal = inter.response.send_modal.call_args[0][0]
-        assert isinstance(modal, TradeDetailsModal)
+        inter.response.defer.assert_called_once()
     _run(_test())
 
 
@@ -451,21 +451,19 @@ def test_trade_setup_continue_restricted_blocked():
 
 # --- Trade Details Modal tests ---
 
-def test_trade_details_no_guild():
+def test_trade_process_no_guild():
     async def _test():
         cog = _make_cog()
         buyer = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Johnny")
-        modal.price_input = MagicMock(value="100")
         inter = _make_interaction()
         inter.guild = None
-        await modal.on_submit(inter)
+        await _process_trade(cog, inter, buyer, groups[0], "Johnny", 100)
         assert "server" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
-def test_trade_details_system_disabled():
+def test_trade_process_system_disabled():
     async def _test():
         cog = _make_cog()
         control = MagicMock()
@@ -473,71 +471,55 @@ def test_trade_details_system_disabled():
         cog.bot.get_cog = MagicMock(return_value=control)
         buyer = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Johnny")
-        modal.price_input = MagicMock(value="100")
         inter = _make_interaction()
-        await modal.on_submit(inter)
+        await _process_trade(cog, inter, buyer, groups[0], "Johnny", 100)
         assert "offline" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
-def test_trade_details_negative_price():
+def test_trade_process_zero_price_allowed():
     async def _test():
         cog = _make_cog()
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Johnny")
-        modal.price_input = MagicMock(value="-50")
         inter = _make_interaction()
-        await modal.on_submit(inter)
-        assert "negative" in inter.followup.send.call_args[0][0].lower()
+        with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}):
+            with patch("NightCityBot.cogs.player_hub.TradeConfirmView") as MockConfirm:
+                confirm_inst = MagicMock()
+                confirm_inst.accepted = False
+                confirm_inst.wait = AsyncMock()
+                MockConfirm.return_value = confirm_inst
+                await _process_trade(cog, inter, buyer, groups[0], "Johnny", 0)
+        assert inter.followup.send.called
     _run(_test())
 
 
-def test_trade_details_bad_price():
-    async def _test():
-        cog = _make_cog()
-        cog.bot.get_cog = MagicMock(return_value=None)
-        buyer = _make_buyer()
-        groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Johnny")
-        modal.price_input = MagicMock(value="abc")
-        inter = _make_interaction()
-        await modal.on_submit(inter)
-        assert "price must be a number" in inter.followup.send.call_args[0][0].lower()
-    _run(_test())
-
-
-def test_trade_details_self_trade_blocked():
+def test_trade_process_self_trade_blocked():
     async def _test():
         cog = _make_cog()
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer(uid=100)
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Johnny")
-        modal.price_input = MagicMock(value="0")
         inter = _make_interaction(user_id=100)
-        await modal.on_submit(inter)
+        await _process_trade(cog, inter, buyer, groups[0], "Johnny", 0)
         assert "cannot trade items to yourself" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
-def test_trade_details_empty_buyer_char():
+def test_trade_process_empty_buyer_char():
     async def _test():
         cog = _make_cog()
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="")
-        modal.price_input = MagicMock(value="100")
         inter = _make_interaction()
-        await modal.on_submit(inter)
+        await _process_trade(cog, inter, buyer, groups[0], "", 100)
         assert "buyer character name is required" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
-def test_trade_details_restricted_item():
+def test_trade_process_restricted_item():
     async def _test():
         cog = _make_cog()
         inv_cog = _make_inv_cog()
@@ -545,30 +527,26 @@ def test_trade_details_restricted_item():
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer()
         groups = _build_groups(RESTRICTED_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Johnny")
-        modal.price_input = MagicMock(value="100")
         inter = _make_interaction(user_id=100)
         with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value=RESTRICTED_ITEMS[0]):
-            await modal.on_submit(inter)
+            await _process_trade(cog, inter, buyer, groups[0], "Johnny", 100)
         assert "restricted" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
-def test_trade_details_self_trade_blocked_free():
+def test_trade_process_self_trade_blocked_free():
     async def _test():
         cog = _make_cog()
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer(uid=100, name="TestPlayer")
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Jackie")
-        modal.price_input = MagicMock(value="0")
         inter = _make_interaction(user_id=100)
-        await modal.on_submit(inter)
+        await _process_trade(cog, inter, buyer, groups[0], "Jackie", 0)
         assert "cannot trade items to yourself" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
-def test_trade_details_item_no_longer_owned():
+def test_trade_process_item_no_longer_owned():
     async def _test():
         cog = _make_cog()
         inv_cog = _make_inv_cog()
@@ -576,11 +554,9 @@ def test_trade_details_item_no_longer_owned():
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Johnny")
-        modal.price_input = MagicMock(value="100")
         inter = _make_interaction(user_id=100)
         with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value=None):
-            await modal.on_submit(inter)
+            await _process_trade(cog, inter, buyer, groups[0], "Johnny", 100)
         assert "no longer" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
@@ -660,7 +636,7 @@ def test_give_setup_continue_no_item():
     _run(_test())
 
 
-def test_give_setup_continue_opens_modal():
+def test_give_setup_continue_starts_inline_flow():
     async def _test():
         cog = _make_cog()
         ctx = _make_ctx()
@@ -671,30 +647,27 @@ def test_give_setup_continue_opens_modal():
         view.selected_recipient_char_name = "Johnny"
         inter = _make_interaction()
         btn = _find_button(view, "Continue →")
-        await btn.callback(inter)
-        inter.response.send_modal.assert_called_once()
-        modal = inter.response.send_modal.call_args[0][0]
-        assert isinstance(modal, GiveDetailsModal)
+        with patch("NightCityBot.cogs.player_hub._process_give", new_callable=AsyncMock):
+            await btn.callback(inter)
+        inter.response.defer.assert_called_once()
     _run(_test())
 
 
-# --- Give Details Modal tests ---
+# --- Give Process Function tests ---
 
-def test_give_details_no_guild():
+def test_give_process_no_guild():
     async def _test():
         cog = _make_cog()
         recipient = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = GiveDetailsModal(cog, recipient, groups[0], receiver_character="Jackie")
-        modal.sender_char_input = MagicMock(value="V")
         inter = _make_interaction()
         inter.guild = None
-        await modal.on_submit(inter)
+        await _process_give(cog, inter, recipient, groups[0], "Jackie", "V")
         assert "server" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
-def test_give_details_system_disabled():
+def test_give_process_system_disabled():
     async def _test():
         cog = _make_cog()
         control = MagicMock()
@@ -702,58 +675,50 @@ def test_give_details_system_disabled():
         cog.bot.get_cog = MagicMock(return_value=control)
         recipient = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = GiveDetailsModal(cog, recipient, groups[0], receiver_character="Jackie")
-        modal.sender_char_input = MagicMock(value="V")
         inter = _make_interaction()
-        await modal.on_submit(inter)
+        await _process_give(cog, inter, recipient, groups[0], "Jackie", "V")
         assert "offline" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
-def test_give_details_no_sender_char():
+def test_give_process_no_sender_char():
     async def _test():
         cog = _make_cog()
         cog.bot.get_cog = MagicMock(return_value=None)
         recipient = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = GiveDetailsModal(cog, recipient, groups[0], receiver_character="Jackie")
-        modal.sender_char_input = MagicMock(value="")
         inter = _make_interaction()
-        await modal.on_submit(inter)
+        await _process_give(cog, inter, recipient, groups[0], "Jackie", "")
         assert "character name is required" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
-def test_give_details_wrong_character():
+def test_give_process_wrong_character():
     async def _test():
         cog = _make_cog()
         cog.bot.get_cog = MagicMock(return_value=None)
         recipient = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = GiveDetailsModal(cog, recipient, groups[0], receiver_character="Jackie")
-        modal.sender_char_input = MagicMock(value="WrongName")
         inter = _make_interaction(user_id=100)
-        await modal.on_submit(inter)
+        await _process_give(cog, inter, recipient, groups[0], "Jackie", "WrongName")
         assert "belongs to character" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
-def test_give_details_no_receiver_char():
+def test_give_process_no_receiver_char():
     async def _test():
         cog = _make_cog()
         cog.bot.get_cog = MagicMock(return_value=None)
         recipient = _make_buyer()
         recipient.roles = []
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = GiveDetailsModal(cog, recipient, groups[0], receiver_character="")
-        modal.sender_char_input = MagicMock(value="V")
         inter = _make_interaction(user_id=100)
-        await modal.on_submit(inter)
+        await _process_give(cog, inter, recipient, groups[0], "", "V")
         assert "character name is required" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
 
-def test_give_details_success():
+def test_give_process_success():
     async def _test():
         cog = _make_cog()
         inv_cog = _make_inv_cog()
@@ -762,29 +727,25 @@ def test_give_details_success():
         recipient = _make_buyer()
         recipient.roles = []
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = GiveDetailsModal(cog, recipient, groups[0], receiver_character="Jackie")
-        modal.sender_char_input = MagicMock(value="V")
         inter = _make_interaction(user_id=100)
         with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=True):
             with patch("NightCityBot.cogs.player_hub.ih_record_event", new_callable=AsyncMock):
                 with patch("NightCityBot.cogs.player_hub._route_log_channel", new_callable=AsyncMock, return_value=None):
-                    await modal.on_submit(inter)
+                    await _process_give(cog, inter, recipient, groups[0], "Jackie", "V")
         assert "transferred" in inter.followup.send.call_args[0][0].lower() or "✅" in inter.followup.send.call_args[0][0]
     _run(_test())
 
 
-def test_give_details_transfer_fails():
+def test_give_process_transfer_fails():
     async def _test():
         cog = _make_cog()
         cog.bot.get_cog = MagicMock(return_value=None)
         recipient = _make_buyer()
         recipient.roles = []
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = GiveDetailsModal(cog, recipient, groups[0], receiver_character="Jackie")
-        modal.sender_char_input = MagicMock(value="V")
         inter = _make_interaction(user_id=100)
         with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=False):
-            await modal.on_submit(inter)
+            await _process_give(cog, inter, recipient, groups[0], "Jackie", "V")
         assert "failed" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
 
@@ -1038,7 +999,8 @@ class TestSellToStoreSetupView:
             assert "selling character" in inter.response.send_message.call_args[0][0].lower()
         _run(_test())
 
-    def test_continue_opens_modal(self):
+    @patch("NightCityBot.cogs.player_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
+    def test_continue_starts_inline_flow(self, mock_collect):
         async def _test():
             cog = _make_cog()
             ctx = _make_ctx()
@@ -1047,14 +1009,14 @@ class TestSellToStoreSetupView:
             view.selected_store_owner = _make_store_owner()
             view.selected_group_idx = 0
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Continue →")
             await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, SellToStoreDetailsModal)
+            inter.response.defer.assert_called_once()
         _run(_test())
 
-    def test_continue_opens_modal_with_seller_char(self):
+    @patch("NightCityBot.cogs.player_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
+    def test_continue_starts_inline_flow_with_seller_char(self, mock_collect):
         async def _test():
             cog = _make_cog()
             ctx = _make_ctx()
@@ -1064,12 +1026,10 @@ class TestSellToStoreSetupView:
             view.selected_group_idx = 0
             view.selected_seller_char_name = "V"
             inter = _make_interaction()
+            inter.channel_id = 123
             btn = _find_button(view, "Continue →")
             await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, SellToStoreDetailsModal)
-            assert modal.seller_character == "V"
+            inter.response.defer.assert_called_once()
         _run(_test())
 
     def test_interaction_check(self):
@@ -1085,8 +1045,8 @@ class TestSellToStoreSetupView:
         _run(_test())
 
 
-class TestSellToStoreDetailsModal:
-    def _make_modal(self, store_owner=None, group=None):
+class TestSellToStoreProcessFunction:
+    def _make_setup(self, store_owner=None, group=None):
         cog = _make_cog()
         inv_cog = _make_inv_cog()
         inv_cog.unbelievaboat = MagicMock()
@@ -1095,79 +1055,11 @@ class TestSellToStoreDetailsModal:
             store_owner = _make_store_owner()
         if group is None:
             group = _build_groups(SAMPLE_ITEMS)[0]
-        modal = SellToStoreDetailsModal(cog, store_owner, group)
-        return modal, cog
+        return cog, store_owner, group
 
-    def test_invalid_price(self):
+    def test_zero_price_allowed(self):
         async def _test():
-            modal, cog = self._make_modal()
-            modal.price_input._value = "abc"
-            inter = _make_interaction()
-            await modal.on_submit(inter)
-            assert "number" in inter.followup.send.call_args[0][0].lower()
-        _run(_test())
-
-    def test_negative_price(self):
-        async def _test():
-            modal, cog = self._make_modal()
-            modal.price_input._value = "-100"
-            inter = _make_interaction()
-            await modal.on_submit(inter)
-            assert "negative" in inter.followup.send.call_args[0][0].lower()
-        _run(_test())
-
-    def test_self_sell_blocked(self):
-        async def _test():
-            owner = _make_store_owner(uid=100)
-            modal, cog = self._make_modal(store_owner=owner)
-            modal.price_input._value = "1000"
-            inter = _make_interaction(user_id=100)
-            await modal.on_submit(inter)
-            assert "yourself" in inter.followup.send.call_args[0][0].lower()
-        _run(_test())
-
-    def test_item_no_longer_owned(self):
-        async def _test():
-            modal, cog = self._make_modal()
-            modal.price_input._value = "1000"
-            inter = _make_interaction()
-            with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value=None):
-                await modal.on_submit(inter)
-            assert "no longer" in inter.followup.send.call_args[0][0].lower()
-        _run(_test())
-
-    def test_guns_cog_unavailable(self):
-        async def _test():
-            modal, cog = self._make_modal()
-            modal.price_input._value = "1000"
-            cog.bot.cogs = {"PlayerInventory": _make_inv_cog()}
-            inter = _make_interaction()
-            with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}):
-                await modal.on_submit(inter)
-            assert "unavailable" in inter.followup.send.call_args[0][0].lower()
-        _run(_test())
-
-    def test_store_owner_dm_blocked(self):
-        async def _test():
-            owner = _make_store_owner()
-            owner.send = AsyncMock(side_effect=discord.Forbidden(MagicMock(), ""))
-            modal, cog = self._make_modal(store_owner=owner)
-            modal.price_input._value = "1000"
-            guns_cog = MagicMock()
-            guns_cog._store_id = MagicMock(return_value="999:200")
-            cog.bot.cogs = {"PlayerInventory": _make_inv_cog(), "GunsShopCog": guns_cog}
-            inter = _make_interaction()
-            with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}):
-                await modal.on_submit(inter)
-            assert "dm" in inter.followup.send.call_args[0][0].lower()
-        _run(_test())
-
-    def test_store_owner_declines(self):
-        async def _test():
-            owner = _make_store_owner()
-            owner.send = AsyncMock()
-            modal, cog = self._make_modal(store_owner=owner)
-            modal.price_input._value = "1000"
+            cog, owner, group = self._make_setup()
             guns_cog = MagicMock()
             guns_cog._store_id = MagicMock(return_value="999:200")
             cog.bot.cogs = {"PlayerInventory": _make_inv_cog(), "GunsShopCog": guns_cog}
@@ -1178,7 +1070,68 @@ class TestSellToStoreDetailsModal:
                 confirm_inst.accepted = False
                 confirm_inst.wait = AsyncMock()
                 MockConfirm.return_value = confirm_inst
-                await modal.on_submit(inter)
+                await _process_sell_to_store(cog, inter, owner, group, None, 0)
+            assert inter.followup.send.called
+        _run(_test())
+
+    def test_self_sell_blocked(self):
+        async def _test():
+            owner = _make_store_owner(uid=100)
+            cog, _, group = self._make_setup(store_owner=owner)
+            inter = _make_interaction(user_id=100)
+            await _process_sell_to_store(cog, inter, owner, group, None, 1000)
+            assert "yourself" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_item_no_longer_owned(self):
+        async def _test():
+            cog, owner, group = self._make_setup()
+            inter = _make_interaction()
+            with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value=None):
+                await _process_sell_to_store(cog, inter, owner, group, None, 1000)
+            assert "no longer" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_guns_cog_unavailable(self):
+        async def _test():
+            cog, owner, group = self._make_setup()
+            cog.bot.cogs = {"PlayerInventory": _make_inv_cog()}
+            inter = _make_interaction()
+            with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}):
+                await _process_sell_to_store(cog, inter, owner, group, None, 1000)
+            assert "unavailable" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_store_owner_dm_blocked(self):
+        async def _test():
+            owner = _make_store_owner()
+            owner.send = AsyncMock(side_effect=discord.Forbidden(MagicMock(), ""))
+            cog, _, group = self._make_setup(store_owner=owner)
+            guns_cog = MagicMock()
+            guns_cog._store_id = MagicMock(return_value="999:200")
+            cog.bot.cogs = {"PlayerInventory": _make_inv_cog(), "GunsShopCog": guns_cog}
+            inter = _make_interaction()
+            with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}):
+                await _process_sell_to_store(cog, inter, owner, group, None, 1000)
+            assert "dm" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_store_owner_declines(self):
+        async def _test():
+            owner = _make_store_owner()
+            owner.send = AsyncMock()
+            cog, _, group = self._make_setup(store_owner=owner)
+            guns_cog = MagicMock()
+            guns_cog._store_id = MagicMock(return_value="999:200")
+            cog.bot.cogs = {"PlayerInventory": _make_inv_cog(), "GunsShopCog": guns_cog}
+            inter = _make_interaction()
+            with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}), \
+                 patch("NightCityBot.cogs.player_hub.StoreBuyConfirmView") as MockConfirm:
+                confirm_inst = MagicMock()
+                confirm_inst.accepted = False
+                confirm_inst.wait = AsyncMock()
+                MockConfirm.return_value = confirm_inst
+                await _process_sell_to_store(cog, inter, owner, group, None, 1000)
             assert "declined" in inter.followup.send.call_args[0][0].lower()
         _run(_test())
 
@@ -1188,8 +1141,7 @@ class TestSellToStoreDetailsModal:
             dm_msg = MagicMock()
             dm_msg.edit = AsyncMock()
             owner.send = AsyncMock(return_value=dm_msg)
-            modal, cog = self._make_modal(store_owner=owner)
-            modal.price_input._value = "1000"
+            cog, _, group = self._make_setup(store_owner=owner)
 
             inv_cog = _make_inv_cog()
             inv_cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 5000, "bank": 0})
@@ -1212,7 +1164,7 @@ class TestSellToStoreDetailsModal:
                 confirm_inst.accepted = True
                 confirm_inst.wait = AsyncMock()
                 MockConfirm.return_value = confirm_inst
-                await modal.on_submit(inter)
+                await _process_sell_to_store(cog, inter, owner, group, None, 1000)
 
             last_msg = inter.followup.send.call_args[0][0]
             assert "✅" in last_msg
@@ -1226,8 +1178,7 @@ class TestSellToStoreDetailsModal:
             dm_msg = MagicMock()
             dm_msg.edit = AsyncMock()
             owner.send = AsyncMock(return_value=dm_msg)
-            modal, cog = self._make_modal(store_owner=owner)
-            modal.price_input._value = "0"
+            cog, _, group = self._make_setup(store_owner=owner)
 
             guns_cog = MagicMock()
             guns_cog._store_id = MagicMock(return_value="999:200")
@@ -1246,7 +1197,7 @@ class TestSellToStoreDetailsModal:
                 confirm_inst.accepted = True
                 confirm_inst.wait = AsyncMock()
                 MockConfirm.return_value = confirm_inst
-                await modal.on_submit(inter)
+                await _process_sell_to_store(cog, inter, owner, group, None, 0)
 
             last_msg = inter.followup.send.call_args[0][0]
             assert "✅" in last_msg
@@ -1259,8 +1210,7 @@ class TestSellToStoreDetailsModal:
             dm_msg = MagicMock()
             dm_msg.edit = AsyncMock()
             owner.send = AsyncMock(return_value=dm_msg)
-            modal, cog = self._make_modal(store_owner=owner)
-            modal.price_input._value = "1000"
+            cog, _, group = self._make_setup(store_owner=owner)
 
             inv_cog = _make_inv_cog()
             inv_cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 5000, "bank": 0})
@@ -1278,7 +1228,7 @@ class TestSellToStoreDetailsModal:
                 confirm_inst.accepted = True
                 confirm_inst.wait = AsyncMock()
                 MockConfirm.return_value = confirm_inst
-                await modal.on_submit(inter)
+                await _process_sell_to_store(cog, inter, owner, group, None, 1000)
 
             last_msg = inter.followup.send.call_args[0][0]
             assert "failed" in last_msg.lower()
@@ -1291,8 +1241,7 @@ class TestSellToStoreDetailsModal:
             dm_msg = MagicMock()
             dm_msg.edit = AsyncMock()
             owner.send = AsyncMock(return_value=dm_msg)
-            modal, cog = self._make_modal(store_owner=owner)
-            modal.price_input._value = "10000"
+            cog, _, group = self._make_setup(store_owner=owner)
 
             inv_cog = _make_inv_cog()
             inv_cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 100, "bank": 50})
@@ -1309,7 +1258,7 @@ class TestSellToStoreDetailsModal:
                 confirm_inst.accepted = True
                 confirm_inst.wait = AsyncMock()
                 MockConfirm.return_value = confirm_inst
-                await modal.on_submit(inter)
+                await _process_sell_to_store(cog, inter, owner, group, None, 10000)
 
             assert "cannot afford" in inter.followup.send.call_args[0][0].lower()
         _run(_test())
@@ -1353,8 +1302,6 @@ class TestSellToStoreEdgeCases:
             guns_cog._save_state = AsyncMock(side_effect=RuntimeError("disk full"))
             cog.bot.cogs = {"PlayerInventory": inv_cog, "GunsShopCog": guns_cog}
             group = _build_groups(SAMPLE_ITEMS)[0]
-            modal = SellToStoreDetailsModal(cog, owner, group)
-            modal.price_input._value = "1000"
             inter = _make_interaction()
             with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}), \
                  patch("NightCityBot.cogs.player_hub.pi_delete_item", new_callable=AsyncMock, return_value=True), \
@@ -1365,7 +1312,7 @@ class TestSellToStoreEdgeCases:
                 confirm_inst.accepted = True
                 confirm_inst.wait = AsyncMock()
                 MockConfirm.return_value = confirm_inst
-                await modal.on_submit(inter)
+                await _process_sell_to_store(cog, inter, owner, group, None, 1000)
             mock_pt.assert_called_once()
             last_msg = inter.followup.send.call_args[0][0]
             assert "failed" in last_msg.lower()

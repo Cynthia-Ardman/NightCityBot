@@ -1,7 +1,7 @@
 """Unified !gunstore hub command — interactive gun store interface.
 
 Consolidates the separate guns_wh_* command set into a single interactive hub
-with Discord dropdowns, buttons, and modals.
+with Discord dropdowns, buttons, and inline component flows.
 """
 import asyncio
 import logging
@@ -20,6 +20,7 @@ from NightCityBot.utils.db import (
     pt_create,
 )
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active
+from NightCityBot.utils.inline_helpers import collect_text_input, QtySelectView
 from NightCityBot.utils.permissions import is_store_owner
 
 logger = logging.getLogger(__name__)
@@ -128,11 +129,17 @@ class GunstoreMenuView(discord.ui.View):
 
     @discord.ui.button(label="Approve Buyer", style=discord.ButtonStyle.secondary, emoji="✅", row=1)
     async def approve_buyer(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(ApproveBuyerModal(self.cog, self.ctx, approve=True))
+        view = _ApproveBuyerView(self.cog, self.ctx, approve=True)
+        await interaction.response.send_message(
+            "📝 **Select a buyer to approve:**", view=view, ephemeral=True
+        )
 
     @discord.ui.button(label="Unapprove Buyer", style=discord.ButtonStyle.secondary, emoji="🚫", row=1)
     async def unapprove_buyer(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(ApproveBuyerModal(self.cog, self.ctx, approve=False))
+        view = _ApproveBuyerView(self.cog, self.ctx, approve=False)
+        await interaction.response.send_message(
+            "📝 **Select a buyer to remove from your approved list:**", view=view, ephemeral=True
+        )
 
     @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=2)
     async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -202,127 +209,122 @@ class GunBuySelect(discord.ui.View):
     async def on_select(self, interaction: discord.Interaction):
         idx = int(self.select.values[0])
         lot = self.lots[idx]
-        await interaction.response.send_modal(GunBuyQtyModal(self.cog, self.ctx, lot, self.guns_cog))
-
-
-class GunBuyQtyModal(discord.ui.Modal, title="Buy Gun from Wholesale"):
-    qty_input = discord.ui.TextInput(label="Quantity", default="1", max_length=3)
-
-    def __init__(self, cog: "GunstoreHub", ctx: commands.Context, lot: dict, guns_cog):
-        super().__init__()
-        self.cog = cog
-        self.ctx = ctx
-        self.lot = lot
-        self.guns_cog = guns_cog
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            qty = int(self.qty_input.value)
-        except ValueError:
-            await interaction.followup.send("Invalid quantity.", ephemeral=True)
-            return
-        if qty < 1:
-            await interaction.followup.send("Quantity must be at least 1.", ephemeral=True)
-            return
-        if qty > int(self.lot.get("qty_available", 0)):
-            await interaction.followup.send(
-                f"Only {self.lot['qty_available']} available.", ephemeral=True
-            )
-            return
-
-        unit_cost = int(self.lot["unit_cost"])
-        total = unit_cost * qty
-        member = self.ctx.author
-
-        balance = await self.cog.unbelievaboat.get_balance(member.id)
-        if balance is None:
-            await interaction.followup.send("Could not fetch your balance.", ephemeral=True)
-            return
-        cash = int(balance.get("cash", 0))
-        bank = int(balance.get("bank", 0))
-        if cash + bank < total:
-            await interaction.followup.send(
-                f"You cannot afford ${total:,} (you have ${cash + bank:,}).", ephemeral=True
-            )
-            return
-
-        cash_deduct = min(max(cash, 0), total)
-        bank_deduct = max(0, total - cash_deduct)
-        ok = await self.cog.unbelievaboat.update_balance(
-            member.id,
-            {"cash": -cash_deduct, "bank": -bank_deduct},
-            reason=f"Gun wholesale buy: {self.lot['gun_name']} x{qty}",
-        )
-        if not ok:
-            await interaction.followup.send("Payment failed.", ephemeral=True)
-            return
-
-        async with self.guns_cog.lock:
-            state = await self.guns_cog._load_state()
-            lots = state.get("wholesale_lots", [])
-            target_lot = None
-            for l in lots:
-                if l.get("lot_id") == self.lot.get("lot_id"):
-                    target_lot = l
-                    break
-            if not target_lot or int(target_lot.get("qty_available", 0)) < qty:
-                await self.cog.unbelievaboat.update_balance(
-                    member.id,
-                    {"cash": cash_deduct, "bank": bank_deduct},
-                    reason="Gun wholesale refund — stock depleted",
-                )
-                await interaction.followup.send("Stock depleted. Refunded.", ephemeral=True)
-                return
-            target_lot["qty_available"] = int(target_lot["qty_available"]) - qty
-            store_id = self.guns_cog._store_id(self.ctx.guild.id, member.id)
-            store = state.setdefault("stores", {}).setdefault(
-                store_id, {"owner_id": member.id, "lots": [], "controlled_buyers": []}
-            )
-            store_lot_id = f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
-            item_ids = [str(uuid.uuid4()) for _ in range(qty)]
-            store["lots"].append({
-                "lot_id": store_lot_id,
-                "gun_name": self.lot["gun_name"],
-                "gun_level": self.lot.get("gun_level", "L"),
-                "weapon_type": self.lot.get("weapon_type", ""),
-                "unit_cost": unit_cost,
-                "qty_remaining": qty,
-                "restriction": self.lot.get("restriction", "basic"),
-                "item_ids": item_ids,
-            })
-            await self.guns_cog._save_state(state)
-
-        for item_id in item_ids:
-            await ih_record_event(
-                item_id, "wholesale_buy",
-                actor_id=str(member.id),
-                price=unit_cost,
-                metadata={
-                    "gun_name": self.lot["gun_name"],
-                    "gun_level": self.lot.get("gun_level"),
-                    "lot_id": self.lot.get("lot_id"),
-                    "store_lot_id": store_lot_id,
-                },
-            )
-
-        await interaction.followup.send(
-            f"Purchased **{self.lot['gun_name']}** ×{qty} for **${total:,}**.",
+        max_qty = int(lot.get("qty_available", 1))
+        qty_view = QtySelectView(interaction.user.id, max_qty)
+        await interaction.response.send_message(
+            f"**{lot['gun_name']}** — how many? (max {max_qty})",
+            view=qty_view,
             ephemeral=True,
         )
-        log_ch = await self.cog._log_channel()
-        if log_ch:
-            embed = discord.Embed(
-                title="🛒 Gun Wholesale Purchase",
-                color=discord.Color.dark_gold(),
-                timestamp=datetime.now(timezone.utc),
+        await qty_view.wait()
+        if qty_view.result is None:
+            await interaction.followup.send("⏰ Timed out.", ephemeral=True)
+            return
+        await _process_gun_buy(self.cog, interaction, self.ctx, lot, self.guns_cog, qty_view.result)
+
+
+async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty):
+    if qty < 1:
+        await interaction.followup.send("Quantity must be at least 1.", ephemeral=True)
+        return
+    if qty > int(lot.get("qty_available", 0)):
+        await interaction.followup.send(
+            f"Only {lot['qty_available']} available.", ephemeral=True
+        )
+        return
+
+    unit_cost = int(lot["unit_cost"])
+    total = unit_cost * qty
+    member = ctx.author
+
+    balance = await cog.unbelievaboat.get_balance(member.id)
+    if balance is None:
+        await interaction.followup.send("Could not fetch your balance.", ephemeral=True)
+        return
+    cash = int(balance.get("cash", 0))
+    bank = int(balance.get("bank", 0))
+    if cash + bank < total:
+        await interaction.followup.send(
+            f"You cannot afford ${total:,} (you have ${cash + bank:,}).", ephemeral=True
+        )
+        return
+
+    cash_deduct = min(max(cash, 0), total)
+    bank_deduct = max(0, total - cash_deduct)
+    ok = await cog.unbelievaboat.update_balance(
+        member.id,
+        {"cash": -cash_deduct, "bank": -bank_deduct},
+        reason=f"Gun wholesale buy: {lot['gun_name']} x{qty}",
+    )
+    if not ok:
+        await interaction.followup.send("Payment failed.", ephemeral=True)
+        return
+
+    async with guns_cog.lock:
+        state = await guns_cog._load_state()
+        lots_list = state.get("wholesale_lots", [])
+        target_lot = None
+        for l in lots_list:
+            if l.get("lot_id") == lot.get("lot_id"):
+                target_lot = l
+                break
+        if not target_lot or int(target_lot.get("qty_available", 0)) < qty:
+            await cog.unbelievaboat.update_balance(
+                member.id,
+                {"cash": cash_deduct, "bank": bank_deduct},
+                reason="Gun wholesale refund — stock depleted",
             )
-            embed.add_field(name="Store Owner", value=f"{member.mention}", inline=False)
-            embed.add_field(name="Gun", value=self.lot["gun_name"], inline=True)
-            embed.add_field(name="Qty", value=str(qty), inline=True)
-            embed.add_field(name="Total", value=f"${total:,}", inline=True)
-            embed.set_footer(text="NightCityBot Audit Log")
-            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            await interaction.followup.send("Stock depleted. Refunded.", ephemeral=True)
+            return
+        target_lot["qty_available"] = int(target_lot["qty_available"]) - qty
+        store_id = guns_cog._store_id(ctx.guild.id, member.id)
+        store = state.setdefault("stores", {}).setdefault(
+            store_id, {"owner_id": member.id, "lots": [], "controlled_buyers": []}
+        )
+        store_lot_id = f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
+        item_ids = [str(uuid.uuid4()) for _ in range(qty)]
+        store["lots"].append({
+            "lot_id": store_lot_id,
+            "gun_name": lot["gun_name"],
+            "gun_level": lot.get("gun_level", "L"),
+            "weapon_type": lot.get("weapon_type", ""),
+            "unit_cost": unit_cost,
+            "qty_remaining": qty,
+            "restriction": lot.get("restriction", "basic"),
+            "item_ids": item_ids,
+        })
+        await guns_cog._save_state(state)
+
+    for item_id in item_ids:
+        await ih_record_event(
+            item_id, "wholesale_buy",
+            actor_id=str(member.id),
+            price=unit_cost,
+            metadata={
+                "gun_name": lot["gun_name"],
+                "gun_level": lot.get("gun_level"),
+                "lot_id": lot.get("lot_id"),
+                "store_lot_id": store_lot_id,
+            },
+        )
+
+    await interaction.followup.send(
+        f"Purchased **{lot['gun_name']}** ×{qty} for **${total:,}**.",
+        ephemeral=True,
+    )
+    log_ch = await cog._log_channel()
+    if log_ch:
+        embed = discord.Embed(
+            title="🛒 Gun Wholesale Purchase",
+            color=discord.Color.dark_gold(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Store Owner", value=f"{member.mention}", inline=False)
+        embed.add_field(name="Gun", value=lot["gun_name"], inline=True)
+        embed.add_field(name="Qty", value=str(qty), inline=True)
+        embed.add_field(name="Total", value=f"${total:,}", inline=True)
+        embed.set_footer(text="NightCityBot Audit Log")
+        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
 GUN_APPROVALS_CHANNEL_ID = 1489460511199465693
@@ -467,358 +469,347 @@ class GunSellSetupView(discord.ui.View):
             )
             return
         lot = self.lots[self.selected_lot_idx]
-        modal = GunSellDetailsModal(
-            self.cog, self.ctx, self.selected_customer,
-            lot, self.store_id, self.selected_character,
-        )
-        await interaction.response.send_modal(modal)
-        self.stop()
-
-
-class GunSellDetailsModal(discord.ui.Modal, title="Sell — Finalize Details"):
-    price_input = discord.ui.TextInput(
-        label="Sale Price (0 = gift)",
-        placeholder="5000 (enter 0 to gift for free)",
-    )
-
-    def __init__(self, cog: "GunstoreHub", ctx: commands.Context,
-                 customer: discord.Member, lot: dict, store_id: str,
-                 character: dict | None = None):
-        super().__init__()
-        self.cog = cog
-        self.ctx = ctx
-        self.customer = customer
-        self.lot = lot
-        self.store_id = store_id
-        self.character = character or {}
-
-    async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-
+        await interaction.followup.send(
+            "📝 **Enter the sale price** (number only, `0` for free), or type `cancel`:",
+            ephemeral=True,
+        )
+        price_text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        if price_text is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            self.stop()
+            return
         try:
-            price = int(self.price_input.value)
+            price = int(price_text.replace(",", "").replace("$", "").strip())
         except ValueError:
             await interaction.followup.send("Price must be a number.", ephemeral=True)
+            self.stop()
             return
         if price < 0:
             await interaction.followup.send("Price cannot be negative.", ephemeral=True)
+            self.stop()
             return
+        await _process_gun_sell(
+            self.cog, interaction, self.ctx, self.selected_customer,
+            lot, self.store_id, self.selected_character or {}, price,
+        )
+        self.stop()
 
-        character_name = self.character.get("name", "")
-        character_id = self.character.get("character_id")
-        if not character_name:
-            await interaction.followup.send("Character selection required.", ephemeral=True)
-            return
-        if character_id and not await ensure_character_active(character_id):
-            await interaction.followup.send(
-                f"❌ Character **{character_name}** is no longer active.", ephemeral=True
+
+async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, character, price):
+    character_name = character.get("name", "")
+    character_id = character.get("character_id")
+    if not character_name:
+        await interaction.followup.send("Character selection required.", ephemeral=True)
+        return
+    if character_id and not await ensure_character_active(character_id):
+        await interaction.followup.send(
+            f"❌ Character **{character_name}** is no longer active.", ephemeral=True
+        )
+        return
+
+    gun_name = lot["gun_name"]
+    restriction = lot.get("restriction", "basic")
+
+    guns_cog = cog._guns_cog()
+    if not guns_cog:
+        await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+        return
+
+    if restriction in ("controlled", "restricted"):
+        state = await guns_cog._load_state()
+        store = state.get("stores", {}).get(store_id)
+        approved = store.get("controlled_buyers", []) if store else []
+        if customer.id not in approved:
+            approve_view = InlineApproveView(
+                cog, ctx, guns_cog, store_id, customer
             )
-            return
-
-        customer = self.customer
-        lot = self.lot
-        store_id = self.store_id
-        gun_name = lot["gun_name"]
-        restriction = lot.get("restriction", "basic")
-
-        guns_cog = self.cog._guns_cog()
-        if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
-            return
-
-        if restriction in ("controlled", "restricted"):
-            state = await guns_cog._load_state()
-            store = state.get("stores", {}).get(store_id)
-            approved = store.get("controlled_buyers", []) if store else []
-            if customer.id not in approved:
-                approve_view = InlineApproveView(
-                    self.cog, self.ctx, guns_cog, store_id, customer
-                )
-                approve_msg = await interaction.followup.send(
-                    f"**{gun_name}** is **{restriction}**. {customer.display_name} is not on your approved list.\n"
-                    "Would you like to approve them and proceed?",
-                    view=approve_view,
-                    ephemeral=True,
-                    wait=True,
-                )
-                approve_view.message = approve_msg
-                await approve_view.wait()
-                if not approve_view.approved:
-                    return
-
-        if restriction == "restricted":
-            fixer_ok = await self._request_fixer_approval(
-                interaction, customer, gun_name, lot, price, character_name
+            approve_msg = await interaction.followup.send(
+                f"**{gun_name}** is **{restriction}**. {customer.display_name} is not on your approved list.\n"
+                "Would you like to approve them and proceed?",
+                view=approve_view,
+                ephemeral=True,
+                wait=True,
             )
-            if not fixer_ok:
+            approve_view.message = approve_msg
+            await approve_view.wait()
+            if not approve_view.approved:
                 return
 
-        confirm_view = GunDMConfirmView(timeout=60)
-        try:
-            dm_msg = await customer.send(
-                f"**{self.ctx.author.display_name}** wants to sell you **{gun_name}** "
-                f"for **${price:,}** (character: **{character_name}**).\n"
-                "Do you accept?",
-                view=confirm_view,
-            )
-        except discord.Forbidden:
-            await interaction.followup.send(
-                f"Cannot DM {customer.display_name}. They may have DMs disabled.", ephemeral=True
-            )
-            return
-
-        await interaction.followup.send(
-            f"Confirmation sent to {customer.display_name} via DM. Waiting...", ephemeral=True
+    if restriction == "restricted":
+        fixer_ok = await _request_fixer_approval(
+            cog, interaction, ctx, customer, gun_name, lot, price, character_name
         )
-        await confirm_view.wait()
-
-        if not confirm_view.accepted:
-            try:
-                await dm_msg.edit(content="Sale declined or timed out.", view=None)
-            except Exception:
-                pass
-            await self.ctx.send(
-                f"{self.ctx.author.mention} — {customer.display_name} declined or didn't respond to the purchase of **{gun_name}**."
-            )
+        if not fixer_ok:
             return
 
+    confirm_view = GunDMConfirmView(timeout=60)
+    try:
+        dm_msg = await customer.send(
+            f"**{ctx.author.display_name}** wants to sell you **{gun_name}** "
+            f"for **${price:,}** (character: **{character_name}**).\n"
+            "Do you accept?",
+            view=confirm_view,
+        )
+    except discord.Forbidden:
+        await interaction.followup.send(
+            f"Cannot DM {customer.display_name}. They may have DMs disabled.", ephemeral=True
+        )
+        return
+
+    await interaction.followup.send(
+        f"Confirmation sent to {customer.display_name} via DM. Waiting...", ephemeral=True
+    )
+    await confirm_view.wait()
+
+    if not confirm_view.accepted:
         try:
-            await dm_msg.edit(view=None)
+            await dm_msg.edit(content="Sale declined or timed out.", view=None)
         except Exception:
             pass
+        await ctx.send(
+            f"{ctx.author.mention} — {customer.display_name} declined or didn't respond to the purchase of **{gun_name}**."
+        )
+        return
 
-        seller_credited = False
-        cash_ded = 0
-        bank_ded = 0
-        if price > 0:
-            balance = await self.cog.unbelievaboat.get_balance(customer.id)
-            if balance is None:
-                await self.ctx.send(f"Could not fetch {customer.display_name}'s balance. Sale cancelled.")
-                return
-            c_cash = int(balance.get("cash", 0))
-            c_bank = int(balance.get("bank", 0))
-            if c_cash + c_bank < price:
-                await self.ctx.send(
-                    f"{customer.display_name} cannot afford ${price:,}. Sale cancelled."
-                )
-                return
-            cash_ded = min(max(c_cash, 0), price)
-            bank_ded = max(0, price - cash_ded)
-            ok_debit = await self.cog.unbelievaboat.update_balance(
-                customer.id,
-                {"cash": -cash_ded, "bank": -bank_ded},
-                reason=f"Gun purchase: {gun_name} from {self.ctx.author.display_name}",
-            )
-            if not ok_debit:
-                await self.ctx.send(f"Payment failed for {customer.display_name}. Sale cancelled.")
-                return
-            ok_credit = await self.cog.unbelievaboat.update_balance(
-                self.ctx.author.id,
-                {"cash": price},
-                reason=f"Gun sale: {gun_name} to {customer.display_name}",
-            )
-            if ok_credit:
-                seller_credited = True
-            else:
-                logger.error("gun sell: buyer debited but seller credit failed — creating pending transfer")
-                await pt_create({
-                    "seller_id": str(self.ctx.author.id),
-                    "buyer_id": str(customer.id),
-                    "item_id": str(uuid.uuid4()),
-                    "amount": price,
-                    "reason": f"Gun sell credit failed: {gun_name}",
-                })
-                await self.ctx.send(
-                    f"⚠️ Payment from {customer.display_name} succeeded but seller payout failed. "
-                    "A pending transfer has been created — an admin will resolve it."
-                )
+    try:
+        await dm_msg.edit(view=None)
+    except Exception:
+        pass
 
-        async with guns_cog.lock:
-            state = await guns_cog._load_state()
-            store = state.get("stores", {}).get(store_id)
-            if not store:
-                if price > 0:
-                    await self.cog.unbelievaboat.update_balance(
-                        customer.id, {"cash": cash_ded, "bank": bank_ded}, reason="Gun sale refund"
-                    )
-                    if seller_credited:
-                        await self.cog.unbelievaboat.update_balance(
-                            self.ctx.author.id, {"cash": -price}, reason="Gun sale refund"
-                        )
-                await self.ctx.send("Store not found. Refunded.")
-                return
-            target_lot = None
-            for l in store.get("lots", []):
-                if l.get("lot_id") == lot.get("lot_id"):
-                    target_lot = l
-                    break
-            if not target_lot or int(target_lot.get("qty_remaining", 0)) < 1:
-                if price > 0:
-                    await self.cog.unbelievaboat.update_balance(
-                        customer.id, {"cash": cash_ded, "bank": bank_ded}, reason="Gun sale refund — out of stock"
-                    )
-                    if seller_credited:
-                        await self.cog.unbelievaboat.update_balance(
-                            self.ctx.author.id, {"cash": -price}, reason="Gun sale refund — out of stock"
-                        )
-                await self.ctx.send("Item out of stock. Refunded.")
-                return
-            target_lot["qty_remaining"] = int(target_lot["qty_remaining"]) - 1
-            lot_item_ids = target_lot.get("item_ids", [])
-            if lot_item_ids:
-                item_id = lot_item_ids.pop(0)
-            else:
-                item_id = str(uuid.uuid4())
-            if target_lot["qty_remaining"] <= 0:
-                store["lots"].remove(target_lot)
-            await guns_cog._save_state(state)
-
-        pi_ok = await pi_add_item({
-            "item_id": item_id,
-            "owner_id": str(customer.id),
-            "character_name": character_name,
-            "character_id": character_id,
-            "item_type": "gun",
-            "name": gun_name,
-            "restriction": restriction,
-            "description": "",
-            "price_paid": price,
-            "seller_id": str(self.ctx.author.id),
-            "seller_name": self.ctx.author.display_name,
-        })
-        if not pi_ok:
-            logger.error("gunstore sell: pi_add_item failed — attempting compensation")
-            if price > 0:
-                await self.cog.unbelievaboat.update_balance(
-                    customer.id, {"cash": cash_ded, "bank": bank_ded}, reason="Gun sale refund — item grant failed"
-                )
-                if seller_credited:
-                    await self.cog.unbelievaboat.update_balance(
-                        self.ctx.author.id, {"cash": -price}, reason="Gun sale refund — item grant failed"
-                    )
-            await self.ctx.send(
-                f"⚠️ Failed to add **{gun_name}** to {customer.display_name}'s inventory. "
-                "Payment has been refunded. Please contact an admin."
+    seller_credited = False
+    cash_ded = 0
+    bank_ded = 0
+    if price > 0:
+        balance = await cog.unbelievaboat.get_balance(customer.id)
+        if balance is None:
+            await ctx.send(f"Could not fetch {customer.display_name}'s balance. Sale cancelled.")
+            return
+        c_cash = int(balance.get("cash", 0))
+        c_bank = int(balance.get("bank", 0))
+        if c_cash + c_bank < price:
+            await ctx.send(
+                f"{customer.display_name} cannot afford ${price:,}. Sale cancelled."
             )
             return
-
-        await ih_record_event(
-            item_id, "player_sale",
-            actor_id=str(self.ctx.author.id),
-            target_id=str(customer.id),
-            price=price,
-            metadata={"gun_name": gun_name, "character": character_name, "restriction": restriction},
+        cash_ded = min(max(c_cash, 0), price)
+        bank_ded = max(0, price - cash_ded)
+        ok_debit = await cog.unbelievaboat.update_balance(
+            customer.id,
+            {"cash": -cash_ded, "bank": -bank_ded},
+            reason=f"Gun purchase: {gun_name} from {ctx.author.display_name}",
         )
-
-        await self.ctx.send(
-            f"Sold **{gun_name}** to **{character_name}** ({customer.display_name}) for **${price:,}**."
+        if not ok_debit:
+            await ctx.send(f"Payment failed for {customer.display_name}. Sale cancelled.")
+            return
+        ok_credit = await cog.unbelievaboat.update_balance(
+            ctx.author.id,
+            {"cash": price},
+            reason=f"Gun sale: {gun_name} to {customer.display_name}",
         )
-        log_ch = await self.cog._log_channel()
-        if log_ch:
-            embed = discord.Embed(
-                title="🔫 Gun Sold",
-                color=discord.Color.dark_gold(),
-                timestamp=datetime.now(timezone.utc),
+        if ok_credit:
+            seller_credited = True
+        else:
+            logger.error("gun sell: buyer debited but seller credit failed — creating pending transfer")
+            await pt_create({
+                "seller_id": str(ctx.author.id),
+                "buyer_id": str(customer.id),
+                "item_id": str(uuid.uuid4()),
+                "amount": price,
+                "reason": f"Gun sell credit failed: {gun_name}",
+            })
+            await ctx.send(
+                f"⚠️ Payment from {customer.display_name} succeeded but seller payout failed. "
+                "A pending transfer has been created — an admin will resolve it."
             )
-            embed.add_field(name="Store Owner", value=f"{self.ctx.author.mention}", inline=False)
-            embed.add_field(name="Customer", value=f"{customer.mention} — {character_name}", inline=False)
-            embed.add_field(name="Gun", value=gun_name, inline=True)
-            embed.add_field(name="Price", value=f"${price:,}", inline=True)
-            if restriction != "basic":
-                embed.add_field(name="Restriction", value=restriction.title(), inline=True)
-            embed.set_footer(text="NightCityBot Audit Log")
-            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
-    async def _request_fixer_approval(self, interaction, customer, gun_name, lot, price, character_name):
-        channel = self.cog.bot.get_channel(GUN_APPROVALS_CHANNEL_ID)
-        if channel is None:
-            try:
-                channel = await self.cog.bot.fetch_channel(GUN_APPROVALS_CHANNEL_ID)
-            except Exception:
-                await interaction.followup.send(
-                    "Gun approvals channel not found. Cannot process restricted sales.", ephemeral=True
+    async with guns_cog.lock:
+        state = await guns_cog._load_state()
+        store = state.get("stores", {}).get(store_id)
+        if not store:
+            if price > 0:
+                await cog.unbelievaboat.update_balance(
+                    customer.id, {"cash": cash_ded, "bank": bank_ded}, reason="Gun sale refund"
                 )
-                return False
+                if seller_credited:
+                    await cog.unbelievaboat.update_balance(
+                        ctx.author.id, {"cash": -price}, reason="Gun sale refund"
+                    )
+            await ctx.send("Store not found. Refunded.")
+            return
+        target_lot = None
+        for l in store.get("lots", []):
+            if l.get("lot_id") == lot.get("lot_id"):
+                target_lot = l
+                break
+        if not target_lot or int(target_lot.get("qty_remaining", 0)) < 1:
+            if price > 0:
+                await cog.unbelievaboat.update_balance(
+                    customer.id, {"cash": cash_ded, "bank": bank_ded}, reason="Gun sale refund — out of stock"
+                )
+                if seller_credited:
+                    await cog.unbelievaboat.update_balance(
+                        ctx.author.id, {"cash": -price}, reason="Gun sale refund — out of stock"
+                    )
+            await ctx.send("Item out of stock. Refunded.")
+            return
+        target_lot["qty_remaining"] = int(target_lot["qty_remaining"]) - 1
+        lot_item_ids = target_lot.get("item_ids", [])
+        if lot_item_ids:
+            item_id = lot_item_ids.pop(0)
+        else:
+            item_id = str(uuid.uuid4())
+        if target_lot["qty_remaining"] <= 0:
+            store["lots"].remove(target_lot)
+        await guns_cog._save_state(state)
 
-        fixer_role_id = getattr(config, "FIXER_ROLE_ID", 0)
-        fixer_ping = f"<@&{fixer_role_id}>" if fixer_role_id else "**Fixers**"
+    pi_ok = await pi_add_item({
+        "item_id": item_id,
+        "owner_id": str(customer.id),
+        "character_name": character_name,
+        "character_id": character_id,
+        "item_type": "gun",
+        "name": gun_name,
+        "restriction": restriction,
+        "description": "",
+        "price_paid": price,
+        "seller_id": str(ctx.author.id),
+        "seller_name": ctx.author.display_name,
+    })
+    if not pi_ok:
+        logger.error("gunstore sell: pi_add_item failed — attempting compensation")
+        if price > 0:
+            await cog.unbelievaboat.update_balance(
+                customer.id, {"cash": cash_ded, "bank": bank_ded}, reason="Gun sale refund — item grant failed"
+            )
+            if seller_credited:
+                await cog.unbelievaboat.update_balance(
+                    ctx.author.id, {"cash": -price}, reason="Gun sale refund — item grant failed"
+                )
+        await ctx.send(
+            f"⚠️ Failed to add **{gun_name}** to {customer.display_name}'s inventory. "
+            "Payment has been refunded. Please contact an admin."
+        )
+        return
 
+    await ih_record_event(
+        item_id, "player_sale",
+        actor_id=str(ctx.author.id),
+        target_id=str(customer.id),
+        price=price,
+        metadata={"gun_name": gun_name, "character": character_name, "restriction": restriction},
+    )
+
+    await ctx.send(
+        f"Sold **{gun_name}** to **{character_name}** ({customer.display_name}) for **${price:,}**."
+    )
+    log_ch = await cog._log_channel()
+    if log_ch:
         embed = discord.Embed(
-            title="🔒 Restricted Gun Sale — Fixer Approval Required",
-            color=discord.Color.orange(),
+            title="🔫 Gun Sold",
+            color=discord.Color.dark_gold(),
             timestamp=datetime.now(timezone.utc),
         )
-        embed.add_field(name="Seller", value=f"{self.ctx.author.mention}", inline=True)
-        embed.add_field(name="Buyer", value=f"{customer.mention} (character: {character_name})", inline=True)
-        embed.add_field(name="Gun", value=f"{gun_name} (Tier {lot.get('gun_level', '?')})", inline=True)
+        embed.add_field(name="Store Owner", value=f"{ctx.author.mention}", inline=False)
+        embed.add_field(name="Customer", value=f"{customer.mention} — {character_name}", inline=False)
+        embed.add_field(name="Gun", value=gun_name, inline=True)
         embed.add_field(name="Price", value=f"${price:,}", inline=True)
-        embed.set_footer(text="React ✅ to approve or ❌ to deny. Expires in 5 minutes.")
+        if restriction != "basic":
+            embed.add_field(name="Restriction", value=restriction.title(), inline=True)
+        embed.set_footer(text="NightCityBot Audit Log")
+        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
+
+async def _request_fixer_approval(cog, interaction, ctx, customer, gun_name, lot, price, character_name):
+    channel = cog.bot.get_channel(GUN_APPROVALS_CHANNEL_ID)
+    if channel is None:
         try:
-            msg = await channel.send(
-                f"{fixer_ping} — restricted sale requires approval.",
-                embed=embed,
-                allowed_mentions=discord.AllowedMentions(roles=True),
-            )
-            await msg.add_reaction("✅")
-            await msg.add_reaction("❌")
+            channel = await cog.bot.fetch_channel(GUN_APPROVALS_CHANNEL_ID)
         except Exception:
-            logger.exception("Failed to post restricted sale approval request")
             await interaction.followup.send(
-                "Failed to post approval request to the approvals channel.", ephemeral=True
+                "Gun approvals channel not found. Cannot process restricted sales.", ephemeral=True
             )
             return False
 
-        await interaction.followup.send(
-            "⏳ Restricted sale pending Fixer approval. Waiting up to 5 minutes...", ephemeral=True
+    fixer_role_id = getattr(config, "FIXER_ROLE_ID", 0)
+    fixer_ping = f"<@&{fixer_role_id}>" if fixer_role_id else "**Fixers**"
+
+    embed = discord.Embed(
+        title="🔒 Restricted Gun Sale — Fixer Approval Required",
+        color=discord.Color.orange(),
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.add_field(name="Seller", value=f"{ctx.author.mention}", inline=True)
+    embed.add_field(name="Buyer", value=f"{customer.mention} (character: {character_name})", inline=True)
+    embed.add_field(name="Gun", value=f"{gun_name} (Tier {lot.get('gun_level', '?')})", inline=True)
+    embed.add_field(name="Price", value=f"${price:,}", inline=True)
+    embed.set_footer(text="React ✅ to approve or ❌ to deny. Expires in 5 minutes.")
+
+    try:
+        msg = await channel.send(
+            f"{fixer_ping} — restricted sale requires approval.",
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(roles=True),
         )
+        await msg.add_reaction("✅")
+        await msg.add_reaction("❌")
+    except Exception:
+        logger.exception("Failed to post restricted sale approval request")
+        await interaction.followup.send(
+            "Failed to post approval request to the approvals channel.", ephemeral=True
+        )
+        return False
 
-        fixer_role_id_int = int(fixer_role_id) if fixer_role_id else 0
+    await interaction.followup.send(
+        "⏳ Restricted sale pending Fixer approval. Waiting up to 5 minutes...", ephemeral=True
+    )
 
-        def check(reaction, user):
-            if reaction.message.id != msg.id:
-                return False
-            if str(reaction.emoji) not in ("✅", "❌"):
-                return False
-            if user.bot:
-                return False
-            if isinstance(user, discord.Member):
-                if user.guild_permissions.administrator:
-                    return True
-                if fixer_role_id_int and any(r.id == fixer_role_id_int for r in user.roles):
-                    return True
+    fixer_role_id_int = int(fixer_role_id) if fixer_role_id else 0
+
+    def check(reaction, user):
+        if reaction.message.id != msg.id:
             return False
+        if str(reaction.emoji) not in ("✅", "❌"):
+            return False
+        if user.bot:
+            return False
+        if isinstance(user, discord.Member):
+            if user.guild_permissions.administrator:
+                return True
+            if fixer_role_id_int and any(r.id == fixer_role_id_int for r in user.roles):
+                return True
+        return False
 
+    try:
+        reaction, approver = await cog.bot.wait_for("reaction_add", timeout=300.0, check=check)
+    except asyncio.TimeoutError:
+        await ctx.send(
+            f"{ctx.author.mention} — restricted sale of **{gun_name}** timed out. No Fixer responded within 5 minutes."
+        )
         try:
-            reaction, approver = await self.cog.bot.wait_for("reaction_add", timeout=300.0, check=check)
-        except asyncio.TimeoutError:
-            await self.ctx.send(
-                f"{self.ctx.author.mention} — restricted sale of **{gun_name}** timed out. No Fixer responded within 5 minutes."
-            )
-            try:
-                await msg.edit(embed=embed.set_footer(text="EXPIRED — no response."))
-            except Exception:
-                pass
-            return False
+            await msg.edit(embed=embed.set_footer(text="EXPIRED — no response."))
+        except Exception:
+            pass
+        return False
 
-        if str(reaction.emoji) == "✅":
-            await self.ctx.send(
-                f"✅ Restricted sale of **{gun_name}** approved by {approver.mention}. Processing..."
-            )
-            try:
-                await msg.edit(embed=embed.set_footer(text=f"APPROVED by {approver.display_name}"))
-            except Exception:
-                pass
-            return True
-        else:
-            await self.ctx.send(
-                f"❌ Restricted sale of **{gun_name}** denied by {approver.mention}."
-            )
-            try:
-                await msg.edit(embed=embed.set_footer(text=f"DENIED by {approver.display_name}"))
-            except Exception:
-                pass
-            return False
+    if str(reaction.emoji) == "✅":
+        await ctx.send(
+            f"✅ Restricted sale of **{gun_name}** approved by {approver.mention}. Processing..."
+        )
+        try:
+            await msg.edit(embed=embed.set_footer(text=f"APPROVED by {approver.display_name}"))
+        except Exception:
+            pass
+        return True
+    else:
+        await ctx.send(
+            f"❌ Restricted sale of **{gun_name}** denied by {approver.mention}."
+        )
+        try:
+            await msg.edit(embed=embed.set_footer(text=f"DENIED by {approver.display_name}"))
+        except Exception:
+            pass
+        return False
 
 
 class InlineApproveView(discord.ui.View):
@@ -863,38 +854,49 @@ class InlineApproveView(discord.ui.View):
         self.stop()
 
 
-class ApproveBuyerModal(discord.ui.Modal):
-    buyer_input = discord.ui.TextInput(label="Buyer (mention or ID)", placeholder="@buyer or 123456789")
-
+class _ApproveBuyerView(discord.ui.View):
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context, approve: bool = True):
-        super().__init__(title="Approve Buyer" if approve else "Unapprove Buyer")
+        super().__init__(timeout=60)
         self.cog = cog
         self.ctx = ctx
         self.approve = approve
 
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        guild = self.ctx.guild
-        if not guild:
-            await interaction.followup.send("Must be used in server.", ephemeral=True)
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Select a buyer…", row=0)
+    async def buyer_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        raw_user = select.values[0] if select.values else None
+        if raw_user is None:
+            await interaction.response.send_message("Please select a member.", ephemeral=True)
             return
 
-        user = await self.cog._resolve_member(guild, self.buyer_input.value)
-        if not user:
-            await interaction.followup.send("Could not find that member.", ephemeral=True)
+        guild = self.ctx.guild
+        if not guild:
+            await interaction.response.send_message("Must be used in server.", ephemeral=True)
             return
+
+        if isinstance(raw_user, discord.Member):
+            user = raw_user
+        else:
+            user = guild.get_member(raw_user.id)
+            if user is None:
+                try:
+                    user = await guild.fetch_member(raw_user.id)
+                except Exception:
+                    await interaction.response.send_message("Could not find that member.", ephemeral=True)
+                    return
 
         guns_cog = self.cog._guns_cog()
         if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            await interaction.response.send_message("Gun shop system unavailable.", ephemeral=True)
             return
 
+        await interaction.response.defer(ephemeral=True)
         async with guns_cog.lock:
             state = await guns_cog._load_state()
             store_id = guns_cog._store_id(guild.id, self.ctx.author.id)
             store = state.get("stores", {}).get(store_id)
             if not store:
                 await interaction.followup.send("No store found. Buy stock first.", ephemeral=True)
+                self.stop()
                 return
             approved = store.setdefault("controlled_buyers", [])
             if self.approve:
@@ -902,6 +904,7 @@ class ApproveBuyerModal(discord.ui.Modal):
                     await interaction.followup.send(
                         f"{user.display_name} is already approved.", ephemeral=True
                     )
+                    self.stop()
                     return
                 approved.append(user.id)
             else:
@@ -909,6 +912,7 @@ class ApproveBuyerModal(discord.ui.Modal):
                     await interaction.followup.send(
                         f"{user.display_name} is not on your list.", ephemeral=True
                     )
+                    self.stop()
                     return
                 approved.remove(user.id)
             await guns_cog._save_state(state)
@@ -917,6 +921,7 @@ class ApproveBuyerModal(discord.ui.Modal):
         await interaction.followup.send(
             f"{user.display_name} {action} your controlled-buyer list.", ephemeral=True
         )
+        self.stop()
 
 
 class GunDMConfirmView(discord.ui.View):
