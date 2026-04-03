@@ -90,14 +90,13 @@ class AdminShopMenuView(SafeView):
     async def item_history(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("AdminShop")
-        await interaction.edit_original_response(
-            content="📝 **Enter the Item UUID** to look up (or type `cancel`):",
+        ctx = PanelContext(interaction)
+        view = ItemHistorySourceView(cog, ctx)
+        await interaction.followup.send(
+            "📜 **Item History** — Where is the item?",
+            view=view,
+            ephemeral=True,
         )
-        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
-        if text is None:
-            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
-            return
-        await _inline_item_history(cog, interaction, text.strip())
 
     @discord.ui.button(label="Player Inventory", style=discord.ButtonStyle.secondary, emoji="📦", row=1, custom_id="admin_shop:player_inv")
     async def player_inv(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -343,6 +342,159 @@ class PlayerInvPickerView(SafeView):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
+class ItemHistorySourceView(SafeView):
+    def __init__(self, cog, ctx):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Player Item", style=discord.ButtonStyle.primary, emoji="👤", row=0)
+    async def player_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = ItemHistoryPlayerPickerView(self.cog, self.ctx)
+        await interaction.response.edit_message(
+            content="📜 **Item History** — Select the player:",
+            view=view,
+        )
+
+    @discord.ui.button(label="Store Item", style=discord.ButtonStyle.primary, emoji="🏪", row=0)
+    async def store_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = ItemHistoryStorePickerView(self.cog, self.ctx)
+        await interaction.response.edit_message(
+            content="📜 **Item History** — Select the store owner:",
+            view=view,
+        )
+
+
+class ItemHistoryPlayerPickerView(SafeView):
+    def __init__(self, cog, ctx):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
+    async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        user = select.values[0] if select.values else None
+        member = await _resolve_user_select(self.ctx, user)
+        if not member:
+            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        items = await pi_get_by_owner(str(member.id))
+        if not items:
+            await interaction.followup.send(f"{member.display_name} has no items.", ephemeral=True)
+            return
+        options = []
+        for item in items[:25]:
+            name = item.get("name", "?")
+            itype = item.get("item_type", "misc")
+            char = item.get("character_name", "—")
+            iid = item.get("item_id", "?")
+            label = f"{name} [{itype}]"[:100]
+            desc = f"{char} — {iid[:8]}…"[:100]
+            options.append(discord.SelectOption(label=label, value=iid, description=desc))
+        view = ItemHistoryItemPickerView(self.cog, self.ctx, options, member.display_name)
+        await interaction.edit_original_response(
+            content=f"📜 **{member.display_name}** — Select an item to view history:",
+            view=view,
+        )
+
+
+class ItemHistoryStorePickerView(SafeView):
+    def __init__(self, cog, ctx):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose the store owner…", row=0)
+    async def owner_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        user = select.values[0] if select.values else None
+        owner = await _resolve_user_select(self.ctx, user)
+        if not owner:
+            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        guild = self.ctx.guild
+        options = []
+        guns_cog = interaction.client.get_cog("GunsShopCog")
+        if guns_cog:
+            state = await guns_cog._load_state()
+            store_id = guns_cog._store_id(guild.id, owner.id)
+            lots = state.get("stores", {}).get(store_id, {}).get("lots", [])
+            for lot in lots:
+                for iid in lot.get("item_ids", []):
+                    name = lot.get("gun_name", "?")
+                    label = f"🔫 {name}"[:100]
+                    desc = f"${int(lot.get('unit_cost', 0)):,} — {iid[:8]}…"[:100]
+                    options.append(discord.SelectOption(label=label, value=iid, description=desc))
+        cw_cog = interaction.client.get_cog("CyberwareShop")
+        if cw_cog:
+            inventory = await cw_cog._load_inventory(owner.id)
+            seen = set()
+            for item in (inventory or []):
+                iid = item.get("item_id", "")
+                if iid and iid not in seen:
+                    seen.add(iid)
+                    name = item.get("name", "?")
+                    label = f"💉 {name}"[:100]
+                    desc = f"${int(item.get('price_paid', 0) or 0):,}"[:100]
+                    options.append(discord.SelectOption(label=label, value=iid, description=desc))
+        if not options:
+            await interaction.followup.send(
+                f"{owner.display_name}'s stores are empty.", ephemeral=True
+            )
+            return
+        options = options[:25]
+        view = ItemHistoryItemPickerView(self.cog, self.ctx, options, owner.display_name)
+        await interaction.edit_original_response(
+            content=f"📜 **{owner.display_name}'s Store** — Select an item to view history:",
+            view=view,
+        )
+
+
+class ItemHistoryItemPickerView(SafeView):
+    def __init__(self, cog, ctx, options: list, owner_name: str):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.owner_name = owner_name
+        select = discord.ui.Select(
+            placeholder="Choose an item…",
+            options=options,
+            row=0,
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    async def _on_select(self, interaction: discord.Interaction):
+        item_id = interaction.data["values"][0]
+        await interaction.response.defer(ephemeral=True)
+        await _inline_item_history(self.cog, interaction, item_id)
+
+
 async def _inline_reassign_item(cog, interaction, text):
     parts = [p.strip() for p in text.split(",")]
     if len(parts) < 3:
@@ -413,7 +565,7 @@ async def _inline_reassign_item(cog, interaction, text):
 async def _inline_item_history(cog, interaction, item_id):
     history = await ih_get_history(item_id, limit=50)
     if not history:
-        await interaction.edit_original_response(content=f"No history for `{item_id}`.")
+        await interaction.followup.send(content=f"No history for `{item_id}`.", ephemeral=True)
         return
     lines = []
     for entry in history:
@@ -437,8 +589,8 @@ async def _inline_item_history(cog, interaction, item_id):
         color=discord.Color.greyple(),
     )
     embed.set_footer(text=f"{len(history)} event(s)")
-    await interaction.edit_original_response(
-        content=None, embed=embed,
+    await interaction.followup.send(
+        embed=embed, ephemeral=True,
     )
 
 
@@ -662,7 +814,7 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
             description=(
                 "Choose an admin action below.\n\n"
                 "**Reassign** — Transfer/reassign an item\n"
-                "**Item History** — Look up audit trail by UUID\n"
+                "**Item History** — Browse a player/store item's audit trail\n"
                 "**Player Inventory** — Browse a player's items\n"
                 "**Wholesale Stock** — View gun + CW wholesale inventory\n"
                 "**Restock Wholesale** — Add guns to wholesale\n"

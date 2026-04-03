@@ -245,8 +245,7 @@ class TestPlayerSubViewButtons:
             inter.response.defer.assert_called_once()
         _run(_test())
 
-    @patch("NightCityBot.cogs.fixer_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
-    def test_item_history_starts_inline_flow(self, mock_collect):
+    def test_item_history_starts_inline_flow(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
@@ -256,6 +255,9 @@ class TestPlayerSubViewButtons:
             btn = _find_button(view, "Item History")
             await btn.callback(inter)
             inter.response.defer.assert_called_once()
+            kwargs = inter.followup.send.call_args.kwargs
+            from NightCityBot.cogs.fixer_hub import FixerItemHistorySourceView
+            assert isinstance(kwargs["view"], FixerItemHistorySourceView)
         _run(_test())
 
     def test_start_loa_sends_picker(self):
@@ -1322,4 +1324,79 @@ class TestRemoveItemDropdownFlow:
             inter = _make_interaction(user_id=999)
             result = await view.interaction_check(inter)
             assert result is False
+        _run(_test())
+
+
+class TestFixerItemHistoryViews:
+    def test_source_view_player_button(self):
+        from NightCityBot.cogs.fixer_hub import FixerItemHistorySourceView, FixerItemHistoryPlayerPickerView
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = FixerItemHistorySourceView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "Player Item")
+            await btn.callback(inter)
+            args = inter.response.edit_message.call_args
+            assert isinstance(args.kwargs["view"], FixerItemHistoryPlayerPickerView)
+        _run(_test())
+
+    def test_source_view_store_button(self):
+        from NightCityBot.cogs.fixer_hub import FixerItemHistorySourceView, FixerItemHistoryStorePickerView
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = FixerItemHistorySourceView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "Store Item")
+            await btn.callback(inter)
+            args = inter.response.edit_message.call_args
+            assert isinstance(args.kwargs["view"], FixerItemHistoryStorePickerView)
+        _run(_test())
+
+    def test_source_view_blocks_wrong_user(self):
+        from NightCityBot.cogs.fixer_hub import FixerItemHistorySourceView
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx(author_id=42)
+            view = FixerItemHistorySourceView(cog, ctx)
+            inter = _make_interaction(user_id=999)
+            result = await view.interaction_check(inter)
+            assert result is False
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=[])
+    def test_player_picker_no_items(self, mock_get):
+        from NightCityBot.cogs.fixer_hub import FixerItemHistoryPlayerPickerView
+        async def _test():
+            cog = _make_cog()
+            member_mock = _make_member(100, "TestPlayer")
+            ctx = _ctx()
+            ctx.guild.get_member = MagicMock(return_value=member_mock)
+            view = FixerItemHistoryPlayerPickerView(cog, ctx)
+            inter = _make_interaction()
+            sel = [c for c in view.children if isinstance(c, discord.ui.UserSelect)][0]
+            sel._values = [member_mock]
+            await sel.callback(inter)
+            inter.followup.send.assert_called_once()
+            msg = inter.followup.send.call_args.kwargs.get("content", inter.followup.send.call_args[0][0])
+            assert "no items" in msg.lower()
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub.ih_get_history", new_callable=AsyncMock, return_value=[
+        {"created_at": "2025-01-01T00:00:00", "event_type": "purchase", "actor_id": "42", "target_id": "", "price": 500, "metadata": {"item_name": "Gun"}}
+    ])
+    def test_item_picker_shows_embed(self, mock_hist):
+        from NightCityBot.cogs.fixer_hub import FixerItemHistoryItemPickerView
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            options = [discord.SelectOption(label="Test Gun", value="uuid-1234")]
+            view = FixerItemHistoryItemPickerView(cog, ctx, options, "TestPlayer")
+            inter = _make_interaction()
+            inter.data = {"values": ["uuid-1234"]}
+            await view._on_select(inter)
+            kwargs = inter.followup.send.call_args.kwargs
+            assert "embed" in kwargs
+            assert kwargs["embed"].title.startswith("📜 Item History")
         _run(_test())

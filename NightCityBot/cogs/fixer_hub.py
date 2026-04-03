@@ -210,41 +210,11 @@ class PlayerSubView(SafeView):
     @discord.ui.button(label="Item History", style=discord.ButtonStyle.secondary, emoji="📜", row=1)
     async def item_history(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        await interaction.edit_original_response(
-            content="📝 **Enter the Item UUID** to look up (or type `cancel`):",
-        )
-        item_id = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
-        if item_id is None:
-            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
-            return
-        history = await ih_get_history(item_id, limit=50)
-        if not history:
-            await interaction.edit_original_response(content=f"No history for `{item_id}`.")
-            return
-        lines = []
-        for entry in history:
-            ts = str(entry.get("created_at", ""))[:19].replace("T", " ")
-            event = entry.get("event_type", "?")
-            actor = entry.get("actor_id", "—")
-            target = entry.get("target_id", "")
-            price = entry.get("price")
-            meta = entry.get("metadata", {})
-            detail = ""
-            if target:
-                detail += f" → <@{target}>"
-            if price is not None:
-                detail += f" ${price:,}"
-            if meta.get("item_name"):
-                detail += f" ({meta['item_name']})"
-            lines.append(f"`{ts}` **{event}** by <@{actor}>{detail}")
-        embed = discord.Embed(
-            title=f"📜 Item History — `{item_id[:12]}...`",
-            description="\n".join(lines[:25]),
-            color=discord.Color.greyple(),
-        )
-        embed.set_footer(text=f"{len(history)} event(s)")
-        await interaction.edit_original_response(
-            content=None, embed=embed,
+        view = FixerItemHistorySourceView(self.cog, self.ctx)
+        await interaction.followup.send(
+            "📜 **Item History** — Where is the item?",
+            view=view,
+            ephemeral=True,
         )
 
     @discord.ui.button(label="Start LOA", style=discord.ButtonStyle.success, emoji="🏖️", row=2)
@@ -1142,6 +1112,185 @@ class LOAPickerView(SafeView):
                 f"✅ {member.display_name}'s LOA has ended.", ephemeral=True
             )
         self.stop()
+
+
+class FixerItemHistorySourceView(SafeView):
+    def __init__(self, cog, ctx):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Player Item", style=discord.ButtonStyle.primary, emoji="👤", row=0)
+    async def player_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = FixerItemHistoryPlayerPickerView(self.cog, self.ctx)
+        await interaction.response.edit_message(
+            content="📜 **Item History** — Select the player:",
+            view=view,
+        )
+
+    @discord.ui.button(label="Store Item", style=discord.ButtonStyle.primary, emoji="🏪", row=0)
+    async def store_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = FixerItemHistoryStorePickerView(self.cog, self.ctx)
+        await interaction.response.edit_message(
+            content="📜 **Item History** — Select the store owner:",
+            view=view,
+        )
+
+
+class FixerItemHistoryPlayerPickerView(SafeView):
+    def __init__(self, cog, ctx):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
+    async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        user = select.values[0] if select.values else None
+        member = await _resolve_user_select(self.ctx, user)
+        if not member:
+            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        items = await pi_get_by_owner(str(member.id))
+        if not items:
+            await interaction.followup.send(f"{member.display_name} has no items.", ephemeral=True)
+            return
+        options = []
+        for item in items[:25]:
+            name = item.get("name", "?")
+            itype = item.get("item_type", "misc")
+            char = item.get("character_name", "—")
+            iid = item.get("item_id", "?")
+            label = f"{name} [{itype}]"[:100]
+            desc = f"{char} — {iid[:8]}…"[:100]
+            options.append(discord.SelectOption(label=label, value=iid, description=desc))
+        view = FixerItemHistoryItemPickerView(self.cog, self.ctx, options, member.display_name)
+        await interaction.edit_original_response(
+            content=f"📜 **{member.display_name}** — Select an item to view history:",
+            view=view,
+        )
+
+
+class FixerItemHistoryStorePickerView(SafeView):
+    def __init__(self, cog, ctx):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose the store owner…", row=0)
+    async def owner_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        user = select.values[0] if select.values else None
+        owner = await _resolve_user_select(self.ctx, user)
+        if not owner:
+            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        guild = self.ctx.guild
+        options = []
+        guns_cog = self.cog.bot.cogs.get("GunsShopCog")
+        if guns_cog:
+            state = await guns_cog._load_state()
+            store_id = guns_cog._store_id(guild.id, owner.id)
+            lots = state.get("stores", {}).get(store_id, {}).get("lots", [])
+            for lot in lots:
+                for iid in lot.get("item_ids", []):
+                    name = lot.get("gun_name", "?")
+                    label = f"🔫 {name}"[:100]
+                    desc = f"${int(lot.get('unit_cost', 0)):,} — {iid[:8]}…"[:100]
+                    options.append(discord.SelectOption(label=label, value=iid, description=desc))
+        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
+        if cw_cog:
+            inventory = await cw_cog._load_inventory(owner.id)
+            seen = set()
+            for item in (inventory or []):
+                iid = item.get("item_id", "")
+                if iid and iid not in seen:
+                    seen.add(iid)
+                    name = item.get("name", "?")
+                    label = f"💉 {name}"[:100]
+                    desc = f"${int(item.get('price_paid', 0) or 0):,}"[:100]
+                    options.append(discord.SelectOption(label=label, value=iid, description=desc))
+        if not options:
+            await interaction.followup.send(
+                f"{owner.display_name}'s stores are empty.", ephemeral=True
+            )
+            return
+        options = options[:25]
+        view = FixerItemHistoryItemPickerView(self.cog, self.ctx, options, owner.display_name)
+        await interaction.edit_original_response(
+            content=f"📜 **{owner.display_name}'s Store** — Select an item to view history:",
+            view=view,
+        )
+
+
+class FixerItemHistoryItemPickerView(SafeView):
+    def __init__(self, cog, ctx, options: list, owner_name: str):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.owner_name = owner_name
+        select = discord.ui.Select(
+            placeholder="Choose an item…",
+            options=options,
+            row=0,
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    async def _on_select(self, interaction: discord.Interaction):
+        item_id = interaction.data["values"][0]
+        await interaction.response.defer(ephemeral=True)
+        history = await ih_get_history(item_id, limit=50)
+        if not history:
+            await interaction.followup.send(f"No history for this item.", ephemeral=True)
+            return
+        lines = []
+        for entry in history:
+            ts = str(entry.get("created_at", ""))[:19].replace("T", " ")
+            event = entry.get("event_type", "?")
+            actor = entry.get("actor_id", "—")
+            target = entry.get("target_id", "")
+            price = entry.get("price")
+            meta = entry.get("metadata", {})
+            detail = ""
+            if target:
+                detail += f" → <@{target}>"
+            if price is not None:
+                detail += f" ${price:,}"
+            if meta.get("item_name"):
+                detail += f" ({meta['item_name']})"
+            lines.append(f"`{ts}` **{event}** by <@{actor}>{detail}")
+        embed = discord.Embed(
+            title=f"📜 Item History — `{item_id[:12]}...`",
+            description="\n".join(lines[:25]),
+            color=discord.Color.greyple(),
+        )
+        embed.set_footer(text=f"{len(history)} event(s)")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 class StoreInvPickerView(SafeView):

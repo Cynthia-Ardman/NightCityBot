@@ -482,7 +482,6 @@ class TestAdminShopMenuView:
 
     def test_item_history_starts_inline_flow(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
-        monkeypatch.setattr("NightCityBot.cogs.admin_shop.collect_text_input", AsyncMock(return_value=None))
 
         async def run():
             cog = _make_admin_cog()
@@ -493,6 +492,9 @@ class TestAdminShopMenuView:
             btn = _find_button(view, "Item History")
             await btn.callback(inter)
             inter.response.defer.assert_called_once()
+            kwargs = inter.followup.send.call_args.kwargs
+            from NightCityBot.cogs.admin_shop import ItemHistorySourceView
+            assert isinstance(kwargs["view"], ItemHistorySourceView)
 
         _run(run())
 
@@ -664,6 +666,118 @@ class TestItemHistoryUtilities:
         params = list(sig.parameters.keys())
         assert "item_id" in params
         assert "limit" in params
+
+
+class TestItemHistoryViews:
+    def test_source_view_player_button_swaps_to_player_picker(self):
+        from NightCityBot.cogs.admin_shop import ItemHistorySourceView, ItemHistoryPlayerPickerView
+        async def run():
+            cog = _make_admin_cog()
+            ctx = MagicMock()
+            ctx.author = MagicMock()
+            ctx.author.id = 42
+            view = ItemHistorySourceView(cog, ctx)
+            inter = _make_interaction()
+            inter.user.id = 42
+            btn = _find_button(view, "Player Item")
+            await btn.callback(inter)
+            args = inter.response.edit_message.call_args
+            assert isinstance(args.kwargs["view"], ItemHistoryPlayerPickerView)
+        _run(run())
+
+    def test_source_view_store_button_swaps_to_store_picker(self):
+        from NightCityBot.cogs.admin_shop import ItemHistorySourceView, ItemHistoryStorePickerView
+        async def run():
+            cog = _make_admin_cog()
+            ctx = MagicMock()
+            ctx.author = MagicMock()
+            ctx.author.id = 42
+            view = ItemHistorySourceView(cog, ctx)
+            inter = _make_interaction()
+            inter.user.id = 42
+            btn = _find_button(view, "Store Item")
+            await btn.callback(inter)
+            args = inter.response.edit_message.call_args
+            assert isinstance(args.kwargs["view"], ItemHistoryStorePickerView)
+        _run(run())
+
+    def test_source_view_blocks_wrong_user(self):
+        from NightCityBot.cogs.admin_shop import ItemHistorySourceView
+        async def run():
+            cog = _make_admin_cog()
+            ctx = MagicMock()
+            ctx.author = MagicMock()
+            ctx.author.id = 42
+            view = ItemHistorySourceView(cog, ctx)
+            inter = _make_interaction()
+            inter.user.id = 999
+            result = await view.interaction_check(inter)
+            assert result is False
+        _run(run())
+
+    @patch("NightCityBot.cogs.admin_shop.pi_get_by_owner", new_callable=AsyncMock, return_value=[])
+    def test_player_picker_no_items(self, mock_get):
+        from NightCityBot.cogs.admin_shop import ItemHistoryPlayerPickerView
+        async def run():
+            cog = _make_admin_cog()
+            ctx = MagicMock()
+            ctx.author = MagicMock()
+            ctx.author.id = 42
+            ctx.guild = MagicMock()
+            ctx.guild.get_member = MagicMock(return_value=MagicMock(id=100, display_name="TestPlayer"))
+            view = ItemHistoryPlayerPickerView(cog, ctx)
+            inter = _make_interaction()
+            inter.user.id = 42
+            sel = [c for c in view.children if isinstance(c, discord.ui.UserSelect)][0]
+            member_mock = MagicMock()
+            member_mock.id = 100
+            member_mock.display_name = "TestPlayer"
+            sel._values = [member_mock]
+            await sel.callback(inter)
+            inter.followup.send.assert_called_once()
+            msg = inter.followup.send.call_args.kwargs.get("content", inter.followup.send.call_args[0][0])
+            assert "no items" in msg.lower()
+        _run(run())
+
+    @patch("NightCityBot.cogs.admin_shop.ih_get_history", new_callable=AsyncMock, return_value=[])
+    def test_item_picker_no_history(self, mock_hist):
+        from NightCityBot.cogs.admin_shop import ItemHistoryItemPickerView
+        async def run():
+            cog = _make_admin_cog()
+            ctx = MagicMock()
+            ctx.author = MagicMock()
+            ctx.author.id = 42
+            options = [discord.SelectOption(label="Test Gun", value="uuid-1234")]
+            view = ItemHistoryItemPickerView(cog, ctx, options, "TestPlayer")
+            inter = _make_interaction()
+            inter.user.id = 42
+            inter.data = {"values": ["uuid-1234"]}
+            await view._on_select(inter)
+            inter.response.defer.assert_called_once()
+            content = inter.followup.send.call_args.kwargs.get("content", "")
+            assert "no history" in content.lower()
+        _run(run())
+
+    @patch("NightCityBot.cogs.admin_shop.ih_get_history", new_callable=AsyncMock, return_value=[
+        {"created_at": "2025-01-01T00:00:00", "event_type": "purchase", "actor_id": "42", "target_id": "", "price": 500, "metadata": {"item_name": "Gun"}}
+    ])
+    def test_item_picker_shows_embed(self, mock_hist):
+        from NightCityBot.cogs.admin_shop import ItemHistoryItemPickerView
+        async def run():
+            cog = _make_admin_cog()
+            ctx = MagicMock()
+            ctx.author = MagicMock()
+            ctx.author.id = 42
+            options = [discord.SelectOption(label="Test Gun", value="uuid-1234")]
+            view = ItemHistoryItemPickerView(cog, ctx, options, "TestPlayer")
+            inter = _make_interaction()
+            inter.user.id = 42
+            inter.data = {"values": ["uuid-1234"]}
+            await view._on_select(inter)
+            kwargs = inter.followup.send.call_args.kwargs
+            assert "embed" in kwargs
+            assert kwargs["embed"].title.startswith("📜 Item History")
+        _run(run())
 
 
 class TestCogRegistration:
