@@ -39,6 +39,9 @@ from NightCityBot.utils.db import (
     cw_catalog_delete_one,
     pi_add_item,
     ResourceLockManager,
+    db_save,
+    db_load,
+    DB_LOAD_FAILED,
 )
 from NightCityBot.utils.interaction_safety import SafeView
 from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
@@ -82,17 +85,19 @@ class CyberwareShop(commands.Cog):
         if self._startup_done:
             return
         self._startup_done = True
-        if not self.state_file.exists():
-            state = {"sheet_url": getattr(config, "CYBERWARE_SHOP_SHEET_URL", ""), "items_count": 0}
-            await helpers.save_json_file(self.state_file, state)
         if not self.tx_file.exists():
             await helpers.save_json_file(self.tx_file, [])
+        state = await self._load_state()
+        if not state.get("sheet_url") and getattr(config, "CYBERWARE_SHOP_SHEET_URL", ""):
+            state["sheet_url"] = config.CYBERWARE_SHOP_SHEET_URL
+            await self._save_state(state)
         logger.info(
-            "CyberwareShop data paths: data_dir=%s state=%s tx=%s inventory_dir=%s",
+            "CyberwareShop data paths: data_dir=%s state=%s tx=%s inventory_dir=%s sheet_url=%s",
             self.data_dir,
             self.state_file,
             self.tx_file,
             self.inventory_dir,
+            bool(state.get("sheet_url")),
         )
 
         try:
@@ -111,14 +116,28 @@ class CyberwareShop(commands.Cog):
         except Exception:
             logger.warning("cyberware_catalog startup populate failed (non-fatal)", exc_info=True)
 
+    _DB_STATE_KEY = "cw_shop_state"
+
     async def _load_state(self) -> dict[str, Any]:
-        return await helpers.load_json_file(
-            self.state_file,
-            default={"sheet_url": "", "items_count": 0},
+        default = {"sheet_url": "", "items_count": 0}
+        state = await db_load(
+            self._DB_STATE_KEY,
+            default=None,
+            seed_path=self.state_file,
         )
+        if state is DB_LOAD_FAILED or state is None:
+            file_state = await helpers.load_json_file(self.state_file, default=default)
+            if state is None and isinstance(file_state, dict) and file_state != default:
+                await db_save(self._DB_STATE_KEY, file_state)
+            state = file_state
+        if not isinstance(state, dict):
+            state = default
+        return state
 
     async def _save_state(self, state: dict[str, Any]) -> bool:
-        return await helpers.save_json_file(self.state_file, state)
+        db_ok = await db_save(self._DB_STATE_KEY, state)
+        file_ok = await helpers.save_json_file(self.state_file, state)
+        return db_ok or file_ok
 
     async def _load_catalog(self) -> list[dict[str, Any]]:
         db_items = await cw_catalog_get_all()

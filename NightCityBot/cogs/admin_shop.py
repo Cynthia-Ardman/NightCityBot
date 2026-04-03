@@ -15,6 +15,7 @@ from discord.ext import commands
 
 import config
 from NightCityBot.utils.interaction_safety import SafeView
+from NightCityBot.utils import helpers
 from NightCityBot.utils.db import (
     pi_get_item,
     pi_get_by_owner,
@@ -28,6 +29,7 @@ from NightCityBot.utils.db import (
     cw_catalog_get_all,
     cw_catalog_upsert_many,
     gun_catalog_upsert_many,
+    db_save,
 )
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active, get_character_by_name
 from NightCityBot.utils.permissions import is_fixer
@@ -245,13 +247,21 @@ class AdminShopMenuView(SafeView):
         if not cw_cog:
             await interaction.edit_original_response(content="Cyberware system unavailable.")
             return
-        state = await cw_cog._load_state()
+        try:
+            state = await cw_cog._load_state()
+        except Exception:
+            logger.exception("set_cw_sheet: failed to load CW state")
+            state = {}
         current = str(state.get("sheet_url", "")).strip()
         prompt = "📝 **Paste the Google Sheets URL** for the cyberware catalog"
         if current:
             prompt += f"\nCurrent: `{current[:80]}{'…' if len(current) > 80 else ''}`"
         prompt += "\nType `cancel` to abort."
-        await interaction.edit_original_response(content=prompt)
+        try:
+            await interaction.edit_original_response(content=prompt)
+        except Exception:
+            logger.exception("set_cw_sheet: failed to show prompt")
+            return
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
@@ -260,11 +270,21 @@ class AdminShopMenuView(SafeView):
         if not url.startswith(("http://", "https://")):
             await interaction.edit_original_response(content="❌ Invalid URL.")
             return
-        async with cw_cog.lock:
-            cw_state = await cw_cog._load_state()
-            cw_state["sheet_url"] = url
-            await cw_cog._save_state(cw_state)
-        await interaction.edit_original_response(content="✅ Cyberware sheet URL updated.")
+        try:
+            async with cw_cog.lock:
+                cw_state = await cw_cog._load_state()
+                cw_state["sheet_url"] = url
+                db_ok = await db_save("cw_shop_state", cw_state)
+                file_ok = await helpers.save_json_file(cw_cog.state_file, cw_state)
+            if db_ok:
+                await interaction.edit_original_response(content="✅ Cyberware sheet URL updated and saved.")
+            elif file_ok:
+                await interaction.edit_original_response(content="⚠️ URL saved to file only — database write failed. It may not survive a full rebuild.")
+            else:
+                await interaction.edit_original_response(content="❌ Failed to save sheet URL. Please try again.")
+        except Exception:
+            logger.exception("set_cw_sheet: failed to save CW state")
+            await interaction.edit_original_response(content="❌ Error saving sheet URL. Check logs.")
 
     @discord.ui.button(label="Reload Sheets", style=discord.ButtonStyle.success, emoji="🔄", row=4, custom_id="admin_shop:reload_sheets")
     async def reload_sheets(self, interaction: discord.Interaction, button: discord.ui.Button):
