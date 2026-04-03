@@ -9,7 +9,7 @@ A Discord bot for NCRP (Cyberpunk-themed RP server) managing economy, roleplay u
 - **Cogs**: `NightCityBot/cogs/` — modular command groups (economy, wholesaler, cyberware, etc.)
 - **Services**: `NightCityBot/services/` — UnbelievaBoat API wrapper, Trauma Team logic
 - **Utils**: `NightCityBot/utils/` — helpers, permissions, startup checks
-- **Tests**: `NightCityBot/tests/` — pytest suite
+- **Tests**: `NightCityBot/tests/` — pytest suite (coverage floor: 57%)
 
 ## Data Storage
 

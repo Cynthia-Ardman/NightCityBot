@@ -48,10 +48,10 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python -m pytest NightCityBot/tests/ -q --tb=short --cov=NightCityBot --cov-report=term-missing --cov-fail-under=54"
+args = "python -m pytest NightCityBot/tests/ -q --tb=short --cov=NightCityBot --cov-report=term-missing --cov-fail-under=57"
 
 [workflows.workflow.metadata]
-isValidation = true
+outputType = "console"
 
 [[ports]]
 localPort = 5000
