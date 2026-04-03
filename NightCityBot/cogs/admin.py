@@ -314,65 +314,44 @@ class Admin(commands.Cog):
             (
                 "🏪 Interactive Hubs",
                 "\n".join([
-                    "`!gunstore` – gun store hub: buy wholesale, sell to customers, view stock.",
-                    "`!ripperdoc` – ripperdoc hub: buy wholesale, sell/install to patients, view stock.",
-                    "`!admin_shop` – admin panel: add/remove items, reassign, history lookup, wholesale management.",
+                    "`!fixer` – **Fixer panel**: player inventory, items, LOA, store & wholesale management.",
+                    "`!gunstore` – gun store hub: buy, sell, view stock.",
+                    "`!ripperdoc` – ripperdoc hub: buy, sell, install, view stock.",
+                    "`!admin_shop` – admin panel: add/remove items, reassign, history, wholesale.",
                 ]),
             ),
             (
                 "✉️ Messaging",
                 "\n".join([
-                    "`!dm @user <text>` – anonymous DM with attachments. Logged in a private thread.",
+                    "`!dm @user <text>` – anonymous DM with attachments.",
                     "`!post <channel|thread> <message>` – send a message in another channel.",
                     "`!npc_button` – send the NPC role assignment button.",
                 ]),
             ),
             (
-                "📑 RP Management",
+                "📑 RP & Characters",
                 "\n".join([
-                    "`!start_rp @users...` – create a locked RP channel for the listed users.",
-                    "`!end_rp` – archive the current RP channel and delete it.",
-                    "`!export_threads #channel` – export threads to a downloadable HTML file.",
-                ]),
-            ),
-            (
-                "📋 Character Sheets",
-                "\n".join([
-                    "`!search_characters <keyword>` – search thread titles, tags and posts.",
-                    "`!retire` – move threads tagged 'Retired' to the archive.",
-                    "`!move_npcs` – move threads tagged 'NPC' to the NPC forum.",
-                    "`!unretire <thread_id>` – move a retired thread back.",
-                    "`!backup_sheets` – export all character sheet threads.",
+                    "`!start_rp @users...` – create a locked RP channel.",
+                    "`!end_rp` – archive the current RP channel.",
+                    "`!search_characters <keyword>` – search character sheets.",
+                    "`!export_threads #channel` – export threads to HTML.",
                 ]),
             ),
             (
                 "💵 Economy & Rent",
                 "\n".join([
-                    "`!event_start` – allow `!attend` and `!open_shop` outside Sunday (4 hr window).",
-                    "`!due [@user]` – breakdown of what a user owes on the 1st.",
-                    "`!collect_rent [@user] [-v] [-force]` – run the monthly rent cycle.",
-                    "`!list_deficits` – list members who can't cover upcoming charges.",
-                    "`!simulate_rent [@user]` – dry run of rent collection.",
-                    "`!simulate_cyberware [@user]` – preview cyberware medication costs.",
-                    "`!simulate_all [@user]` – run both simulations at once.",
+                    "`!event_start` – allow `!attend` / `!open_shop` outside Sunday.",
+                    "`!due [@user]` – breakdown of what a user owes.",
+                    "`!collect_rent [@user] [-v] [-force]` – run the rent cycle.",
+                    "`!simulate_rent` / `!simulate_cyberware` / `!simulate_all` – dry runs.",
                 ]),
             ),
             (
-                "💉 Cyberware Admin",
+                "💉 Cyberware",
                 "\n".join([
                     "`!checkup @user` – remove the checkup role after an exam.",
-                    "`!give_checkup_role [@user]` – give the checkup role to a member or all CW users.",
                     "`!checkup_report` – list checkup/meds status for all CW users.",
                     "`!cyberware_status` – current week status for all CW users.",
-                    "`!collect_cyberware @user` – manually charge a member for meds.",
-                ]),
-            ),
-            (
-                "🔫 Gun Shop Admin",
-                "\n".join([
-                    "`!guns_wh_approve @user` – add a user to a controlled-buyer list.",
-                    "`!guns_wh_unapprove @user` – remove from the list.",
-                    "`!guns_wh_approved` – view the approved buyer list.",
                 ]),
             ),
         ]

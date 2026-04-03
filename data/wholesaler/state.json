@@ -117,17 +117,7 @@
     },
     "1348601552083882108:286338318076084226": {
       "owner_id": "286338318076084226",
-      "lots": [
-        {
-          "lot_id": "lot-001",
-          "gun_name": "Nue",
-          "gun_level": "M",
-          "unit_cost": 1300,
-          "restriction": "basic",
-          "weapon_type": "pistol",
-          "qty_remaining": 1
-        }
-      ]
+      "lots": []
     }
   },
   "shop_registry": {
