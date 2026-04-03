@@ -3,7 +3,6 @@
 Consolidates the separate cw_* command set into a single interactive hub
 with Discord dropdowns, buttons, and inline component flows.
 """
-import asyncio
 import logging
 import math
 import random
@@ -26,7 +25,7 @@ from NightCityBot.utils.db import (
 )
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active
 from NightCityBot.utils.inline_helpers import collect_text_input, QtySelectView
-from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
+from NightCityBot.utils.permissions import is_fixer
 from NightCityBot.utils.panel_context import PanelContext
 
 logger = logging.getLogger(__name__)
@@ -44,14 +43,6 @@ def _is_ripperdoc_employee(member: discord.Member) -> bool:
 
 def _rd_store_id(guild_id: int, owner_id: int) -> str:
     return f"rd:{guild_id}:{owner_id}"
-
-
-def _find_rd_employee_store(state: dict, guild_id: int, user_id: int):
-    prefix = f"rd:{guild_id}:"
-    for sid, s in state.get("ripperdoc_stores", {}).items():
-        if sid.startswith(prefix) and user_id in s.get("employees", []):
-            return sid, s
-    return None, None
 
 
 def _find_rd_accessible_stores(state: dict, guild_id: int, user_id: int, member) -> list:

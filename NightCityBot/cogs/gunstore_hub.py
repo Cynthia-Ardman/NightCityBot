@@ -24,7 +24,6 @@ from NightCityBot.utils.db import (
 )
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active
 from NightCityBot.utils.inline_helpers import collect_text_input, QtySelectView
-from NightCityBot.utils.permissions import is_store_owner, is_fixer
 from NightCityBot.utils.panel_context import PanelContext
 
 logger = logging.getLogger(__name__)
@@ -1580,22 +1579,6 @@ class GunstoreHub(commands.Cog, name="GunstoreHub"):
                 pass
         return ch
 
-    async def _resolve_member(self, guild: discord.Guild, raw: str) -> Optional[discord.Member]:
-        raw = raw.strip()
-        match = re.match(r"<@!?(\d+)>", raw)
-        if match:
-            uid = int(match.group(1))
-        elif raw.isdigit():
-            uid = int(raw)
-        else:
-            return None
-        member = guild.get_member(uid)
-        if member is None:
-            try:
-                member = await guild.fetch_member(uid)
-            except Exception:
-                return None
-        return member
 
     @staticmethod
     def _panel_embed() -> discord.Embed:

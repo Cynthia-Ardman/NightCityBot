@@ -581,15 +581,6 @@ class TestResolveMember:
         result = _run(cog._resolve_member_from_input(guild, "notanumber"))
         assert result is None
 
-    def test_gunstore_resolve_mention(self, monkeypatch):
-        monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
-        cog = _make_gunstore_cog()
-        guild = MagicMock()
-        member = _make_member(54321)
-        guild.get_member = MagicMock(return_value=member)
-        result = _run(cog._resolve_member(guild, "<@!54321>"))
-        assert result == member
-
     def test_admin_resolve_member(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
         cog = _make_admin_cog()

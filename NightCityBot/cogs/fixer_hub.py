@@ -4,7 +4,6 @@ Three top-level categories: Player, Store, Wholesaler.
 Each opens a sub-menu with relevant actions.
 """
 import logging
-import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -30,29 +29,6 @@ from NightCityBot.utils.inline_helpers import collect_text_input
 from NightCityBot.utils.panel_context import PanelContext
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_id(raw: str) -> Optional[int]:
-    raw = raw.strip()
-    m = re.match(r"<@!?(\d+)>", raw)
-    if m:
-        return int(m.group(1))
-    if raw.isdigit():
-        return int(raw)
-    return None
-
-
-async def _resolve_member(guild: discord.Guild, raw: str) -> Optional[discord.Member]:
-    uid = _resolve_id(raw)
-    if uid is None:
-        return None
-    member = guild.get_member(uid)
-    if member is None:
-        try:
-            member = await guild.fetch_member(uid)
-        except Exception:
-            return None
-    return member
 
 
 async def _audit_channel(bot: commands.Bot) -> Optional[discord.TextChannel]:
@@ -217,8 +193,8 @@ class PlayerSubView(SafeView):
         await interaction.message.delete()
 
 
-GUN_STORE_OWNER_ROLE_ID = 1489616360920318143
-RIPPERDOC_ROLE_ID = 1356028868103897156
+GUN_STORE_OWNER_ROLE_ID = config.GUN_STORE_OWNER_ROLE_ID
+RIPPERDOC_ROLE_ID = config.RIPPERDOC_ROLE_ID
 
 
 class StoreSubView(SafeView):
