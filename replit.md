@@ -76,13 +76,25 @@ Removed dead constants: `TICKET_INDEX_FILE`, `WHOLESALER_RESTOCK_SCHEDULE`, `FIX
 
 ## Player Hub (`!player`)
 
-Interactive panel for inventory management. Buttons: View Inventory, Trade Item, Sell to Store, Give Item.
+Interactive panel for inventory management. Row 0 buttons: View Inventory, Trade Item, Sell to Store, Give Item. Row 2 buttons: Create Character, Manage Characters.
 
-- **Trade Item** — sell an item to another player with payment (DM confirmation, UnbelievaBoat balance transfer)
-- **Give Item** — transfer an item for free (no payment, direct ownership transfer)
-- **Sell to Store** — sell any gun to a gunstore owner. Player picks store owner (validated by `WHOLESALER_STORE_ROLE_IDS`), selects a gun from inventory, enters price. Store owner gets DM confirmation. On accept: payment transfers, item removed from player inventory, gun added as a lot to the store's state. Supports controlled/restricted guns. Compensation paths for save-state failures.
+### Character System
+Players can create, deactivate, and reactivate characters via the Player Hub. Characters are stored in the `characters` PostgreSQL table (25th table). Character helpers live in `NightCityBot/utils/characters.py`.
 
-All flows use the UserSelect + item Select + Continue → modal pattern.
+- **Create Character** — prompts for a name (≤64 chars, unique per user), creates an active character record
+- **Manage Characters** — opens a sub-view with Deactivate/Reactivate buttons, each showing a character select menu
+- All character state changes are ownership-enforced (`WHERE character_id=? AND user_id=?`) and logged to `NIGHTCITYBOT_LOG_CHANNEL_ID`
+
+### Character-Aware Flows
+All Trade/Give/Sell-to-Store flows now use character select menus instead of free-text character name inputs:
+- **Trade Item** — after selecting a buyer, fetches their active characters and shows a StringSelect; buyer character is passed into the modal
+- **Give Item** — after selecting a recipient, fetches their active characters and shows a StringSelect (Ripperdoc recipients bypass character selection); receiver character is passed into the modal
+- **Sell to Store** — fetches the seller's active characters at button click; character select shown in setup view; seller character is passed through to the details modal
+- **View Inventory** — when items belong to multiple characters, shows a character filter dropdown (All Characters + per-character options) before displaying the inventory embed
+
+All flows use the UserSelect + item Select + character Select + Continue → modal pattern.
+
+Blocking behavior: if a user (buyer/recipient/seller) has no active characters, the flow is blocked with an error message.
 
 ## Wholesaler System Flow
 

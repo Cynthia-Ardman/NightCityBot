@@ -39,6 +39,9 @@ def _row_to_dict(row) -> dict:
         d["name"] = d["character_name"]
     if "discord_user_id" in d:
         d["owner_id"] = d["discord_user_id"]
+        d["user_id"] = d["discord_user_id"]
+    if "status" in d:
+        d["active"] = d["status"] == "active"
     return d
 
 
@@ -47,6 +50,7 @@ _ALL_COLS = (
     "normalized_character_name, status, "
     "created_at, updated_at, deactivated_at, reactivated_at"
 )
+
 
 
 async def create_character(discord_user_id: str, character_name: str) -> dict | None:
@@ -81,10 +85,12 @@ async def create_character(discord_user_id: str, character_name: str) -> dict | 
             "character_id": char_id,
             "discord_user_id": str(discord_user_id),
             "owner_id": str(discord_user_id),
+            "user_id": str(discord_user_id),
             "character_name": stripped,
             "name": stripped,
             "normalized_character_name": norm,
             "status": "active",
+            "active": True,
             "created_at": now.isoformat(),
             "updated_at": now.isoformat(),
             "deactivated_at": None,
@@ -102,22 +108,37 @@ async def create_character(discord_user_id: str, character_name: str) -> dict | 
         raise
 
 
-async def deactivate_character(character_id: str) -> bool:
+async def deactivate_character(character_id: str, user_id: str | None = None) -> bool:
     try:
         now = datetime.now(timezone.utc)
         pool = await get_pool()
-        result = await _with_retry(
-            lambda: pool.execute(
-                """
-                UPDATE characters
-                SET status = 'inactive', deactivated_at = $2, updated_at = $2
-                WHERE character_id = $1 AND status = 'active'
-                """,
-                str(character_id),
-                now,
-            ),
-            label="deactivate_character",
-        )
+        if user_id is not None:
+            result = await _with_retry(
+                lambda: pool.execute(
+                    """
+                    UPDATE characters
+                    SET status = 'inactive', deactivated_at = $2, updated_at = $2
+                    WHERE character_id = $1 AND status = 'active' AND discord_user_id = $3
+                    """,
+                    str(character_id),
+                    now,
+                    str(user_id),
+                ),
+                label="deactivate_character",
+            )
+        else:
+            result = await _with_retry(
+                lambda: pool.execute(
+                    """
+                    UPDATE characters
+                    SET status = 'inactive', deactivated_at = $2, updated_at = $2
+                    WHERE character_id = $1 AND status = 'active'
+                    """,
+                    str(character_id),
+                    now,
+                ),
+                label="deactivate_character",
+            )
         rows = int(result.split()[-1]) if result else 0
         return rows > 0
     except Exception:
@@ -125,22 +146,37 @@ async def deactivate_character(character_id: str) -> bool:
         return False
 
 
-async def reactivate_character(character_id: str) -> bool:
+async def reactivate_character(character_id: str, user_id: str | None = None) -> bool:
     try:
         now = datetime.now(timezone.utc)
         pool = await get_pool()
-        result = await _with_retry(
-            lambda: pool.execute(
-                """
-                UPDATE characters
-                SET status = 'active', reactivated_at = $2, updated_at = $2
-                WHERE character_id = $1 AND status = 'inactive'
-                """,
-                str(character_id),
-                now,
-            ),
-            label="reactivate_character",
-        )
+        if user_id is not None:
+            result = await _with_retry(
+                lambda: pool.execute(
+                    """
+                    UPDATE characters
+                    SET status = 'active', reactivated_at = $2, updated_at = $2
+                    WHERE character_id = $1 AND status = 'inactive' AND discord_user_id = $3
+                    """,
+                    str(character_id),
+                    now,
+                    str(user_id),
+                ),
+                label="reactivate_character",
+            )
+        else:
+            result = await _with_retry(
+                lambda: pool.execute(
+                    """
+                    UPDATE characters
+                    SET status = 'active', reactivated_at = $2, updated_at = $2
+                    WHERE character_id = $1 AND status = 'inactive'
+                    """,
+                    str(character_id),
+                    now,
+                ),
+                label="reactivate_character",
+            )
         rows = int(result.split()[-1]) if result else 0
         return rows > 0
     except Exception:
@@ -276,3 +312,17 @@ async def resolve_character_name(discord_user_id: str, name: str) -> Optional[di
     if char is not None:
         return char
     return await create_character(discord_user_id, name)
+
+
+async def character_name_exists(discord_user_id: str, name: str) -> bool:
+    norm = normalize_name(name)
+    try:
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            "SELECT 1 FROM characters WHERE discord_user_id = $1 AND normalized_character_name = $2",
+            str(discord_user_id), norm,
+        )
+        return row is not None
+    except Exception:
+        logger.error("character_name_exists failed for user='%s' name='%s'", discord_user_id, name, exc_info=True)
+        return False

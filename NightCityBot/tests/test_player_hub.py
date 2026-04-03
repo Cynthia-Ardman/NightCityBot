@@ -17,7 +17,25 @@ from NightCityBot.cogs.player_hub import (
     SellToStoreSetupView,
     SellToStoreDetailsModal,
     StoreBuyConfirmView,
+    ManageCharactersView,
+    DeactivateCharacterView,
+    ReactivateCharacterView,
+    InventoryCharFilterView,
+    _build_inventory_embed,
 )
+
+MOCK_ACTIVE_CHARS = [
+    {"character_id": "uuid-char-1", "user_id": "111", "name": "Johnny", "active": True},
+    {"character_id": "uuid-char-2", "user_id": "111", "name": "V", "active": True},
+]
+
+MOCK_INACTIVE_CHARS = [
+    {"character_id": "uuid-char-3", "user_id": "111", "name": "Jackie", "active": False},
+]
+
+MOCK_SELLER_CHARS = [
+    {"character_id": "uuid-char-10", "user_id": "100", "name": "V", "active": True},
+]
 
 
 def _run(coro):
@@ -315,7 +333,8 @@ def test_trade_setup_buyer_select():
         buyer = _make_buyer()
         select = _find_any_select(view, discord.ui.UserSelect)
         select._values = [buyer]
-        await select.callback(inter)
+        with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_ACTIVE_CHARS):
+            await select.callback(inter)
         assert view.selected_buyer == buyer
         assert "✓" in inter.response.send_message.call_args[0][0]
     _run(_test())
@@ -371,12 +390,28 @@ def test_trade_setup_continue_opens_modal():
         view = TradeSetupView(cog, ctx, groups)
         view.selected_buyer = _make_buyer()
         view.selected_group_idx = 0
+        view.selected_buyer_char_name = "Johnny"
         inter = _make_interaction()
         btn = _find_button(view, "Continue →")
         await btn.callback(inter)
         inter.response.send_modal.assert_called_once()
         modal = inter.response.send_modal.call_args[0][0]
         assert isinstance(modal, TradeDetailsModal)
+    _run(_test())
+
+
+def test_trade_setup_continue_no_buyer_char():
+    async def _test():
+        cog = _make_cog()
+        ctx = _make_ctx()
+        groups = _build_groups(SAMPLE_ITEMS)
+        view = TradeSetupView(cog, ctx, groups)
+        view.selected_buyer = _make_buyer()
+        view.selected_group_idx = 0
+        inter = _make_interaction()
+        btn = _find_button(view, "Continue →")
+        await btn.callback(inter)
+        assert "character" in inter.response.send_message.call_args[0][0].lower()
     _run(_test())
 
 
@@ -388,6 +423,7 @@ def test_trade_setup_continue_self_trade_blocked():
         view = TradeSetupView(cog, ctx, groups)
         view.selected_buyer = _make_buyer(uid=100)
         view.selected_group_idx = 0
+        view.selected_buyer_char_name = "Johnny"
         inter = _make_interaction(user_id=100)
         btn = _find_button(view, "Continue →")
         await btn.callback(inter)
@@ -404,6 +440,7 @@ def test_trade_setup_continue_restricted_blocked():
         view = TradeSetupView(cog, ctx, groups)
         view.selected_buyer = _make_buyer()
         view.selected_group_idx = 0
+        view.selected_buyer_char_name = "Johnny"
         inter = _make_interaction()
         btn = _find_button(view, "Continue →")
         await btn.callback(inter)
@@ -419,9 +456,8 @@ def test_trade_details_no_guild():
         cog = _make_cog()
         buyer = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0])
+        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Johnny")
         modal.price_input = MagicMock(value="100")
-        modal.buyer_char_input = MagicMock(value="Johnny")
         inter = _make_interaction()
         inter.guild = None
         await modal.on_submit(inter)
@@ -437,9 +473,8 @@ def test_trade_details_system_disabled():
         cog.bot.get_cog = MagicMock(return_value=control)
         buyer = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0])
+        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Johnny")
         modal.price_input = MagicMock(value="100")
-        modal.buyer_char_input = MagicMock(value="Johnny")
         inter = _make_interaction()
         await modal.on_submit(inter)
         assert "offline" in inter.followup.send.call_args[0][0].lower()
@@ -452,9 +487,8 @@ def test_trade_details_negative_price():
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0])
+        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Johnny")
         modal.price_input = MagicMock(value="-50")
-        modal.buyer_char_input = MagicMock(value="Johnny")
         inter = _make_interaction()
         await modal.on_submit(inter)
         assert "negative" in inter.followup.send.call_args[0][0].lower()
@@ -467,9 +501,8 @@ def test_trade_details_bad_price():
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0])
+        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Johnny")
         modal.price_input = MagicMock(value="abc")
-        modal.buyer_char_input = MagicMock(value="Johnny")
         inter = _make_interaction()
         await modal.on_submit(inter)
         assert "price must be a number" in inter.followup.send.call_args[0][0].lower()
@@ -482,9 +515,8 @@ def test_trade_details_self_trade_blocked():
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer(uid=100)
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0])
+        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Johnny")
         modal.price_input = MagicMock(value="0")
-        modal.buyer_char_input = MagicMock(value="Johnny")
         inter = _make_interaction(user_id=100)
         await modal.on_submit(inter)
         assert "cannot trade items to yourself" in inter.followup.send.call_args[0][0].lower()
@@ -497,9 +529,8 @@ def test_trade_details_empty_buyer_char():
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0])
+        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="")
         modal.price_input = MagicMock(value="100")
-        modal.buyer_char_input = MagicMock(value="   ")
         inter = _make_interaction()
         await modal.on_submit(inter)
         assert "buyer character name is required" in inter.followup.send.call_args[0][0].lower()
@@ -514,9 +545,8 @@ def test_trade_details_restricted_item():
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer()
         groups = _build_groups(RESTRICTED_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0])
+        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Johnny")
         modal.price_input = MagicMock(value="100")
-        modal.buyer_char_input = MagicMock(value="Johnny")
         inter = _make_interaction(user_id=100)
         with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value=RESTRICTED_ITEMS[0]):
             await modal.on_submit(inter)
@@ -530,9 +560,8 @@ def test_trade_details_self_trade_blocked_free():
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer(uid=100, name="TestPlayer")
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0])
+        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Jackie")
         modal.price_input = MagicMock(value="0")
-        modal.buyer_char_input = MagicMock(value="Jackie")
         inter = _make_interaction(user_id=100)
         await modal.on_submit(inter)
         assert "cannot trade items to yourself" in inter.followup.send.call_args[0][0].lower()
@@ -547,9 +576,8 @@ def test_trade_details_item_no_longer_owned():
         cog.bot.get_cog = MagicMock(return_value=None)
         buyer = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = TradeDetailsModal(cog, buyer, groups[0])
+        modal = TradeDetailsModal(cog, buyer, groups[0], buyer_character="Johnny")
         modal.price_input = MagicMock(value="100")
-        modal.buyer_char_input = MagicMock(value="Johnny")
         inter = _make_interaction(user_id=100)
         with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value=None):
             await modal.on_submit(inter)
@@ -580,9 +608,11 @@ def test_give_setup_recipient_select():
         view = GiveSetupView(cog, ctx, groups)
         inter = _make_interaction()
         recipient = _make_buyer(uid=222, name="Recipient")
+        recipient.roles = []
         select = _find_any_select(view, discord.ui.UserSelect)
         select._values = [recipient]
-        await select.callback(inter)
+        with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_ACTIVE_CHARS):
+            await select.callback(inter)
         assert view.selected_recipient == recipient
         assert "✓" in inter.response.send_message.call_args[0][0]
     _run(_test())
@@ -638,6 +668,7 @@ def test_give_setup_continue_opens_modal():
         view = GiveSetupView(cog, ctx, groups)
         view.selected_recipient = _make_buyer()
         view.selected_group_idx = 0
+        view.selected_recipient_char_name = "Johnny"
         inter = _make_interaction()
         btn = _find_button(view, "Continue →")
         await btn.callback(inter)
@@ -654,9 +685,8 @@ def test_give_details_no_guild():
         cog = _make_cog()
         recipient = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = GiveDetailsModal(cog, recipient, groups[0])
+        modal = GiveDetailsModal(cog, recipient, groups[0], receiver_character="Jackie")
         modal.sender_char_input = MagicMock(value="V")
-        modal.receiver_char_input = MagicMock(value="Jackie")
         inter = _make_interaction()
         inter.guild = None
         await modal.on_submit(inter)
@@ -672,9 +702,8 @@ def test_give_details_system_disabled():
         cog.bot.get_cog = MagicMock(return_value=control)
         recipient = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = GiveDetailsModal(cog, recipient, groups[0])
+        modal = GiveDetailsModal(cog, recipient, groups[0], receiver_character="Jackie")
         modal.sender_char_input = MagicMock(value="V")
-        modal.receiver_char_input = MagicMock(value="Jackie")
         inter = _make_interaction()
         await modal.on_submit(inter)
         assert "offline" in inter.followup.send.call_args[0][0].lower()
@@ -687,9 +716,8 @@ def test_give_details_no_sender_char():
         cog.bot.get_cog = MagicMock(return_value=None)
         recipient = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = GiveDetailsModal(cog, recipient, groups[0])
+        modal = GiveDetailsModal(cog, recipient, groups[0], receiver_character="Jackie")
         modal.sender_char_input = MagicMock(value="")
-        modal.receiver_char_input = MagicMock(value="Jackie")
         inter = _make_interaction()
         await modal.on_submit(inter)
         assert "character name is required" in inter.followup.send.call_args[0][0].lower()
@@ -702,9 +730,8 @@ def test_give_details_wrong_character():
         cog.bot.get_cog = MagicMock(return_value=None)
         recipient = _make_buyer()
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = GiveDetailsModal(cog, recipient, groups[0])
+        modal = GiveDetailsModal(cog, recipient, groups[0], receiver_character="Jackie")
         modal.sender_char_input = MagicMock(value="WrongName")
-        modal.receiver_char_input = MagicMock(value="Jackie")
         inter = _make_interaction(user_id=100)
         await modal.on_submit(inter)
         assert "belongs to character" in inter.followup.send.call_args[0][0].lower()
@@ -718,9 +745,8 @@ def test_give_details_no_receiver_char():
         recipient = _make_buyer()
         recipient.roles = []
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = GiveDetailsModal(cog, recipient, groups[0])
+        modal = GiveDetailsModal(cog, recipient, groups[0], receiver_character="")
         modal.sender_char_input = MagicMock(value="V")
-        modal.receiver_char_input = MagicMock(value="")
         inter = _make_interaction(user_id=100)
         await modal.on_submit(inter)
         assert "character name is required" in inter.followup.send.call_args[0][0].lower()
@@ -736,9 +762,8 @@ def test_give_details_success():
         recipient = _make_buyer()
         recipient.roles = []
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = GiveDetailsModal(cog, recipient, groups[0])
+        modal = GiveDetailsModal(cog, recipient, groups[0], receiver_character="Jackie")
         modal.sender_char_input = MagicMock(value="V")
-        modal.receiver_char_input = MagicMock(value="Jackie")
         inter = _make_interaction(user_id=100)
         with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=True):
             with patch("NightCityBot.cogs.player_hub.ih_record_event", new_callable=AsyncMock):
@@ -755,9 +780,8 @@ def test_give_details_transfer_fails():
         recipient = _make_buyer()
         recipient.roles = []
         groups = _build_groups(SAMPLE_ITEMS)
-        modal = GiveDetailsModal(cog, recipient, groups[0])
+        modal = GiveDetailsModal(cog, recipient, groups[0], receiver_character="Jackie")
         modal.sender_char_input = MagicMock(value="V")
-        modal.receiver_char_input = MagicMock(value="Jackie")
         inter = _make_interaction(user_id=100)
         with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=False):
             await modal.on_submit(inter)
@@ -842,13 +866,26 @@ def _make_non_owner(uid=201, name="NotOwner"):
 
 
 class TestSellToStoreButton:
+    def test_sell_to_store_button_no_active_chars(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            view = PlayerHubView(cog, ctx)
+            inter = _make_interaction()
+            with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=[]):
+                btn = _find_button(view, "Sell to Store")
+                await btn.callback(inter)
+            assert "no active characters" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
     def test_sell_to_store_button_no_items(self):
         async def _test():
             cog = _make_cog()
             ctx = _make_ctx()
             view = PlayerHubView(cog, ctx)
             inter = _make_interaction()
-            with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=[]):
+            with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_SELLER_CHARS), \
+                 patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=[]):
                 btn = _find_button(view, "Sell to Store")
                 await btn.callback(inter)
             assert "empty" in inter.followup.send.call_args[0][0].lower()
@@ -866,7 +903,8 @@ class TestSellToStoreButton:
                 "price_paid": 50, "seller_name": "", "acquired_at": "2025-01-01",
                 "created_at": "2025-01-01",
             }]
-            with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=non_gun_items):
+            with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_SELLER_CHARS), \
+                 patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=non_gun_items):
                 btn = _find_button(view, "Sell to Store")
                 await btn.callback(inter)
             assert "no guns" in inter.followup.send.call_args[0][0].lower()
@@ -880,7 +918,8 @@ class TestSellToStoreButton:
             ctx = _make_ctx()
             view = PlayerHubView(cog, ctx)
             inter = _make_interaction()
-            with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=SAMPLE_ITEMS):
+            with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_SELLER_CHARS), \
+                 patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=SAMPLE_ITEMS):
                 btn = _find_button(view, "Sell to Store")
                 await btn.callback(inter)
             msg = inter.followup.send.call_args[0][0]
@@ -985,6 +1024,20 @@ class TestSellToStoreSetupView:
             assert "yourself" in inter.response.send_message.call_args[0][0].lower()
         _run(_test())
 
+    def test_continue_requires_seller_char(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(SAMPLE_ITEMS)
+            view = SellToStoreSetupView(cog, ctx, groups, seller_chars=MOCK_SELLER_CHARS)
+            view.selected_store_owner = _make_store_owner()
+            view.selected_group_idx = 0
+            inter = _make_interaction()
+            btn = _find_button(view, "Continue →")
+            await btn.callback(inter)
+            assert "selling character" in inter.response.send_message.call_args[0][0].lower()
+        _run(_test())
+
     def test_continue_opens_modal(self):
         async def _test():
             cog = _make_cog()
@@ -999,6 +1052,24 @@ class TestSellToStoreSetupView:
             inter.response.send_modal.assert_called_once()
             modal = inter.response.send_modal.call_args[0][0]
             assert isinstance(modal, SellToStoreDetailsModal)
+        _run(_test())
+
+    def test_continue_opens_modal_with_seller_char(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(SAMPLE_ITEMS)
+            view = SellToStoreSetupView(cog, ctx, groups, seller_chars=MOCK_SELLER_CHARS)
+            view.selected_store_owner = _make_store_owner()
+            view.selected_group_idx = 0
+            view.selected_seller_char_name = "V"
+            inter = _make_interaction()
+            btn = _find_button(view, "Continue →")
+            await btn.callback(inter)
+            inter.response.send_modal.assert_called_once()
+            modal = inter.response.send_modal.call_args[0][0]
+            assert isinstance(modal, SellToStoreDetailsModal)
+            assert modal.seller_character == "V"
         _run(_test())
 
     def test_interaction_check(self):
@@ -1321,3 +1392,401 @@ class TestSellToStoreEdgeCases:
                         cfg.WHOLESALER_STORE_ROLE_IDS = original
             assert "not configured" in inter.response.send_message.call_args[0][0].lower()
         _run(_test())
+
+
+# --- Character Lifecycle Tests ---
+
+
+class TestCreateCharacterButton:
+    def test_create_char_success(self):
+        async def _test():
+            cog = _make_cog()
+            cog.bot.wait_for = AsyncMock()
+            msg_mock = MagicMock()
+            msg_mock.content = "V"
+            msg_mock.delete = AsyncMock()
+            cog.bot.wait_for.return_value = msg_mock
+            ctx = _make_ctx()
+            view = PlayerHubView(cog, ctx)
+            inter = _make_interaction()
+            inter.channel = MagicMock()
+            inter.channel.id = 123
+            btn = _find_button(view, "Create Character")
+            with patch("NightCityBot.cogs.player_hub.character_name_exists", new_callable=AsyncMock, return_value=False), \
+                 patch("NightCityBot.cogs.player_hub.create_character", new_callable=AsyncMock, return_value={"character_id": "uuid-new", "name": "V"}), \
+                 patch("NightCityBot.cogs.player_hub._log_channel", new_callable=AsyncMock, return_value=None):
+                await btn.callback(inter)
+            last_msg = inter.followup.send.call_args[0][0]
+            assert "✅" in last_msg
+            assert "V" in last_msg
+        _run(_test())
+
+    def test_create_char_timeout(self):
+        async def _test():
+            cog = _make_cog()
+            cog.bot.wait_for = AsyncMock(side_effect=asyncio.TimeoutError)
+            ctx = _make_ctx()
+            view = PlayerHubView(cog, ctx)
+            inter = _make_interaction()
+            inter.channel = MagicMock()
+            inter.channel.id = 123
+            btn = _find_button(view, "Create Character")
+            await btn.callback(inter)
+            last_msg = inter.followup.send.call_args[0][0]
+            assert "timed out" in last_msg.lower()
+        _run(_test())
+
+    def test_create_char_empty_name(self):
+        async def _test():
+            cog = _make_cog()
+            msg_mock = MagicMock()
+            msg_mock.content = ""
+            msg_mock.delete = AsyncMock()
+            cog.bot.wait_for = AsyncMock(return_value=msg_mock)
+            ctx = _make_ctx()
+            view = PlayerHubView(cog, ctx)
+            inter = _make_interaction()
+            inter.channel = MagicMock()
+            inter.channel.id = 123
+            btn = _find_button(view, "Create Character")
+            await btn.callback(inter)
+            last_msg = inter.followup.send.call_args[0][0]
+            assert "cannot be empty" in last_msg.lower()
+        _run(_test())
+
+    def test_create_char_too_long(self):
+        async def _test():
+            cog = _make_cog()
+            msg_mock = MagicMock()
+            msg_mock.content = "A" * 65
+            msg_mock.delete = AsyncMock()
+            cog.bot.wait_for = AsyncMock(return_value=msg_mock)
+            ctx = _make_ctx()
+            view = PlayerHubView(cog, ctx)
+            inter = _make_interaction()
+            inter.channel = MagicMock()
+            inter.channel.id = 123
+            btn = _find_button(view, "Create Character")
+            await btn.callback(inter)
+            last_msg = inter.followup.send.call_args[0][0]
+            assert "64 characters" in last_msg.lower()
+        _run(_test())
+
+    def test_create_char_duplicate(self):
+        async def _test():
+            cog = _make_cog()
+            msg_mock = MagicMock()
+            msg_mock.content = "V"
+            msg_mock.delete = AsyncMock()
+            cog.bot.wait_for = AsyncMock(return_value=msg_mock)
+            ctx = _make_ctx()
+            view = PlayerHubView(cog, ctx)
+            inter = _make_interaction()
+            inter.channel = MagicMock()
+            inter.channel.id = 123
+            btn = _find_button(view, "Create Character")
+            with patch("NightCityBot.cogs.player_hub.character_name_exists", new_callable=AsyncMock, return_value=True):
+                await btn.callback(inter)
+            last_msg = inter.followup.send.call_args[0][0]
+            assert "already have" in last_msg.lower()
+        _run(_test())
+
+
+class TestManageCharactersView:
+    def test_manage_chars_button_opens_view(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            view = PlayerHubView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "Manage Characters")
+            await btn.callback(inter)
+            call_kwargs = inter.followup.send.call_args.kwargs
+            assert isinstance(call_kwargs["view"], ManageCharactersView)
+        _run(_test())
+
+    def test_deactivate_no_active_chars(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            view = ManageCharactersView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "Deactivate")
+            with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=[]):
+                await btn.callback(inter)
+            assert "no active characters" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_deactivate_shows_view(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            view = ManageCharactersView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "Deactivate")
+            with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_ACTIVE_CHARS):
+                await btn.callback(inter)
+            call_kwargs = inter.followup.send.call_args.kwargs
+            assert isinstance(call_kwargs["view"], DeactivateCharacterView)
+        _run(_test())
+
+    def test_reactivate_no_inactive_chars(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            view = ManageCharactersView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "Reactivate")
+            with patch("NightCityBot.cogs.player_hub.get_inactive_characters", new_callable=AsyncMock, return_value=[]):
+                await btn.callback(inter)
+            assert "no inactive characters" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_reactivate_shows_view(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            view = ManageCharactersView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "Reactivate")
+            with patch("NightCityBot.cogs.player_hub.get_inactive_characters", new_callable=AsyncMock, return_value=MOCK_INACTIVE_CHARS):
+                await btn.callback(inter)
+            call_kwargs = inter.followup.send.call_args.kwargs
+            assert isinstance(call_kwargs["view"], ReactivateCharacterView)
+        _run(_test())
+
+
+class TestDeactivateCharacterView:
+    def test_select_and_confirm(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            view = DeactivateCharacterView(cog, ctx, MOCK_ACTIVE_CHARS)
+            inter = _make_interaction()
+            inter.data = {"values": ["uuid-char-1"]}
+            char_sel = _find_select(view, "deactivate")
+            await char_sel.callback(inter)
+            assert view.selected_char_id == "uuid-char-1"
+            assert view.selected_char_name == "Johnny"
+            inter2 = _make_interaction()
+            btn = _find_button(view, "Confirm Deactivate")
+            with patch("NightCityBot.cogs.player_hub.deactivate_character", new_callable=AsyncMock, return_value=True), \
+                 patch("NightCityBot.cogs.player_hub._log_channel", new_callable=AsyncMock, return_value=None):
+                await btn.callback(inter2)
+            assert "deactivated" in inter2.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_confirm_without_selection(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            view = DeactivateCharacterView(cog, ctx, MOCK_ACTIVE_CHARS)
+            inter = _make_interaction()
+            btn = _find_button(view, "Confirm Deactivate")
+            await btn.callback(inter)
+            assert "select a character" in inter.response.send_message.call_args[0][0].lower()
+        _run(_test())
+
+    def test_deactivate_fails(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            view = DeactivateCharacterView(cog, ctx, MOCK_ACTIVE_CHARS)
+            view.selected_char_id = "uuid-char-1"
+            view.selected_char_name = "Johnny"
+            inter = _make_interaction()
+            btn = _find_button(view, "Confirm Deactivate")
+            with patch("NightCityBot.cogs.player_hub.deactivate_character", new_callable=AsyncMock, return_value=False):
+                await btn.callback(inter)
+            assert "failed" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+
+class TestReactivateCharacterView:
+    def test_select_and_confirm(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            view = ReactivateCharacterView(cog, ctx, MOCK_INACTIVE_CHARS)
+            inter = _make_interaction()
+            inter.data = {"values": ["uuid-char-3"]}
+            char_sel = _find_select(view, "reactivate")
+            await char_sel.callback(inter)
+            assert view.selected_char_id == "uuid-char-3"
+            assert view.selected_char_name == "Jackie"
+            inter2 = _make_interaction()
+            btn = _find_button(view, "Confirm Reactivate")
+            with patch("NightCityBot.cogs.player_hub.reactivate_character", new_callable=AsyncMock, return_value=True), \
+                 patch("NightCityBot.cogs.player_hub._log_channel", new_callable=AsyncMock, return_value=None):
+                await btn.callback(inter2)
+            assert "reactivated" in inter2.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_confirm_without_selection(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            view = ReactivateCharacterView(cog, ctx, MOCK_INACTIVE_CHARS)
+            inter = _make_interaction()
+            btn = _find_button(view, "Confirm Reactivate")
+            await btn.callback(inter)
+            assert "select a character" in inter.response.send_message.call_args[0][0].lower()
+        _run(_test())
+
+    def test_reactivate_fails(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            view = ReactivateCharacterView(cog, ctx, MOCK_INACTIVE_CHARS)
+            view.selected_char_id = "uuid-char-3"
+            view.selected_char_name = "Jackie"
+            inter = _make_interaction()
+            btn = _find_button(view, "Confirm Reactivate")
+            with patch("NightCityBot.cogs.player_hub.reactivate_character", new_callable=AsyncMock, return_value=False):
+                await btn.callback(inter)
+            assert "failed" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+
+class TestTradeCharacterSelection:
+    def test_buyer_no_active_chars_blocks(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(SAMPLE_ITEMS)
+            view = TradeSetupView(cog, ctx, groups)
+            inter = _make_interaction()
+            buyer = _make_buyer()
+            select = _find_any_select(view, discord.ui.UserSelect)
+            select._values = [buyer]
+            with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=[]):
+                await select.callback(inter)
+            assert view.selected_buyer is None
+            assert "no active characters" in inter.response.send_message.call_args[0][0].lower()
+        _run(_test())
+
+
+class TestGiveCharacterSelection:
+    def test_recipient_no_active_chars_blocks(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(SAMPLE_ITEMS)
+            view = GiveSetupView(cog, ctx, groups)
+            inter = _make_interaction()
+            recipient = _make_buyer(uid=222, name="Recipient")
+            recipient.roles = []
+            select = _find_any_select(view, discord.ui.UserSelect)
+            select._values = [recipient]
+            with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=[]):
+                await select.callback(inter)
+            assert view.selected_recipient is None
+            assert "no active characters" in inter.response.send_message.call_args[0][0].lower()
+        _run(_test())
+
+    def test_recipient_ripperdoc_skips_char_select(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(SAMPLE_ITEMS)
+            view = GiveSetupView(cog, ctx, groups)
+            inter = _make_interaction()
+            recipient = _make_buyer(uid=222, name="DocRipper")
+            rd_role = MagicMock()
+            rd_role.id = 1356028868103897156
+            recipient.roles = [rd_role]
+            select = _find_any_select(view, discord.ui.UserSelect)
+            select._values = [recipient]
+            await select.callback(inter)
+            assert view.selected_recipient == recipient
+            assert view._is_ripperdoc_recipient is True
+            assert "ripperdoc" in inter.response.send_message.call_args[0][0].lower()
+        _run(_test())
+
+
+# --- Inventory Character Filter Tests ---
+
+MULTI_CHAR_ITEMS = [
+    {
+        "item_id": "uuid-1", "owner_id": "100", "character_name": "V",
+        "name": "Pistol", "item_type": "gun", "restriction": "basic",
+        "price_paid": 100, "seller_name": "", "acquired_at": "2025-01-01",
+        "created_at": "2025-01-01",
+    },
+    {
+        "item_id": "uuid-2", "owner_id": "100", "character_name": "Johnny",
+        "name": "Katana", "item_type": "gun", "restriction": "basic",
+        "price_paid": 200, "seller_name": "", "acquired_at": "2025-01-01",
+        "created_at": "2025-01-01",
+    },
+]
+
+
+class TestInventoryCharFilter:
+    def test_view_inv_multi_chars_shows_filter(self):
+        async def _test():
+            cog = _make_cog()
+            inv_cog = _make_inv_cog()
+            cog.bot.cogs["PlayerInventory"] = inv_cog
+            ctx = _make_ctx()
+            view = PlayerHubView(cog, ctx)
+            inter = _make_interaction()
+            with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=MULTI_CHAR_ITEMS):
+                btn = _find_button(view, "View Inventory")
+                await btn.callback(inter)
+            call_kwargs = inter.followup.send.call_args.kwargs
+            assert isinstance(call_kwargs["view"], InventoryCharFilterView)
+        _run(_test())
+
+    def test_view_inv_single_char_shows_embed(self):
+        async def _test():
+            cog = _make_cog()
+            inv_cog = _make_inv_cog()
+            cog.bot.cogs["PlayerInventory"] = inv_cog
+            ctx = _make_ctx()
+            view = PlayerHubView(cog, ctx)
+            inter = _make_interaction()
+            with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=SAMPLE_ITEMS):
+                btn = _find_button(view, "View Inventory")
+                await btn.callback(inter)
+            call_kwargs = inter.followup.send.call_args.kwargs
+            assert "embed" in call_kwargs
+        _run(_test())
+
+    def test_filter_view_select_character(self):
+        async def _test():
+            cog = _make_cog()
+            inv_cog = _make_inv_cog()
+            ctx = _make_ctx()
+            view = InventoryCharFilterView(cog, ctx, MULTI_CHAR_ITEMS, inv_cog, ["Johnny", "V"])
+            inter = _make_interaction()
+            with patch.object(type(view.char_select), "values", new_callable=lambda: property(lambda s: ["V"])):
+                await view._on_char_select(inter)
+            call_kwargs = inter.followup.send.call_args.kwargs
+            assert "embed" in call_kwargs
+            assert "V" in call_kwargs["embed"].title
+        _run(_test())
+
+    def test_filter_view_select_all(self):
+        async def _test():
+            cog = _make_cog()
+            inv_cog = _make_inv_cog()
+            ctx = _make_ctx()
+            view = InventoryCharFilterView(cog, ctx, MULTI_CHAR_ITEMS, inv_cog, ["Johnny", "V"])
+            inter = _make_interaction()
+            with patch.object(type(view.char_select), "values", new_callable=lambda: property(lambda s: ["__all__"])):
+                await view._on_char_select(inter)
+            call_kwargs = inter.followup.send.call_args.kwargs
+            assert "embed" in call_kwargs
+
+    def test_build_inventory_embed_with_filter(self):
+        inv_cog = _make_inv_cog()
+        embed = _build_inventory_embed("TestUser", MULTI_CHAR_ITEMS, inv_cog, "V")
+        assert "V" in embed.title
+        assert "1 total item" in embed.footer.text
+
+    def test_build_inventory_embed_no_filter(self):
+        inv_cog = _make_inv_cog()
+        embed = _build_inventory_embed("TestUser", MULTI_CHAR_ITEMS, inv_cog)
+        assert "TestUser" in embed.title
+        assert "2 total item" in embed.footer.text

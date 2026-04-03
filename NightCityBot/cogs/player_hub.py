@@ -1,5 +1,6 @@
 """Player hub — interactive !player panel for viewing inventory, trading, and giving items."""
 
+import asyncio
 import logging
 import re
 import uuid
@@ -18,6 +19,15 @@ from NightCityBot.utils.player_inventory import (
     insert_player_item as pi_add_item,
 )
 from NightCityBot.utils.db import ih_record_event, pt_create
+from NightCityBot.utils.characters import (
+    create_character,
+    get_active_characters,
+    get_inactive_characters,
+    deactivate_character,
+    reactivate_character,
+    character_name_exists,
+    validate_name as _validate_char_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +130,80 @@ async def setup(bot: commands.Bot):
     await bot.add_cog(PlayerHubCog(bot))
 
 
+def _build_inventory_embed(
+    display_name: str,
+    items: list[dict],
+    inv_cog,
+    char_filter: str | None = None,
+) -> discord.Embed:
+    if char_filter:
+        filtered = [i for i in items if i.get("character_name") == char_filter]
+        label = f"{display_name}'s Inventory — {char_filter}"
+    else:
+        filtered = items
+        label = f"{display_name}'s Inventory"
+    if not filtered:
+        return discord.Embed(title=f"📦 {label}", description="No items.", color=discord.Color.blue())
+    display_lines, _ = inv_cog._build_display(filtered)
+    item_lines = [(rn, ln) for rn, ln in display_lines if rn is not None]
+    total_groups = len(item_lines)
+    total_pages = max(1, (total_groups + GROUPS_PER_PAGE - 1) // GROUPS_PER_PAGE)
+    page_rows = {rn for rn, _ in item_lines[:GROUPS_PER_PAGE]}
+    page_lines: list[str] = []
+    pending_header = None
+    for rn, ln in display_lines:
+        if rn is None:
+            pending_header = ln
+        else:
+            if rn in page_rows:
+                if pending_header is not None:
+                    page_lines.append(pending_header)
+                    pending_header = None
+                page_lines.append(ln)
+    embed = discord.Embed(
+        title=f"📦 {label} (1/{total_pages})",
+        description="\n".join(page_lines) if page_lines else "No items.",
+        color=discord.Color.blue(),
+    )
+    hint = f"Use `!my_inventory 2` to see page 2." if total_pages > 1 else ""
+    embed.set_footer(
+        text=f"{len(filtered)} total item(s) | Row numbers are used for Trade and Give."
+        + (f" | {hint}" if hint else "")
+    )
+    return embed
+
+
+class InventoryCharFilterView(discord.ui.View):
+    def __init__(self, cog, ctx, items, inv_cog, char_names: list[str]):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.ctx = ctx
+        self.items = items
+        self.inv_cog = inv_cog
+        options = [discord.SelectOption(label="All Characters", value="__all__")]
+        for name in char_names[:24]:
+            options.append(discord.SelectOption(label=name, value=name))
+        self.char_select = discord.ui.Select(
+            placeholder="Select a character…",
+            options=options,
+            row=0,
+        )
+        self.char_select.callback = self._on_char_select
+        self.add_item(self.char_select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.ctx.author.id
+
+    async def _on_char_select(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        chosen = self.char_select.values[0]
+        char_filter = None if chosen == "__all__" else chosen
+        embed = _build_inventory_embed(
+            interaction.user.display_name, self.items, self.inv_cog, char_filter
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 class PlayerHubView(discord.ui.View):
     def __init__(self, cog: PlayerHubCog, ctx: commands.Context):
         super().__init__(timeout=120)
@@ -144,33 +228,17 @@ class PlayerHubView(discord.ui.View):
         if not inv_cog:
             await interaction.followup.send("Inventory system unavailable.", ephemeral=True)
             return
-        display_lines, all_groups = inv_cog._build_display(items)
-        item_lines = [(rn, ln) for rn, ln in display_lines if rn is not None]
-        total_groups = len(item_lines)
-        total_pages = max(1, (total_groups + GROUPS_PER_PAGE - 1) // GROUPS_PER_PAGE)
-        page_rows = {rn for rn, _ in item_lines[:GROUPS_PER_PAGE]}
-        page_lines: list[str] = []
-        pending_header = None
-        for rn, ln in display_lines:
-            if rn is None:
-                pending_header = ln
-            else:
-                if rn in page_rows:
-                    if pending_header is not None:
-                        page_lines.append(pending_header)
-                        pending_header = None
-                    page_lines.append(ln)
-        embed = discord.Embed(
-            title=f"📦 {interaction.user.display_name}'s Inventory (1/{total_pages})",
-            description="\n".join(page_lines) if page_lines else "No items.",
-            color=discord.Color.blue(),
-        )
-        hint = f"Use `!my_inventory 2` to see page 2." if total_pages > 1 else ""
-        embed.set_footer(
-            text=f"{len(items)} total item(s) | Row numbers are used for Trade and Give."
-            + (f" | {hint}" if hint else "")
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        char_names = sorted({item.get("character_name", "") for item in items if item.get("character_name")})
+        if len(char_names) > 1:
+            view = InventoryCharFilterView(self.cog, self.ctx, items, inv_cog, char_names)
+            await interaction.followup.send(
+                "🔎 **Filter inventory by character** (or select **All Characters**):",
+                view=view,
+                ephemeral=True,
+            )
+        else:
+            embed = _build_inventory_embed(interaction.user.display_name, items, inv_cog)
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
     @discord.ui.button(label="Trade Item", style=discord.ButtonStyle.success, emoji="💱", row=0)
     async def trade_item(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -203,6 +271,13 @@ class PlayerHubView(discord.ui.View):
         if not self.cog._inv_system_enabled():
             await interaction.followup.send("⚠️ The player inventory system is currently offline.", ephemeral=True)
             return
+        seller_chars = await get_active_characters(str(interaction.user.id))
+        if not seller_chars:
+            await interaction.followup.send(
+                "❌ You have no active characters. Create a character first before selling.",
+                ephemeral=True,
+            )
+            return
         items = await pi_get_by_owner(str(interaction.user.id))
         if not items:
             await interaction.followup.send("📦 Your inventory is empty — nothing to sell.", ephemeral=True)
@@ -219,9 +294,9 @@ class PlayerHubView(discord.ui.View):
         if not all_groups:
             await interaction.followup.send("📦 You have no guns to sell to a store.", ephemeral=True)
             return
-        view = SellToStoreSetupView(self.cog, self.ctx, all_groups)
+        view = SellToStoreSetupView(self.cog, self.ctx, all_groups, seller_chars)
         await interaction.followup.send(
-            "**Step 1** — Select the store owner and the gun to sell:",
+            "**Step 1** — Select the store owner, your character, and the gun to sell:",
             view=view,
             ephemeral=True,
         )
@@ -251,6 +326,245 @@ class PlayerHubView(discord.ui.View):
             ephemeral=True,
         )
 
+    @discord.ui.button(label="Create Character", style=discord.ButtonStyle.success, emoji="🧑", row=2)
+    async def create_char(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "🧑 **Create Character** — Please type your new character's name below (max 64 characters).\n"
+            "You have 60 seconds to reply.",
+            ephemeral=True,
+        )
+
+        def check(m):
+            return m.author.id == interaction.user.id and m.channel.id == interaction.channel.id
+
+        try:
+            msg = await self.cog.bot.wait_for("message", check=check, timeout=60)
+        except asyncio.TimeoutError:
+            await interaction.followup.send("⏰ Character creation timed out.", ephemeral=True)
+            return
+
+        char_name = msg.content.strip()
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+        if not char_name:
+            await interaction.followup.send("❌ Character name cannot be empty.", ephemeral=True)
+            return
+        if len(char_name) > 64:
+            await interaction.followup.send("❌ Character name must be 64 characters or fewer.", ephemeral=True)
+            return
+
+        exists = await character_name_exists(str(interaction.user.id), char_name)
+        if exists:
+            await interaction.followup.send(
+                f"❌ You already have a character named **{char_name}**.", ephemeral=True
+            )
+            return
+
+        try:
+            result = await create_character(str(interaction.user.id), char_name)
+        except ValueError as ve:
+            await interaction.followup.send(f"❌ {ve}", ephemeral=True)
+            return
+        if result is None:
+            await interaction.followup.send("❌ Failed to create character. Please try again.", ephemeral=True)
+            return
+
+        log_ch = await _log_channel(self.cog.bot, "NIGHTCITYBOT_LOG_CHANNEL_ID")
+        if log_ch:
+            embed = discord.Embed(
+                title="🧑 Character Created",
+                color=discord.Color.green(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.add_field(name="Player", value=f"{interaction.user.mention} ({interaction.user.display_name})", inline=False)
+            embed.add_field(name="Character", value=char_name, inline=False)
+            embed.set_footer(text="NightCityBot Audit Log")
+            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+        await interaction.followup.send(
+            f"✅ Character **{char_name}** created successfully!", ephemeral=True
+        )
+
+    @discord.ui.button(label="Manage Characters", style=discord.ButtonStyle.secondary, emoji="📋", row=2)
+    async def manage_chars(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        view = ManageCharactersView(self.cog, self.ctx)
+        await interaction.followup.send(
+            "📋 **Manage Characters** — Choose an action:",
+            view=view,
+            ephemeral=True,
+        )
+
+
+class ManageCharactersView(discord.ui.View):
+    def __init__(self, cog: PlayerHubCog, ctx: commands.Context):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.ctx.author.id
+
+    @discord.ui.button(label="Deactivate", style=discord.ButtonStyle.danger, emoji="⏸️", row=0)
+    async def deactivate_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        chars = await get_active_characters(str(interaction.user.id))
+        if not chars:
+            await interaction.followup.send("You have no active characters to deactivate.", ephemeral=True)
+            return
+        view = DeactivateCharacterView(self.cog, self.ctx, chars)
+        await interaction.followup.send(
+            "Select a character to deactivate:",
+            view=view,
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Reactivate", style=discord.ButtonStyle.success, emoji="▶️", row=0)
+    async def reactivate_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        chars = await get_inactive_characters(str(interaction.user.id))
+        if not chars:
+            await interaction.followup.send("You have no inactive characters to reactivate.", ephemeral=True)
+            return
+        view = ReactivateCharacterView(self.cog, self.ctx, chars)
+        await interaction.followup.send(
+            "Select a character to reactivate:",
+            view=view,
+            ephemeral=True,
+        )
+
+
+class DeactivateCharacterView(discord.ui.View):
+    def __init__(self, cog: PlayerHubCog, ctx: commands.Context, chars: list[dict]):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.ctx = ctx
+        self.chars = chars
+        self.selected_char_id: Optional[str] = None
+        self.selected_char_name: Optional[str] = None
+
+        options = [
+            discord.SelectOption(label=c["name"][:100], value=str(c["character_id"]))
+            for c in chars[:25]
+        ]
+        char_select = discord.ui.Select(
+            placeholder="Choose a character to deactivate…",
+            options=options,
+            row=0,
+        )
+        char_select.callback = self._on_select
+        self.add_item(char_select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.ctx.author.id
+
+    async def _on_select(self, interaction: discord.Interaction):
+        val = interaction.data["values"][0]
+        self.selected_char_id = val
+        for c in self.chars:
+            if str(c["character_id"]) == val:
+                self.selected_char_name = c["name"]
+                break
+        await interaction.response.send_message(
+            f"Selected: **{self.selected_char_name}** ✓", ephemeral=True
+        )
+
+    @discord.ui.button(label="Confirm Deactivate", style=discord.ButtonStyle.danger, emoji="⏸️", row=1)
+    async def confirm_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.selected_char_id is None:
+            await interaction.response.send_message("Please select a character first.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        ok = await deactivate_character(self.selected_char_id, user_id=str(interaction.user.id))
+        if not ok:
+            await interaction.followup.send("❌ Failed to deactivate character.", ephemeral=True)
+            return
+
+        log_ch = await _log_channel(self.cog.bot, "NIGHTCITYBOT_LOG_CHANNEL_ID")
+        if log_ch:
+            embed = discord.Embed(
+                title="⏸️ Character Deactivated",
+                color=discord.Color.orange(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.add_field(name="Player", value=f"{interaction.user.mention} ({interaction.user.display_name})", inline=False)
+            embed.add_field(name="Character", value=self.selected_char_name, inline=False)
+            embed.set_footer(text="NightCityBot Audit Log")
+            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+        await interaction.followup.send(
+            f"✅ Character **{self.selected_char_name}** has been deactivated.", ephemeral=True
+        )
+        self.stop()
+
+
+class ReactivateCharacterView(discord.ui.View):
+    def __init__(self, cog: PlayerHubCog, ctx: commands.Context, chars: list[dict]):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.ctx = ctx
+        self.chars = chars
+        self.selected_char_id: Optional[str] = None
+        self.selected_char_name: Optional[str] = None
+
+        options = [
+            discord.SelectOption(label=c["name"][:100], value=str(c["character_id"]))
+            for c in chars[:25]
+        ]
+        char_select = discord.ui.Select(
+            placeholder="Choose a character to reactivate…",
+            options=options,
+            row=0,
+        )
+        char_select.callback = self._on_select
+        self.add_item(char_select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.ctx.author.id
+
+    async def _on_select(self, interaction: discord.Interaction):
+        val = interaction.data["values"][0]
+        self.selected_char_id = val
+        for c in self.chars:
+            if str(c["character_id"]) == val:
+                self.selected_char_name = c["name"]
+                break
+        await interaction.response.send_message(
+            f"Selected: **{self.selected_char_name}** ✓", ephemeral=True
+        )
+
+    @discord.ui.button(label="Confirm Reactivate", style=discord.ButtonStyle.success, emoji="▶️", row=1)
+    async def confirm_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.selected_char_id is None:
+            await interaction.response.send_message("Please select a character first.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        ok = await reactivate_character(self.selected_char_id, user_id=str(interaction.user.id))
+        if not ok:
+            await interaction.followup.send("❌ Failed to reactivate character.", ephemeral=True)
+            return
+
+        log_ch = await _log_channel(self.cog.bot, "NIGHTCITYBOT_LOG_CHANNEL_ID")
+        if log_ch:
+            embed = discord.Embed(
+                title="▶️ Character Reactivated",
+                color=discord.Color.green(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.add_field(name="Player", value=f"{interaction.user.mention} ({interaction.user.display_name})", inline=False)
+            embed.add_field(name="Character", value=self.selected_char_name, inline=False)
+            embed.set_footer(text="NightCityBot Audit Log")
+            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+        await interaction.followup.send(
+            f"✅ Character **{self.selected_char_name}** has been reactivated.", ephemeral=True
+        )
+        self.stop()
+
 
 class TradeConfirmView(discord.ui.View):
     def __init__(self, timeout: float = 60):
@@ -278,6 +592,8 @@ class TradeSetupView(discord.ui.View):
         self.all_groups = all_groups
         self.selected_buyer: Optional[discord.Member] = None
         self.selected_group_idx: Optional[int] = None
+        self.selected_buyer_char_name: Optional[str] = None
+        self._buyer_char_select = None
 
         options = []
         for i, g in enumerate(all_groups[:25]):
@@ -326,8 +642,43 @@ class TradeSetupView(discord.ui.View):
             else:
                 await interaction.response.send_message("Could not resolve server member.", ephemeral=True)
                 return
+
+        self.selected_buyer_char_name = None
+        if self._buyer_char_select is not None:
+            self.remove_item(self._buyer_char_select)
+            self._buyer_char_select = None
+
+        buyer_chars = await get_active_characters(str(self.selected_buyer.id))
+        if not buyer_chars:
+            await interaction.response.send_message(
+                f"❌ **{self.selected_buyer.display_name}** has no active characters and cannot receive items.",
+                ephemeral=True,
+            )
+            self.selected_buyer = None
+            return
+
+        char_options = [
+            discord.SelectOption(label=c["name"][:100], value=c["name"])
+            for c in buyer_chars[:25]
+        ]
+        char_select = discord.ui.Select(
+            placeholder="Choose buyer's character…",
+            options=char_options,
+            row=2,
+        )
+        char_select.callback = self._on_buyer_char_select
+        self._buyer_char_select = char_select
+        self.add_item(char_select)
+
         await interaction.response.send_message(
-            f"Buyer: **{self.selected_buyer.display_name}** ✓", ephemeral=True
+            f"Buyer: **{self.selected_buyer.display_name}** ✓ — Now select their character.",
+            ephemeral=True,
+        )
+
+    async def _on_buyer_char_select(self, interaction: discord.Interaction):
+        self.selected_buyer_char_name = interaction.data["values"][0]
+        await interaction.response.send_message(
+            f"Buyer's character: **{self.selected_buyer_char_name}** ✓", ephemeral=True
         )
 
     async def _on_item_select(self, interaction: discord.Interaction):
@@ -337,13 +688,16 @@ class TradeSetupView(discord.ui.View):
             f"Item: **{g['name']}** ✓", ephemeral=True
         )
 
-    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=2)
+    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=3)
     async def continue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.selected_buyer is None:
             await interaction.response.send_message("Please select a buyer first.", ephemeral=True)
             return
         if self.selected_group_idx is None:
             await interaction.response.send_message("Please select an item first.", ephemeral=True)
+            return
+        if self.selected_buyer_char_name is None:
+            await interaction.response.send_message("Please select the buyer's character first.", ephemeral=True)
             return
         if self.selected_buyer.id == interaction.user.id:
             await interaction.response.send_message(
@@ -361,7 +715,7 @@ class TradeSetupView(discord.ui.View):
                 ephemeral=True,
             )
             return
-        modal = TradeDetailsModal(self.cog, self.selected_buyer, group)
+        modal = TradeDetailsModal(self.cog, self.selected_buyer, group, self.selected_buyer_char_name)
         await interaction.response.send_modal(modal)
         self.stop()
 
@@ -371,16 +725,13 @@ class TradeDetailsModal(discord.ui.Modal, title="Trade — Finalize Details"):
         label="Price ($)",
         placeholder="e.g. 5000 (0 for free)",
     )
-    buyer_char_input = discord.ui.TextInput(
-        label="Buyer's Character Name",
-        placeholder="Character receiving the item",
-    )
 
-    def __init__(self, cog: PlayerHubCog, buyer: discord.Member, group: dict):
+    def __init__(self, cog: PlayerHubCog, buyer: discord.Member, group: dict, buyer_character: str = ""):
         super().__init__()
         self.cog = cog
         self.buyer = buyer
         self.group = group
+        self.buyer_character = buyer_character
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -408,7 +759,7 @@ class TradeDetailsModal(discord.ui.Modal, title="Trade — Finalize Details"):
             )
             return
 
-        buyer_character = self.buyer_char_input.value.strip().strip('"').strip("'")
+        buyer_character = self.buyer_character
         if not buyer_character:
             await interaction.followup.send("❌ Buyer character name is required.", ephemeral=True)
             return
@@ -651,6 +1002,9 @@ class GiveSetupView(discord.ui.View):
         self.all_groups = all_groups
         self.selected_recipient: Optional[discord.Member] = None
         self.selected_group_idx: Optional[int] = None
+        self.selected_recipient_char_name: Optional[str] = None
+        self._recipient_char_select = None
+        self._is_ripperdoc_recipient = False
 
         options = []
         for i, g in enumerate(all_groups[:25]):
@@ -699,8 +1053,55 @@ class GiveSetupView(discord.ui.View):
             else:
                 await interaction.response.send_message("Could not resolve server member.", ephemeral=True)
                 return
+
+        self.selected_recipient_char_name = None
+        if self._recipient_char_select is not None:
+            self.remove_item(self._recipient_char_select)
+            self._recipient_char_select = None
+
+        target_roles = getattr(self.selected_recipient, "roles", [])
+        self._is_ripperdoc_recipient = any(
+            getattr(r, "id", None) == getattr(config, "RIPPERDOC_ROLE_ID", None)
+            for r in target_roles
+        )
+
+        if self._is_ripperdoc_recipient:
+            await interaction.response.send_message(
+                f"Recipient: **{self.selected_recipient.display_name}** (Ripperdoc) ✓", ephemeral=True
+            )
+            return
+
+        recipient_chars = await get_active_characters(str(self.selected_recipient.id))
+        if not recipient_chars:
+            await interaction.response.send_message(
+                f"❌ **{self.selected_recipient.display_name}** has no active characters and cannot receive items.",
+                ephemeral=True,
+            )
+            self.selected_recipient = None
+            return
+
+        char_options = [
+            discord.SelectOption(label=c["name"][:100], value=c["name"])
+            for c in recipient_chars[:25]
+        ]
+        char_select = discord.ui.Select(
+            placeholder="Choose recipient's character…",
+            options=char_options,
+            row=2,
+        )
+        char_select.callback = self._on_recipient_char_select
+        self._recipient_char_select = char_select
+        self.add_item(char_select)
+
         await interaction.response.send_message(
-            f"Recipient: **{self.selected_recipient.display_name}** ✓", ephemeral=True
+            f"Recipient: **{self.selected_recipient.display_name}** ✓ — Now select their character.",
+            ephemeral=True,
+        )
+
+    async def _on_recipient_char_select(self, interaction: discord.Interaction):
+        self.selected_recipient_char_name = interaction.data["values"][0]
+        await interaction.response.send_message(
+            f"Recipient's character: **{self.selected_recipient_char_name}** ✓", ephemeral=True
         )
 
     async def _on_item_select(self, interaction: discord.Interaction):
@@ -710,7 +1111,7 @@ class GiveSetupView(discord.ui.View):
             f"Item: **{g['name']}** ✓", ephemeral=True
         )
 
-    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=2)
+    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=3)
     async def continue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.selected_recipient is None:
             await interaction.response.send_message("Please select a recipient first.", ephemeral=True)
@@ -718,8 +1119,11 @@ class GiveSetupView(discord.ui.View):
         if self.selected_group_idx is None:
             await interaction.response.send_message("Please select an item first.", ephemeral=True)
             return
+        if not self._is_ripperdoc_recipient and self.selected_recipient_char_name is None:
+            await interaction.response.send_message("Please select the recipient's character first.", ephemeral=True)
+            return
         group = self.all_groups[self.selected_group_idx]
-        modal = GiveDetailsModal(self.cog, self.selected_recipient, group)
+        modal = GiveDetailsModal(self.cog, self.selected_recipient, group, self.selected_recipient_char_name or "")
         await interaction.response.send_modal(modal)
         self.stop()
 
@@ -729,17 +1133,13 @@ class GiveDetailsModal(discord.ui.Modal, title="Give — Finalize Details"):
         label="Your Character Name",
         placeholder="Character giving the item",
     )
-    receiver_char_input = discord.ui.TextInput(
-        label="Recipient's Character Name",
-        placeholder="Leave blank if giving to a Ripperdoc",
-        required=False,
-    )
 
-    def __init__(self, cog: PlayerHubCog, recipient: discord.Member, group: dict):
+    def __init__(self, cog: PlayerHubCog, recipient: discord.Member, group: dict, receiver_character: str = ""):
         super().__init__()
         self.cog = cog
         self.recipient = recipient
         self.group = group
+        self.receiver_character = receiver_character
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -855,7 +1255,7 @@ class GiveDetailsModal(discord.ui.Modal, title="Give — Finalize Details"):
             )
             return
 
-        receiver_char = (self.receiver_char_input.value or "").strip().strip('"').strip("'")
+        receiver_char = self.receiver_character
         if not receiver_char:
             await interaction.followup.send(
                 "❌ Recipient's character name is required for player-to-player gives.",
@@ -912,13 +1312,15 @@ class GiveDetailsModal(discord.ui.Modal, title="Give — Finalize Details"):
 
 
 class SellToStoreSetupView(discord.ui.View):
-    def __init__(self, cog: PlayerHubCog, ctx: commands.Context, all_groups: list):
+    def __init__(self, cog: PlayerHubCog, ctx: commands.Context, all_groups: list, seller_chars: list | None = None):
         super().__init__(timeout=120)
         self.cog = cog
         self.ctx = ctx
         self.all_groups = all_groups
         self.selected_store_owner: Optional[discord.Member] = None
         self.selected_group_idx: Optional[int] = None
+        self.selected_seller_char_name: Optional[str] = None
+        self.seller_chars = seller_chars
 
         options = []
         for i, g in enumerate(all_groups[:25]):
@@ -939,6 +1341,19 @@ class SellToStoreSetupView(discord.ui.View):
         )
         item_select.callback = self._on_item_select
         self.add_item(item_select)
+
+        if seller_chars:
+            char_options = [
+                discord.SelectOption(label=c["name"][:100], value=c["name"])
+                for c in seller_chars[:25]
+            ]
+            seller_char_select = discord.ui.Select(
+                placeholder="Which character is selling?",
+                options=char_options,
+                row=2,
+            )
+            seller_char_select.callback = self._on_seller_char_select
+            self.add_item(seller_char_select)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
@@ -989,6 +1404,12 @@ class SellToStoreSetupView(discord.ui.View):
             f"Store Owner: **{member.display_name}** ✓", ephemeral=True
         )
 
+    async def _on_seller_char_select(self, interaction: discord.Interaction):
+        self.selected_seller_char_name = interaction.data["values"][0]
+        await interaction.response.send_message(
+            f"Selling character: **{self.selected_seller_char_name}** ✓", ephemeral=True
+        )
+
     async def _on_item_select(self, interaction: discord.Interaction):
         self.selected_group_idx = int(interaction.data["values"][0])
         g = self.all_groups[self.selected_group_idx]
@@ -996,7 +1417,7 @@ class SellToStoreSetupView(discord.ui.View):
             f"Gun: **{g['name']}** ✓", ephemeral=True
         )
 
-    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=2)
+    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=3)
     async def continue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.selected_store_owner is None:
             await interaction.response.send_message("Please select a store owner first.", ephemeral=True)
@@ -1004,13 +1425,19 @@ class SellToStoreSetupView(discord.ui.View):
         if self.selected_group_idx is None:
             await interaction.response.send_message("Please select a gun first.", ephemeral=True)
             return
+        if self.seller_chars and not self.selected_seller_char_name:
+            await interaction.response.send_message("Please select a selling character first.", ephemeral=True)
+            return
         if self.selected_store_owner.id == interaction.user.id:
             await interaction.response.send_message(
                 "❌ You cannot sell guns to yourself.", ephemeral=True
             )
             return
         group = self.all_groups[self.selected_group_idx]
-        modal = SellToStoreDetailsModal(self.cog, self.selected_store_owner, group)
+        modal = SellToStoreDetailsModal(
+            self.cog, self.selected_store_owner, group,
+            seller_character=self.selected_seller_char_name or "",
+        )
         await interaction.response.send_modal(modal)
         self.stop()
 
@@ -1039,11 +1466,12 @@ class SellToStoreDetailsModal(discord.ui.Modal, title="Sell to Store — Finaliz
         placeholder="e.g. 5000",
     )
 
-    def __init__(self, cog: PlayerHubCog, store_owner: discord.Member, group: dict):
+    def __init__(self, cog: PlayerHubCog, store_owner: discord.Member, group: dict, *, seller_character: str = ""):
         super().__init__()
         self.cog = cog
         self.store_owner = store_owner
         self.group = group
+        self.seller_character = seller_character
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -1073,7 +1501,7 @@ class SellToStoreDetailsModal(discord.ui.Modal, title="Sell to Store — Finaliz
         item_id = selected_item["item_id"]
         item_type = selected_item.get("item_type", "gun")
         restriction = selected_item.get("restriction", "basic")
-        character_name = selected_item.get("character_name", "")
+        character_name = self.seller_character or selected_item.get("character_name", "")
 
         live_item = await pi_get_item(item_id)
         if live_item is None or str(live_item.get("owner_id")) != str(interaction.user.id):
