@@ -67,6 +67,7 @@ def _make_interaction(user_id=111, cog=None, roles=None, admin=False):
     inter.response.edit_message = AsyncMock()
     inter.followup = MagicMock()
     inter.followup.send = AsyncMock()
+    inter.edit_original_response = AsyncMock()
     inter.guild = MagicMock()
     inter.guild.id = 999
     inter.guild.get_member = MagicMock(return_value=None)
@@ -786,7 +787,7 @@ class TestWholesaleProcessFunctions:
             await _process_wh_add_gun(cog, inter, "TestGun, 10, 5000, basic")
             guns_cog._save_state.assert_called_once()
             assert len(state["wholesale_lots"]) == 1
-            assert "TestGun" in inter.followup.send.call_args[0][0]
+            assert "TestGun" in inter.edit_original_response.call_args[1].get("content", "")
         _run(_test())
 
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
@@ -804,7 +805,7 @@ class TestWholesaleProcessFunctions:
             await _process_wh_add_cw(cog, inter, "Sandevistan, 5, 8000")
             cw_cog._save_state.assert_called_once()
             assert len(state["cw_wholesale_lots"]) == 1
-            assert "Sandevistan" in inter.followup.send.call_args[0][0]
+            assert "Sandevistan" in inter.edit_original_response.call_args[1].get("content", "")
         _run(_test())
 
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
@@ -823,7 +824,7 @@ class TestWholesaleProcessFunctions:
             inter = _make_interaction()
             await _process_wh_remove_lot(cog, inter, "lot-g1")
             assert len(state["wholesale_lots"]) == 0
-            assert "Removed" in inter.followup.send.call_args[0][0]
+            assert "Removed" in inter.edit_original_response.call_args[1].get("content", "")
         _run(_test())
 
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
@@ -842,7 +843,7 @@ class TestWholesaleProcessFunctions:
             inter = _make_interaction()
             await _process_wh_remove_lot(cog, inter, "lot-cw1")
             assert len(state["cw_wholesale_lots"]) == 0
-            assert "Kiroshi" in inter.followup.send.call_args[0][0]
+            assert "Kiroshi" in inter.edit_original_response.call_args[1].get("content", "")
         _run(_test())
 
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
@@ -861,7 +862,7 @@ class TestWholesaleProcessFunctions:
             inter = _make_interaction()
             await _process_wh_remove_lot(cog, inter, "lot-g2, 3")
             assert state["wholesale_lots"][0]["qty_available"] == 7
-            assert "SMG" in inter.followup.send.call_args[0][0]
+            assert "SMG" in inter.edit_original_response.call_args[1].get("content", "")
         _run(_test())
 
     def test_remove_lot_not_found(self):
@@ -873,7 +874,7 @@ class TestWholesaleProcessFunctions:
             cog.bot.cogs["GunsShopCog"] = guns_cog
             inter = _make_interaction()
             await _process_wh_remove_lot(cog, inter, "nope")
-            assert "not found" in inter.followup.send.call_args[0][0]
+            assert "not found" in inter.edit_original_response.call_args[1].get("content", "")
         _run(_test())
 
     def test_add_gun_bad_input(self):
@@ -884,7 +885,7 @@ class TestWholesaleProcessFunctions:
             cog.bot.cogs["GunsShopCog"] = guns_cog
             inter = _make_interaction()
             await _process_wh_add_gun(cog, inter, "TestGun, abc, xyz")
-            assert "numbers" in inter.followup.send.call_args[0][0].lower()
+            assert "numbers" in inter.edit_original_response.call_args[1].get("content", "").lower()
         _run(_test())
 
 
@@ -949,7 +950,7 @@ def test_wh_remove_negative_qty_gun():
         cog.bot.cogs["CyberwareShop"] = MagicMock()
         inter = _make_interaction()
         await _process_wh_remove_lot(cog, inter, "WL1, -5")
-        assert "positive" in inter.followup.send.call_args[0][0].lower()
+        assert "positive" in inter.edit_original_response.call_args[1].get("content", "").lower()
     _run(_test())
 
 
@@ -967,7 +968,7 @@ def test_wh_remove_negative_qty_cw():
         cog.bot.cogs["CyberwareShop"] = cw_cog
         inter = _make_interaction()
         await _process_wh_remove_lot(cog, inter, "CW1, -2")
-        assert "positive" in inter.followup.send.call_args[0][0].lower()
+        assert "positive" in inter.edit_original_response.call_args[1].get("content", "").lower()
     _run(_test())
 
 

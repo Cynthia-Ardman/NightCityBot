@@ -196,32 +196,30 @@ class PlayerSubView(SafeView):
     @discord.ui.button(label="Reassign Item", style=discord.ButtonStyle.secondary, emoji="✏️", row=1)
     async def reassign_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "📝 **Enter:** `item_uuid, new_owner_mention_or_id, new_character_name`\n"
+        await interaction.edit_original_response(
+            content="📝 **Enter:** `item_uuid, new_owner_mention_or_id, new_character_name`\n"
             "Example: `12345678-abcd-..., @Player, V`\n"
             "Type `cancel` to abort.",
-            ephemeral=True,
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
             return
         await _process_fixer_reassign_item(self.cog, interaction, text)
 
     @discord.ui.button(label="Item History", style=discord.ButtonStyle.secondary, emoji="📜", row=1)
     async def item_history(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "📝 **Enter the Item UUID** to look up (or type `cancel`):",
-            ephemeral=True,
+        await interaction.edit_original_response(
+            content="📝 **Enter the Item UUID** to look up (or type `cancel`):",
         )
         item_id = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if item_id is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
             return
         history = await ih_get_history(item_id, limit=50)
         if not history:
-            await interaction.followup.send(f"No history for `{item_id}`.", ephemeral=True)
+            await interaction.edit_original_response(content=f"No history for `{item_id}`.")
             return
         lines = []
         for entry in history:
@@ -245,9 +243,8 @@ class PlayerSubView(SafeView):
             color=discord.Color.greyple(),
         )
         embed.set_footer(text=f"{len(history)} event(s)")
-        await interaction.followup.send(
-            embed=embed, ephemeral=True,
-            allowed_mentions=discord.AllowedMentions.none(),
+        await interaction.edit_original_response(
+            content=None, embed=embed,
         )
 
     @discord.ui.button(label="Start LOA", style=discord.ButtonStyle.success, emoji="🏖️", row=2)
@@ -369,49 +366,46 @@ class WholesalerSubView(SafeView):
     @discord.ui.button(label="Add Gun", style=discord.ButtonStyle.primary, emoji="🔫", row=0)
     async def add_gun(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "📝 **Enter gun wholesale details** in this format:\n"
+        await interaction.edit_original_response(
+            content="📝 **Enter gun wholesale details** in this format:\n"
             "`gun name, quantity, unit cost, restriction`\n"
             "Example: `Militech Mk.31, 10, 5000, basic`\n"
             "Restriction is optional (defaults to `basic`). Type `cancel` to abort.",
-            ephemeral=True,
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
             return
         await _process_wh_add_gun(self.cog, interaction, text)
 
     @discord.ui.button(label="Add CW", style=discord.ButtonStyle.primary, emoji="💉", row=0)
     async def add_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "📝 **Enter CW wholesale details** in this format:\n"
+        await interaction.edit_original_response(
+            content="📝 **Enter CW wholesale details** in this format:\n"
             "`cyberware name, quantity, unit cost`\n"
             "Example: `Neural Link, 10, 5000`\n"
             "Type `cancel` to abort.",
-            ephemeral=True,
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
             return
         await _process_wh_add_cw(self.cog, interaction, text)
 
     @discord.ui.button(label="Remove Lot", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
     async def remove_lot(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "📝 **Enter lot removal details** in this format:\n"
+        await interaction.edit_original_response(
+            content="📝 **Enter lot removal details** in this format:\n"
             "`lot ID, quantity to remove`\n"
             "Leave quantity blank to remove entire lot.\n"
             "Example: `fixer-20250403-abc123, 5` or `fixer-20250403-abc123`\n"
             "Type `cancel` to abort.",
-            ephemeral=True,
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
             return
         await _process_wh_remove_lot(self.cog, interaction, text)
 
@@ -444,9 +438,8 @@ class WholesalerSubView(SafeView):
 async def _process_fixer_reassign_item(cog, interaction, text):
     parts = [p.strip() for p in text.split(",")]
     if len(parts) < 3:
-        await interaction.followup.send(
-            "❌ Please provide: `item_uuid, new_owner_mention_or_id, new_character_name`",
-            ephemeral=True,
+        await interaction.edit_original_response(
+            content="❌ Please provide: `item_uuid, new_owner_mention_or_id, new_character_name`",
         )
         return
     item_id = parts[0]
@@ -454,20 +447,20 @@ async def _process_fixer_reassign_item(cog, interaction, text):
     new_char_name = parts[2]
     guild = interaction.guild
     if not guild:
-        await interaction.followup.send("Must be used in server.", ephemeral=True)
+        await interaction.edit_original_response(content="Must be used in server.")
         return
     item = await pi_get_item(item_id)
     if item is None:
-        await interaction.followup.send(f"Item `{item_id}` not found.", ephemeral=True)
+        await interaction.edit_original_response(content=f"Item `{item_id}` not found.")
         return
     new_owner = await _resolve_member(guild, raw_owner)
     if not new_owner:
-        await interaction.followup.send("Could not find new owner.", ephemeral=True)
+        await interaction.edit_original_response(content="Could not find new owner.")
         return
     char_record = await get_character_by_name(str(new_owner.id), new_char_name)
     if char_record and not await ensure_character_active(char_record["character_id"]):
-        await interaction.followup.send(
-            f"❌ Character **{new_char_name}** is not active.", ephemeral=True
+        await interaction.edit_original_response(
+            content=f"❌ Character **{new_char_name}** is not active.",
         )
         return
     item_name = item.get("name", "?")
@@ -478,7 +471,7 @@ async def _process_fixer_reassign_item(cog, interaction, text):
     else:
         ok = await pi_update_owner(item_id, str(new_owner.id), new_char_name, old_owner_id)
     if not ok:
-        await interaction.followup.send("Failed to reassign item.", ephemeral=True)
+        await interaction.edit_original_response(content="Failed to reassign item.")
         return
     await ih_record_event(
         item_id, "fixer_reassign",
@@ -491,9 +484,8 @@ async def _process_fixer_reassign_item(cog, interaction, text):
             "new_character": new_char_name,
         },
     )
-    await interaction.followup.send(
-        f"✅ Reassigned **{item_name}** to {new_owner.display_name} — {new_char_name}.",
-        ephemeral=True,
+    await interaction.edit_original_response(
+        content=f"✅ Reassigned **{item_name}** to {new_owner.display_name} — {new_char_name}.",
     )
     log_ch = await _audit_channel(cog.bot)
     if log_ch:
@@ -513,21 +505,21 @@ async def _process_fixer_reassign_item(cog, interaction, text):
 async def _process_wh_add_gun(cog, interaction, text):
     guns_cog = cog.bot.cogs.get("GunsShopCog")
     if not guns_cog:
-        await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+        await interaction.edit_original_response(content="Gun shop system unavailable.")
         return
     parts = [p.strip() for p in text.split(",")]
     if len(parts) < 3:
-        await interaction.followup.send("❌ Need at least: `gun name, quantity, unit cost`", ephemeral=True)
+        await interaction.edit_original_response(content="❌ Need at least: `gun name, quantity, unit cost`")
         return
     gun_name = parts[0]
     try:
         qty = int(parts[1])
         cost = int(parts[2])
     except ValueError:
-        await interaction.followup.send("Quantity and cost must be numbers.", ephemeral=True)
+        await interaction.edit_original_response(content="Quantity and cost must be numbers.")
         return
     if qty < 1 or cost < 0:
-        await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
+        await interaction.edit_original_response(content="Invalid quantity or cost.")
         return
     restriction = parts[3].strip().lower() if len(parts) > 3 else "basic"
     if restriction not in ("basic", "controlled", "restricted"):
@@ -546,8 +538,8 @@ async def _process_wh_add_gun(cog, interaction, text):
             "restriction": restriction,
         })
         await guns_cog._save_state(state)
-    await interaction.followup.send(
-        f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] to wholesale.", ephemeral=True
+    await interaction.edit_original_response(
+        content=f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] to wholesale.",
     )
     log_ch = await _audit_channel(cog.bot)
     if log_ch:
@@ -567,21 +559,21 @@ async def _process_wh_add_gun(cog, interaction, text):
 async def _process_wh_add_cw(cog, interaction, text):
     cw_cog = cog.bot.cogs.get("CyberwareShop")
     if not cw_cog:
-        await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+        await interaction.edit_original_response(content="Cyberware system unavailable.")
         return
     parts = [p.strip() for p in text.split(",")]
     if len(parts) < 3:
-        await interaction.followup.send("❌ Need at least: `cyberware name, quantity, unit cost`", ephemeral=True)
+        await interaction.edit_original_response(content="❌ Need at least: `cyberware name, quantity, unit cost`")
         return
     item_name = parts[0]
     try:
         qty = int(parts[1])
         cost = int(parts[2])
     except ValueError:
-        await interaction.followup.send("Quantity and cost must be numbers.", ephemeral=True)
+        await interaction.edit_original_response(content="Quantity and cost must be numbers.")
         return
     if qty < 1 or cost < 0:
-        await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
+        await interaction.edit_original_response(content="Invalid quantity or cost.")
         return
     async with cw_cog.lock:
         state = await cw_cog._load_state()
@@ -594,8 +586,8 @@ async def _process_wh_add_cw(cog, interaction, text):
             "qty_available": qty,
         })
         await cw_cog._save_state(state)
-    await interaction.followup.send(
-        f"Added CW **{item_name}** ×{qty} at ${cost:,} to wholesale.", ephemeral=True
+    await interaction.edit_original_response(
+        content=f"Added CW **{item_name}** ×{qty} at ${cost:,} to wholesale.",
     )
     log_ch = await _audit_channel(cog.bot)
     if log_ch:
@@ -633,7 +625,7 @@ async def _process_wh_remove_lot(cog, interaction, text):
             found_in = "cw"
 
     if not found_in:
-        await interaction.followup.send(f"Lot `{lot_id}` not found in either wholesale.", ephemeral=True)
+        await interaction.edit_original_response(content=f"Lot `{lot_id}` not found in either wholesale.")
         return
 
     if found_in == "gun":
@@ -642,7 +634,7 @@ async def _process_wh_remove_lot(cog, interaction, text):
             lots = state.get("wholesale_lots", [])
             lot = next((l for l in lots if l.get("lot_id") == lot_id), None)
             if not lot:
-                await interaction.followup.send("Lot disappeared.", ephemeral=True)
+                await interaction.edit_original_response(content="Lot disappeared.")
                 return
             item_name = lot.get("gun_name", "?")
             current_qty = int(lot.get("qty_available", 0))
@@ -650,10 +642,10 @@ async def _process_wh_remove_lot(cog, interaction, text):
                 try:
                     remove_qty = int(raw_qty)
                 except ValueError:
-                    await interaction.followup.send("Qty must be a number.", ephemeral=True)
+                    await interaction.edit_original_response(content="Qty must be a number.")
                     return
                 if remove_qty <= 0:
-                    await interaction.followup.send("Qty must be positive.", ephemeral=True)
+                    await interaction.edit_original_response(content="Qty must be positive.")
                     return
                 if remove_qty >= current_qty:
                     lots.remove(lot)
@@ -671,7 +663,7 @@ async def _process_wh_remove_lot(cog, interaction, text):
             lots = state.get("cw_wholesale_lots", [])
             lot = next((l for l in lots if l.get("lot_id") == lot_id), None)
             if not lot:
-                await interaction.followup.send("Lot disappeared.", ephemeral=True)
+                await interaction.edit_original_response(content="Lot disappeared.")
                 return
             item_name = lot.get("item_name", "?")
             current_qty = int(lot.get("qty_available", 0))
@@ -679,10 +671,10 @@ async def _process_wh_remove_lot(cog, interaction, text):
                 try:
                     remove_qty = int(raw_qty)
                 except ValueError:
-                    await interaction.followup.send("Qty must be a number.", ephemeral=True)
+                    await interaction.edit_original_response(content="Qty must be a number.")
                     return
                 if remove_qty <= 0:
-                    await interaction.followup.send("Qty must be positive.", ephemeral=True)
+                    await interaction.edit_original_response(content="Qty must be positive.")
                     return
                 if remove_qty >= current_qty:
                     lots.remove(lot)
@@ -696,8 +688,8 @@ async def _process_wh_remove_lot(cog, interaction, text):
             await cw_cog._save_state(state)
 
     label = "Gun" if found_in == "gun" else "CW"
-    await interaction.followup.send(
-        f"Removed **{item_name}** ×{removed} from {label} wholesale.", ephemeral=True
+    await interaction.edit_original_response(
+        content=f"Removed **{item_name}** ×{removed} from {label} wholesale.",
     )
     log_ch = await _audit_channel(cog.bot)
     if log_ch:

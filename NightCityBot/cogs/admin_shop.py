@@ -75,15 +75,14 @@ class AdminShopMenuView(SafeView):
     async def reassign_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("AdminShop")
-        await interaction.followup.send(
-            "📝 **Enter:** `item_uuid, new_owner_mention_or_id, new_character_name`\n"
+        await interaction.edit_original_response(
+            content="📝 **Enter:** `item_uuid, new_owner_mention_or_id, new_character_name`\n"
             "Example: `12345678-abcd-..., @Player, V`\n"
             "Type `cancel` to abort.",
-            ephemeral=True,
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
             return
         await _inline_reassign_item(cog, interaction, text)
 
@@ -91,13 +90,12 @@ class AdminShopMenuView(SafeView):
     async def item_history(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("AdminShop")
-        await interaction.followup.send(
-            "📝 **Enter the Item UUID** to look up (or type `cancel`):",
-            ephemeral=True,
+        await interaction.edit_original_response(
+            content="📝 **Enter the Item UUID** to look up (or type `cancel`):",
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
             return
         await _inline_item_history(cog, interaction, text.strip())
 
@@ -155,16 +153,15 @@ class AdminShopMenuView(SafeView):
     async def restock_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("AdminShop")
-        await interaction.followup.send(
-            "📝 **Enter:** `gun_name, quantity, unit_cost, restriction`\n"
+        await interaction.edit_original_response(
+            content="📝 **Enter:** `gun_name, quantity, unit_cost, restriction`\n"
             "Restriction is optional (defaults to `basic`).\n"
             "Example: `Militech M-76e, 10, 5000, controlled`\n"
             "Type `cancel` to abort.",
-            ephemeral=True,
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
             return
         await _inline_restock_wholesale(cog, interaction, text)
 
@@ -186,19 +183,18 @@ class AdminShopMenuView(SafeView):
         cog = interaction.client.get_cog("AdminShop")
         catalog = await cw_catalog_get_all()
         if not catalog:
-            await interaction.followup.send("❌ CW catalog is empty. Set a sheet and reload first.", ephemeral=True)
+            await interaction.edit_original_response(content="❌ CW catalog is empty. Set a sheet and reload first.")
             return
-        await interaction.followup.send(
-            f"📦 **CW catalog has {len(catalog)} items.**\n"
+        await interaction.edit_original_response(
+            content=f"📦 **CW catalog has {len(catalog)} items.**\n"
             f"How many unique items to stock, and max qty per item?\n"
             f"**Enter:** `total_items, max_qty`\n"
             f"Example: `5, 3` — stocks 5 random items, up to 3 each\n"
             f"Type `cancel` to abort.",
-            ephemeral=True,
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
             return
         await _inline_restock_cw(cog, interaction, text, catalog)
 
@@ -219,7 +215,7 @@ class AdminShopMenuView(SafeView):
         await interaction.response.defer(ephemeral=True)
         guns_cog = interaction.client.get_cog("GunsShopCog")
         if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            await interaction.edit_original_response(content="Gun shop system unavailable.")
             return
         state = await guns_cog._load_state()
         current = str(state.get("settings", {}).get("master_sheet_url", "")).strip()
@@ -227,28 +223,28 @@ class AdminShopMenuView(SafeView):
         if current:
             prompt += f"\nCurrent: `{current[:80]}{'…' if len(current) > 80 else ''}`"
         prompt += "\nType `cancel` to abort."
-        await interaction.followup.send(prompt, ephemeral=True)
+        await interaction.edit_original_response(content=prompt)
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
             return
         url = text.strip().strip("<>")
         if not url.startswith(("http://", "https://")):
-            await interaction.followup.send("❌ Invalid URL.", ephemeral=True)
+            await interaction.edit_original_response(content="❌ Invalid URL.")
             return
         normalized = guns_cog._normalize_sheet_source_url(url)
         async with guns_cog.lock:
             latest = await guns_cog._load_state()
             latest.setdefault("settings", {})["master_sheet_url"] = normalized
             await guns_cog._save_state(latest)
-        await interaction.followup.send(f"✅ Gun sheet URL updated.", ephemeral=True)
+        await interaction.edit_original_response(content="✅ Gun sheet URL updated.")
 
     @discord.ui.button(label="Set CW Sheet", style=discord.ButtonStyle.secondary, emoji="💉", row=4, custom_id="admin_shop:set_cw_sheet")
     async def set_cw_sheet(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cw_cog = interaction.client.get_cog("CyberwareShop")
         if not cw_cog:
-            await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+            await interaction.edit_original_response(content="Cyberware system unavailable.")
             return
         state = await cw_cog._load_state()
         current = str(state.get("sheet_url", "")).strip()
@@ -256,20 +252,20 @@ class AdminShopMenuView(SafeView):
         if current:
             prompt += f"\nCurrent: `{current[:80]}{'…' if len(current) > 80 else ''}`"
         prompt += "\nType `cancel` to abort."
-        await interaction.followup.send(prompt, ephemeral=True)
+        await interaction.edit_original_response(content=prompt)
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
             return
         url = text.strip().strip("<>")
         if not url.startswith(("http://", "https://")):
-            await interaction.followup.send("❌ Invalid URL.", ephemeral=True)
+            await interaction.edit_original_response(content="❌ Invalid URL.")
             return
         async with cw_cog.lock:
             cw_state = await cw_cog._load_state()
             cw_state["sheet_url"] = url
             await cw_cog._save_state(cw_state)
-        await interaction.followup.send(f"✅ Cyberware sheet URL updated.", ephemeral=True)
+        await interaction.edit_original_response(content="✅ Cyberware sheet URL updated.")
 
     @discord.ui.button(label="Reload Sheets", style=discord.ButtonStyle.success, emoji="🔄", row=4, custom_id="admin_shop:reload_sheets")
     async def reload_sheets(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -350,9 +346,8 @@ class PlayerInvPickerView(SafeView):
 async def _inline_reassign_item(cog, interaction, text):
     parts = [p.strip() for p in text.split(",")]
     if len(parts) < 3:
-        await interaction.followup.send(
-            "❌ Please provide: `item_uuid, new_owner_mention_or_id, new_character_name`",
-            ephemeral=True,
+        await interaction.edit_original_response(
+            content="❌ Please provide: `item_uuid, new_owner_mention_or_id, new_character_name`",
         )
         return
     item_id = parts[0]
@@ -360,20 +355,20 @@ async def _inline_reassign_item(cog, interaction, text):
     new_char_name = parts[2]
     guild = interaction.guild
     if not guild:
-        await interaction.followup.send("Must be used in server.", ephemeral=True)
+        await interaction.edit_original_response(content="Must be used in server.")
         return
     item = await pi_get_item(item_id)
     if item is None:
-        await interaction.followup.send(f"Item `{item_id}` not found.", ephemeral=True)
+        await interaction.edit_original_response(content=f"Item `{item_id}` not found.")
         return
     new_owner = await cog._resolve_member(guild, raw_owner)
     if not new_owner:
-        await interaction.followup.send("Could not find new owner.", ephemeral=True)
+        await interaction.edit_original_response(content="Could not find new owner.")
         return
     char_record = await get_character_by_name(str(new_owner.id), new_char_name)
     if char_record and not await ensure_character_active(char_record["character_id"]):
-        await interaction.followup.send(
-            f"❌ Character **{new_char_name}** is not active.", ephemeral=True
+        await interaction.edit_original_response(
+            content=f"❌ Character **{new_char_name}** is not active.",
         )
         return
     item_name = item.get("name", "?")
@@ -384,7 +379,7 @@ async def _inline_reassign_item(cog, interaction, text):
     else:
         ok = await pi_update_owner(item_id, str(new_owner.id), new_char_name, old_owner_id)
     if not ok:
-        await interaction.followup.send("Failed to reassign item.", ephemeral=True)
+        await interaction.edit_original_response(content="Failed to reassign item.")
         return
     await ih_record_event(
         item_id, "admin_reassign",
@@ -397,9 +392,8 @@ async def _inline_reassign_item(cog, interaction, text):
             "new_character": new_char_name,
         },
     )
-    await interaction.followup.send(
-        f"Reassigned **{item_name}** to {new_owner.display_name} — {new_char_name}.",
-        ephemeral=True,
+    await interaction.edit_original_response(
+        content=f"Reassigned **{item_name}** to {new_owner.display_name} — {new_char_name}.",
     )
     log_ch = await cog._audit_channel()
     if log_ch:
@@ -419,7 +413,7 @@ async def _inline_reassign_item(cog, interaction, text):
 async def _inline_item_history(cog, interaction, item_id):
     history = await ih_get_history(item_id, limit=50)
     if not history:
-        await interaction.followup.send(f"No history for `{item_id}`.", ephemeral=True)
+        await interaction.edit_original_response(content=f"No history for `{item_id}`.")
         return
     lines = []
     for entry in history:
@@ -443,37 +437,35 @@ async def _inline_item_history(cog, interaction, item_id):
         color=discord.Color.greyple(),
     )
     embed.set_footer(text=f"{len(history)} event(s)")
-    await interaction.followup.send(
-        embed=embed, ephemeral=True,
-        allowed_mentions=discord.AllowedMentions.none(),
+    await interaction.edit_original_response(
+        content=None, embed=embed,
     )
 
 
 async def _inline_restock_wholesale(cog, interaction, text):
     parts = [p.strip() for p in text.split(",")]
     if len(parts) < 3:
-        await interaction.followup.send(
-            "❌ Please provide at least: `gun_name, quantity, unit_cost`",
-            ephemeral=True,
+        await interaction.edit_original_response(
+            content="❌ Please provide at least: `gun_name, quantity, unit_cost`",
         )
         return
     gun_name = parts[0]
     if not gun_name:
-        await interaction.followup.send("❌ Gun name is required.", ephemeral=True)
+        await interaction.edit_original_response(content="❌ Gun name is required.")
         return
     try:
         qty = int(parts[1])
         cost = int(parts[2])
     except ValueError:
-        await interaction.followup.send("Quantity and cost must be numbers.", ephemeral=True)
+        await interaction.edit_original_response(content="Quantity and cost must be numbers.")
         return
     if qty < 1 or cost < 0:
-        await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
+        await interaction.edit_original_response(content="Invalid quantity or cost.")
         return
     restriction = parts[3].strip().lower() if len(parts) > 3 and parts[3].strip() else "basic"
     guns_cog = cog.bot.cogs.get("GunsShopCog")
     if not guns_cog:
-        await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+        await interaction.edit_original_response(content="Gun shop system unavailable.")
         return
     async with guns_cog.lock:
         state = await guns_cog._load_state()
@@ -489,8 +481,8 @@ async def _inline_restock_wholesale(cog, interaction, text):
             "restriction": restriction,
         })
         await guns_cog._save_state(state)
-    await interaction.followup.send(
-        f"Restocked **{gun_name}** ×{qty} at ${cost:,} [{restriction}].", ephemeral=True
+    await interaction.edit_original_response(
+        content=f"Restocked **{gun_name}** ×{qty} at ${cost:,} [{restriction}].",
     )
     log_ch = await cog._audit_channel()
     if log_ch:
@@ -511,27 +503,26 @@ async def _inline_restock_wholesale(cog, interaction, text):
 async def _inline_restock_cw(cog, interaction, text, catalog):
     parts = [p.strip() for p in text.split(",")]
     if len(parts) < 2:
-        await interaction.followup.send(
-            "❌ Please provide: `total_items, max_qty`",
-            ephemeral=True,
+        await interaction.edit_original_response(
+            content="❌ Please provide: `total_items, max_qty`",
         )
         return
     try:
         total_items = int(parts[0])
         max_qty = int(parts[1])
     except ValueError:
-        await interaction.followup.send("Both values must be numbers.", ephemeral=True)
+        await interaction.edit_original_response(content="Both values must be numbers.")
         return
     if total_items < 1:
-        await interaction.followup.send("Total items must be at least 1.", ephemeral=True)
+        await interaction.edit_original_response(content="Total items must be at least 1.")
         return
     if max_qty < 1:
-        await interaction.followup.send("Max qty must be at least 1.", ephemeral=True)
+        await interaction.edit_original_response(content="Max qty must be at least 1.")
         return
     total_items = min(total_items, len(catalog))
     cw_cog = cog.bot.cogs.get("CyberwareShop")
     if not cw_cog:
-        await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+        await interaction.edit_original_response(content="Cyberware system unavailable.")
         return
     chosen = random.sample(catalog, total_items)
     async with cw_cog.lock:
@@ -551,8 +542,8 @@ async def _inline_restock_cw(cog, interaction, text, catalog):
             stocked.append(f"**{item['name']}** ×{qty} at ${cost:,}")
         await cw_cog._save_state(state)
     summary = "\n".join(stocked)
-    await interaction.followup.send(
-        f"✅ Restocked **{len(stocked)}** CW items:\n{summary}", ephemeral=True
+    await interaction.edit_original_response(
+        content=f"✅ Restocked **{len(stocked)}** CW items:\n{summary}",
     )
     log_ch = await cog._audit_channel()
     if log_ch:
