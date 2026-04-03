@@ -290,15 +290,11 @@ class Admin(commands.Cog):
         )
 
         embed.add_field(
-            name="📦 Inventories",
+            name="📦 Inventories & Trading",
             value=(
-                "**🎒 Personal inventory** — items you own:\n"
-                "`!my_inventory` (alias: `!myinv`) — see everything, grouped by character.\n\n"
+                "`!player` — **Player hub**: view your inventory, trade items, give items.\n\n"
                 "**🔫 Gun store** — own a shop? Use `!gunstore` to manage everything.\n"
-                "**💉 Ripperdoc** — licensed doc? Use `!ripperdoc` to manage everything.\n\n"
-                "**Trading between players:**\n"
-                "`!trade @buyer <row> <price> character_name` — sell a personal item.\n"
-                "`!inv_give @target <row> \"sender_char\"` — give a personal item for free."
+                "**💉 Ripperdoc** — licensed doc? Use `!ripperdoc` to manage everything."
             ),
             inline=False,
         )

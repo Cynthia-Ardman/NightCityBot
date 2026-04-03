@@ -129,6 +129,7 @@ Consolidates separate command sets into interactive hub commands with Discord UI
 - `NightCityBot/cogs/gunstore_hub.py` — `!gunstore` interactive panel (Buy/Sell/Inventory/Approve/Unapprove/Wholesale/Approved Buyers)
 - `NightCityBot/cogs/admin_shop.py` — `!admin_shop` admin panel (Add/Remove/Reassign/History/Inventory)
 - `NightCityBot/cogs/fixer_hub.py` — `!fixer` Fixer management panel with three-tier menu (Player/Store/Wholesaler sub-menus for inventory, items, LOA, store stock, wholesale management)
+- `NightCityBot/cogs/player_hub.py` — `!player` Player hub for viewing inventory, trading items, and giving items (replaces individual `!trade`, `!inv_give` commands in help)
 
 ### Item History / Audit Trail
 Table: `item_history` (keyed by item UUID, stores event_type, actor_id, target_id, price, metadata JSONB, created_at)

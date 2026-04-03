@@ -34,6 +34,7 @@ from NightCityBot.cogs.ripperdoc_hub import RipperdocHub
 from NightCityBot.cogs.gunstore_hub import GunstoreHub
 from NightCityBot.cogs.admin_shop import AdminShopCog
 from NightCityBot.cogs.fixer_hub import FixerHubCog
+from NightCityBot.cogs.player_hub import PlayerHubCog
 from NightCityBot.cogs.backup import Backup
 from NightCityBot.utils.startup_checks import perform_startup_checks
 from NightCityBot.services.unbelievaboat import UnbelievaBoatAPI
@@ -83,6 +84,7 @@ class NightCityBot(commands.Bot):
         await self.add_cog(GunstoreHub(self))
         await self.add_cog(AdminShopCog(self))
         await self.add_cog(FixerHubCog(self))
+        await self.add_cog(PlayerHubCog(self))
         await self.add_cog(Backup(self))
         await self.add_cog(Admin(self))
         await self.add_cog(TestSuite(self))
