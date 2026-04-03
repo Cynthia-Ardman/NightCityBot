@@ -879,7 +879,7 @@ async def write_to_db(
         summary[tag]["inserted"] += n
         summary[tag]["skipped"]  += 1 - n
 
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=10.0) as conn:
         for uid, ts in attendance:
             res = await conn.execute(
                 "INSERT INTO attendance_log (user_id, logged_at) VALUES ($1,$2)"

@@ -1036,8 +1036,6 @@ class PlayerRemoveItemView(SafeView):
             return
         player = self.selected_player
 
-        # (Removal logic should go here, but it seems to have been mangled during conflict)
-        # Re-implementing correctly based on the intended flow for this button:
         item = await pi_get_item(item_id)
         if item is None:
             await interaction.followup.send(f"Item `{item_id}` not found.", ephemeral=True)

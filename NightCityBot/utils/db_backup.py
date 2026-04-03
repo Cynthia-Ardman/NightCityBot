@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from NightCityBot.utils.db import POOL_ACQUIRE_TIMEOUT
+
 logger = logging.getLogger(__name__)
 
 ALL_TABLES = [
@@ -64,7 +66,7 @@ async def export_all_tables(pool) -> dict[str, Any]:
         "tables": {},
     }
 
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
         existing = set()
         rows = await conn.fetch(
             "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
@@ -120,7 +122,7 @@ async def import_all_tables(pool, export_data: dict) -> dict[str, int]:
 
     imported: dict[str, int] = {}
 
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
         async with conn.transaction():
             for table_name, rows in tables_data.items():
                 if table_name not in ALL_TABLES:
