@@ -3,3 +3,4 @@ __pycache__/
 config.py
 *.json
 !data/wholesaler/**/*.json
+.coverage
