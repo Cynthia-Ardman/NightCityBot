@@ -824,7 +824,7 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
                 return None
         return member
 
-    @commands.command(name="ripperdoc")
+    @commands.hybrid_command(name="ripperdoc")
     @is_ripperdoc()
     @commands.max_concurrency(1, per=commands.BucketType.user)
     @commands.cooldown(1, 5, commands.BucketType.user)
@@ -852,7 +852,10 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
         embed.set_footer(text=f"Ripperdoc: {ctx.author.display_name}")
 
         view = RipperdocMenuView(self, ctx)
-        msg = await ctx.send(embed=embed, view=view, delete_after=120)
+        if ctx.interaction:
+            msg = await ctx.send(embed=embed, view=view, ephemeral=True)
+        else:
+            msg = await ctx.send(embed=embed, view=view, delete_after=120)
         view.message = msg
         try:
             await ctx.message.delete()

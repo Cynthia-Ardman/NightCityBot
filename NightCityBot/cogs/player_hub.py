@@ -89,7 +89,7 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
             return False
         return True
 
-    @commands.command(name="player")
+    @commands.hybrid_command(name="player")
     @commands.max_concurrency(1, per=commands.BucketType.user)
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def player_cmd(self, ctx: commands.Context):
@@ -103,7 +103,10 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
             color=discord.Color.blue(),
         )
         view = PlayerHubView(self, ctx)
-        msg = await ctx.send(embed=embed, view=view, delete_after=120)
+        if ctx.interaction:
+            msg = await ctx.send(embed=embed, view=view, ephemeral=True)
+        else:
+            msg = await ctx.send(embed=embed, view=view, delete_after=120)
         view.message = msg
         try:
             await ctx.message.delete()

@@ -980,7 +980,7 @@ class GunstoreHub(commands.Cog, name="GunstoreHub"):
                 return None
         return member
 
-    @commands.command(name="gunstore")
+    @commands.hybrid_command(name="gunstore")
     @is_store_owner()
     @commands.max_concurrency(1, per=commands.BucketType.user)
     @commands.cooldown(1, 5, commands.BucketType.user)
@@ -1010,7 +1010,10 @@ class GunstoreHub(commands.Cog, name="GunstoreHub"):
         embed.set_footer(text=f"Store Owner: {ctx.author.display_name}")
 
         view = GunstoreMenuView(self, ctx)
-        msg = await ctx.send(embed=embed, view=view, delete_after=120)
+        if ctx.interaction:
+            msg = await ctx.send(embed=embed, view=view, ephemeral=True)
+        else:
+            msg = await ctx.send(embed=embed, view=view, delete_after=120)
         view.message = msg
         try:
             await ctx.message.delete()

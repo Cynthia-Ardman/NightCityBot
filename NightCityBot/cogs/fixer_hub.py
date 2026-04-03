@@ -1393,7 +1393,7 @@ class FixerHubCog(commands.Cog, name="FixerHub"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.command(name="fixer")
+    @commands.hybrid_command(name="fixer")
     @commands.check_any(is_fixer(), commands.has_permissions(administrator=True))
     @commands.max_concurrency(1, per=commands.BucketType.user)
     @commands.cooldown(1, 5, commands.BucketType.user)
@@ -1416,7 +1416,10 @@ class FixerHubCog(commands.Cog, name="FixerHub"):
         embed.set_footer(text=f"Fixer: {ctx.author.display_name}")
 
         view = FixerTopView(self, ctx)
-        msg = await ctx.send(embed=embed, view=view)
+        if ctx.interaction:
+            msg = await ctx.send(embed=embed, view=view, ephemeral=True)
+        else:
+            msg = await ctx.send(embed=embed, view=view, delete_after=120)
         view.message = msg
         try:
             await ctx.message.delete()

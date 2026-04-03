@@ -176,11 +176,13 @@ All inventory operations are handled through the interactive hubs:
 Consolidates separate command sets into interactive hub commands with Discord UI (dropdowns, buttons, modals), DM-confirmation trade flows, and a full per-item audit trail.
 
 ### New Cogs
-- `NightCityBot/cogs/ripperdoc_hub.py` — `!ripperdoc` interactive panel (Buy/Sell/Install/Stock/Wholesale)
-- `NightCityBot/cogs/gunstore_hub.py` — `!gunstore` interactive panel (Buy/Sell/Inventory/Approve/Unapprove/Wholesale/Approved Buyers)
-- `NightCityBot/cogs/admin_shop.py` — `!admin` admin panel (Add/Remove/Reassign/History/Inventory); alias `!admin_shop` still works
-- `NightCityBot/cogs/fixer_hub.py` — `!fixer` Fixer management panel with three-tier menu (Player/Store/Wholesaler sub-menus for inventory, items, LOA, store stock, wholesale management)
-- `NightCityBot/cogs/player_hub.py` — `!player` Player hub for viewing inventory, trading items, and giving items (replaces individual `!trade`, `!inv_give` commands in help)
+- `NightCityBot/cogs/ripperdoc_hub.py` — `/ripperdoc` interactive panel (Buy/Sell/Install/Stock/Wholesale)
+- `NightCityBot/cogs/gunstore_hub.py` — `/gunstore` interactive panel (Buy/Sell/Inventory/Approve/Unapprove/Wholesale/Approved Buyers)
+- `NightCityBot/cogs/admin_shop.py` — `/admin` admin panel (Add/Remove/Reassign/History/Inventory); alias `!admin_shop` still works
+- `NightCityBot/cogs/fixer_hub.py` — `/fixer` Fixer management panel with three-tier menu (Player/Store/Wholesaler sub-menus for inventory, items, LOA, store stock, wholesale management)
+- `NightCityBot/cogs/player_hub.py` — `/player` Player hub for viewing inventory, trading items, and giving items (replaces individual `!trade`, `!inv_give` commands in help)
+
+All five hub commands are **hybrid commands** — they work as both `/slash` and `!prefix` commands. Panel responses are **ephemeral** (only visible to the invoker). Slash commands are synced automatically on bot startup via `tree.sync()` in `on_ready`.
 
 ### Item History / Audit Trail
 Table: `item_history` (keyed by item UUID, stores event_type, actor_id, target_id, price, metadata JSONB, created_at)
@@ -250,7 +252,7 @@ All hub commands (`!player`, `!fixer`, `!ripperdoc`, `!gunstore`, `!admin`, `!op
 - `@commands.cooldown(1, 5, BucketType.user)` — 5-second per-user cooldown
 
 ### Error Isolation (`utils/interaction_safety.py`)
-`SafeView` and `SafeModal` base classes provide `on_error` handlers that log the error and send an ephemeral "something went wrong" message — preventing one user's error from crashing the UI for others. All View/Modal classes across all hub cogs and utility modules inherit from these.
+`SafeView` base class provides `on_error` handler that logs the error and sends an ephemeral "something went wrong" message — preventing one user's error from crashing the UI for others. All View classes across all hub cogs and utility modules inherit from it. (Note: `SafeModal` was removed; there are no modals anywhere — all input is collected inline via `collect_text_input` from `inline_helpers.py`.)
 
 ### Inline Helpers (`utils/inline_helpers.py`)
 `collect_text_input(bot, channel_id, author_id)` — waits for a user's text message reply, auto-deletes it, supports cancel. Used by hub flows that replaced modals with inline text collection.

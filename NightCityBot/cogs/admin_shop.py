@@ -799,7 +799,7 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
                 return None
         return member
 
-    @commands.command(name="admin", aliases=["admin_shop"])
+    @commands.hybrid_command(name="admin", aliases=["admin_shop"])
     @commands.check_any(is_fixer(), commands.has_permissions(administrator=True))
     @commands.max_concurrency(1, per=commands.BucketType.user)
     @commands.cooldown(1, 5, commands.BucketType.user)
@@ -832,7 +832,10 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
         embed.set_footer(text=f"Admin: {ctx.author.display_name}")
 
         view = AdminShopMenuView(self, ctx)
-        msg = await ctx.send(embed=embed, view=view, delete_after=120)
+        if ctx.interaction:
+            msg = await ctx.send(embed=embed, view=view, ephemeral=True)
+        else:
+            msg = await ctx.send(embed=embed, view=view, delete_after=120)
         view.message = msg
         try:
             await ctx.message.delete()

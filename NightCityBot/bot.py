@@ -88,6 +88,11 @@ class NightCityBot(commands.Bot):
         await self.add_cog(Backup(self))
         await self.add_cog(Admin(self))
         await self.add_cog(TestSuite(self))
+        try:
+            synced = await self.tree.sync()
+            logger.info("Synced %d slash command(s).", len(synced))
+        except Exception:
+            logger.warning("Failed to sync slash commands.", exc_info=True)
         self.loop.create_task(perform_startup_checks(self))
 
     async def on_message(self, message: discord.Message):
