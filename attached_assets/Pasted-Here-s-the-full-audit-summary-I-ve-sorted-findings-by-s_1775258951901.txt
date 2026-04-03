@@ -1,0 +1,55 @@
+Here's the full audit summary. I've sorted findings by severity.
+
+Critical (data loss / money bugs)
+BUG 1 — Seller refund paths still use {"cash": -price} (11 call sites)
+Category 3. The Replit agent reverted your Bug Round 4 fix. Every seller clawback in a rollback branch uses {"cash": -price} instead of {"bank": -price}, which can push the seller's cash balance negative.
+
+File	Lines	Context
+ripperdoc_hub.py	684-685, 711-712, 868-869	CW sell/install refunds
+gunstore_hub.py	735-736, 751-752, 786-787	Gun sell refunds
+player_hub.py	1007-1010, 1756-1759	Trade + sell-to-store refunds
+cyberware_shop.py	654-657, 672-675, 711-714	CW sell refunds
+BUG 2 — pi_delete_item has no owner guard (SQL: WHERE item_id = $1 only)
+Category 5. pi_delete_item in db.py deletes by item_id alone with no AND owner_id = $X clause. Two flows call it after a stale ownership check:
+
+player_hub.py _process_sell_to_store (~line 1746): pi_get_item at 1623, but no re-fetch before delete at 1746 (the DM wait + payment happens in between)
+player_hub.py _process_give (~line 1303): No pi_get_item at all before delete
+If the item's owner changed between check and delete, this deletes another player's item.
+
+BUG 3 — Fixer CW store add/remove has no lock
+Category 5. fixer_hub.py _process_store_add_cw and _process_store_remove_cw do load→mutate→save on ripperdoc inventory without acquiring cw_cog._locks. Concurrent edits will cause last-writer-wins data loss. The gun equivalents correctly use async with guns_cog.lock.
+
+High (security / UX integrity)
+BUG 4 — Missing interaction_check on ~13 View classes
+Category 4. These views accept button/select clicks from any user, not just the intended one:
+
+File	Classes missing check
+fixer_hub.py	ReassignSourcePickerView, ReassignItemPickerView, ReassignDestPickerView, ReassignCharPickerView
+gunstore_hub.py	GunBuySelect, _ApproveBuyerView, _EmployeePickerView, _StorePickerForAction, _GunTransferOwnerView
+ripperdoc_hub.py	WholesaleBuySelect, _RDStorePickerForAction, _RDAddEmployeeView, _RDRemoveEmployeeView, _RDTransferOwnerView
+BUG 5 — GunSellSetupView and SellSetupView use send_message after add_item() instead of edit_message(view=self)
+Category 2D. After dynamically adding a character select dropdown, both views send a new message instead of re-rendering the existing one. The dropdown never appears on the original message. player_hub.py already does this correctly with edit_message(view=self).
+
+gunstore_hub.py ~lines 499-519 (GunSellSetupView.customer_select)
+ripperdoc_hub.py ~lines 465-485 (SellSetupView.patient_select)
+BUG 6 — Missing self.stop() before child view swap in item history flows
+Category 2A. When FixerItemHistorySourceView and ItemHistorySourceView (admin) swap to child picker views via edit_message/edit_original_response, they don't call self.stop() first. The parent's 60-second timeout can fire and clear the child's buttons.
+
+fixer_hub.py ~lines 1294-1308, 1345-1348, 1403-1406
+admin_shop.py ~lines 361-375, 412-415, 470-473
+Low (cosmetic / docs)
+BUG 7 — Stale cw_setsheet reference in log message
+Category 6. cyberware_shop.py line 107: "(run cw_setsheet first)" — that command is removed. Should reference !admin hub Set CW Sheet.
+
+BUG 8 — Stale !wh_restock in comment
+Category 6. guns_shop.py line 363: comment references !wh_restock which doesn't exist anymore.
+
+BUG 9 — Test comment says "Modal" for inline flow
+Category 6. test_player_hub.py line 453: section comment # --- Trade Details Modal tests --- but these test collect_text_input / _process_trade.
+
+Summary Table
+Severity	Count	Categories
+Critical	3	Financial signs (11 sites), pi_delete_item no owner guard, missing CW lock
+High	3	13 missing interaction_checks, 2 send_message-after-add_item, missing self.stop() in history flows
+Low	3	Stale text (3 locations)
+The biggest action item is still Bug 1 -- those 11 refund paths need to go back to {"bank": -price}. That's the same fix you made in Bug Round 4 that got accidentally reverted.
