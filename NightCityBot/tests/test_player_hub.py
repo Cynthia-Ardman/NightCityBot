@@ -1745,3 +1745,156 @@ class TestInventoryCharFilter:
         embed = _build_inventory_embed("TestUser", MULTI_CHAR_ITEMS, inv_cog)
         assert "TestUser" in embed.title
         assert "2 total item" in embed.footer.text
+
+
+class TestTradeGiveDropdownRegression:
+    """Regression: Trade/Give must use edit_message to render dynamic char dropdown."""
+
+    def test_trade_buyer_select_calls_edit_message(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(SAMPLE_ITEMS)
+            view = TradeSetupView(cog, ctx, groups)
+            inter = _make_interaction()
+            buyer = _make_buyer()
+            select = _find_any_select(view, discord.ui.UserSelect)
+            select._values = [buyer]
+            with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_ACTIVE_CHARS):
+                await select.callback(inter)
+            inter.response.edit_message.assert_called_once()
+            edit_kwargs = inter.response.edit_message.call_args.kwargs
+            assert "view" in edit_kwargs
+            inter.response.send_message.assert_not_called()
+        _run(_test())
+
+    def test_trade_buyer_select_adds_char_dropdown(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(SAMPLE_ITEMS)
+            view = TradeSetupView(cog, ctx, groups)
+            inter = _make_interaction()
+            buyer = _make_buyer()
+            children_before = len(view.children)
+            select = _find_any_select(view, discord.ui.UserSelect)
+            select._values = [buyer]
+            with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_ACTIVE_CHARS):
+                await select.callback(inter)
+            assert len(view.children) > children_before
+            char_selects = [c for c in view.children
+                            if isinstance(c, discord.ui.Select) and c.placeholder and "character" in c.placeholder.lower()]
+            assert len(char_selects) == 1
+        _run(_test())
+
+    def test_give_recipient_select_calls_edit_message(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(SAMPLE_ITEMS)
+            view = GiveSetupView(cog, ctx, groups)
+            inter = _make_interaction()
+            recipient = _make_buyer(uid=222, name="Recipient")
+            recipient.roles = []
+            select = _find_any_select(view, discord.ui.UserSelect)
+            select._values = [recipient]
+            with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_ACTIVE_CHARS):
+                await select.callback(inter)
+            inter.response.edit_message.assert_called_once()
+            edit_kwargs = inter.response.edit_message.call_args.kwargs
+            assert "view" in edit_kwargs
+            inter.response.send_message.assert_not_called()
+        _run(_test())
+
+    def test_give_recipient_select_adds_char_dropdown(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(SAMPLE_ITEMS)
+            view = GiveSetupView(cog, ctx, groups)
+            inter = _make_interaction()
+            recipient = _make_buyer(uid=222, name="Recipient")
+            recipient.roles = []
+            children_before = len(view.children)
+            select = _find_any_select(view, discord.ui.UserSelect)
+            select._values = [recipient]
+            with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_ACTIVE_CHARS):
+                await select.callback(inter)
+            assert len(view.children) > children_before
+            char_selects = [c for c in view.children
+                            if isinstance(c, discord.ui.Select) and c.placeholder and "character" in c.placeholder.lower()]
+            assert len(char_selects) == 1
+        _run(_test())
+
+
+class TestInventoryDisplayFormat:
+    """Regression: _build_display must produce readable two-line format."""
+
+    def test_display_has_type_tag(self):
+        from NightCityBot.cogs.player_inventory import PlayerInventoryCog
+        display, _ = PlayerInventoryCog._build_display(SAMPLE_ITEMS)
+        item_lines = [line for _, line in display if _ is not None]
+        assert len(item_lines) >= 1
+        assert "`gun`" in item_lines[0]
+
+    def test_display_has_metadata_line(self):
+        from NightCityBot.cogs.player_inventory import PlayerInventoryCog
+        items = [{
+            "item_id": "uuid-1", "owner_id": "100", "character_name": "V",
+            "name": "Katana", "item_type": "melee", "restriction": "basic",
+            "price_paid": 500, "seller_name": "WeaponShop",
+            "acquired_at": "2025-01-15", "created_at": "2025-01-15",
+        }]
+        display, _ = PlayerInventoryCog._build_display(items)
+        item_lines = [line for _, line in display if _ is not None]
+        full = item_lines[0]
+        assert "╰" in full
+        assert "$500" in full
+        assert "WeaponShop" in full
+        assert "2025-01-15" in full
+
+    def test_display_no_metadata_no_second_line(self):
+        from NightCityBot.cogs.player_inventory import PlayerInventoryCog
+        items = [{
+            "item_id": "uuid-1", "owner_id": "100", "character_name": "V",
+            "name": "Basic Item", "item_type": "misc", "restriction": "basic",
+            "price_paid": None, "seller_name": None,
+            "acquired_at": None, "created_at": None,
+        }]
+        display, _ = PlayerInventoryCog._build_display(items)
+        item_lines = [line for _, line in display if _ is not None]
+        assert "╰" not in item_lines[0]
+
+    def test_display_multiple_count_shows_multiplier(self):
+        from NightCityBot.cogs.player_inventory import PlayerInventoryCog
+        items = [
+            {"item_id": "uuid-1", "owner_id": "100", "character_name": "V",
+             "name": "Medkit", "item_type": "gear", "restriction": "basic",
+             "price_paid": 100, "seller_name": "Shop",
+             "acquired_at": "2025-01-01", "created_at": "2025-01-01"},
+            {"item_id": "uuid-2", "owner_id": "100", "character_name": "V",
+             "name": "Medkit", "item_type": "gear", "restriction": "basic",
+             "price_paid": 100, "seller_name": "Shop",
+             "acquired_at": "2025-01-01", "created_at": "2025-01-01"},
+        ]
+        display, groups = PlayerInventoryCog._build_display(items)
+        item_lines = [line for _, line in display if _ is not None]
+        assert "×2" in item_lines[0]
+        assert groups[0]["count"] == 2
+
+    def test_display_character_headers(self):
+        from NightCityBot.cogs.player_inventory import PlayerInventoryCog
+        items = [
+            {"item_id": "uuid-1", "owner_id": "100", "character_name": "V",
+             "name": "Katana", "item_type": "melee", "restriction": "basic",
+             "price_paid": 500, "seller_name": "", "acquired_at": "2025-01-01",
+             "created_at": "2025-01-01"},
+            {"item_id": "uuid-2", "owner_id": "100", "character_name": "Johnny",
+             "name": "Pistol", "item_type": "gun", "restriction": "basic",
+             "price_paid": 1000, "seller_name": "", "acquired_at": "2025-02-01",
+             "created_at": "2025-02-01"},
+        ]
+        display, _ = PlayerInventoryCog._build_display(items)
+        headers = [line for num, line in display if num is None]
+        assert any("V" in h for h in headers)
+        assert any("Johnny" in h for h in headers)

@@ -1108,3 +1108,37 @@ class TestWholesaleClearConfirm:
             inter.response.edit_message.assert_called_once()
 
         _run(run())
+
+
+class TestAdminPanelNoAddRemoveButtons:
+    """Regression: Admin panel must NOT have Add Item or Remove Item buttons."""
+
+    def test_no_add_item_button(self):
+        async def run():
+            view = AdminShopMenuView()
+            labels = [getattr(c, "label", "") for c in view.children]
+            assert "Add Item" not in labels
+        _run(run())
+
+    def test_no_remove_item_button(self):
+        async def run():
+            view = AdminShopMenuView()
+            labels = [getattr(c, "label", "") for c in view.children]
+            assert "Remove Item" not in labels
+        _run(run())
+
+    def test_reassign_button_still_present(self):
+        async def run():
+            view = AdminShopMenuView()
+            labels = [getattr(c, "label", "") for c in view.children]
+            assert "Reassign Item" in labels
+        _run(run())
+
+    def test_panel_embed_no_add_remove_text(self):
+        from NightCityBot.cogs.admin_shop import AdminShopCog
+        cog = AdminShopCog.__new__(AdminShopCog)
+        embed = cog._panel_embed()
+        desc = embed.description
+        assert "Add Item" not in desc
+        assert "Remove Item" not in desc
+        assert "Reassign" in desc

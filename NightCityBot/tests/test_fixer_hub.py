@@ -15,6 +15,8 @@ from NightCityBot.cogs.fixer_hub import (
     WholesalerSubView,
     PlayerInvPickerView,
     PlayerAddItemPickerView,
+    PlayerRemoveItemView,
+    RemoveItemPickerView,
     LOAPickerView,
     StoreInvPickerView,
     StoreAddPickerView,
@@ -1100,4 +1102,223 @@ class TestPickerFailureBranches:
             inter = _make_interaction()
             await select.callback(inter)
             assert "empty" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+
+MOCK_PLAYER_INVENTORY = [
+    {"item_id": "uuid-a1", "owner_id": "200", "character_name": "V",
+     "name": "Katana", "item_type": "melee", "price_paid": 500,
+     "seller_name": "Shop", "acquired_at": "2025-01-01"},
+    {"item_id": "uuid-a2", "owner_id": "200", "character_name": "V",
+     "name": "Katana", "item_type": "melee", "price_paid": 500,
+     "seller_name": "Shop", "acquired_at": "2025-01-01"},
+    {"item_id": "uuid-b1", "owner_id": "200", "character_name": "V",
+     "name": "Pistol", "item_type": "gun", "price_paid": 1000,
+     "seller_name": "Dealer", "acquired_at": "2025-02-01"},
+]
+
+
+class TestRemoveItemDropdownFlow:
+    """Regression: Fixer Remove Item uses inventory dropdown, not UUID text."""
+
+    def test_player_select_sets_member(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = PlayerRemoveItemView(cog, ctx)
+            inter = _make_interaction()
+            member = _make_member(200, "TargetPlayer")
+            select = _find_user_select(view)
+            select._values = [member]
+            ctx.guild.get_member = MagicMock(return_value=member)
+            await select.callback(inter)
+            assert view.selected_player == member
+        _run(_test())
+
+    def test_continue_no_player_selected(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = PlayerRemoveItemView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "Continue →")
+            await btn.callback(inter)
+            msg = inter.response.send_message.call_args[0][0]
+            assert "select a player" in msg.lower()
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=[])
+    def test_continue_empty_inventory(self, mock_get):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = PlayerRemoveItemView(cog, ctx)
+            view.selected_player = _make_member(200, "TargetPlayer")
+            inter = _make_interaction()
+            btn = _find_button(view, "Continue →")
+            await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "no items" in msg.lower()
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub.pi_get_by_owner", new_callable=AsyncMock)
+    def test_continue_shows_inventory_dropdown(self, mock_get):
+        mock_get.return_value = MOCK_PLAYER_INVENTORY
+
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = PlayerRemoveItemView(cog, ctx)
+            view.selected_player = _make_member(200, "TargetPlayer")
+            inter = _make_interaction()
+            btn = _find_button(view, "Continue →")
+            await btn.callback(inter)
+            kwargs = inter.followup.send.call_args.kwargs
+            step2_view = kwargs["view"]
+            assert isinstance(step2_view, RemoveItemPickerView)
+            options = step2_view.item_dropdown.options
+            labels = [o.label for o in options]
+            assert any("Katana" in l for l in labels)
+            assert any("Pistol" in l for l in labels)
+            katana_opt = [o for o in options if "Katana" in o.label][0]
+            assert "×2" in katana_opt.label
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub.ih_record_event", new_callable=AsyncMock)
+    @patch("NightCityBot.cogs.fixer_hub.pi_delete_item", new_callable=AsyncMock, return_value=True)
+    @patch("NightCityBot.cogs.fixer_hub.pi_get_item", new_callable=AsyncMock)
+    def test_single_item_removal(self, mock_get_item, mock_delete, mock_event):
+        mock_get_item.return_value = {"item_id": "uuid-b1", "owner_id": "200", "name": "Pistol"}
+
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            player = _make_member(200, "TargetPlayer")
+            grouped = {"Pistol": [MOCK_PLAYER_INVENTORY[2]]}
+            view = RemoveItemPickerView(cog, ctx, player, grouped)
+            view.item_dropdown.options = [discord.SelectOption(label="Pistol", value="Pistol")]
+            inter = _make_interaction()
+            inter.data = {"values": ["Pistol"]}
+            view.item_dropdown._values = ["Pistol"]
+            await view.item_dropdown.callback(inter)
+            mock_delete.assert_called_once_with("uuid-b1")
+            msg = inter.followup.send.call_args[0][0]
+            assert "Pistol" in msg
+            assert "Removed" in msg
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub.ih_record_event", new_callable=AsyncMock)
+    @patch("NightCityBot.cogs.fixer_hub.pi_delete_item", new_callable=AsyncMock, return_value=True)
+    @patch("NightCityBot.cogs.fixer_hub.pi_get_item", new_callable=AsyncMock)
+    @patch("NightCityBot.cogs.fixer_hub.collect_text_input", new_callable=AsyncMock, return_value="2")
+    def test_multi_quantity_removal(self, mock_text, mock_get_item, mock_delete, mock_event):
+        mock_get_item.return_value = {"item_id": "uuid-a1", "owner_id": "200", "name": "Katana"}
+
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            player = _make_member(200, "TargetPlayer")
+            grouped = {"Katana": MOCK_PLAYER_INVENTORY[:2]}
+            view = RemoveItemPickerView(cog, ctx, player, grouped)
+            view.item_dropdown.options = [discord.SelectOption(label="Katana ×2", value="Katana")]
+            inter = _make_interaction()
+            inter.data = {"values": ["Katana"]}
+            inter.channel_id = 123
+            view.item_dropdown._values = ["Katana"]
+            await view.item_dropdown.callback(inter)
+            assert mock_delete.call_count == 2
+            msg = inter.followup.send.call_args[0][0]
+            assert "Katana" in msg
+            assert "×2" in msg
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub.collect_text_input", new_callable=AsyncMock, return_value=None)
+    def test_multi_quantity_timeout(self, mock_text):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            player = _make_member(200, "TargetPlayer")
+            grouped = {"Katana": MOCK_PLAYER_INVENTORY[:2]}
+            view = RemoveItemPickerView(cog, ctx, player, grouped)
+            view.item_dropdown.options = [discord.SelectOption(label="Katana ×2", value="Katana")]
+            inter = _make_interaction()
+            inter.data = {"values": ["Katana"]}
+            inter.channel_id = 123
+            view.item_dropdown._values = ["Katana"]
+            await view.item_dropdown.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "timed out" in msg.lower() or "cancelled" in msg.lower()
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub.collect_text_input", new_callable=AsyncMock, return_value="0")
+    def test_multi_quantity_invalid_range(self, mock_text):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            player = _make_member(200, "TargetPlayer")
+            grouped = {"Katana": MOCK_PLAYER_INVENTORY[:2]}
+            view = RemoveItemPickerView(cog, ctx, player, grouped)
+            view.item_dropdown.options = [discord.SelectOption(label="Katana ×2", value="Katana")]
+            inter = _make_interaction()
+            inter.data = {"values": ["Katana"]}
+            inter.channel_id = 123
+            view.item_dropdown._values = ["Katana"]
+            await view.item_dropdown.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "between 1 and 2" in msg.lower()
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub.ih_record_event", new_callable=AsyncMock)
+    @patch("NightCityBot.cogs.fixer_hub.pi_delete_item", new_callable=AsyncMock, return_value=True)
+    @patch("NightCityBot.cogs.fixer_hub.pi_get_item", new_callable=AsyncMock)
+    def test_uses_item_id_not_id(self, mock_get_item, mock_delete, mock_event):
+        """Regression: _do_remove must use item.get('item_id'), not item.get('id')."""
+        item = {"item_id": "real-uuid-123", "owner_id": "200", "name": "Katana"}
+        mock_get_item.return_value = item
+
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            player = _make_member(200, "TargetPlayer")
+            grouped = {"Katana": [item]}
+            view = RemoveItemPickerView(cog, ctx, player, grouped)
+            view.item_dropdown.options = [discord.SelectOption(label="Katana", value="Katana")]
+            inter = _make_interaction()
+            inter.data = {"values": ["Katana"]}
+            view.item_dropdown._values = ["Katana"]
+            await view.item_dropdown.callback(inter)
+            mock_get_item.assert_called_with("real-uuid-123")
+            mock_delete.assert_called_with("real-uuid-123")
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub.pi_delete_item", new_callable=AsyncMock, return_value=True)
+    @patch("NightCityBot.cogs.fixer_hub.pi_get_item", new_callable=AsyncMock, return_value=None)
+    def test_stale_item_skipped(self, mock_get_item, mock_delete):
+        """Regression: items that vanish between select and delete are skipped."""
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            player = _make_member(200, "TargetPlayer")
+            grouped = {"Katana": [MOCK_PLAYER_INVENTORY[0]]}
+            view = RemoveItemPickerView(cog, ctx, player, grouped)
+            view.item_dropdown.options = [discord.SelectOption(label="Katana", value="Katana")]
+            inter = _make_interaction()
+            inter.data = {"values": ["Katana"]}
+            view.item_dropdown._values = ["Katana"]
+            await view.item_dropdown.callback(inter)
+            mock_delete.assert_not_called()
+            msg = inter.followup.send.call_args[0][0]
+            assert "failed" in msg.lower()
+        _run(_test())
+
+    def test_interaction_check_blocks_other_users(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx(author_id=111)
+            player = _make_member(200, "TargetPlayer")
+            grouped = {"Katana": MOCK_PLAYER_INVENTORY[:1]}
+            view = RemoveItemPickerView(cog, ctx, player, grouped)
+            inter = _make_interaction(user_id=999)
+            result = await view.interaction_check(inter)
+            assert result is False
         _run(_test())
