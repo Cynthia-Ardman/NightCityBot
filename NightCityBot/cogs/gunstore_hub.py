@@ -28,7 +28,7 @@ from NightCityBot.utils.panel_context import PanelContext
 
 logger = logging.getLogger(__name__)
 
-GUN_STORE_EMPLOYEE_ROLE_ID = 1489618157722275910
+GUN_STORE_EMPLOYEE_ROLE_ID = config.GUN_STORE_EMPLOYEE_ROLE_ID
 
 
 def _is_store_owner_member(member: discord.Member) -> bool:
@@ -495,7 +495,7 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty):
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-GUN_APPROVALS_CHANNEL_ID = 1489460511199465693
+GUN_APPROVALS_CHANNEL_ID = config.GUN_APPROVALS_CHANNEL_ID
 
 
 class GunSellSetupView(SafeView):

@@ -1,6 +1,5 @@
 import discord
 from discord.ext import commands
-import config
 from NightCityBot.utils.db import system_settings_get_all, system_settings_set
 
 SYSTEMS = [

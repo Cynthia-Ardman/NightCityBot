@@ -17,21 +17,13 @@ import config
 from NightCityBot.utils.interaction_safety import SafeView
 from NightCityBot.utils import helpers
 from NightCityBot.utils.db import (
-    pi_get_item,
     pi_get_by_owner,
-    pi_delete_item,
-    ih_record_event,
     ih_get_history,
-    wh_lots_get_all,
-    wh_lots_replace_all,
     cw_catalog_get_all,
     cw_catalog_upsert_many,
     gun_catalog_get_all,
-    gun_catalog_upsert_many,
     db_save,
 )
-from NightCityBot.utils.characters import get_active_characters, ensure_character_active, get_character_by_name
-from NightCityBot.utils.permissions import is_fixer
 from NightCityBot.utils.inline_helpers import collect_text_input
 from NightCityBot.utils.panel_context import PanelContext
 from NightCityBot.services.cyberware_shop_data import download_sheet, parse_cyberware_sheet

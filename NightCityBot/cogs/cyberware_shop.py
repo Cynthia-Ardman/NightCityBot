@@ -15,7 +15,6 @@ This cog is still loaded so that hub code can access the helper methods
 (inventory loading, catalog management, wholesale operations) via
 ``bot.cogs.get("CyberwareShop")``.
 """
-import asyncio
 import logging
 import random
 import uuid
@@ -27,10 +26,6 @@ import discord
 from discord.ext import commands
 
 import config
-from NightCityBot.services.cyberware_shop_data import (
-    download_sheet,
-    parse_cyberware_sheet,
-)
 from NightCityBot.utils import helpers
 from NightCityBot.utils.db import (
     cw_catalog_get_all,
@@ -43,7 +38,6 @@ from NightCityBot.utils.db import (
     db_load,
     DB_LOAD_FAILED,
 )
-from NightCityBot.utils.interaction_safety import SafeView
 from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
 
 logger = logging.getLogger(__name__)
