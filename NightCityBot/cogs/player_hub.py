@@ -90,8 +90,12 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
             color=discord.Color.blue(),
         )
         view = PlayerHubView(self, ctx)
-        msg = await ctx.send(embed=embed, view=view)
+        msg = await ctx.send(embed=embed, view=view, delete_after=120)
         view.message = msg
+        try:
+            await ctx.message.delete()
+        except Exception:
+            pass
 
     @commands.command(name="helpplayer")
     async def helpplayer(self, ctx: commands.Context):

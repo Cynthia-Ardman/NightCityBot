@@ -703,8 +703,12 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
         embed.set_footer(text=f"Admin: {ctx.author.display_name}")
 
         view = AdminShopMenuView(self, ctx)
-        msg = await ctx.send(embed=embed, view=view)
+        msg = await ctx.send(embed=embed, view=view, delete_after=120)
         view.message = msg
+        try:
+            await ctx.message.delete()
+        except Exception:
+            pass
 
 
 async def setup(bot: commands.Bot):

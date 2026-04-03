@@ -929,8 +929,12 @@ class GunstoreHub(commands.Cog, name="GunstoreHub"):
         embed.set_footer(text=f"Store Owner: {ctx.author.display_name}")
 
         view = GunstoreMenuView(self, ctx)
-        msg = await ctx.send(embed=embed, view=view)
+        msg = await ctx.send(embed=embed, view=view, delete_after=120)
         view.message = msg
+        try:
+            await ctx.message.delete()
+        except Exception:
+            pass
 
 
 async def setup(bot: commands.Bot):

@@ -833,8 +833,12 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
         embed.set_footer(text=f"Ripperdoc: {ctx.author.display_name}")
 
         view = RipperdocMenuView(self, ctx)
-        msg = await ctx.send(embed=embed, view=view)
+        msg = await ctx.send(embed=embed, view=view, delete_after=120)
         view.message = msg
+        try:
+            await ctx.message.delete()
+        except Exception:
+            pass
 
     @commands.command(name="item_history")
     @commands.check_any(is_fixer(), commands.has_permissions(administrator=True))

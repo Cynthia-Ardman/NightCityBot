@@ -192,16 +192,19 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             groups = PlayerInventoryCog._group_items(char_groups[char])
             if visible:
                 display.append((None, f"**— {char or '(no character)'} —**"))
-                display.append((None, "*# · Item [type] · Price · Seller · Date*"))
             for g in groups:
                 price_str = f"${g['price_paid']:,}" if g["price_paid"] else "—"
                 seller_str = g["seller_name"] or "—"
                 date_str = g.get("acquired_date") or "—"
                 count_str = f" ×{g['count']}" if g["count"] > 1 else ""
-                line = (
-                    f"`{row_num}.` **{g['name']}**{count_str} [{g['item_type']}]\n"
-                    f"  > Price: {price_str}  ·  Seller: {seller_str}  ·  {date_str}"
-                )
+                detail_parts = []
+                if price_str != "—":
+                    detail_parts.append(price_str)
+                if seller_str != "—":
+                    detail_parts.append(seller_str)
+                detail_parts.append(date_str)
+                detail = " · ".join(detail_parts)
+                line = f"`{row_num}.` **{g['name']}**{count_str} [{g['item_type']}] — {detail}"
                 if visible:
                     display.append((row_num, line))
                     all_groups.append(g)
@@ -327,7 +330,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         )
         hint = f"Use `!my_inventory {page + 1}`" if page < total_pages else ""
         embed.set_footer(
-            text=f"{len(items)} total item(s) | !trade @buyer <row> <price> char  |  !inv_give @target <row> char"
+            text=f"{len(items)} total item(s) | Use !player to trade or give items."
             + (f" | {hint}" if hint else "")
         )
         await ctx.send(embed=embed)

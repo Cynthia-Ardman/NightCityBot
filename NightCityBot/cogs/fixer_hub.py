@@ -1153,8 +1153,12 @@ class FixerHubCog(commands.Cog, name="FixerHub"):
         embed.set_footer(text=f"Fixer: {ctx.author.display_name}")
 
         view = FixerTopView(self, ctx)
-        msg = await ctx.send(embed=embed, view=view)
+        msg = await ctx.send(embed=embed, view=view, delete_after=120)
         view.message = msg
+        try:
+            await ctx.message.delete()
+        except Exception:
+            pass
 
 
 async def setup(bot: commands.Bot):
