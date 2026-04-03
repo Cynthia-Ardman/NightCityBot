@@ -363,39 +363,59 @@ class WholesalerSubView(SafeView):
             return
         await _process_wh_add_cw(self.cog, interaction, text)
 
-    @discord.ui.button(label="Remove Lot", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
-    async def remove_lot(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Remove Gun", style=discord.ButtonStyle.danger, emoji="🔫", row=1)
+    async def remove_gun(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        await interaction.edit_original_response(
-            content="📝 **Enter lot removal details** in this format:\n"
-            "`lot ID, quantity to remove`\n"
-            "Leave quantity blank to remove entire lot.\n"
-            "Example: `fixer-20250403-abc123, 5` or `fixer-20250403-abc123`\n"
-            "Type `cancel` to abort.",
-        )
-        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
-        if text is None:
-            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
+        guns_cog = self.cog.bot.cogs.get("GunsShopCog")
+        if not guns_cog:
+            await interaction.followup.send("Gun shop system not loaded.", ephemeral=True)
             return
-        await _process_wh_remove_lot(self.cog, interaction, text)
-
-    @discord.ui.button(label="Restock Guns", style=discord.ButtonStyle.success, emoji="📥", row=1)
-    async def restock_guns(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
+        state = await guns_cog._load_state()
+        lots = state.get("wholesale_lots", [])
+        available = [l for l in lots if int(l.get("qty_available", 0)) > 0]
+        if not available:
+            await interaction.followup.send("🔫 Gun wholesale is empty — nothing to remove.", ephemeral=True)
+            return
+        options = []
+        for lot in available[:25]:
+            lid = lot.get("lot_id", "?")
+            name = lot.get("gun_name", "?")
+            r = lot.get("restriction", "basic")
+            r_tag = f" [{r}]" if r != "basic" else ""
+            label = f"{name}{r_tag}"[:100]
+            desc = f"×{lot['qty_available']} — ${int(lot.get('unit_cost', 0)):,}"[:100]
+            options.append(discord.SelectOption(label=label, value=lid, description=desc))
+        view = WHRemoveGunPickerView(self.cog, self.ctx, options)
         await interaction.followup.send(
-            "🔫 **Full gun restock** pulls from the master sheet and applies restock settings.\n"
-            "Use the **Admin Hub** (`!admin`) → Restock to trigger it.\n\n"
-            "To add individual lots manually, use the **Add Gun** button above.",
+            "🔫 **Remove Gun Lot** — Select the lot to remove:",
+            view=view,
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Restock CW", style=discord.ButtonStyle.success, emoji="💊", row=1)
-    async def restock_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Remove CW", style=discord.ButtonStyle.danger, emoji="💉", row=1)
+    async def remove_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
+        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
+        if not cw_cog:
+            await interaction.followup.send("CW shop system not loaded.", ephemeral=True)
+            return
+        state = await cw_cog._load_state()
+        lots = state.get("cw_wholesale_lots", [])
+        available = [l for l in lots if int(l.get("qty_available", 0)) > 0]
+        if not available:
+            await interaction.followup.send("💉 CW wholesale is empty — nothing to remove.", ephemeral=True)
+            return
+        options = []
+        for lot in available[:25]:
+            lid = lot.get("lot_id", "?")
+            name = lot.get("item_name", "?")
+            label = f"{name}"[:100]
+            desc = f"×{lot['qty_available']} — ${int(lot.get('unit_cost', 0)):,}"[:100]
+            options.append(discord.SelectOption(label=label, value=lid, description=desc))
+        view = WHRemoveCWPickerView(self.cog, self.ctx, options)
         await interaction.followup.send(
-            "💉 **Full CW restock** pulls from the cyberware catalogue and applies restock settings.\n"
-            "Run `!cw_wh_restock` in chat to trigger it.\n\n"
-            "To add individual lots manually, use the **Add CW** button above.",
+            "💉 **Remove CW Lot** — Select the lot to remove:",
+            view=view,
             ephemeral=True,
         )
 
@@ -574,10 +594,8 @@ async def _process_wh_add_cw(cog, interaction, text):
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-async def _process_wh_remove_lot(cog, interaction, text):
-    parts = [p.strip() for p in text.split(",")]
-    lot_id = parts[0]
-    raw_qty = parts[1].strip() if len(parts) > 1 else ""
+async def _process_wh_remove_lot(cog, interaction, lot_id):
+    lot_id = lot_id.strip()
 
     guns_cog = cog.bot.cogs.get("GunsShopCog")
     cw_cog = cog.bot.cogs.get("CyberwareShop")
@@ -595,7 +613,7 @@ async def _process_wh_remove_lot(cog, interaction, text):
             found_in = "cw"
 
     if not found_in:
-        await interaction.edit_original_response(content=f"Lot `{lot_id}` not found in either wholesale.")
+        await interaction.followup.send(content=f"Lot `{lot_id}` not found in either wholesale.", ephemeral=True)
         return
 
     if found_in == "gun":
@@ -604,28 +622,11 @@ async def _process_wh_remove_lot(cog, interaction, text):
             lots = state.get("wholesale_lots", [])
             lot = next((l for l in lots if l.get("lot_id") == lot_id), None)
             if not lot:
-                await interaction.edit_original_response(content="Lot disappeared.")
+                await interaction.followup.send(content="Lot disappeared.", ephemeral=True)
                 return
             item_name = lot.get("gun_name", "?")
-            current_qty = int(lot.get("qty_available", 0))
-            if raw_qty:
-                try:
-                    remove_qty = int(raw_qty)
-                except ValueError:
-                    await interaction.edit_original_response(content="Qty must be a number.")
-                    return
-                if remove_qty <= 0:
-                    await interaction.edit_original_response(content="Qty must be positive.")
-                    return
-                if remove_qty >= current_qty:
-                    lots.remove(lot)
-                    removed = current_qty
-                else:
-                    lot["qty_available"] = current_qty - remove_qty
-                    removed = remove_qty
-            else:
-                lots.remove(lot)
-                removed = current_qty
+            removed = int(lot.get("qty_available", 0))
+            lots.remove(lot)
             await guns_cog._save_state(state)
     else:
         async with cw_cog.lock:
@@ -633,33 +634,17 @@ async def _process_wh_remove_lot(cog, interaction, text):
             lots = state.get("cw_wholesale_lots", [])
             lot = next((l for l in lots if l.get("lot_id") == lot_id), None)
             if not lot:
-                await interaction.edit_original_response(content="Lot disappeared.")
+                await interaction.followup.send(content="Lot disappeared.", ephemeral=True)
                 return
             item_name = lot.get("item_name", "?")
-            current_qty = int(lot.get("qty_available", 0))
-            if raw_qty:
-                try:
-                    remove_qty = int(raw_qty)
-                except ValueError:
-                    await interaction.edit_original_response(content="Qty must be a number.")
-                    return
-                if remove_qty <= 0:
-                    await interaction.edit_original_response(content="Qty must be positive.")
-                    return
-                if remove_qty >= current_qty:
-                    lots.remove(lot)
-                    removed = current_qty
-                else:
-                    lot["qty_available"] = current_qty - remove_qty
-                    removed = remove_qty
-            else:
-                lots.remove(lot)
-                removed = current_qty
+            removed = int(lot.get("qty_available", 0))
+            lots.remove(lot)
             await cw_cog._save_state(state)
 
     label = "Gun" if found_in == "gun" else "CW"
-    await interaction.edit_original_response(
+    await interaction.followup.send(
         content=f"Removed **{item_name}** ×{removed} from {label} wholesale.",
+        ephemeral=True,
     )
     log_ch = await _audit_channel(cog.bot)
     if log_ch:
@@ -1112,6 +1097,56 @@ class LOAPickerView(SafeView):
                 f"✅ {member.display_name}'s LOA has ended.", ephemeral=True
             )
         self.stop()
+
+
+class WHRemoveGunPickerView(SafeView):
+    def __init__(self, cog, ctx, options: list):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        select = discord.ui.Select(
+            placeholder="Choose a gun lot to remove…",
+            options=options,
+            row=0,
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    async def _on_select(self, interaction: discord.Interaction):
+        lot_id = interaction.data["values"][0]
+        await interaction.response.defer(ephemeral=True)
+        await _process_wh_remove_lot(self.cog, interaction, lot_id)
+
+
+class WHRemoveCWPickerView(SafeView):
+    def __init__(self, cog, ctx, options: list):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        select = discord.ui.Select(
+            placeholder="Choose a CW lot to remove…",
+            options=options,
+            row=0,
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    async def _on_select(self, interaction: discord.Interaction):
+        lot_id = interaction.data["values"][0]
+        await interaction.response.defer(ephemeral=True)
+        await _process_wh_remove_lot(self.cog, interaction, lot_id)
 
 
 class FixerItemHistorySourceView(SafeView):
