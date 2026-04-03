@@ -1,12 +1,15 @@
 """Cyberware shop cog — Ripperdoc buy/sell marketplace.
 
-Most legacy prefix commands (!cw_setsheet, !cw_catalog, !cw_add, !cw_remove,
-!cw_give, !cw_take, !cw_tx, !cw_wh_list, !cw_wh_restock, !cw_wh_add,
-!cw_wh_remove, !cw_wh_settings) have been removed.  Primary cyberware actions
-are now handled through the Ripperdoc Hub (!ripperdoc) and Fixer Hub (!fixer).
+Legacy prefix commands (!cw_setsheet, !cw_catalog, !cw_add, !cw_remove,
+!cw_give, !cw_take) have been removed.  Primary cyberware actions are now
+handled through the Ripperdoc Hub (!ripperdoc) and Fixer Hub (!fixer).
 
-!cw_buy, !cw_sell, !cw_install, and !cw_inventory are retained as fallbacks
-for cases exceeding the 25-item Discord dropdown limit.
+Retained commands:
+- !cw_buy, !cw_sell, !cw_install, !cw_inventory — fallbacks for cases
+  exceeding the 25-item Discord dropdown limit.
+- !cw_tx — transaction history lookup.
+- !cw_wh_list, !cw_wh_restock, !cw_wh_add, !cw_wh_remove, !cw_wh_settings
+  — wholesale management (also accessible via the hubs).
 
 This cog is still loaded so that hub code can access the helper methods
 (inventory loading, catalog management, wholesale operations) via
@@ -993,7 +996,7 @@ class CyberwareShop(commands.Cog):
         catalog = await self._load_catalog()
         if not catalog:
             await ctx.send(
-                "❌ Cyberware catalog is empty. Run `!cw_setsheet <url>` first."
+                "❌ Cyberware catalog is empty. Use the `!admin` hub to set a catalog sheet."
             )
             return
 
@@ -1064,7 +1067,7 @@ class CyberwareShop(commands.Cog):
         if item is None:
             await ctx.send(
                 f"❌ **{item_name}** not found in catalog. "
-                "Use `!cw_catalog` to browse available items."
+                "Use `!cw_wh_list` to browse available items."
             )
             return
 

@@ -647,7 +647,7 @@ class GunsShopCog(commands.Cog):
             if not local_path.exists():
                 raise FileNotFoundError(
                     f"Local wholesaler sheet not found at '{local_path}'. "
-                    "Set a Google Sheet source with !wh_setsheet <url>, or update WHOLESALER_XLSX_PATH."
+                    "Set a Google Sheet source via the `!admin` hub, or update WHOLESALER_XLSX_PATH."
                 )
             return local_path
 

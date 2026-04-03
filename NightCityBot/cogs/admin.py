@@ -381,7 +381,7 @@ class Admin(commands.Cog):
             (
                 "🏪 Interactive Hubs",
                 "\n".join([
-                    "`!admin_shop` – admin panel: add/remove items, reassign, history lookup, wholesale management.",
+                    "`!admin` – admin panel: add/remove items, reassign, history lookup, wholesale management.",
                     "`!gunstore` – gun store hub: buy, sell, view stock, manage approved buyers.",
                     "`!ripperdoc` – ripperdoc hub: buy, sell, install, view stock.",
                 ]),
@@ -410,7 +410,7 @@ class Admin(commands.Cog):
                 "🔫 Gun Shop / 💉 Cyberware",
                 "\n".join([
                     "Gun shop and cyberware admin actions are now handled through",
-                    "the interactive hubs: `!gunstore`, `!ripperdoc`, `!fixer`, and `!admin_shop`.",
+                    "the interactive hubs: `!gunstore`, `!ripperdoc`, `!fixer`, and `!admin`.",
                 ]),
             ),
             (
@@ -495,7 +495,7 @@ class Admin(commands.Cog):
                 "- Wholesale stock refreshes **weekly** — buy before it's gone.\n"
                 "- You set your own sale prices — wholesale cost is your floor.\n"
                 "- Restriction levels carry over from the wholesaler.\n"
-                "- Admin tools are available via `!admin_shop`."
+                "- Admin tools are available via `!admin`."
             ),
             inline=False,
         )
@@ -537,7 +537,7 @@ class Admin(commands.Cog):
                 "- Stock is per-Ripperdoc: your inventory is yours alone.\n"
                 "- Wholesale stock rotates every **Sunday**.\n"
                 "- Catalogue prices are the supplier floor — charge what you want.\n"
-                "- Admin tools are available via `!admin_shop`."
+                "- Admin tools are available via `!admin`."
             ),
             inline=False,
         )
