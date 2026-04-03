@@ -67,6 +67,7 @@ class Economy(commands.Cog):
         self.trauma_service = TraumaTeamService(bot)
         self.open_log_lock = asyncio.Lock()
         self.attend_lock = asyncio.Lock()
+        self.rent_lock = asyncio.Lock()
         self.event_expires_at: Optional[datetime] = None
         self.event_started_at: Optional[datetime] = None
         self._startup_catchup_done: bool = False
@@ -1556,6 +1557,29 @@ class Economy(commands.Cog):
 
         When ``verbose`` is ``False`` only minimal status messages are sent.
         """
+        if not dry_run and self.rent_lock.locked():
+            await ctx.send("⚠️ A rent collection is already in progress. Please wait.")
+            return RentResult()
+        async with self.rent_lock:
+            return await self._run_rent_collection_inner(
+                ctx,
+                target_user=target_user,
+                dry_run=dry_run,
+                verbose=verbose,
+                force=force,
+                preview_dm=preview_dm,
+            )
+
+    async def _run_rent_collection_inner(
+        self,
+        ctx,
+        *,
+        target_user: Optional[discord.Member] = None,
+        dry_run: bool = False,
+        verbose: bool = False,
+        force: bool = False,
+        preview_dm: bool = False,
+    ):
         await ctx.send(
             "🧪 Starting rent simulation..."
             if dry_run

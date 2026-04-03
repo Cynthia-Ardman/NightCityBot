@@ -329,7 +329,13 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             description="\n".join(page_lines) if page_lines else "No items.",
             color=discord.Color.blue(),
         )
-        hint = f"Use `!my_inventory {page + 1}`" if page < total_pages else ""
+        hint_parts = []
+        if target and target != ctx.author:
+            hint_parts.append(f"@{target.display_name}")
+        if char_filter:
+            hint_parts.append(f'"{char_filter}"')
+        hint_parts.append(str(page + 1))
+        hint = f"Use `!my_inventory {' '.join(hint_parts)}`" if page < total_pages else ""
         embed.set_footer(
             text=f"{len(items)} total item(s) | Use !player to trade or give items."
             + (f" | {hint}" if hint else "")
