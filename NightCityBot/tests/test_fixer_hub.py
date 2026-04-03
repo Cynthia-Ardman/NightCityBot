@@ -15,6 +15,7 @@ from NightCityBot.cogs.fixer_hub import (
     WholesalerSubView,
     PlayerInvPickerView,
     PlayerAddItemPickerView,
+    CharacterPickerView,
     LOAPickerView,
     StoreInvPickerView,
     StoreAddPickerView,
@@ -198,6 +199,20 @@ class TestPlayerSubViewButtons:
             inter.followup.send.assert_called_once()
             kwargs = inter.followup.send.call_args.kwargs
             assert isinstance(kwargs["view"], PlayerInvPickerView)
+        _run(_test())
+
+    def test_characters_sends_picker(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            parent = FixerTopView(cog, ctx)
+            view = PlayerSubView(cog, ctx, parent)
+            inter = _make_interaction()
+            btn = _find_button(view, "Characters")
+            await btn.callback(inter)
+            inter.followup.send.assert_called_once()
+            kwargs = inter.followup.send.call_args.kwargs
+            assert isinstance(kwargs["view"], CharacterPickerView)
         _run(_test())
 
     def test_add_item_sends_picker(self):
@@ -1009,6 +1024,43 @@ class TestPickerUserSelectCallbacks:
             assert view.selected_player is member
             inter.response.edit_message.assert_called_once()
             assert "TestPlayer" in inter.response.edit_message.call_args.kwargs["content"]
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub.get_all_characters", new_callable=AsyncMock, return_value=[
+        {"character_id": "c1", "name": "V", "status": "active", "created_at": "2025-01-01"},
+        {"character_id": "c2", "name": "Jackie", "status": "inactive", "created_at": "2025-02-01"},
+    ])
+    def test_character_picker_select_shows_characters(self, mock_chars):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = CharacterPickerView(cog, ctx)
+            select = _find_user_select(view)
+            member = _make_member(222, "TestPlayer")
+            select._values = [member]
+            inter = _make_interaction()
+            await select.callback(inter)
+            inter.followup.send.assert_called_once()
+            kwargs = inter.followup.send.call_args.kwargs
+            embed = kwargs["embed"]
+            assert "TestPlayer" in embed.title
+            assert "V" in embed.description
+            assert "Jackie" in embed.description
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub.get_all_characters", new_callable=AsyncMock, return_value=[])
+    def test_character_picker_select_no_characters(self, mock_chars):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = CharacterPickerView(cog, ctx)
+            select = _find_user_select(view)
+            member = _make_member(222, "TestPlayer")
+            select._values = [member]
+            inter = _make_interaction()
+            await select.callback(inter)
+            inter.followup.send.assert_called_once()
+            assert "no characters" in inter.followup.send.call_args.kwargs.get("content", inter.followup.send.call_args[0][0] if inter.followup.send.call_args[0] else "").lower()
         _run(_test())
 
     def test_store_add_picker_select_sets_owner(self):
