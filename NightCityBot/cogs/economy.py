@@ -21,6 +21,7 @@ from NightCityBot.utils.db import (
     rent_run_get_last, rent_run_record,
     warn_db_failure,
     ResourceLockManager,
+    db_load, db_save,
 )
 
 safe_filename = helpers.safe_filename
@@ -77,6 +78,28 @@ class Economy(commands.Cog):
         """Start the monthly auto-rent scheduler and weekly cleanup task."""
         self.auto_rent_loop.start()
         self._cleanup_loop.start()
+        await self._restore_event_state()
+
+    async def _restore_event_state(self) -> None:
+        """Restore fixer event timers from the database after a restart."""
+        try:
+            data = await db_load("fixer_event")
+            if data:
+                started = data.get("started_at")
+                expires = data.get("expires_at")
+                if started and expires:
+                    started_dt = datetime.fromisoformat(started)
+                    expires_dt = datetime.fromisoformat(expires)
+                    now = helpers.get_tz_now()
+                    if now < expires_dt:
+                        self.event_started_at = started_dt
+                        self.event_expires_at = expires_dt
+                        logger.info("Restored active fixer event (expires %s).", expires_dt)
+                    else:
+                        await db_save("fixer_event", None)
+                        logger.info("Cleared expired fixer event from DB.")
+        except Exception:
+            logger.warning("Failed to restore fixer event state.", exc_info=True)
 
     async def cog_unload(self) -> None:
         """Cancel the scheduler and cleanup task."""
@@ -376,6 +399,10 @@ class Economy(commands.Cog):
         now = helpers.get_tz_now()
         self.event_started_at = now
         self.event_expires_at = now + timedelta(hours=4)
+        await db_save("fixer_event", {
+            "started_at": self.event_started_at.isoformat(),
+            "expires_at": self.event_expires_at.isoformat(),
+        })
         expires = self.event_expires_at.strftime("%I:%M %p %Z")
         await ctx.send(
             f"🟢 Event started! Temporary attendance and shop opens allowed until {expires}."

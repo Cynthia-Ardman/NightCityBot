@@ -1404,3 +1404,114 @@ class TestFixerItemHistoryViews:
             assert "embed" in kwargs
             assert kwargs["embed"].title.startswith("📜 Item History")
         _run(_test())
+
+
+class TestStoreNicknameInFixerHub:
+    def test_gun_store_dropdown_uses_store_name(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            member1 = _make_member(200, "GunGuy")
+            role = MagicMock()
+            role.members = [member1]
+            ctx.guild.get_role = MagicMock(side_effect=lambda rid: role if rid == GUN_STORE_OWNER_ROLE_ID else None)
+            guns_cog = MagicMock()
+            guns_cog._store_id = MagicMock(return_value="999:200")
+            guns_cog._load_state = AsyncMock(return_value={
+                "stores": {"999:200": {"owner_id": 200, "store_name": "Hellfire Arms", "lots": []}}
+            })
+            cog.bot.cogs["GunsShopCog"] = guns_cog
+            view = StoreSubView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "View Gun Store")
+            await btn.callback(inter)
+            kwargs = inter.followup.send.call_args.kwargs
+            picker = kwargs["view"]
+            assert isinstance(picker, StoreOwnerPickerView)
+            select = picker.children[0]
+            assert select.options[0].label == "Hellfire Arms"
+        _run(_test())
+
+    def test_gun_store_dropdown_fallback_to_display_name(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            member1 = _make_member(200, "GunGuy")
+            role = MagicMock()
+            role.members = [member1]
+            ctx.guild.get_role = MagicMock(side_effect=lambda rid: role if rid == GUN_STORE_OWNER_ROLE_ID else None)
+            guns_cog = MagicMock()
+            guns_cog._store_id = MagicMock(return_value="999:200")
+            guns_cog._load_state = AsyncMock(return_value={"stores": {}})
+            cog.bot.cogs["GunsShopCog"] = guns_cog
+            view = StoreSubView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "View Gun Store")
+            await btn.callback(inter)
+            kwargs = inter.followup.send.call_args.kwargs
+            picker = kwargs["view"]
+            select = picker.children[0]
+            assert select.options[0].label == "GunGuy's Gun Store"
+        _run(_test())
+
+
+class TestFixerHubEmployeeVisibility:
+    def test_gun_store_embed_shows_employees(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            owner = _make_member(200, "GunGuy")
+            ctx.guild.get_member = MagicMock(return_value=owner)
+            guns_cog = MagicMock()
+            guns_cog._store_id = MagicMock(return_value="999:200")
+            guns_cog._load_state = AsyncMock(return_value={
+                "stores": {
+                    "999:200": {
+                        "owner_id": 200,
+                        "store_name": "Hellfire Arms",
+                        "employees": [301, 302],
+                        "lots": [{"gun_name": "Pistol", "unit_cost": 100, "qty_remaining": 1, "restriction": "basic"}],
+                    }
+                }
+            })
+            cog.bot.cogs["GunsShopCog"] = guns_cog
+            options = [discord.SelectOption(label="GunGuy", value="200")]
+            view = StoreOwnerPickerView(cog, ctx, options, store_type="gun")
+            inter = _make_interaction()
+            inter.data = {"values": ["200"]}
+            await view._on_select(inter)
+            embed = inter.followup.send.call_args.kwargs["embed"]
+            assert "Hellfire Arms" in embed.title
+            field_names = [f.name for f in embed.fields]
+            assert any("Employees" in n for n in field_names)
+            emp_field = [f for f in embed.fields if "Employees" in f.name][0]
+            assert "<@301>" in emp_field.value
+            assert "<@302>" in emp_field.value
+        _run(_test())
+
+    def test_gun_store_embed_no_employees_no_field(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            owner = _make_member(200, "GunGuy")
+            ctx.guild.get_member = MagicMock(return_value=owner)
+            guns_cog = MagicMock()
+            guns_cog._store_id = MagicMock(return_value="999:200")
+            guns_cog._load_state = AsyncMock(return_value={
+                "stores": {
+                    "999:200": {
+                        "owner_id": 200,
+                        "lots": [{"gun_name": "Pistol", "unit_cost": 100, "qty_remaining": 1, "restriction": "basic"}],
+                    }
+                }
+            })
+            cog.bot.cogs["GunsShopCog"] = guns_cog
+            options = [discord.SelectOption(label="GunGuy", value="200")]
+            view = StoreOwnerPickerView(cog, ctx, options, store_type="gun")
+            inter = _make_interaction()
+            inter.data = {"values": ["200"]}
+            await view._on_select(inter)
+            embed = inter.followup.send.call_args.kwargs["embed"]
+            field_names = [f.name for f in embed.fields]
+            assert not any("Employees" in n for n in field_names)
+        _run(_test())

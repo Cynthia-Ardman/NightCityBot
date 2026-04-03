@@ -688,26 +688,35 @@ class Admin(commands.Cog):
         if existing is None:
             await ctx.send(f"❌ Key `{key}` not found. Use `!config list` to see valid keys.")
             return
-        # Per-key type-safe validation using the type metadata in config_loader
         expected_type = _cfg.key_value_type(key)
         if expected_type == "int":
             try:
-                int(value)
+                parsed = int(value)
             except ValueError:
                 await ctx.send(
                     f"❌ `{key}` requires an **integer** value (e.g. `500`). "
                     f"`{value}` is not valid."
                 )
                 return
+            if parsed < 0:
+                await ctx.send(f"❌ `{key}` must be **0 or greater**. Negative values are not allowed.")
+                return
         else:  # "float"
             try:
-                float(value)
+                parsed = float(value)
             except ValueError:
                 await ctx.send(
                     f"❌ `{key}` requires a **decimal** value (e.g. `0.25`). "
                     f"`{value}` is not valid."
                 )
                 return
+            if key.startswith("open_percent"):
+                if parsed < 0.0 or parsed > 1.0:
+                    await ctx.send(
+                        f"❌ `{key}` must be between **0.0** and **1.0** (e.g. 0.25 = 25%). "
+                        f"`{value}` is out of range."
+                    )
+                    return
         ok = await _db.bot_config_set(key, value)
         if not ok:
             await ctx.send(f"⚠️ Database write failed for `{key}`. Value was **not** changed.")

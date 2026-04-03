@@ -1079,10 +1079,10 @@ class _ManageEmployeesView(SafeView):
         if not employees:
             await interaction.followup.send("No employees assigned to your store.", ephemeral=True)
             return
-        lines = [f"<@{uid}>" for uid in employees[:25]]
+        lines = [f"<@{uid}>" for uid in employees]
         store_name = store.get("store_name") or f"{self.ctx.author.display_name}'s Gun Store"
         await interaction.followup.send(
-            f"**{store_name} — Employees:**\n" + "\n".join(lines),
+            f"**{store_name} — Employees ({len(employees)}):**\n" + "\n".join(lines),
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -1131,6 +1131,13 @@ class _EmployeePickerView(SafeView):
                 if user.id in employees:
                     await interaction.followup.send(
                         f"{user.display_name} is already an employee.", ephemeral=True
+                    )
+                    self.stop()
+                    return
+                if len(employees) >= 25:
+                    await interaction.followup.send(
+                        "❌ Employee limit reached (25 max). Remove an employee before adding a new one.",
+                        ephemeral=True,
                     )
                     self.stop()
                     return

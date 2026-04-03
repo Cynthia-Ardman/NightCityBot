@@ -263,12 +263,18 @@ class StoreSubView(SafeView):
         if not role or not role.members:
             await interaction.followup.send("No Gun Store Owners found.", ephemeral=True)
             return
+        guns_cog = self.cog.bot.cogs.get("GunsShopCog")
+        state = await guns_cog._load_state() if guns_cog else {}
+        stores = state.get("stores", {})
         options = []
         for m in role.members[:25]:
-            options.append(discord.SelectOption(label=m.display_name, value=str(m.id)))
+            store_id = guns_cog._store_id(guild.id, m.id) if guns_cog else ""
+            store_data = stores.get(store_id, {})
+            label = store_data.get("store_name") or f"{m.display_name}'s Gun Store"
+            options.append(discord.SelectOption(label=label[:100], value=str(m.id)))
         view = StoreOwnerPickerView(self.cog, self.ctx, options, store_type="gun")
         await interaction.followup.send(
-            "🔫 **Gun Store** — Select a store owner:", view=view, ephemeral=True
+            "🔫 **Gun Store** — Select a store:", view=view, ephemeral=True
         )
 
     @discord.ui.button(label="View Ripperdoc Store", style=discord.ButtonStyle.secondary, emoji="💉", row=0)
@@ -1405,6 +1411,14 @@ class StoreOwnerPickerView(SafeView):
                 description="\n".join(lines),
                 color=discord.Color.dark_green(),
             )
+            employees = store_data.get("employees", [])
+            if employees:
+                emp_mentions = [f"<@{uid}>" for uid in employees]
+                embed.add_field(
+                    name=f"👥 Employees ({len(employees)})",
+                    value=", ".join(emp_mentions),
+                    inline=False,
+                )
             embed.set_footer(text=f"{len(lots)} lot(s)")
         else:
             cw_cog = self.cog.bot.cogs.get("CyberwareShop")

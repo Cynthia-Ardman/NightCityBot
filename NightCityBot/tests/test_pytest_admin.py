@@ -698,3 +698,109 @@ class TestShutdownBot:
         asyncio.run(admin.shutdown_bot.callback(admin, ctx))
         ctx.send.assert_called_once()
         admin.bot.close.assert_called_once()
+
+
+class TestConfigSetValidation:
+    @patch("NightCityBot.cogs.admin._db")
+    @patch("NightCityBot.cogs.admin._cfg")
+    def test_negative_int_rejected(self, mock_cfg, mock_db):
+        mock_db.bot_config_get = AsyncMock(return_value="500")
+        mock_cfg.key_value_type = MagicMock(return_value="int")
+        admin = _make_admin()
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        asyncio.run(admin.config_set.callback(admin, ctx, "baseline_living_cost", "-100"))
+        msg = ctx.send.call_args[0][0]
+        assert "0 or greater" in msg
+        mock_db.bot_config_set.assert_not_called()
+
+    @patch("NightCityBot.cogs.admin._db")
+    @patch("NightCityBot.cogs.admin._cfg")
+    def test_zero_int_accepted(self, mock_cfg, mock_db):
+        mock_db.bot_config_get = AsyncMock(return_value="500")
+        mock_db.bot_config_set = AsyncMock(return_value=True)
+        mock_cfg.key_value_type = MagicMock(return_value="int")
+        mock_cfg.reload_config = AsyncMock()
+        admin = _make_admin()
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        asyncio.run(admin.config_set.callback(admin, ctx, "baseline_living_cost", "0"))
+        mock_db.bot_config_set.assert_called_once()
+
+    @patch("NightCityBot.cogs.admin._db")
+    @patch("NightCityBot.cogs.admin._cfg")
+    def test_open_percent_above_one_rejected(self, mock_cfg, mock_db):
+        mock_db.bot_config_get = AsyncMock(return_value="0.25")
+        mock_cfg.key_value_type = MagicMock(return_value="float")
+        admin = _make_admin()
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        asyncio.run(admin.config_set.callback(admin, ctx, "open_percent_1", "1.5"))
+        msg = ctx.send.call_args[0][0]
+        assert "0.0" in msg and "1.0" in msg
+        mock_db.bot_config_set.assert_not_called()
+
+    @patch("NightCityBot.cogs.admin._db")
+    @patch("NightCityBot.cogs.admin._cfg")
+    def test_open_percent_negative_rejected(self, mock_cfg, mock_db):
+        mock_db.bot_config_get = AsyncMock(return_value="0.25")
+        mock_cfg.key_value_type = MagicMock(return_value="float")
+        admin = _make_admin()
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        asyncio.run(admin.config_set.callback(admin, ctx, "open_percent_2", "-0.1"))
+        msg = ctx.send.call_args[0][0]
+        assert "out of range" in msg.lower()
+        mock_db.bot_config_set.assert_not_called()
+
+    @patch("NightCityBot.cogs.admin._db")
+    @patch("NightCityBot.cogs.admin._cfg")
+    def test_open_percent_valid_accepted(self, mock_cfg, mock_db):
+        mock_db.bot_config_get = AsyncMock(return_value="0.25")
+        mock_db.bot_config_set = AsyncMock(return_value=True)
+        mock_cfg.key_value_type = MagicMock(return_value="float")
+        mock_cfg.reload_config = AsyncMock()
+        admin = _make_admin()
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        asyncio.run(admin.config_set.callback(admin, ctx, "open_percent_1", "0.75"))
+        mock_db.bot_config_set.assert_called_once()
+
+    @patch("NightCityBot.cogs.admin._db")
+    @patch("NightCityBot.cogs.admin._cfg")
+    def test_non_percent_float_allows_above_one(self, mock_cfg, mock_db):
+        mock_db.bot_config_get = AsyncMock(return_value="1.5")
+        mock_db.bot_config_set = AsyncMock(return_value=True)
+        mock_cfg.key_value_type = MagicMock(return_value="float")
+        mock_cfg.reload_config = AsyncMock()
+        admin = _make_admin()
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        asyncio.run(admin.config_set.callback(admin, ctx, "some_float_key", "5.0"))
+        mock_db.bot_config_set.assert_called_once()
+
+    @patch("NightCityBot.cogs.admin._db")
+    @patch("NightCityBot.cogs.admin._cfg")
+    def test_open_percent_zero_accepted(self, mock_cfg, mock_db):
+        mock_db.bot_config_get = AsyncMock(return_value="0.25")
+        mock_db.bot_config_set = AsyncMock(return_value=True)
+        mock_cfg.key_value_type = MagicMock(return_value="float")
+        mock_cfg.reload_config = AsyncMock()
+        admin = _make_admin()
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        asyncio.run(admin.config_set.callback(admin, ctx, "open_percent_1", "0.0"))
+        mock_db.bot_config_set.assert_called_once()
+
+    @patch("NightCityBot.cogs.admin._db")
+    @patch("NightCityBot.cogs.admin._cfg")
+    def test_open_percent_one_accepted(self, mock_cfg, mock_db):
+        mock_db.bot_config_get = AsyncMock(return_value="0.25")
+        mock_db.bot_config_set = AsyncMock(return_value=True)
+        mock_cfg.key_value_type = MagicMock(return_value="float")
+        mock_cfg.reload_config = AsyncMock()
+        admin = _make_admin()
+        ctx = AsyncMock()
+        ctx.author = MagicMock()
+        asyncio.run(admin.config_set.callback(admin, ctx, "open_percent_1", "1.0"))
+        mock_db.bot_config_set.assert_called_once()
