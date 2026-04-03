@@ -24,6 +24,7 @@ from NightCityBot.utils.inline_helpers import collect_text_input
 from NightCityBot.utils.characters import (
     create_character,
     get_active_characters,
+    get_all_characters,
     get_inactive_characters,
     deactivate_character,
     reactivate_character,
@@ -395,6 +396,30 @@ class PlayerHubView(SafeView):
         await interaction.followup.send(
             f"✅ Character **{char_name}** created successfully!", ephemeral=True
         )
+
+    @discord.ui.button(label="Characters", style=discord.ButtonStyle.primary, emoji="🪪", row=2)
+    async def view_characters(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        characters = await get_all_characters(str(interaction.user.id))
+        if not characters:
+            await interaction.followup.send("🪪 You have no characters yet. Use **Create Character** to make one!", ephemeral=True)
+            return
+        status_emoji = {"active": "🟢", "inactive": "🔴"}
+        lines = []
+        for c in characters:
+            emoji = status_emoji.get(c.get("status", ""), "⚪")
+            name = c.get("name", "?")
+            status = c.get("status", "unknown")
+            created = str(c.get("created_at", ""))[:10]
+            lines.append(f"{emoji} **{name}** — {status} (created {created})")
+        embed = discord.Embed(
+            title=f"🪪 {interaction.user.display_name}'s Characters",
+            description="\n".join(lines),
+            color=discord.Color.blue(),
+        )
+        active = sum(1 for c in characters if c.get("status") == "active")
+        embed.set_footer(text=f"{len(characters)} character(s) total — {active} active")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @discord.ui.button(label="Manage Characters", style=discord.ButtonStyle.secondary, emoji="📋", row=2)
     async def manage_chars(self, interaction: discord.Interaction, button: discord.ui.Button):

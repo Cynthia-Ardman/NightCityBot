@@ -24,7 +24,7 @@ from NightCityBot.utils.db import (
     ih_record_event,
     ih_get_history,
 )
-from NightCityBot.utils.characters import get_active_characters, get_all_characters, ensure_character_active, get_character_by_name
+from NightCityBot.utils.characters import get_active_characters, ensure_character_active, get_character_by_name
 from NightCityBot.utils.permissions import is_fixer
 from NightCityBot.utils.inline_helpers import collect_text_input
 
@@ -254,12 +254,6 @@ class PlayerSubView(SafeView):
             embed=embed, ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )
-
-    @discord.ui.button(label="Characters", style=discord.ButtonStyle.secondary, emoji="🪪", row=2)
-    async def view_characters(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        view = CharacterPickerView(self.cog, self.ctx)
-        await interaction.followup.send("Select a player to view their characters:", view=view, ephemeral=True)
 
     @discord.ui.button(label="Start LOA", style=discord.ButtonStyle.success, emoji="🏖️", row=2)
     async def start_loa(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -811,48 +805,6 @@ class PlayerInvPickerView(SafeView):
             color=discord.Color.blue(),
         )
         embed.set_footer(text=f"{len(items)} item(s) total")
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-
-class CharacterPickerView(SafeView):
-    def __init__(self, cog: "FixerHubCog", ctx: commands.Context):
-        super().__init__(timeout=120)
-        self.cog = cog
-        self.ctx = ctx
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
-            return False
-        return True
-
-    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
-    async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
-        user = select.values[0] if select.values else None
-        member = await _resolve_user_select(self.ctx, user)
-        if not member:
-            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
-        characters = await get_all_characters(str(member.id))
-        if not characters:
-            await interaction.followup.send(f"{member.display_name} has no characters.", ephemeral=True)
-            return
-        status_emoji = {"active": "🟢", "inactive": "🔴"}
-        lines = []
-        for c in characters:
-            emoji = status_emoji.get(c.get("status", ""), "⚪")
-            name = c.get("name", "?")
-            status = c.get("status", "unknown")
-            created = str(c.get("created_at", ""))[:10]
-            lines.append(f"{emoji} **{name}** — {status} (created {created})")
-        embed = discord.Embed(
-            title=f"🪪 {member.display_name}'s Characters",
-            description="\n".join(lines),
-            color=discord.Color.blue(),
-        )
-        active = sum(1 for c in characters if c.get("status") == "active")
-        embed.set_footer(text=f"{len(characters)} character(s) total — {active} active")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 

@@ -1440,6 +1440,41 @@ class TestCreateCharacterButton:
 
 
 class TestManageCharactersView:
+    @patch("NightCityBot.cogs.player_hub.get_all_characters", new_callable=AsyncMock, return_value=[
+        {"character_id": "c1", "name": "V", "status": "active", "created_at": "2025-01-01"},
+        {"character_id": "c2", "name": "Jackie", "status": "inactive", "created_at": "2025-02-01"},
+    ])
+    def test_characters_button_shows_characters(self, mock_chars):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            view = PlayerHubView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "Characters")
+            await btn.callback(inter)
+            inter.followup.send.assert_called_once()
+            kwargs = inter.followup.send.call_args.kwargs
+            embed = kwargs["embed"]
+            assert "Characters" in embed.title
+            assert "V" in embed.description
+            assert "Jackie" in embed.description
+        _run(_test())
+
+    @patch("NightCityBot.cogs.player_hub.get_all_characters", new_callable=AsyncMock, return_value=[])
+    def test_characters_button_no_characters(self, mock_chars):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            view = PlayerHubView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "Characters")
+            await btn.callback(inter)
+            inter.followup.send.assert_called_once()
+            call = inter.followup.send.call_args
+            msg = call.kwargs.get("content", "") or (call.args[0] if call.args else "")
+            assert "no characters" in msg.lower()
+        _run(_test())
+
     def test_manage_chars_button_opens_view(self):
         async def _test():
             cog = _make_cog()
