@@ -411,70 +411,64 @@ class Admin(commands.Cog):
 
         fields = [
             (
+                "🏪 Interactive Hubs",
+                "\n".join([
+                    "`!admin_shop` – admin panel: add/remove items, reassign, history lookup, wholesale management.",
+                    "`!gunstore` – gun store hub: buy, sell, view stock, manage approved buyers.",
+                    "`!ripperdoc` – ripperdoc hub: buy, sell, install, view stock.",
+                ]),
+            ),
+            (
                 "⚙️ System Control",
                 "\n".join([
-                    "`!enable_system <name>` / `!disable_system <name>` (aliases: !es/!ds) – toggle major subsystems by name. "
-                    "Valid names: `cyberware`, `cyberware_shop`, `gun_shop`, `player_inventory`, `attend`, `open_shop`, `loa`, `housing_rent`, `business_rent`, `trauma_team`, `dm`, `auto_collect_rent`. "
-                    "Note: `player_inventory` and `auto_collect_rent` default to **OFF**; all others default to ON.",
-                    "`!system_status` – display the current enable/disable flags for all subsystems.",
-                    "`!reload_config` – reload bot configuration from the database without restarting.",
+                    "`!enable_system <name>` / `!disable_system <name>` – toggle subsystems on/off.",
+                    "`!system_status` – show current enable/disable flags.",
+                    "`!reload_config` – reload config from DB without restarting.",
+                    "`!shutdown_bot` – clean shutdown with audit log.",
+                    "`!db_health` – database ping, pool stats, failure count.",
                 ]),
             ),
             (
                 "💵 Rent & Payment",
                 "\n".join([
-                    "`!mark_paid @user [note]` – manually mark a member as paid this month. Updates the double-charge guard and the `!due` confirmation note.",
-                    "`!collect_rent [@user] [-v] [-force]` (alias: !collectrent) – run the monthly rent cycle. Use `-force` to override the this-month guard.",
+                    "`!collect_rent [@user] [-v] [-force]` – run the monthly rent cycle.",
+                    "`!trigger_auto_rent` – run full rent cycle immediately, bypassing the monthly guard.",
+                    "`!mark_paid @user [note]` – manually mark a member as paid.",
                     "`!list_deficits` – list members who can't cover upcoming charges.",
-                    "`!backup_balances` – save all member balances to a timestamped snapshot file.",
-                    "`!backup_balance @user` – save one member's balance to a snapshot file.",
-                    "`!restore_balances <file>` – restore balances from a snapshot file.",
-                    "`!restore_balance @user [file]` – restore one member's balance from a snapshot.",
-                ]),
-            ),
-            (
-                "⏰ Scheduled Jobs",
-                "\n".join([
-                    "`!trigger_auto_rent` – immediately run the full rent cycle, bypassing the monthly guard. Useful for manual recovery and testing.",
-                    "The automatic rent scheduler fires at the configured time on the 1st of each month (set via `RENT_COLLECTION_HOUR` / `RENT_COLLECTION_MINUTE` in config; defaults to midnight). "
-                    "If the bot was down on the 1st, it catches up on startup if it's still day 1–3, or DMs the report user as a missed-run warning.",
-                    "Use `!disable_system auto_collect_rent` / `!enable_system auto_collect_rent` to suppress or restore the automatic scheduler.",
-                ]),
-            ),
-            (
-                "🛠️ Admin Tools",
-                "\n".join([
-                    "`!shutdown_bot` (aliases: !shutdownbot, !forceshutdown) – log an audit message and cleanly shut down the bot process.",
-                    "`!backfill_logs [limit]` – rebuild attendance and business open logs from recent message history.",
-                    "`!reindex_tickets [limit]` (alias: !reindextickets) – scan the bot-logs channel and build the ticket search index.",
-                    "`!search_tickets <query>` (aliases: !searchtickets, !ticketsearch) – search the ticket index by name, user, ticket ID, reason, or any text.",
-                    "`!db_health` – show database ping, pool stats, write-failure count, and last failure timestamp.",
-                    "`!migrate_json_store` – one-time migration: copy all json_store blobs into normalized tables. Idempotent — safe to re-run.",
-                    "`!ticket_debug [index]` (alias: !ticketdebug) – show the raw stored text for a ticket index entry. Pass an index (0 = most recent). Useful when searches aren't matching.",
-                    "`!ticket_channel_preview [count]` (alias: !ticketchannelpreview) – preview recent messages in the Tickety log channel and show which would be indexed.",
-                    "`!ticket_scan [limit]` (alias: !ticketscan) – scan the log channel and show one sample embed per unique bot; helps identify the Tickety embed format.",
-                    "`!test_bot [tests] [-silent] [-verbose]` – execute the built-in test suite *(bot owner only)*.",
-                    "`!list_tests` – show all available self-test names *(bot owner only)*.",
-                    "`!test__bot [pattern]` – run the PyTest suite optionally filtering by pattern *(bot owner only)*.",
+                    "`!backup_balances` / `!restore_balances <file>` – snapshot and restore balances.",
                 ]),
             ),
             (
                 "🔫 Gun Shop Admin",
                 "\n".join([
-                    "`!guns_wh_setshop <shop_name> @owner` – bind a shop alias to a specific owner account.",
+                    "`!guns_wh_setsheet <url>` – set/refresh gun master sheet.",
+                    "`!guns_wh_restock [seed]` – regenerate weekly wholesale stock.",
+                    "`!guns_wh_restock_settings [key] [value]` – view/tune restock settings.",
+                    "`!guns_wh_setshop <name> @owner` – bind a shop alias to an owner.",
                     "`!guns_wh_shops` – list all shop alias mappings.",
-                    "`!guns_wh_restock [seed]` – regenerate weekly wholesaler stock from the configured sheet source.",
-                    "`!guns_wh_clear_inventory` – clear all current wholesaler lots without touching store inventories.",
-                    "`!guns_wh_recheck` – compare current lots to source sheet values and report mismatches.",
-                    "`!guns_wh_setsheet <xlsx_export_url|off>` – set or clear the runtime Google Sheets XLSX export URL.",
-                    "`!guns_wh_restock_settings [key] [value]` – view or tune weekly restock settings (lot counts and qty ranges).",
-                    "`!guns_wh_add <gun> <L|M|H> <unit_cost> <qty> [restriction]` – manually add stock to the wholesaler.",
-                    "`!guns_store_add @owner <gun> <L|M|H> <unit_cost> <qty> [restriction]` – manually add stock to a specific store.",
-                    "`!guns_wh_remove <lot_id> [qty]` – remove or reduce a lot from the wholesaler.",
-                    "`!guns_store_remove @owner <lot_id> [qty]` – remove or reduce a lot from a store.",
-                    "`!guns_wh_tx <tx_id>` – inspect a wholesaler transaction by ID.",
-                    "`!guns_wh_retry_payout <tx_id>` – retry a pending seller payout.",
-                    "`!guns_wh_paths` – show wholesaler data file paths and whether each file exists (diagnostic).",
+                    "`!guns_wh_retry_payout <tx_id>` – retry a failed seller payout.",
+                ]),
+            ),
+            (
+                "💉 Cyberware Admin",
+                "\n".join([
+                    "`!cw_setsheet <url>` – load/replace the cyberware catalogue from a sheet.",
+                    "`!cw_add \"<name>\" <price> [cwp] [desc]` – add or update a catalogue item.",
+                    "`!cw_remove <item name>` – remove an item from the catalogue.",
+                    "`!cw_give @ripperdoc <item name>` – give an item directly (bypass wholesale).",
+                    "`!cw_take @ripperdoc <item name>` – remove an item from a ripperdoc's stock.",
+                    "`!cw_wh_restock [seed]` – force a fresh weekly CW rotation.",
+                    "`!cw_wh_add <qty> <item name>` – add/restock an item mid-week.",
+                    "`!cw_wh_remove <item name>` – pull an item from this week's rotation.",
+                    "`!cw_wh_settings [key] [value]` – view/change CW restock settings.",
+                ]),
+            ),
+            (
+                "🛠️ Other Admin Tools",
+                "\n".join([
+                    "`!backfill_logs [limit]` – rebuild attendance/business logs from message history.",
+                    "`!reindex_tickets [limit]` – rebuild the ticket search index.",
+                    "`!search_tickets <query>` – search tickets by name, user, ID, or text.",
                 ]),
             ),
         ]
@@ -482,7 +476,10 @@ class Admin(commands.Cog):
         embeds = []
         current = discord.Embed(
             title="🛠️ NCRP Bot — Admin Help",
-            description="Commands for server administrators.",
+            description=(
+                "Most day-to-day management is done through the interactive hubs.\n"
+                "Commands below are for things the hubs don't cover."
+            ),
             color=discord.Color.dark_gold(),
         )
         for name, value in fields:
