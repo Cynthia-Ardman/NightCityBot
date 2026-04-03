@@ -46,12 +46,12 @@ isValidation = true
 name = "coverage"
 author = "agent"
 
-[workflows.workflow.metadata]
-outputType = "console"
-
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python -m pytest NightCityBot/tests/ -q --tb=short --cov=NightCityBot --cov-report=term-missing --cov-fail-under=63"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [[ports]]
 localPort = 5000
