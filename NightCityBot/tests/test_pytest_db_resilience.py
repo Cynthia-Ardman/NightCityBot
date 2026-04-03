@@ -147,3 +147,66 @@ def test_retry_exhaustion_sets_last_failure_at():
 
     assert db_mod._last_failure_at is not None
     assert isinstance(db_mod._last_failure_at, datetime)
+
+
+# ---------------------------------------------------------------------------
+# pi_add_item SQL parameter alignment test
+# ---------------------------------------------------------------------------
+
+def test_pi_add_item_sql_parameter_alignment():
+    """Verify pi_add_item passes parameters in the correct column order.
+
+    Regression test: character_id was accidentally inserted at position $4
+    (item_type column), shifting all subsequent parameters by one.
+    """
+    from unittest.mock import AsyncMock, patch, MagicMock
+    from NightCityBot.utils.db import pi_add_item
+
+    captured = {}
+
+    async def fake_execute(sql, *args):
+        captured["sql"] = sql
+        captured["args"] = args
+        return "INSERT 0 1"
+
+    mock_pool = MagicMock()
+    mock_pool.execute = fake_execute
+
+    async def fake_retry(fn, **kw):
+        return await fn()
+
+    item = {
+        "item_id": "test-uuid-001",
+        "owner_id": "owner-123",
+        "character_name": "V",
+        "character_id": "char-uuid-456",
+        "item_type": "weapon",
+        "name": "Malorian Arms 3516",
+        "restriction": "restricted",
+        "description": "Johnny's gun",
+        "price_paid": 50000,
+        "seller_id": "seller-789",
+        "seller_name": "Wilson",
+    }
+
+    async def run():
+        with patch("NightCityBot.utils.db.get_pool", AsyncMock(return_value=mock_pool)):
+            with patch("NightCityBot.utils.db._with_retry", side_effect=fake_retry):
+                return await pi_add_item(item)
+
+    result = _run(run())
+    assert result is True
+
+    args = captured["args"]
+    assert args[0] == "test-uuid-001", f"$1 (item_id) = {args[0]}"
+    assert args[1] == "owner-123", f"$2 (owner_id) = {args[1]}"
+    assert args[2] == "V", f"$3 (character_name) = {args[2]}"
+    assert args[3] == "weapon", f"$4 (item_type) = {args[3]}"
+    assert args[4] == "Malorian Arms 3516", f"$5 (name) = {args[4]}"
+    assert args[5] == "restricted", f"$6 (restriction) = {args[5]}"
+    assert args[6] == "Johnny's gun", f"$7 (description) = {args[6]}"
+    assert args[7] == 50000, f"$8 (price_paid) = {args[7]}"
+    assert args[8] == "seller-789", f"$9 (seller_id) = {args[8]}"
+    assert args[9] == "Wilson", f"$10 (seller_name) = {args[9]}"
+    assert args[11] == "char-uuid-456", f"$12 (character_id) = {args[11]}"
+    assert len(args) == 12, f"Expected 12 args for 12 placeholders, got {len(args)}"

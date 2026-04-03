@@ -2834,7 +2834,6 @@ async def pi_add_item(item: dict) -> bool:
                 str(item["item_id"]),
                 str(item["owner_id"]),
                 str(item.get("character_name", "")),
-                item.get("character_id"),
                 str(item.get("item_type", "cyberware")),
                 str(item["name"]),
                 str(item.get("restriction", "basic")),

@@ -621,6 +621,9 @@ class WholesaleRestockModal(SafeModal, title="Restock Gun Wholesale"):
             return
 
         gun_name = self.gun_name_input.value.strip()
+        if not gun_name:
+            await interaction.followup.send("❌ Gun name is required.", ephemeral=True)
+            return
         restriction = (self.restriction_input.value.strip().lower() or "basic")
 
         async with guns_cog.lock:
@@ -685,6 +688,9 @@ class CWWholesaleRestockModal(SafeModal, title="Restock CW Wholesale"):
             return
 
         item_name = self.item_name_input.value.strip()
+        if not item_name:
+            await interaction.followup.send("❌ Item name is required.", ephemeral=True)
+            return
 
         async with cw_cog.lock:
             state = await cw_cog._load_state()
@@ -725,10 +731,13 @@ class WholesaleClearConfirmView(SafeView):
 
     @discord.ui.button(label="Confirm Clear", style=discord.ButtonStyle.danger, emoji="⚠️")
     async def confirm_clear(self, interaction: discord.Interaction, button: discord.ui.Button):
+        button.disabled = True
+        self.cancel_clear.disabled = True
+        await interaction.response.edit_message(view=self)
         if self.target == "cw":
             cw_cog = self.cog.bot.cogs.get("CyberwareShop")
             if not cw_cog:
-                await interaction.response.edit_message(content="Cyberware system unavailable.", view=None)
+                await interaction.edit_original_response(content="Cyberware system unavailable.", view=None)
                 self.stop()
                 return
             async with cw_cog.lock:
@@ -739,7 +748,7 @@ class WholesaleClearConfirmView(SafeView):
         else:
             guns_cog = self.cog.bot.cogs.get("GunsShopCog")
             if not guns_cog:
-                await interaction.response.edit_message(content="Gun shop system unavailable.", view=None)
+                await interaction.edit_original_response(content="Gun shop system unavailable.", view=None)
                 self.stop()
                 return
             async with guns_cog.lock:
@@ -748,7 +757,7 @@ class WholesaleClearConfirmView(SafeView):
                 await guns_cog._save_state(state)
             label = "Gun"
 
-        await interaction.response.edit_message(content=f"✅ All {label} wholesale lots cleared.", view=None)
+        await interaction.edit_original_response(content=f"✅ All {label} wholesale lots cleared.", view=None)
         log_ch = await self.cog._audit_channel()
         if log_ch:
             embed = discord.Embed(
