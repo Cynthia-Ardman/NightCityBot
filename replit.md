@@ -13,7 +13,7 @@ A Discord bot for NCRP (Cyberpunk-themed RP server) managing economy, roleplay u
 
 ## Data Storage
 
-Operational state is persisted to **PostgreSQL** via normalized tables (24 tables total, including `item_history`). The legacy `json_store` key-value table remains for backward compatibility. File-based JSON storage is retained for per-member balance backups and wholesaler local fallback.
+Operational state is persisted to **PostgreSQL** via normalized tables (25 tables total, including `characters` and `item_history`). The legacy `json_store` key-value table remains for backward compatibility. File-based JSON storage is retained for per-member balance backups and wholesaler local fallback.
 
 ### `bot_config` table — runtime-editable economy constants
 
@@ -115,6 +115,36 @@ Two-table catalog system in PostgreSQL:
 - `!cw_wh_add <qty> <item>` — add/top-up a specific item mid-week
 - `!cw_wh_remove <item>` — pull an item from current week
 - `!cw_wh_settings [key] [value]` — tune total_items, qty_min, qty_max
+
+## Character Ownership System (Task #16)
+
+Inventory is now owned by characters, not directly by Discord users. A Discord user can have multiple characters; each character belongs to exactly one user.
+
+### Database
+- `characters` table: `character_id` (PK), `discord_user_id`, `character_name`, `normalized_character_name`, `status` (active/inactive), `created_at`, `updated_at`, `deactivated_at`, `reactivated_at`
+- Unique constraint on `(discord_user_id, normalized_character_name)`; indexes on `discord_user_id`, `status`, `(discord_user_id, status)`
+- `player_inventory` gained a `character_id TEXT` column (indexed) linking items to characters
+
+### Service Module
+`NightCityBot/utils/characters.py` — CRUD for characters:
+- `create_character(discord_user_id, character_name)` — creates with validation, returns None on duplicate
+- `deactivate_character(character_id)` / `reactivate_character(character_id)` — soft status toggle
+- `get_active_characters(discord_user_id)` / `get_inactive_characters(discord_user_id)`
+- `get_character(character_id)`
+- `normalize_name(name)` — strip + lowercase
+- `validate_name(name)` — empty/whitespace rejected, max 64 chars
+
+### Migration
+`migrate_inventory_to_characters()` in `db.py` — creates a "Legacy Character" for each distinct `owner_id` in `player_inventory` with NULL `character_id`, then backfills. Transaction-wrapped per owner, idempotent, handles concurrent races safely. Runs automatically at startup after schema creation.
+
+### Updated `pi_*` functions
+- `pi_add_item` accepts optional `character_id` in the item dict
+- `pi_get_by_owner` accepts optional `character_id` keyword filter
+- `pi_update_owner` accepts optional `new_character_id` keyword; preserves existing `character_id` when omitted (backward compatible with all existing callers)
+- `ih_record_event` accepts optional `character_id` keyword (stored in metadata JSONB)
+
+### Tests
+`NightCityBot/tests/test_characters.py` — 38 tests covering character CRUD, validation, normalization, migration (including concurrency race), pi_* character_id handling, and ih_record_event character_id metadata.
 
 ## Player Inventory System (new in Task 11)
 

@@ -28,6 +28,7 @@ EXPECTED_TABLES = [
     "payment_labels",
     "cyberware_catalog",
     "gun_catalog",
+    "characters",
     "player_inventory",
     "pending_transfers",
     "item_history",

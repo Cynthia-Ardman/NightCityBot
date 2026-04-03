@@ -361,6 +361,46 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
             updated_at       TIMESTAMPTZ DEFAULT NOW()
         )
         """,
+        # ── Characters ─────────────────────────────────────────────────────────
+        """
+        CREATE TABLE IF NOT EXISTS characters (
+            character_id             TEXT PRIMARY KEY,
+            discord_user_id          TEXT NOT NULL,
+            character_name           TEXT NOT NULL,
+            normalized_character_name TEXT NOT NULL,
+            status                   TEXT NOT NULL DEFAULT 'active'
+                                         CHECK (status IN ('active', 'inactive')),
+            created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            deactivated_at           TIMESTAMPTZ,
+            reactivated_at           TIMESTAMPTZ,
+            UNIQUE (discord_user_id, normalized_character_name)
+        )
+        """,
+        """
+        DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'characters_status_check'
+            ) THEN
+                ALTER TABLE characters
+                    ADD CONSTRAINT characters_status_check
+                    CHECK (status IN ('active', 'inactive'));
+            END IF;
+        END $$
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_characters_discord_user_id
+            ON characters (discord_user_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_characters_status
+            ON characters (status)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_characters_user_status
+            ON characters (discord_user_id, status)
+        """,
         # ── Player inventory (one row per item instance) ─────────────────────
         """
         CREATE TABLE IF NOT EXISTS player_inventory (
@@ -384,8 +424,16 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         "ALTER TABLE player_inventory ALTER COLUMN restriction DROP NOT NULL",
         "ALTER TABLE player_inventory ALTER COLUMN acquired_at DROP NOT NULL",
         """
+        ALTER TABLE player_inventory
+            ADD COLUMN IF NOT EXISTS character_id TEXT
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_player_inventory_owner
             ON player_inventory (owner_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_player_inventory_character_id
+            ON player_inventory (character_id)
         """,
         # ── Pending transfers (trade failure recovery) ────────────────────────
         """
@@ -430,6 +478,9 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
 
     # One-time migrations from legacy json_store blobs
     await _migrate_all(pool)
+
+    # Character ownership migration
+    await migrate_inventory_to_characters(pool)
 
 
 async def _migrate_all(pool: asyncpg.Pool) -> None:
@@ -2732,14 +2783,16 @@ async def pi_add_item(item: dict) -> bool:
                 acq = datetime.fromisoformat(acq.replace("Z", "+00:00"))
             except Exception:
                 acq = None
+        char_id = item.get("character_id")
         status: str = await _with_retry(
             lambda: pool.execute(
                 """
                 INSERT INTO player_inventory
                     (item_id, owner_id, character_name, item_type, name, restriction,
-                     description, price_paid, seller_id, seller_name, acquired_at, created_at)
+                     description, price_paid, seller_id, seller_name, acquired_at, created_at,
+                     character_id)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                        COALESCE($11, NOW()), NOW())
+                        COALESCE($11, NOW()), NOW(), $12)
                 ON CONFLICT (item_id) DO NOTHING
                 """,
                 str(item["item_id"]),
@@ -2753,6 +2806,7 @@ async def pi_add_item(item: dict) -> bool:
                 str(item["seller_id"]) if item.get("seller_id") else None,
                 str(item.get("seller_name", "")),
                 acq,
+                str(char_id) if char_id else None,
             ),
             label="pi_add_item",
         )
@@ -2770,20 +2824,39 @@ async def pi_add_item(item: dict) -> bool:
         return False
 
 
-async def pi_get_by_owner(owner_id: str) -> list[dict]:
-    """Return all items owned by owner_id, ordered by character_name, item_type, name, acquired_at."""
+async def pi_get_by_owner(owner_id: str, *, character_id: str | None = None) -> list[dict]:
+    """Return all items owned by owner_id, ordered by character_name, item_type, name, acquired_at.
+
+    When *character_id* is supplied, only items belonging to that character are
+    returned.
+    """
     try:
         pool = await get_pool()
-        rows = await pool.fetch(
-            """
-            SELECT item_id, owner_id, character_name, item_type, name, restriction,
-                   description, price_paid, seller_id, seller_name, acquired_at, created_at
-            FROM player_inventory
-            WHERE owner_id = $1
-            ORDER BY character_name, item_type, name, acquired_at
-            """,
-            str(owner_id),
-        )
+        if character_id is not None:
+            rows = await pool.fetch(
+                """
+                SELECT item_id, owner_id, character_name, item_type, name, restriction,
+                       description, price_paid, seller_id, seller_name, acquired_at, created_at,
+                       character_id
+                FROM player_inventory
+                WHERE owner_id = $1 AND character_id = $2
+                ORDER BY character_name, item_type, name, acquired_at
+                """,
+                str(owner_id),
+                str(character_id),
+            )
+        else:
+            rows = await pool.fetch(
+                """
+                SELECT item_id, owner_id, character_name, item_type, name, restriction,
+                       description, price_paid, seller_id, seller_name, acquired_at, created_at,
+                       character_id
+                FROM player_inventory
+                WHERE owner_id = $1
+                ORDER BY character_name, item_type, name, acquired_at
+                """,
+                str(owner_id),
+            )
         result = []
         for row in rows:
             d = dict(row)
@@ -2804,7 +2877,8 @@ async def pi_get_item(item_id: str) -> Optional[dict]:
         row = await pool.fetchrow(
             """
             SELECT item_id, owner_id, character_name, item_type, name, restriction,
-                   description, price_paid, seller_id, seller_name, acquired_at, created_at
+                   description, price_paid, seller_id, seller_name, acquired_at, created_at,
+                   character_id
             FROM player_inventory WHERE item_id = $1
             """,
             str(item_id),
@@ -2844,7 +2918,12 @@ async def pi_delete_item(item_id: str) -> bool:
 
 
 async def pi_update_owner(
-    item_id: str, new_owner_id: str, new_character: str, old_owner_id: str
+    item_id: str,
+    new_owner_id: str,
+    new_character: str,
+    old_owner_id: str,
+    *,
+    new_character_id: str | None = None,
 ) -> bool:
     """Transfer ownership of an item to a new player/character.
 
@@ -2852,22 +2931,39 @@ async def pi_update_owner(
     has already changed (concurrent command or stale display), the UPDATE hits
     zero rows and the caller gets False — preventing accidental re-transfer.
 
+    When *new_character_id* is provided it is also written to the row.
+
     Returns True only when exactly one row was updated.
     Returns False if item_id was not found, owner guard failed, or a DB error occurred.
     """
     try:
         pool = await get_pool()
-        result = await _with_retry(
-            lambda: pool.execute(
-                """
-                UPDATE player_inventory
-                SET owner_id = $2, character_name = $3
-                WHERE item_id = $1 AND owner_id = $4
-                """,
-                str(item_id), str(new_owner_id), str(new_character), str(old_owner_id),
-            ),
-            label="pi_update_owner",
-        )
+        if new_character_id is not None:
+            result = await _with_retry(
+                lambda: pool.execute(
+                    """
+                    UPDATE player_inventory
+                    SET owner_id = $2, character_name = $3, character_id = $5
+                    WHERE item_id = $1 AND owner_id = $4
+                    """,
+                    str(item_id), str(new_owner_id), str(new_character),
+                    str(old_owner_id), str(new_character_id),
+                ),
+                label="pi_update_owner",
+            )
+        else:
+            result = await _with_retry(
+                lambda: pool.execute(
+                    """
+                    UPDATE player_inventory
+                    SET owner_id = $2, character_name = $3
+                    WHERE item_id = $1 AND owner_id = $4
+                    """,
+                    str(item_id), str(new_owner_id), str(new_character),
+                    str(old_owner_id),
+                ),
+                label="pi_update_owner",
+            )
         # asyncpg returns a string like "UPDATE 1" or "UPDATE 0"
         rows_affected = int(result.split()[-1]) if result else 0
         if rows_affected == 0:
@@ -3000,8 +3096,12 @@ async def ih_record_event(
     target_id: str | None = None,
     price: int | None = None,
     metadata: dict | None = None,
+    character_id: str | None = None,
 ) -> bool:
     try:
+        meta = dict(metadata or {})
+        if character_id is not None:
+            meta["character_id"] = str(character_id)
         pool = await get_pool()
         await _with_retry(
             lambda: pool.execute(
@@ -3014,7 +3114,7 @@ async def ih_record_event(
                 str(actor_id) if actor_id else None,
                 str(target_id) if target_id else None,
                 price,
-                json.dumps(metadata or {}),
+                json.dumps(meta),
             ),
             label="ih_record_event",
         )
@@ -3054,6 +3154,116 @@ async def ih_get_history(item_id: str, limit: int = 50) -> list[dict]:
     except Exception:
         logger.error("ih_get_history failed for item_id='%s'", item_id, exc_info=True)
         return []
+
+
+# ---------------------------------------------------------------------------
+# Character ownership migration
+# ---------------------------------------------------------------------------
+
+async def migrate_inventory_to_characters(pool: asyncpg.Pool | None = None) -> int:
+    """Create a 'Legacy Character' for every distinct owner_id in player_inventory
+    that has NULL character_id rows, then backfill those rows.
+
+    Each owner is processed inside a transaction so concurrent workers cannot
+    create orphan character_id references.  After the INSERT we always
+    re-SELECT the persisted row to obtain the authoritative ``character_id``
+    — this handles the ``ON CONFLICT DO NOTHING`` race where another process
+    may have inserted the same character first.
+
+    Returns the number of legacy characters created.  Idempotent — safe to re-run.
+    """
+    import uuid as _uuid
+
+    if pool is None:
+        pool = await get_pool()
+
+    rows = await pool.fetch(
+        """
+        SELECT DISTINCT owner_id
+        FROM player_inventory
+        WHERE character_id IS NULL
+        """
+    )
+    if not rows:
+        return 0
+
+    created = 0
+    for row in rows:
+        owner_id = row["owner_id"]
+        norm_name = "legacy character"
+
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                existing = await conn.fetchrow(
+                    """
+                    SELECT character_id FROM characters
+                    WHERE discord_user_id = $1 AND normalized_character_name = $2
+                    """,
+                    str(owner_id),
+                    norm_name,
+                )
+
+                if existing:
+                    char_id = existing["character_id"]
+                else:
+                    candidate_id = str(_uuid.uuid4())
+                    await conn.execute(
+                        """
+                        INSERT INTO characters
+                            (character_id, discord_user_id, character_name,
+                             normalized_character_name, status)
+                        VALUES ($1, $2, $3, $4, 'active')
+                        ON CONFLICT (discord_user_id, normalized_character_name) DO NOTHING
+                        """,
+                        candidate_id,
+                        str(owner_id),
+                        "Legacy Character",
+                        norm_name,
+                    )
+                    persisted = await conn.fetchrow(
+                        """
+                        SELECT character_id FROM characters
+                        WHERE discord_user_id = $1 AND normalized_character_name = $2
+                        """,
+                        str(owner_id),
+                        norm_name,
+                    )
+                    char_id = persisted["character_id"]
+                    if char_id == candidate_id:
+                        created += 1
+                        logger.info(
+                            "migrate_inventory_to_characters: created Legacy Character "
+                            "(%s) for owner_id='%s'",
+                            char_id,
+                            owner_id,
+                        )
+
+                result = await conn.execute(
+                    """
+                    UPDATE player_inventory
+                    SET character_id = $1
+                    WHERE owner_id = $2 AND character_id IS NULL
+                    """,
+                    char_id,
+                    str(owner_id),
+                )
+                backfilled = int(result.split()[-1]) if result else 0
+                if backfilled:
+                    logger.info(
+                        "migrate_inventory_to_characters: backfilled %d rows "
+                        "for owner_id='%s' → character_id='%s'",
+                        backfilled, owner_id, char_id,
+                    )
+
+    remaining = await pool.fetchval(
+        "SELECT COUNT(*) FROM player_inventory WHERE character_id IS NULL"
+    )
+    logger.info(
+        "migrate_inventory_to_characters: done — %d legacy characters created, "
+        "%d rows still without character_id",
+        created, remaining or 0,
+    )
+    return created
 
 
 # ---------------------------------------------------------------------------
