@@ -141,10 +141,13 @@ Inventory is now owned by characters, not directly by Discord users. A Discord u
 `NightCityBot/utils/characters.py` — CRUD for characters:
 - `create_character(discord_user_id, character_name)` — creates with validation, returns None on duplicate
 - `deactivate_character(character_id)` / `reactivate_character(character_id)` — soft status toggle
-- `get_active_characters(discord_user_id)` / `get_inactive_characters(discord_user_id)`
-- `get_character(character_id)`
+- `get_active_characters(discord_user_id)` / `get_inactive_characters(discord_user_id)` / `get_all_characters(discord_user_id)`
+- `get_character(character_id)` / `get_character_by_name(discord_user_id, name)`
+- `ensure_character_active(character_id)` — returns bool
+- `character_name_exists(discord_user_id, name)` — returns bool
 - `normalize_name(name)` — strip + lowercase
 - `validate_name(name)` — empty/whitespace rejected, max 64 chars
+- Removed: `get_character_by_id` (was redundant alias for `get_character`), `resolve_character_name` (was dangerous — auto-created characters on lookup miss)
 
 ### Migration
 `migrate_inventory_to_characters()` in `db.py` — creates a "Legacy Character" for each distinct `owner_id` in `player_inventory` with NULL `character_id`, then backfills. Transaction-wrapped per owner, idempotent, handles concurrent races safely. Runs automatically at startup after schema creation.
@@ -179,7 +182,7 @@ Consolidates separate command sets into interactive hub commands with Discord UI
 ### New Cogs
 - `NightCityBot/cogs/ripperdoc_hub.py` — `!ripperdoc` interactive panel (Buy/Sell/Install/Stock/Wholesale)
 - `NightCityBot/cogs/gunstore_hub.py` — `!gunstore` interactive panel (Buy/Sell/Inventory/Approve/Unapprove/Wholesale/Approved Buyers)
-- `NightCityBot/cogs/admin_shop.py` — `!admin_shop` admin panel (Add/Remove/Reassign/History/Inventory)
+- `NightCityBot/cogs/admin_shop.py` — `!admin` admin panel (Add/Remove/Reassign/History/Inventory); alias `!admin_shop` still works
 - `NightCityBot/cogs/fixer_hub.py` — `!fixer` Fixer management panel with three-tier menu (Player/Store/Wholesaler sub-menus for inventory, items, LOA, store stock, wholesale management)
 - `NightCityBot/cogs/player_hub.py` — `!player` Player hub for viewing inventory, trading items, and giving items (replaces individual `!trade`, `!inv_give` commands in help)
 

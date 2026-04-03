@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional
 import re
 from datetime import datetime
 from zoneinfo import ZoneInfo

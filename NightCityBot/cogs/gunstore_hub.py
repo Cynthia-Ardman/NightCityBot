@@ -8,7 +8,7 @@ import logging
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 
 import discord
 from discord.ext import commands
@@ -20,7 +20,7 @@ from NightCityBot.utils.db import (
     pt_create,
 )
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active
-from NightCityBot.utils.permissions import is_store_owner, is_fixer
+from NightCityBot.utils.permissions import is_store_owner
 
 logger = logging.getLogger(__name__)
 

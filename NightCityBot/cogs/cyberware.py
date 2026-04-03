@@ -3,9 +3,7 @@ import discord
 from discord.ext import commands, tasks
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
-from typing import Dict, Optional, List, Any
-from pathlib import Path
-import os
+from typing import Dict, Optional, List
 
 import config
 from NightCityBot.utils.helpers import get_tz_now

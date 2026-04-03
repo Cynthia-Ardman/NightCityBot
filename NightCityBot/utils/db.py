@@ -378,18 +378,6 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         )
         """,
         """
-        DO $$ BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_constraint
-                WHERE conname = 'characters_status_check'
-            ) THEN
-                ALTER TABLE characters
-                    ADD CONSTRAINT characters_status_check
-                    CHECK (status IN ('active', 'inactive'));
-            END IF;
-        END $$
-        """,
-        """
         CREATE INDEX IF NOT EXISTS idx_characters_discord_user_id
             ON characters (discord_user_id)
         """,
@@ -468,7 +456,6 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         CREATE INDEX IF NOT EXISTS idx_item_history_actor
             ON item_history (actor_id)
         """,
-        "ALTER TABLE player_inventory ADD COLUMN IF NOT EXISTS character_id TEXT DEFAULT NULL",
     ]
 
     async with pool.acquire() as conn:

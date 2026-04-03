@@ -27,7 +27,6 @@ from NightCityBot.utils.db import (
     cw_catalog_upsert_one,
     cw_catalog_delete_one,
     pi_add_item,
-    pi_get_by_owner,
 )
 from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
 

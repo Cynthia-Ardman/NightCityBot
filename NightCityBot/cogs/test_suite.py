@@ -10,7 +10,7 @@ import logging
 ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
-from typing import List, Dict, Optional
+from typing import List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 import config
 

@@ -792,7 +792,7 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
                 return None
         return member
 
-    @commands.command(name="admin_shop")
+    @commands.command(name="admin", aliases=["admin_shop"])
     @commands.check_any(is_fixer(), commands.has_permissions(administrator=True))
     async def admin_shop(self, ctx: commands.Context):
         """Open the Admin Shop management panel.

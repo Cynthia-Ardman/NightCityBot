@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import io
-import contextlib
 import re
 
 import discord
@@ -10,7 +9,6 @@ from typing import Optional
 import config
 from NightCityBot.utils.permissions import is_fixer, is_ripperdoc, is_store_owner
 from NightCityBot.utils import constants
-from NightCityBot.utils import startup_checks
 from NightCityBot.utils.helpers import load_json_file, save_json_file
 from NightCityBot.utils import db as _db
 from NightCityBot.utils.db import attendance_get_user, attendance_append, open_log_add_if_absent

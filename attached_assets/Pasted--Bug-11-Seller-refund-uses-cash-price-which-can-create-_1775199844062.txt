@@ -1,0 +1,112 @@
+
+Bug 11: Seller refund uses {"cash": -price} which can create negative cash (Medium)
+Where: 12 instances across 5 files:
+
+player_hub.py (2) -- trade refund, sell-to-store refund
+gunstore_hub.py (3) -- gun sale refund: store not found, out of stock, item grant failed
+ripperdoc_hub.py (3) -- CW sale refund: item missing, item grant failed, install refund
+cyberware_shop.py (3) -- CW sell refund: item gone, inventory changed, DB write failed
+player_inventory.py (1) -- trade refund on ownership write failure
+Why it's a bug: When a sale fails partway through, the system refunds by reversing the seller's credit with {"cash": -price}. But the seller was credited to cash. If they had 
+0
+c
+a
+s
+h
+b
+e
+f
+o
+r
+e
+t
+h
+e
+s
+a
+l
+e
+(
+c
+r
+e
+d
+i
+t
+w
+e
+n
+t
+t
+o
+c
+a
+s
+h
+,
+m
+a
+k
+i
+n
+g
+i
+t
+e
+.
+g
+.
+0cashbeforethesale(creditwenttocash,makingite.g.5000), and between the credit and the refund they spent that cash on something else (now 
+500
+)
+,
+t
+h
+e
+r
+e
+f
+u
+n
+d
+o
+f
+‘
+"
+c
+a
+s
+h
+"
+:
+−
+5000
+‘
+p
+u
+s
+h
+e
+s
+t
+h
+e
+m
+t
+o
+500),therefundof‘"cash":−5000‘pushesthemto-4500. The UnbelievaBoat API may reject negative cash values entirely, silently failing the refund. Should use {"bank": -price} which absorbs the deduction without going negative.
+
+Bug 12: TradeConfirmView and StoreBuyConfirmView have no interaction_check (Medium)
+Where: player_hub.py:568 (TradeConfirmView), player_hub.py:1444 (StoreBuyConfirmView)
+
+Why it's a bug: These views are sent as DMs to the buyer/store-owner for trade confirmation. Every other view in the codebase has interaction_check to verify the button-clicker is the intended user. These two don't. If someone else gains access to the DM (forwarded screenshot with a still-live view, shared device, etc.), they can click Accept/Decline on behalf of the intended recipient. The trade or store purchase would proceed or be cancelled by an unauthorized person. In practice the risk is low because DMs are private, but every other view enforces this check for a reason -- these should too.
+
+Bug 13: Hub filtered inventory shows wrong row numbers (Low)
+Where: player_hub.py:139-147 (_build_inventory_embed)
+
+Why it's a bug: When a player selects a character filter in the hub's "View Inventory" dropdown, _build_inventory_embed passes only the filtered items to _build_display. But _build_display was previously fixed to assign global row numbers that match the unfiltered inventory (so !trade and !inv_give text commands resolve correctly). By passing a subset of items, the row numbers reset to 1 instead of preserving the global numbering. A player who sees "row 1" in the filtered hub view and then uses the text command !trade @buyer 1 500 V could trade the wrong item. The hub's own button flows use item_id directly and are unaffected, so this only matters for players who mix the hub view with text commands.
+
+Bug 14: Character filter uses exact case match instead of case-insensitive (Trivial)
+Where: player_hub.py:140
+
+Why it's a bug: The filter does i.get("character_name") == char_filter (exact string match). The dropdown values come from the character names as stored, which usually preserves casing. But if a player has items from before the character system (added manually with different casing, e.g., "v" vs "V") or if the character name casing was changed, the filter misses those items. They appear in the "All Characters" view but vanish when the specific character is selected. Should use .lower() comparison on both sides.
