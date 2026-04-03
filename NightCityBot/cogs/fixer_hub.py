@@ -1533,6 +1533,14 @@ class StoreOwnerPickerView(SafeView):
             if not cw_cog:
                 await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
                 return
+            state = await cw_cog._load_state()
+            rd_stores = state.get("ripperdoc_stores", {})
+            store_title = f"{owner.display_name}'s Ripperdoc Stock"
+            guild_prefix = f"rd:{guild.id}:"
+            for sid, s in rd_stores.items():
+                if sid.startswith(guild_prefix) and s.get("owner_id") == owner.id and s.get("store_name"):
+                    store_title = s["store_name"]
+                    break
             inventory = await cw_cog._load_inventory(owner.id)
             if inventory:
                 groups = cw_cog._grouped_inventory(inventory)
@@ -1542,14 +1550,14 @@ class StoreOwnerPickerView(SafeView):
                     price_str = f"${g['price_paid']:,}" if g.get('price_paid') else "—"
                     lines.append(f"`{i}.` **{g['name']}**{count_str} — {price_str}")
                 embed = discord.Embed(
-                    title=f"💉 {owner.display_name}'s Ripperdoc Stock",
+                    title=f"💉 {store_title}",
                     description="\n".join(lines),
                     color=discord.Color.purple(),
                 )
                 embed.set_footer(text=f"{len(inventory)} item(s) in {len(groups)} slot(s)")
             else:
                 embed = discord.Embed(
-                    title=f"💉 {owner.display_name}'s Ripperdoc Stock",
+                    title=f"💉 {store_title}",
                     description="This store is currently empty.",
                     color=discord.Color.purple(),
                 )

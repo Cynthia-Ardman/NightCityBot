@@ -690,6 +690,7 @@ class TestStorePickerViews:
             owner = _make_member(222, "Doc")
             ctx.guild.get_member = MagicMock(return_value=owner)
             cw_cog = MagicMock()
+            cw_cog._load_state = AsyncMock(return_value={"ripperdoc_stores": {}})
             cw_cog._load_inventory = AsyncMock(return_value=[
                 {"name": "Sandevistan", "price_paid": 5000, "purchased_at": "2025-01-01"},
             ])
@@ -1061,6 +1062,7 @@ class TestPickerFailureBranches:
             owner = _make_member(222, "Doc")
             ctx.guild.get_member = MagicMock(return_value=owner)
             cw_cog = MagicMock()
+            cw_cog._load_state = AsyncMock(return_value={"ripperdoc_stores": {}})
             cw_cog._load_inventory = AsyncMock(return_value=[])
             cog.bot.cogs["CyberwareShop"] = cw_cog
             options = [discord.SelectOption(label="Doc", value="222")]

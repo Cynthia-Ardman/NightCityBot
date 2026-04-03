@@ -600,7 +600,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
             "Do you accept?",
             view=confirm_view,
         )
-    except discord.Forbidden:
+    except (discord.Forbidden, discord.HTTPException):
         await interaction.followup.send(
             f"Cannot DM {patient.display_name}. They may have DMs disabled.", ephemeral=True
         )
@@ -784,7 +784,7 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
             "This will consume the cyberware. Do you accept?",
             view=confirm_view,
         )
-    except discord.Forbidden:
+    except (discord.Forbidden, discord.HTTPException):
         await interaction.followup.send(
             f"Cannot DM {patient.display_name}. They may have DMs disabled.", ephemeral=True
         )
@@ -1398,7 +1398,7 @@ class _RDTransferOwnerView(SafeView):
                 "Do you accept?",
                 view=confirm_view,
             )
-        except discord.Forbidden:
+        except (discord.Forbidden, discord.HTTPException):
             await interaction.followup.send(
                 f"Could not DM {new_owner.display_name}. They may have DMs disabled.", ephemeral=True
             )

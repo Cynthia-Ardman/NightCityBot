@@ -651,7 +651,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
             "Do you accept?",
             view=confirm_view,
         )
-    except discord.Forbidden:
+    except (discord.Forbidden, discord.HTTPException):
         await interaction.followup.send(
             f"Cannot DM {customer.display_name}. They may have DMs disabled.", ephemeral=True
         )
@@ -1534,7 +1534,7 @@ class _GunTransferOwnerView(SafeView):
                 "Do you accept?",
                 view=confirm_view,
             )
-        except discord.Forbidden:
+        except (discord.Forbidden, discord.HTTPException):
             await interaction.followup.send(
                 f"Could not DM {new_owner.display_name}. They may have DMs disabled.", ephemeral=True
             )
