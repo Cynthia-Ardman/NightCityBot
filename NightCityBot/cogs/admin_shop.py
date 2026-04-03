@@ -213,18 +213,23 @@ class AdminShopMenuView(SafeView):
 
     @discord.ui.button(label="Set Gun Sheet", style=discord.ButtonStyle.secondary, emoji="🔫", row=4, custom_id="admin_shop:set_gun_sheet")
     async def set_gun_sheet(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
+        logger.info("set_gun_sheet: clicked by %s", interaction.user.id)
         guns_cog = interaction.client.get_cog("GunsShopCog")
         if not guns_cog:
-            await interaction.edit_original_response(content="Gun shop system unavailable.")
+            await interaction.response.send_message("Gun shop system unavailable.", ephemeral=True)
             return
-        state = await guns_cog._load_state()
+        try:
+            state = await guns_cog._load_state()
+        except Exception:
+            logger.exception("set_gun_sheet: failed to load gun state")
+            state = {}
         current = str(state.get("settings", {}).get("master_sheet_url", "")).strip()
         prompt = "📝 **Paste the Google Sheets URL** for the gun catalog"
         if current:
             prompt += f"\nCurrent: `{current[:80]}{'…' if len(current) > 80 else ''}`"
         prompt += "\nType `cancel` to abort."
-        await interaction.edit_original_response(content=prompt)
+        await interaction.response.send_message(prompt, ephemeral=True)
+        logger.info("set_gun_sheet: prompt shown, waiting for text input in channel %s", interaction.channel_id)
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
@@ -242,10 +247,10 @@ class AdminShopMenuView(SafeView):
 
     @discord.ui.button(label="Set CW Sheet", style=discord.ButtonStyle.secondary, emoji="💉", row=4, custom_id="admin_shop:set_cw_sheet")
     async def set_cw_sheet(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
+        logger.info("set_cw_sheet: clicked by %s", interaction.user.id)
         cw_cog = interaction.client.get_cog("CyberwareShop")
         if not cw_cog:
-            await interaction.edit_original_response(content="Cyberware system unavailable.")
+            await interaction.response.send_message("Cyberware system unavailable.", ephemeral=True)
             return
         try:
             state = await cw_cog._load_state()
@@ -257,11 +262,8 @@ class AdminShopMenuView(SafeView):
         if current:
             prompt += f"\nCurrent: `{current[:80]}{'…' if len(current) > 80 else ''}`"
         prompt += "\nType `cancel` to abort."
-        try:
-            await interaction.edit_original_response(content=prompt)
-        except Exception:
-            logger.exception("set_cw_sheet: failed to show prompt")
-            return
+        await interaction.response.send_message(prompt, ephemeral=True)
+        logger.info("set_cw_sheet: prompt shown, waiting for text input in channel %s", interaction.channel_id)
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
