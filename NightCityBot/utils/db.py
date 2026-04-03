@@ -468,20 +468,6 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         CREATE INDEX IF NOT EXISTS idx_item_history_actor
             ON item_history (actor_id)
         """,
-        # ── Characters (player character roster) ─────────────────────────────
-        """
-        CREATE TABLE IF NOT EXISTS characters (
-            character_id    TEXT PRIMARY KEY,
-            owner_id        TEXT NOT NULL,
-            name            TEXT NOT NULL,
-            status          TEXT NOT NULL DEFAULT 'active',
-            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """,
-        """
-        CREATE INDEX IF NOT EXISTS idx_characters_owner
-            ON characters (owner_id)
-        """,
         "ALTER TABLE player_inventory ADD COLUMN IF NOT EXISTS character_id TEXT DEFAULT NULL",
     ]
 

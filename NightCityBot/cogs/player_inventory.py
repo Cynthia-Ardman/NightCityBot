@@ -42,7 +42,7 @@ from NightCityBot.utils.player_inventory import (
     reassign_player_item as pi_update_character,
 )
 from NightCityBot.utils.db import pt_create, ih_record_event
-from NightCityBot.utils.characters import resolve_character_name, ensure_character_active, get_character_by_name
+from NightCityBot.utils.characters import ensure_character_active, get_character_by_name
 from NightCityBot.utils.permissions import is_fixer
 
 logger = logging.getLogger(__name__)
@@ -897,9 +897,12 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             await ctx.send("❌ Character name is required.")
             return
 
-        char_record = await resolve_character_name(str(player.id), character_name)
-        character_id = char_record.get("character_id") if char_record else None
-        if char_record and not await ensure_character_active(char_record["character_id"]):
+        char_record = await get_character_by_name(str(player.id), character_name)
+        if char_record is None:
+            await ctx.send(f"❌ Character **{character_name}** not found for that player.")
+            return
+        character_id = char_record.get("character_id")
+        if not await ensure_character_active(char_record["character_id"]):
             await ctx.send(f"❌ Character **{character_name}** is not active.")
             return
         if restriction not in self.VALID_RESTRICTIONS:

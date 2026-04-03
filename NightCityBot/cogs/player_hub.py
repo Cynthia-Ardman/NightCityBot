@@ -26,7 +26,6 @@ from NightCityBot.utils.characters import (
     deactivate_character,
     reactivate_character,
     character_name_exists,
-    validate_name as _validate_char_name,
 )
 
 logger = logging.getLogger(__name__)

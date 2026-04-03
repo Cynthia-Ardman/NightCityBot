@@ -7,7 +7,7 @@ import logging
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 
 import discord
 from discord.ext import commands

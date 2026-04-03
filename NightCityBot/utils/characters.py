@@ -269,10 +269,6 @@ async def get_character(character_id: str) -> dict | None:
         return None
 
 
-async def get_character_by_id(character_id: str) -> Optional[dict]:
-    return await get_character(character_id)
-
-
 async def get_character_by_name(discord_user_id: str, name: str) -> Optional[dict]:
     try:
         pool = await get_pool()
@@ -307,20 +303,17 @@ async def ensure_character_active(character_id: str) -> bool:
     return char.get("status") == "active"
 
 
-async def resolve_character_name(discord_user_id: str, name: str) -> Optional[dict]:
-    char = await get_character_by_name(discord_user_id, name)
-    if char is not None:
-        return char
-    return await create_character(discord_user_id, name)
-
-
 async def character_name_exists(discord_user_id: str, name: str) -> bool:
     norm = normalize_name(name)
     try:
         pool = await get_pool()
-        row = await pool.fetchrow(
-            "SELECT 1 FROM characters WHERE discord_user_id = $1 AND normalized_character_name = $2",
-            str(discord_user_id), norm,
+        row = await _with_retry(
+            lambda: pool.fetchrow(
+                "SELECT 1 FROM characters WHERE discord_user_id = $1 AND normalized_character_name = $2",
+                str(discord_user_id),
+                norm,
+            ),
+            label="character_name_exists",
         )
         return row is not None
     except Exception:
