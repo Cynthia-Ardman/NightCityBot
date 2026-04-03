@@ -74,6 +74,16 @@ Removed dead constants: `TICKET_INDEX_FILE`, `WHOLESALER_RESTOCK_SCHEDULE`, `FIX
 
 - discord.py, aiohttp, Flask, openpyxl, aiofiles, python-dotenv, rapidfuzz, asyncpg, google-api-python-client, google-auth
 
+## Player Hub (`!player`)
+
+Interactive panel for inventory management. Buttons: View Inventory, Trade Item, Sell to Store, Give Item.
+
+- **Trade Item** — sell an item to another player with payment (DM confirmation, UnbelievaBoat balance transfer)
+- **Give Item** — transfer an item for free (no payment, direct ownership transfer)
+- **Sell to Store** — sell any gun to a gunstore owner. Player picks store owner (validated by `WHOLESALER_STORE_ROLE_IDS`), selects a gun from inventory, enters price. Store owner gets DM confirmation. On accept: payment transfers, item removed from player inventory, gun added as a lot to the store's state. Supports controlled/restricted guns. Compensation paths for save-state failures.
+
+All flows use the UserSelect + item Select + Continue → modal pattern.
+
 ## Wholesaler System Flow
 
 1. `!wh_restock` — downloads Google Sheet, generates random weapon lots, saves to `state.json` + `wholesale.json`

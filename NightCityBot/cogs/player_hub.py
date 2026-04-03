@@ -86,7 +86,7 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
             return
         embed = discord.Embed(
             title="🎒 Player Hub",
-            description="Manage your inventory, trade with other players, or give items.",
+            description="Manage your inventory, trade with other players, give items, or sell guns to a store.",
             color=discord.Color.blue(),
         )
         view = PlayerHubView(self, ctx)
@@ -108,6 +108,7 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
                 "• **View Inventory** — see all your items grouped by character\n"
                 "• **Trade Item** — sell an item to another player (with payment)\n"
                 "• **Give Item** — transfer an item for free\n"
+                "• **Sell to Store** — sell any gun to a gunstore owner\n"
             ),
             color=discord.Color.blue(),
         )
@@ -196,7 +197,36 @@ class PlayerHubView(discord.ui.View):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Give Item", style=discord.ButtonStyle.secondary, emoji="🎁", row=0)
+    @discord.ui.button(label="Sell to Store", style=discord.ButtonStyle.primary, emoji="🏪", row=1)
+    async def sell_to_store(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        if not self.cog._inv_system_enabled():
+            await interaction.followup.send("⚠️ The player inventory system is currently offline.", ephemeral=True)
+            return
+        items = await pi_get_by_owner(str(interaction.user.id))
+        if not items:
+            await interaction.followup.send("📦 Your inventory is empty — nothing to sell.", ephemeral=True)
+            return
+        gun_items = [i for i in items if i.get("item_type") == "gun"]
+        if not gun_items:
+            await interaction.followup.send("📦 You have no guns to sell to a store.", ephemeral=True)
+            return
+        inv_cog = self.cog.bot.cogs.get("PlayerInventory")
+        if not inv_cog:
+            await interaction.followup.send("Inventory system unavailable.", ephemeral=True)
+            return
+        _, all_groups = inv_cog._build_display(gun_items)
+        if not all_groups:
+            await interaction.followup.send("📦 You have no guns to sell to a store.", ephemeral=True)
+            return
+        view = SellToStoreSetupView(self.cog, self.ctx, all_groups)
+        await interaction.followup.send(
+            "**Step 1** — Select the store owner and the gun to sell:",
+            view=view,
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Give Item", style=discord.ButtonStyle.secondary, emoji="🎁", row=1)
     async def give_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         if not self.cog._inv_system_enabled():
@@ -877,5 +907,409 @@ class GiveDetailsModal(discord.ui.Modal, title="Give — Finalize Details"):
         await interaction.followup.send(
             f"✅ Transferred **{item_name}** from **{sender_char}** to "
             f"**{receiver_char}** ({target.display_name}).",
+            ephemeral=True,
+        )
+
+
+class SellToStoreSetupView(discord.ui.View):
+    def __init__(self, cog: PlayerHubCog, ctx: commands.Context, all_groups: list):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.all_groups = all_groups
+        self.selected_store_owner: Optional[discord.Member] = None
+        self.selected_group_idx: Optional[int] = None
+
+        options = []
+        for i, g in enumerate(all_groups[:25]):
+            item = g["items"][0]
+            char = item.get("character_name", "")
+            restriction = item.get("restriction", "basic")
+            r_tag = f" [{restriction}]" if restriction != "basic" else ""
+            count = g.get("count", 1)
+            count_str = f" ×{count}" if count > 1 else ""
+            char_str = f" ({char})" if char else ""
+            label = f"{g['name']}{count_str}{r_tag}{char_str}"
+            options.append(discord.SelectOption(label=label[:100], value=str(i)))
+
+        item_select = discord.ui.Select(
+            placeholder="Choose a gun to sell…",
+            options=options,
+            row=1,
+        )
+        item_select.callback = self._on_item_select
+        self.add_item(item_select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose the store owner…", row=0)
+    async def owner_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        user = select.values[0] if select.values else None
+        if user is None:
+            await interaction.response.send_message("Please select a server member.", ephemeral=True)
+            return
+        if isinstance(user, discord.Member):
+            member = user
+        else:
+            guild = self.ctx.guild
+            if guild:
+                member = guild.get_member(user.id)
+                if not member:
+                    await interaction.response.send_message(
+                        "That user doesn't appear to be in this server.", ephemeral=True
+                    )
+                    return
+            else:
+                await interaction.response.send_message("Could not resolve server member.", ephemeral=True)
+                return
+        raw_role = getattr(config, "WHOLESALER_STORE_ROLE_IDS", None)
+        if raw_role is None:
+            await interaction.response.send_message(
+                "❌ Gun store owner role is not configured.", ephemeral=True
+            )
+            return
+        if isinstance(raw_role, (list, tuple, set, frozenset)):
+            allowed_ids = {int(r) for r in raw_role}
+        else:
+            allowed_ids = {int(raw_role)}
+        member_role_ids = {r.id for r in getattr(member, "roles", [])}
+        if not member_role_ids & allowed_ids:
+            await interaction.response.send_message(
+                f"❌ **{member.display_name}** is not a gunstore owner.", ephemeral=True
+            )
+            return
+        self.selected_store_owner = member
+        await interaction.response.send_message(
+            f"Store Owner: **{member.display_name}** ✓", ephemeral=True
+        )
+
+    async def _on_item_select(self, interaction: discord.Interaction):
+        self.selected_group_idx = int(interaction.data["values"][0])
+        g = self.all_groups[self.selected_group_idx]
+        await interaction.response.send_message(
+            f"Gun: **{g['name']}** ✓", ephemeral=True
+        )
+
+    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=2)
+    async def continue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.selected_store_owner is None:
+            await interaction.response.send_message("Please select a store owner first.", ephemeral=True)
+            return
+        if self.selected_group_idx is None:
+            await interaction.response.send_message("Please select a gun first.", ephemeral=True)
+            return
+        if self.selected_store_owner.id == interaction.user.id:
+            await interaction.response.send_message(
+                "❌ You cannot sell guns to yourself.", ephemeral=True
+            )
+            return
+        group = self.all_groups[self.selected_group_idx]
+        modal = SellToStoreDetailsModal(self.cog, self.selected_store_owner, group)
+        await interaction.response.send_modal(modal)
+        self.stop()
+
+
+class StoreBuyConfirmView(discord.ui.View):
+    def __init__(self, timeout: float = 60):
+        super().__init__(timeout=timeout)
+        self.accepted: Optional[bool] = None
+
+    @discord.ui.button(label="Buy", style=discord.ButtonStyle.success, emoji="✅")
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.accepted = True
+        await interaction.response.edit_message(content="You accepted the purchase.", view=None)
+        self.stop()
+
+    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, emoji="❌")
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.accepted = False
+        await interaction.response.edit_message(content="You declined the purchase.", view=None)
+        self.stop()
+
+
+class SellToStoreDetailsModal(discord.ui.Modal, title="Sell to Store — Finalize"):
+    price_input = discord.ui.TextInput(
+        label="Asking Price ($)",
+        placeholder="e.g. 5000",
+    )
+
+    def __init__(self, cog: PlayerHubCog, store_owner: discord.Member, group: dict):
+        super().__init__()
+        self.cog = cog
+        self.store_owner = store_owner
+        self.group = group
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        if not guild:
+            await interaction.followup.send("Must be used in server.", ephemeral=True)
+            return
+        if not self.cog._inv_system_enabled():
+            await interaction.followup.send("⚠️ The player inventory system is currently offline.", ephemeral=True)
+            return
+
+        store_owner = self.store_owner
+        try:
+            price = int(self.price_input.value.replace(",", "").replace("$", "").strip())
+        except ValueError:
+            await interaction.followup.send("❌ Price must be a number.", ephemeral=True)
+            return
+        if price < 0:
+            await interaction.followup.send("❌ Price cannot be negative.", ephemeral=True)
+            return
+        if store_owner.id == interaction.user.id:
+            await interaction.followup.send("❌ You cannot sell guns to yourself.", ephemeral=True)
+            return
+
+        selected_item = self.group["items"][0]
+        item_name = selected_item["name"]
+        item_id = selected_item["item_id"]
+        item_type = selected_item.get("item_type", "gun")
+        restriction = selected_item.get("restriction", "basic")
+        character_name = selected_item.get("character_name", "")
+
+        live_item = await pi_get_item(item_id)
+        if live_item is None or str(live_item.get("owner_id")) != str(interaction.user.id):
+            await interaction.followup.send(
+                f"❌ **{item_name}** is no longer in your inventory.",
+                ephemeral=True,
+            )
+            return
+
+        guns_cog = self.cog.bot.cogs.get("GunsShopCog")
+        if not guns_cog:
+            await interaction.followup.send("❌ Gun shop system unavailable.", ephemeral=True)
+            return
+
+        store_id = guns_cog._store_id(guild.id, store_owner.id)
+
+        price_str = f"**${price:,}**" if price > 0 else "**free**"
+        confirm_view = StoreBuyConfirmView(timeout=60)
+        try:
+            dm_msg = await store_owner.send(
+                f"**{interaction.user.display_name}** wants to sell you **{item_name}** "
+                f"for {price_str}.\n"
+                f"Restriction: **{restriction}**\n"
+                "Do you want to buy it for your store?",
+                view=confirm_view,
+            )
+        except discord.Forbidden:
+            await interaction.followup.send(
+                f"❌ Cannot DM {store_owner.display_name}. They may have DMs disabled.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.followup.send(
+            f"📩 Offer sent to {store_owner.display_name} via DM. Waiting…",
+            ephemeral=True,
+        )
+        await confirm_view.wait()
+
+        if not confirm_view.accepted:
+            try:
+                await dm_msg.edit(content="Purchase declined or timed out.", view=None)
+            except Exception:
+                pass
+            await interaction.followup.send(
+                f"❌ {store_owner.display_name} declined or didn't respond.",
+                ephemeral=True,
+            )
+            return
+        try:
+            await dm_msg.edit(view=None)
+        except Exception:
+            pass
+
+        inv_cog = self.cog.bot.cogs.get("PlayerInventory")
+        b_cash_deduct = 0
+        b_bank_deduct = 0
+
+        if price > 0:
+            ub = getattr(inv_cog, "unbelievaboat", None) if inv_cog else None
+            if not ub:
+                await interaction.followup.send("❌ Economy system unavailable.", ephemeral=True)
+                return
+            owner_balance = await ub.get_balance(store_owner.id)
+            if owner_balance is None:
+                await interaction.followup.send("❌ Could not fetch store owner's balance.", ephemeral=True)
+                return
+
+            o_cash = int(owner_balance.get("cash", 0))
+            o_bank = int(owner_balance.get("bank", 0))
+            if o_cash + o_bank < price:
+                await interaction.followup.send(
+                    f"❌ {store_owner.display_name} cannot afford **${price:,}**.",
+                    ephemeral=True,
+                )
+                return
+
+            b_cash_deduct = min(max(o_cash, 0), price)
+            b_bank_deduct = max(0, price - b_cash_deduct)
+
+            ok_buyer = await ub.update_balance(
+                store_owner.id,
+                {"cash": -b_cash_deduct, "bank": -b_bank_deduct},
+                reason=f"Store purchase: {item_name} from {interaction.user.display_name}",
+            )
+            if not ok_buyer:
+                await interaction.followup.send("❌ Failed to deduct from store owner's balance.", ephemeral=True)
+                return
+
+            ok_seller = await ub.update_balance(
+                interaction.user.id,
+                {"cash": price},
+                reason=f"Sold gun to store: {item_name} to {store_owner.display_name}",
+            )
+            if not ok_seller:
+                logger.error(
+                    "sell_to_store: owner debited but seller credit failed — seller=%s owner=%s item=%s",
+                    interaction.user.id, store_owner.id, item_id,
+                )
+                pt_id = str(uuid.uuid4())
+                await pt_create({
+                    "transfer_id": pt_id,
+                    "seller_id": str(interaction.user.id),
+                    "buyer_id": str(store_owner.id),
+                    "item_id": item_id,
+                    "amount": price,
+                })
+                alert_ch = await _log_channel(self.cog.bot, "NIGHTCITYBOT_LOG_CHANNEL_ID")
+                if alert_ch:
+                    await alert_ch.send(
+                        f"🚨 **PENDING STORE PURCHASE** — seller credit failed!\n"
+                        f"Transfer ID: `{pt_id}`\n"
+                        f"Seller: {interaction.user.mention} | Store Owner: {store_owner.mention}\n"
+                        f"Item: **{item_name}** | Amount: **${price:,}**\n"
+                        "Store owner has been debited. Please resolve manually.",
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                await interaction.followup.send(
+                    "⚠️ Store owner was charged but seller payout failed. "
+                    "This has been flagged for admin review.",
+                    ephemeral=True,
+                )
+                return
+
+        ok_delete = await pi_delete_item(item_id)
+        if not ok_delete:
+            if price > 0:
+                ub = getattr(inv_cog, "unbelievaboat", None) if inv_cog else None
+                if ub:
+                    await ub.update_balance(
+                        store_owner.id,
+                        {"cash": b_cash_deduct, "bank": b_bank_deduct},
+                        reason=f"Store buy refund (DB failure): {item_name}",
+                    )
+                    await ub.update_balance(
+                        interaction.user.id,
+                        {"cash": -price},
+                        reason=f"Store buy refund (DB failure): {item_name}",
+                    )
+            await interaction.followup.send(
+                "❌ Failed to remove item from your inventory. Refunds attempted. Please contact an admin.",
+                ephemeral=True,
+            )
+            return
+
+        lot_id = f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
+        store_lot = {
+            "lot_id": lot_id,
+            "gun_name": item_name,
+            "gun_level": selected_item.get("gun_level", ""),
+            "weapon_type": selected_item.get("weapon_type", ""),
+            "unit_cost": price,
+            "qty_remaining": 1,
+            "restriction": restriction,
+            "item_ids": [item_id],
+        }
+
+        try:
+            async with guns_cog.lock:
+                state = await guns_cog._load_state()
+                store = state.setdefault("stores", {}).setdefault(
+                    store_id, {"owner_id": store_owner.id, "lots": []}
+                )
+                store["lots"].append(store_lot)
+                await guns_cog._save_state(state)
+        except Exception:
+            logger.error(
+                "sell_to_store: store lot save failed — seller=%s owner=%s item=%s",
+                interaction.user.id, store_owner.id, item_id,
+            )
+            pt_id = str(uuid.uuid4())
+            await pt_create({
+                "transfer_id": pt_id,
+                "seller_id": str(interaction.user.id),
+                "buyer_id": str(store_owner.id),
+                "item_id": item_id,
+                "amount": price,
+                "reason": f"Store lot save failed: {item_name}",
+            })
+            alert_ch = await _log_channel(self.cog.bot, "NIGHTCITYBOT_LOG_CHANNEL_ID")
+            if alert_ch:
+                await alert_ch.send(
+                    f"🚨 **STORE PURCHASE — lot save failed!**\n"
+                    f"Transfer ID: `{pt_id}`\n"
+                    f"Seller: {interaction.user.mention} | Store Owner: {store_owner.mention}\n"
+                    f"Item: **{item_name}** | Amount: **${price:,}**\n"
+                    "Item removed from seller; payment processed. Store lot NOT saved. Resolve manually.",
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+            await interaction.followup.send(
+                "⚠️ Payment processed and item removed, but store inventory update failed. "
+                "This has been flagged for admin review.",
+                ephemeral=True,
+            )
+            return
+
+        log_ch = await _route_log_channel(self.cog.bot, "gun")
+        if log_ch:
+            embed = discord.Embed(
+                title="🏪 Gun Sold to Store",
+                color=discord.Color.dark_gold(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.add_field(
+                name="Seller",
+                value=f"{interaction.user.mention} ({interaction.user.display_name})"
+                      + (f" — {character_name}" if character_name else ""),
+                inline=False,
+            )
+            embed.add_field(
+                name="Store Owner",
+                value=f"{store_owner.mention} ({store_owner.display_name})",
+                inline=False,
+            )
+            embed.add_field(name="Gun", value=f"**{item_name}**", inline=True)
+            embed.add_field(name="Price", value=f"${price:,}" if price else "Free", inline=True)
+            if restriction != "basic":
+                embed.add_field(name="Restriction", value=restriction.title(), inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
+            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+        await ih_record_event(
+            item_id, "sold_to_store",
+            actor_id=str(interaction.user.id),
+            target_id=str(store_owner.id),
+            price=price,
+            metadata={
+                "item_name": item_name,
+                "item_type": item_type,
+                "restriction": restriction,
+                "store_id": store_id,
+                "lot_id": lot_id,
+                "character_name": character_name,
+            },
+        )
+
+        price_str = f"for **${price:,}**" if price else "for free"
+        await interaction.followup.send(
+            f"✅ Sold **{item_name}** to **{store_owner.display_name}**'s store {price_str}.",
             ephemeral=True,
         )
