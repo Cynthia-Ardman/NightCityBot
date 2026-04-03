@@ -70,6 +70,33 @@ def _find_accessible_stores(state: dict, guild_id: int, user_id: int, member) ->
     return results
 
 
+async def _show_gun_inventory(interaction, store, store_id):
+    if not store or not store.get("lots"):
+        await interaction.followup.send("Store inventory is empty.", ephemeral=True)
+        return
+    lines = []
+    for i, lot in enumerate(store["lots"], 1):
+        qty = int(lot.get("qty_remaining", 0))
+        if qty <= 0:
+            continue
+        restriction = lot.get("restriction", "basic")
+        r_tag = f" [{restriction}]" if restriction != "basic" else ""
+        lines.append(
+            f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}] "
+            f"— ${int(lot.get('unit_cost', 0)):,} × {qty}"
+        )
+    if not lines:
+        await interaction.followup.send("Store inventory is empty.", ephemeral=True)
+        return
+    store_name = store.get("store_name") or f"Store {store_id}"
+    embed = discord.Embed(
+        title=f"📦 {store_name}",
+        description="\n".join(lines[:30]),
+        color=discord.Color.dark_gold(),
+    )
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 async def _open_sell_for_store(cog, interaction, guns_cog, store_id, store):
     if not store or not store.get("lots"):
         await interaction.followup.send("Store inventory is empty. Buy from wholesale first.", ephemeral=True)
@@ -166,40 +193,19 @@ class GunstoreMenuView(SafeView):
             return
         state = await guns_cog._load_state()
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        if member and _is_employee_member(member) and not _is_store_owner_member(member):
-            store_id, store = _find_employee_store(state, interaction.guild.id, interaction.user.id)
-            if not store:
-                await interaction.followup.send(
-                    "You are not assigned to any store.", ephemeral=True
-                )
-                return
-        else:
-            store_id = guns_cog._store_id(interaction.guild.id, interaction.user.id)
-            store = state.get("stores", {}).get(store_id)
-        if not store or not store.get("lots"):
-            await interaction.followup.send("Store inventory is empty.", ephemeral=True)
+        stores = _find_accessible_stores(state, interaction.guild.id, interaction.user.id, member)
+        if not stores:
+            await interaction.followup.send("You are not assigned to any store.", ephemeral=True)
             return
-        lines = []
-        for i, lot in enumerate(store["lots"], 1):
-            qty = int(lot.get("qty_remaining", 0))
-            if qty <= 0:
-                continue
-            restriction = lot.get("restriction", "basic")
-            r_tag = f" [{restriction}]" if restriction != "basic" else ""
-            lines.append(
-                f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}] "
-                f"— ${int(lot.get('unit_cost', 0)):,} × {qty}"
+        if len(stores) > 1:
+            ctx = PanelContext(interaction)
+            view = _StorePickerForAction(cog, ctx, stores, action="view_inventory")
+            await interaction.followup.send(
+                "📦 **Select which store inventory to view:**", view=view, ephemeral=True
             )
-        if not lines:
-            await interaction.followup.send("Store inventory is empty.", ephemeral=True)
             return
-        store_name = store.get("store_name") or f"{interaction.user.display_name}'s Gun Store"
-        embed = discord.Embed(
-            title=f"📦 {store_name}",
-            description="\n".join(lines[:30]),
-            color=discord.Color.dark_gold(),
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        store_id, store = stores[0]
+        await _show_gun_inventory(interaction, store, store_id)
 
     @discord.ui.button(label="Approve Buyer", style=discord.ButtonStyle.secondary, emoji="✅", row=1, custom_id="gunstore:approve_buyer")
     async def approve_buyer(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1346,6 +1352,8 @@ class _StorePickerForAction(SafeView):
         if self.action == "sell":
             guns_cog = self.cog._guns_cog()
             await _open_sell_for_store(self.cog, interaction, guns_cog, store_id, store)
+        elif self.action == "view_inventory":
+            await _show_gun_inventory(interaction, store, store_id)
         self.stop()
 
 

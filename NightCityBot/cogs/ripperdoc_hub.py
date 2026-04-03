@@ -81,6 +81,26 @@ def _get_rd_owner_id(state: dict, store_id: str, fallback_id: int) -> int:
     return oid
 
 
+async def _show_rd_stock(interaction, cw_cog, store, store_id, owner_id):
+    inventory = await cw_cog._load_inventory(owner_id)
+    if not inventory:
+        await interaction.followup.send("Store cyberware stock is empty.", ephemeral=True)
+        return
+    groups = cw_cog._grouped_inventory(inventory)
+    lines = []
+    for i, g in enumerate(groups, 1):
+        qty_str = f" ×{g['count']}" if g["count"] > 1 else ""
+        lines.append(f"`{i}.` **{g['name']}**{qty_str}")
+    store_name = store.get("store_name") or f"Store {store_id}"
+    embed = discord.Embed(
+        title=f"📦 {store_name}",
+        description="\n".join(lines[:30]),
+        color=discord.Color.teal(),
+    )
+    embed.set_footer(text=f"{len(inventory)} item(s) total")
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 class RipperdocMenuView(SafeView):
     def __init__(self):
         super().__init__(timeout=None)
@@ -204,22 +224,23 @@ class RipperdocMenuView(SafeView):
         if not cw_cog:
             await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
             return
-        inventory = await cw_cog._load_inventory(interaction.user.id)
-        if not inventory:
-            await interaction.followup.send("Your cyberware stock is empty.", ephemeral=True)
+        state = await cw_cog._load_state()
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        stores = _find_rd_accessible_stores(state, interaction.guild.id, interaction.user.id, member)
+        if not stores:
+            await interaction.followup.send("You are not assigned to any store.", ephemeral=True)
             return
-        groups = cw_cog._grouped_inventory(inventory)
-        lines = []
-        for i, g in enumerate(groups, 1):
-            qty_str = f" ×{g['count']}" if g["count"] > 1 else ""
-            lines.append(f"`{i}.` **{g['name']}**{qty_str}")
-        embed = discord.Embed(
-            title=f"📦 {interaction.user.display_name}'s Cyberware Stock",
-            description="\n".join(lines[:30]),
-            color=discord.Color.teal(),
-        )
-        embed.set_footer(text=f"{len(inventory)} item(s) total")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        if len(stores) > 1:
+            cog = interaction.client.get_cog("RipperdocHub")
+            ctx = PanelContext(interaction)
+            view = _RDStorePickerForAction(cog, ctx, stores, action="view_stock", cw_cog=cw_cog)
+            await interaction.followup.send(
+                "📦 **Select which store stock to view:**", view=view, ephemeral=True
+            )
+            return
+        store_id, store = stores[0]
+        owner_id = _get_rd_owner_id(state, store_id, interaction.user.id)
+        await _show_rd_stock(interaction, cw_cog, store, store_id, owner_id)
 
     @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=1, custom_id="ripperdoc:wholesale_list")
     async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -981,6 +1002,10 @@ class _RDStorePickerForAction(SafeView):
             return
         state = await cw_cog._load_state()
         owner_id = _get_rd_owner_id(state, store_id, self.ctx.author.id)
+        if self.action == "view_stock":
+            await _show_rd_stock(interaction, cw_cog, store, store_id, owner_id)
+            self.stop()
+            return
         inventory = await cw_cog._load_inventory(owner_id)
         if not inventory:
             await interaction.followup.send("Store cyberware stock is empty.", ephemeral=True)
