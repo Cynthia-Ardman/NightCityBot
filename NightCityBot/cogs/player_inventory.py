@@ -149,10 +149,10 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 date_str = g.get("acquired_date") or ""
                 if date_str:
                     meta_parts.append(f"📅 {date_str}")
-                meta_line = "  ".join(meta_parts)
-                line = f"`{row_num}.` **{g['name']}**{count_str}  `{type_tag}`"
+                meta_line = " **·** ".join(meta_parts)
+                line = f"`{row_num}.` **{g['name']}**{count_str} — `{type_tag}`"
                 if meta_line:
-                    line += f"\n ╰ {meta_line}"
+                    line += f"\n> {meta_line}"
                 if visible:
                     display.append((row_num, line))
                     all_groups.append(g)

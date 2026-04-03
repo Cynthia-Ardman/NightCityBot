@@ -1848,7 +1848,7 @@ class TestInventoryDisplayFormat:
         display, _ = PlayerInventoryCog._build_display(items)
         item_lines = [line for _, line in display if _ is not None]
         full = item_lines[0]
-        assert "╰" in full
+        assert "\n> " in full
         assert "$500" in full
         assert "WeaponShop" in full
         assert "2025-01-15" in full
@@ -1863,7 +1863,7 @@ class TestInventoryDisplayFormat:
         }]
         display, _ = PlayerInventoryCog._build_display(items)
         item_lines = [line for _, line in display if _ is not None]
-        assert "╰" not in item_lines[0]
+        assert "\n> " not in item_lines[0]
 
     def test_display_multiple_count_shows_multiplier(self):
         from NightCityBot.cogs.player_inventory import PlayerInventoryCog
