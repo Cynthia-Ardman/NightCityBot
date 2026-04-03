@@ -466,8 +466,9 @@ class TestAdminShopMenuView:
 
         _run(run())
 
-    def test_remove_item_opens_modal(self, monkeypatch):
+    def test_remove_item_starts_inline_flow(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("NightCityBot.cogs.admin_shop.collect_text_input", AsyncMock(return_value=None))
 
         async def run():
             cog = _make_admin_cog()
@@ -477,12 +478,13 @@ class TestAdminShopMenuView:
             inter.channel_id = 123
             btn = _find_button(view, "Remove Item")
             await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            inter.response.defer.assert_called_once()
 
         _run(run())
 
     def test_reassign_item_starts_inline_flow(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("NightCityBot.cogs.admin_shop.collect_text_input", AsyncMock(return_value=None))
 
         async def run():
             cog = _make_admin_cog()
@@ -492,12 +494,13 @@ class TestAdminShopMenuView:
             inter.channel_id = 123
             btn = _find_button(view, "Reassign Item")
             await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            inter.response.defer.assert_called_once()
 
         _run(run())
 
     def test_item_history_starts_inline_flow(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("NightCityBot.cogs.admin_shop.collect_text_input", AsyncMock(return_value=None))
 
         async def run():
             cog = _make_admin_cog()
@@ -507,7 +510,7 @@ class TestAdminShopMenuView:
             inter.channel_id = 123
             btn = _find_button(view, "Item History")
             await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            inter.response.defer.assert_called_once()
 
         _run(run())
 
@@ -1052,6 +1055,7 @@ class TestAdminWholesaleButtons:
 
     def test_restock_button_starts_inline_flow(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("NightCityBot.cogs.admin_shop.collect_text_input", AsyncMock(return_value=None))
 
         async def run():
             cog = _make_admin_cog()
@@ -1061,7 +1065,7 @@ class TestAdminWholesaleButtons:
             inter.channel_id = 123
             btn = _find_button(view, "Restock Wholesale")
             await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            inter.response.defer.assert_called_once()
 
         _run(run())
 
@@ -1083,6 +1087,7 @@ class TestAdminWholesaleButtons:
 
     def test_restock_cw_button_starts_inline_flow(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("NightCityBot.cogs.admin_shop.collect_text_input", AsyncMock(return_value=None))
 
         async def run():
             cog = _make_admin_cog()
@@ -1092,7 +1097,7 @@ class TestAdminWholesaleButtons:
             inter.channel_id = 123
             btn = _find_button(view, "Restock CW")
             await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            inter.response.defer.assert_called_once()
 
         _run(run())
 

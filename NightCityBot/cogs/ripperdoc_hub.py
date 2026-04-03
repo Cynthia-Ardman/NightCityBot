@@ -13,7 +13,7 @@ import discord
 from discord.ext import commands
 
 import config
-from NightCityBot.utils.interaction_safety import SafeView, SafeModal
+from NightCityBot.utils.interaction_safety import SafeView
 from NightCityBot.utils.db import (
     cw_catalog_get_all,
     pi_add_item,

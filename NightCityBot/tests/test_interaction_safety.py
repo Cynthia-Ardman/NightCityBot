@@ -4,11 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 
 from NightCityBot.utils.interaction_safety import (
-    SafeModal,
     SafeView,
     _safe_respond,
     _USER_ERROR_MSG,
-    modal_on_error,
     view_on_error,
 )
 
@@ -70,18 +68,6 @@ class TestViewOnError:
         inter.response.send_message.assert_called_once()
 
 
-class TestModalOnError:
-    def test_logs_and_responds(self):
-        inter = _make_interaction(response_done=False)
-        modal = MagicMock(spec=discord.ui.Modal)
-        type(modal).__name__ = "TestModal"
-        err = ValueError("oops")
-        with patch("NightCityBot.utils.interaction_safety.logger") as mock_log:
-            _run(modal_on_error(modal, inter, err))
-            mock_log.error.assert_called_once()
-        inter.response.send_message.assert_called_once_with(_USER_ERROR_MSG, ephemeral=True)
-
-
 class TestSafeView:
     def test_on_error_delegates(self):
         async def _test():
@@ -92,17 +78,5 @@ class TestSafeView:
             err = RuntimeError("err")
             with patch("NightCityBot.utils.interaction_safety.logger"):
                 await view.on_error(inter, err, item)
-            inter.response.send_message.assert_called_once_with(_USER_ERROR_MSG, ephemeral=True)
-        _run(_test())
-
-
-class TestSafeModal:
-    def test_on_error_delegates(self):
-        async def _test():
-            modal = SafeModal(title="Test")
-            inter = _make_interaction(response_done=False)
-            err = RuntimeError("err")
-            with patch("NightCityBot.utils.interaction_safety.logger"):
-                await modal.on_error(inter, err)
             inter.response.send_message.assert_called_once_with(_USER_ERROR_MSG, ephemeral=True)
         _run(_test())

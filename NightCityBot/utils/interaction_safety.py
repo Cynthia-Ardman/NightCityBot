@@ -1,4 +1,4 @@
-"""Error isolation helpers for Discord UI interactions (Views, Modals).
+"""Error isolation helpers for Discord UI interactions (Views).
 
 Provides on_error implementations that log errors and send ephemeral
 feedback so one user's failure never crashes the View for other users.
@@ -39,26 +39,6 @@ async def view_on_error(
     await _safe_respond(interaction, _USER_ERROR_MSG)
 
 
-async def modal_on_error(
-    modal: discord.ui.Modal,
-    interaction: discord.Interaction,
-    error: Exception,
-) -> None:
-    logger.error(
-        "Modal %s interaction error (user=%s): %s",
-        type(modal).__name__,
-        interaction.user.id,
-        error,
-        exc_info=True,
-    )
-    await _safe_respond(interaction, _USER_ERROR_MSG)
-
-
 class SafeView(discord.ui.View):
     async def on_error(self, interaction, error, item):
         await view_on_error(self, interaction, error, item)
-
-
-class SafeModal(discord.ui.Modal):
-    async def on_error(self, interaction, error):
-        await modal_on_error(self, interaction, error)
