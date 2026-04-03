@@ -315,9 +315,7 @@ class Admin(commands.Cog):
                 "🏪 Interactive Hubs",
                 "\n".join([
                     "`!fixer` – **Fixer panel**: player inventory, items, LOA, store & wholesale management.",
-                    "`!gunstore` – gun store hub: buy, sell, view stock.",
                     "`!ripperdoc` – ripperdoc hub: buy, sell, install, view stock.",
-                    "`!admin_shop` – admin panel: add/remove items, reassign, history, wholesale.",
                 ]),
             ),
             (
@@ -325,7 +323,6 @@ class Admin(commands.Cog):
                 "\n".join([
                     "`!dm @user <text>` – anonymous DM with attachments.",
                     "`!post <channel|thread> <message>` – send a message in another channel.",
-                    "`!npc_button` – send the NPC role assignment button.",
                 ]),
             ),
             (
@@ -334,7 +331,6 @@ class Admin(commands.Cog):
                     "`!start_rp @users...` – create a locked RP channel.",
                     "`!end_rp` – archive the current RP channel.",
                     "`!search_characters <keyword>` – search character sheets.",
-                    "`!export_threads #channel` – export threads to HTML.",
                 ]),
             ),
             (
@@ -343,7 +339,6 @@ class Admin(commands.Cog):
                     "`!event_start` – allow `!attend` / `!open_shop` outside Sunday.",
                     "`!due [@user]` – breakdown of what a user owes.",
                     "`!collect_rent [@user] [-v] [-force]` – run the rent cycle.",
-                    "`!simulate_rent` / `!simulate_cyberware` / `!simulate_all` – dry runs.",
                 ]),
             ),
             (
