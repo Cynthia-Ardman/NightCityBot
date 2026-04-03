@@ -1332,7 +1332,7 @@ class GunsShopCog(commands.Cog):
 
     @commands.command(name="guns_wh_buy")
     async def wh_buy(self, ctx: commands.Context, lot_id: str, qty: int):
-
+        """Buy from wholesale. Note: Consider using !gunstore for an interactive experience."""
         if not await self._system_enabled(ctx):
             return
         member = await self._ensure_member(ctx)
@@ -1429,6 +1429,7 @@ class GunsShopCog(commands.Cog):
         """Sell a weapon to a player.
 
         Usage: ``!guns_wh_sell @buyer "character_name" <lot_id> <qty> <price>``
+        Note: Consider using !gunstore for an interactive experience with DM confirmation.
         """
         if not await self._system_enabled(ctx):
             return

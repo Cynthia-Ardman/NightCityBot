@@ -2,12 +2,12 @@
 
 import asyncio
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
 
-from NightCityBot.cogs.player_inventory import PlayerInventoryCog
+from NightCityBot.cogs.player_inventory import PlayerInventoryCog, TradeConfirmView
 
 
 # ------------------------------------------------------------------
@@ -26,6 +26,7 @@ def _make_cog(monkeypatch):
     monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
     monkeypatch.setattr("config.CYBERWARE_LOG_CHANNEL_ID", 0)
     monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
+    monkeypatch.setattr("NightCityBot.cogs.player_inventory.ih_record_event", AsyncMock())
 
     bot = MagicMock()
     bot.get_channel = MagicMock(return_value=None)
@@ -69,7 +70,22 @@ def _make_member(member_id, name="Member", roles=None):
     m.roles = roles or []
     m.guild_permissions = MagicMock()
     m.guild_permissions.administrator = False
+    dm_msg = MagicMock()
+    dm_msg.edit = AsyncMock()
+    m.send = AsyncMock(return_value=dm_msg)
     return m
+
+
+def _auto_accept_trade_view(monkeypatch):
+    """Patch TradeConfirmView so it auto-accepts immediately (no 60s wait)."""
+    _orig_init = TradeConfirmView.__init__
+
+    def _patched_init(self, timeout=60):
+        _orig_init(self, timeout=timeout)
+        self.accepted = True
+
+    monkeypatch.setattr(TradeConfirmView, "__init__", _patched_init)
+    monkeypatch.setattr(TradeConfirmView, "wait", AsyncMock(return_value=None))
 
 
 def _item(name="Kiroshi", item_type="cyberware", restriction="basic",
@@ -315,6 +331,7 @@ class TestTrade:
         assert "Invalid row" in ctx.send.call_args[0][0]
 
     def test_buyer_cannot_afford(self, monkeypatch):
+        _auto_accept_trade_view(monkeypatch)
         cog = _make_cog(monkeypatch)
         item = _item("Kiroshi")
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[item]))
@@ -326,6 +343,7 @@ class TestTrade:
 
     def test_db_failure_creates_pending_transfer(self, monkeypatch):
         """If seller credit fails after buyer debit, a pending_transfers record is created."""
+        _auto_accept_trade_view(monkeypatch)
         cog = _make_cog(monkeypatch)
         item = _item("Kiroshi", item_type="cyberware")
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[item]))
@@ -371,6 +389,7 @@ class TestTrade:
 
     def test_success_logs_to_correct_channel(self, monkeypatch):
         """Gun item trade logs to gun-log channel."""
+        _auto_accept_trade_view(monkeypatch)
         cog = _make_cog(monkeypatch)
         item = _item("Liberty", item_type="gun")
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_get_by_owner", AsyncMock(return_value=[item]))

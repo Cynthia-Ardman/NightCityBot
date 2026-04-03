@@ -41,12 +41,30 @@ from NightCityBot.utils.player_inventory import (
     transfer_player_item as pi_update_owner,
     reassign_player_item as pi_update_character,
 )
-from NightCityBot.utils.db import pt_create
+from NightCityBot.utils.db import pt_create, ih_record_event
 from NightCityBot.utils.permissions import is_fixer
 
 logger = logging.getLogger(__name__)
 
 GROUPS_PER_PAGE = 15
+
+
+class TradeConfirmView(discord.ui.View):
+    def __init__(self, timeout: float = 60):
+        super().__init__(timeout=timeout)
+        self.accepted: Optional[bool] = None
+
+    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, emoji="✅")
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.accepted = True
+        await interaction.response.edit_message(content="You accepted the trade.", view=None)
+        self.stop()
+
+    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, emoji="❌")
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.accepted = False
+        await interaction.response.edit_message(content="You declined the trade.", view=None)
+        self.stop()
 
 
 class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
@@ -441,6 +459,18 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 embed.set_footer(text="NightCityBot Audit Log")
                 await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
+            await ih_record_event(
+                item_id, "given",
+                actor_id=str(ctx.author.id),
+                target_id=str(target.id),
+                metadata={
+                    "item_name": item_name,
+                    "item_type": "cyberware",
+                    "sender_character": sender_char,
+                    "routed_to": "ripperdoc_stock",
+                },
+            )
+
             await ctx.send(
                 f"✅ **{item_name}** transferred from **{sender_char}** to "
                 f"{target.display_name}'s ripperdoc stock."
@@ -485,6 +515,18 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 embed.add_field(name="Price Paid", value=f"${price_paid:,}", inline=True)
             embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+        await ih_record_event(
+            item_id, "given",
+            actor_id=str(ctx.author.id),
+            target_id=str(target.id),
+            metadata={
+                "item_name": item_name,
+                "item_type": item_type,
+                "sender_character": sender_char,
+                "receiver_character": recv_char,
+            },
+        )
 
         await ctx.send(
             f"✅ Transferred **{item_name}** from **{sender_char}** to "
@@ -568,6 +610,41 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 "Contact a Fixer for assistance."
             )
             return
+
+        if buyer.id != ctx.author.id:
+            price_str = f"**${price:,}**" if price > 0 else "**free**"
+            confirm_view = TradeConfirmView(timeout=60)
+            try:
+                dm_msg = await buyer.send(
+                    f"**{ctx.author.display_name}** wants to trade you **{item_name}** "
+                    f"for {price_str} (character: **{buyer_character}**).\n"
+                    "Do you accept?",
+                    view=confirm_view,
+                )
+            except discord.Forbidden:
+                await ctx.send(
+                    f"❌ Cannot DM {buyer.display_name}. They may have DMs disabled."
+                )
+                return
+
+            await ctx.send(
+                f"📩 Trade confirmation sent to {buyer.display_name} via DM. Waiting for response..."
+            )
+            await confirm_view.wait()
+
+            if not confirm_view.accepted:
+                try:
+                    await dm_msg.edit(content="Trade declined or timed out.", view=None)
+                except Exception:
+                    pass
+                await ctx.send(
+                    f"❌ {buyer.display_name} declined or didn't respond to the trade."
+                )
+                return
+            try:
+                await dm_msg.edit(view=None)
+            except Exception:
+                pass
 
         b_cash_deduct = 0
         b_bank_deduct = 0
@@ -714,6 +791,19 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
+        await ih_record_event(
+            item_id, "traded",
+            actor_id=str(ctx.author.id),
+            target_id=str(buyer.id),
+            price=price,
+            metadata={
+                "item_name": item_name,
+                "item_type": item_type,
+                "buyer_character": buyer_character,
+                "seller_character": selected_item.get("character_name", ""),
+            },
+        )
+
         price_str = f"for **${price:,}**" if price else "for free"
         await ctx.send(
             f"✅ Traded **{item_name}** to **{buyer_character}** ({buyer.display_name}) {price_str}."
@@ -802,8 +892,9 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         now = datetime.now(timezone.utc).isoformat()
         added = 0
         for _ in range(qty):
+            new_item_id = str(uuid.uuid4())
             ok = await pi_add_item({
-                "item_id": str(uuid.uuid4()),
+                "item_id": new_item_id,
                 "owner_id": str(player.id),
                 "character_name": character_name,
                 "item_type": item_type,
@@ -817,6 +908,18 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             })
             if ok:
                 added += 1
+                await ih_record_event(
+                    new_item_id, "admin_add",
+                    actor_id=str(ctx.author.id),
+                    target_id=str(player.id),
+                    price=price,
+                    metadata={
+                        "item_name": name,
+                        "character": character_name,
+                        "item_type": item_type,
+                        "restriction": restriction,
+                    },
+                )
 
         if added == 0:
             await ctx.send("❌ Failed to add item to inventory. Please try again.")
@@ -855,7 +958,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         )
 
     # ------------------------------------------------------------------
-    # !inv_remove (admin)
+    # !inv_remove (admin) — records audit trail
     # ------------------------------------------------------------------
 
     @commands.command(name="inv_remove")
@@ -914,6 +1017,13 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             embed.add_field(name="Item ID", value=f"`{item_id}`", inline=False)
             embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+        await ih_record_event(
+            item_id, "admin_remove",
+            actor_id=str(ctx.author.id),
+            target_id=str(player.id),
+            metadata={"item_name": item_name, "character": item_char},
+        )
 
         await ctx.send(
             f"✅ Removed **{item_name}** (`{item_id}`) from {player.display_name}'s inventory."
@@ -985,6 +1095,17 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             embed.add_field(name="New Character", value=new_character, inline=True)
             embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+        await ih_record_event(
+            item_id, "admin_reassign",
+            actor_id=str(ctx.author.id),
+            target_id=str(player.id),
+            metadata={
+                "item_name": item_name,
+                "old_character": old_char,
+                "new_character": new_character,
+            },
+        )
 
         await ctx.send(
             f"✅ Reassigned **{item_name}** (`{item_id}`) from **{old_char or '(none)'}** "

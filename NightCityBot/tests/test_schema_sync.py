@@ -30,6 +30,7 @@ EXPECTED_TABLES = [
     "gun_catalog",
     "player_inventory",
     "pending_transfers",
+    "item_history",
 ]
 
 

@@ -582,6 +582,8 @@ class CyberwareShop(commands.Cog):
 
         Usage: !cw_buy <lot_number> [qty=1]
         Use !cw_wh_list to see the numbered list.
+
+        Note: Consider using !ripperdoc for an interactive experience.
         """
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
@@ -801,6 +803,7 @@ class CyberwareShop(commands.Cog):
         """Sell/install a cyberware part to a patient. Removes item from your inventory.
 
         Usage: !cw_sell @patient <inv_row> <price> character name
+        Note: Consider using !ripperdoc for an interactive experience with DM confirmation.
         Use !cw_inventory to see your numbered inventory.
         """
         if not ctx.guild:

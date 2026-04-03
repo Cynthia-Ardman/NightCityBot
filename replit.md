@@ -105,18 +105,43 @@ Cog: `NightCityBot/cogs/player_inventory.py`
 
 - `!my_inventory [@player] [page]` — view item inventory with row numbers
 - `!inv_give @target <row> "sender_char" ["receiver_char"]` — transfer item (no payment)
-- `!trade @buyer <row> <price> buyer_character` — sell item with payment; controlled/restricted blocked; DB failure → pending_transfers + alert to #nightcitybot-logs
+- `!trade @buyer <row> <price> buyer_character` — sell item with DM confirmation (Accept/Decline buttons, 60s timeout); controlled/restricted blocked; DB failure → pending_transfers + alert to #nightcitybot-logs
 - `!inv_add @player <type> "name" <restriction> "desc" [price]` — admin add item
 - `!inv_remove @player <row>` — admin delete item
 - `!inv_reassign @player <row> new_character` — admin character reassignment
 
 Guns sold via `!guns_wh_sell` also write to `player_inventory` automatically.
 
+## Unified Shop System (Task #14)
+
+Consolidates separate command sets into interactive hub commands with Discord UI (dropdowns, buttons, modals), DM-confirmation trade flows, and a full per-item audit trail.
+
+### New Cogs
+- `NightCityBot/cogs/ripperdoc_hub.py` — `!ripperdoc` interactive panel (Buy/Sell/Install/Stock/Wholesale)
+- `NightCityBot/cogs/gunstore_hub.py` — `!gunstore` interactive panel (Buy/Sell/Inventory/Approve/Unapprove/Wholesale/Approved Buyers)
+- `NightCityBot/cogs/admin_shop.py` — `!admin_shop` admin panel (Add/Remove/Reassign/History/Inventory)
+
+### Item History / Audit Trail
+Table: `item_history` (keyed by item UUID, stores event_type, actor_id, target_id, price, metadata JSONB, created_at)
+- `ih_record_event()` and `ih_get_history()` in `db.py`
+- Event types: `created`, `wholesale_buy`, `player_sale`, `traded`, `given`, `admin_add`, `admin_remove`, `admin_reassign`, `cw_wholesale_buy`, `cw_sold`, `cw_installed`
+- `!item_history <uuid>` command for lookup
+
+### DM Confirmation Flow
+All sell/trade operations with another player now send a DM to the buyer/patient with Accept/Decline buttons (60s timeout). Self-trades (same user, different characters) bypass DM confirmation.
+
+### Deprecation Notices
+Old commands (`!cw_buy`, `!cw_sell`, `!guns_wh_buy`, `!guns_wh_sell`) remain functional but docstrings now hint at the new hub commands.
+
+### Test Coverage
+- `NightCityBot/tests/test_unified_shop.py` — 56 tests covering all three new cogs, View interaction checks, button callbacks, DM confirm views, member resolution, log channels, timeouts, deprecation notices, cog registration
+- Existing `test_player_inventory.py` updated for DM confirmation flow compatibility (51 tests)
+
 ### Audit log channels
 - `CYBERWARE_LOG_CHANNEL_ID` — cyberware shop events
-- `GUN_LOG_CHANNEL_ID` — gun shop events (to-do: migrate guns_shop audit send)
+- `GUN_LOG_CHANNEL_ID` — gun shop events
 - `GEAR_MISC_LOG_CHANNEL_ID` — player inventory trades/gives
-- `NIGHTCITYBOT_LOG_CHANNEL_ID` — system alerts (pending transfers, etc.)
+- `NIGHTCITYBOT_LOG_CHANNEL_ID` — system alerts (pending transfers, admin actions)
 
 ## Gun Restriction System
 

@@ -399,6 +399,27 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """,
+        # ── Item history (per-item audit trail) ──────────────────────────────
+        """
+        CREATE TABLE IF NOT EXISTS item_history (
+            id          SERIAL PRIMARY KEY,
+            item_id     TEXT NOT NULL,
+            event_type  TEXT NOT NULL,
+            actor_id    TEXT,
+            target_id   TEXT,
+            price       INT,
+            metadata    JSONB NOT NULL DEFAULT '{}',
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_item_history_item_id
+            ON item_history (item_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_item_history_actor
+            ON item_history (actor_id)
+        """,
     ]
 
     async with pool.acquire() as conn:
@@ -2951,6 +2972,74 @@ async def pt_resolve(transfer_id: str, status: str = "resolved") -> bool:
     except Exception:
         logger.error("pt_resolve failed for transfer_id='%s'", transfer_id, exc_info=True)
         return False
+
+
+# ---------------------------------------------------------------------------
+# Item history (per-item audit trail)
+# ---------------------------------------------------------------------------
+
+async def ih_record_event(
+    item_id: str,
+    event_type: str,
+    *,
+    actor_id: str | None = None,
+    target_id: str | None = None,
+    price: int | None = None,
+    metadata: dict | None = None,
+) -> bool:
+    try:
+        pool = await get_pool()
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO item_history (item_id, event_type, actor_id, target_id, price, metadata)
+                VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+                """,
+                str(item_id),
+                str(event_type),
+                str(actor_id) if actor_id else None,
+                str(target_id) if target_id else None,
+                price,
+                json.dumps(metadata or {}),
+            ),
+            label="ih_record_event",
+        )
+        return True
+    except Exception:
+        logger.error("ih_record_event failed for item_id='%s' event='%s'", item_id, event_type, exc_info=True)
+        return False
+
+
+async def ih_get_history(item_id: str, limit: int = 50) -> list[dict]:
+    try:
+        pool = await get_pool()
+        rows = await pool.fetch(
+            """
+            SELECT id, item_id, event_type, actor_id, target_id, price, metadata, created_at
+            FROM item_history
+            WHERE item_id = $1
+            ORDER BY created_at ASC
+            LIMIT $2
+            """,
+            str(item_id),
+            limit,
+        )
+        result = []
+        for row in rows:
+            d = dict(row)
+            if d.get("created_at") is not None and hasattr(d["created_at"], "isoformat"):
+                d["created_at"] = d["created_at"].isoformat()
+            meta = d.get("metadata")
+            if isinstance(meta, str):
+                try:
+                    d["metadata"] = json.loads(meta)
+                except Exception:
+                    pass
+            result.append(d)
+        return result
+    except Exception:
+        logger.error("ih_get_history failed for item_id='%s'", item_id, exc_info=True)
+        return []
 
 
 # ---------------------------------------------------------------------------
