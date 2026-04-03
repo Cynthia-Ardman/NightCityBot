@@ -29,7 +29,7 @@ from NightCityBot.utils.db import (
 )
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active, get_character_by_name
 from NightCityBot.utils.permissions import is_fixer
-from NightCityBot.utils.inline_helpers import collect_text_input, QtySelectView
+from NightCityBot.utils.inline_helpers import collect_text_input
 
 logger = logging.getLogger(__name__)
 
