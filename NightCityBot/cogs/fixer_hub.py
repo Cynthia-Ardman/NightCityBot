@@ -27,6 +27,7 @@ from NightCityBot.utils.db import (
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active, get_character_by_name
 from NightCityBot.utils.permissions import is_fixer
 from NightCityBot.utils.inline_helpers import collect_text_input
+from NightCityBot.utils.panel_context import PanelContext
 
 logger = logging.getLogger(__name__)
 
@@ -83,29 +84,28 @@ async def _resolve_user_select(ctx, user) -> Optional[discord.Member]:
 
 
 class FixerTopView(SafeView):
-    def __init__(self, cog: "FixerHubCog", ctx: commands.Context):
-        super().__init__(timeout=120)
-        self.cog = cog
-        self.ctx = ctx
-        self.message: Optional[discord.Message] = None
+    def __init__(self):
+        super().__init__(timeout=None)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            guild = interaction.client.get_guild(config.GUILD_ID)
+            if guild:
+                member = guild.get_member(interaction.user.id)
+        if member is None:
+            await interaction.response.send_message("Could not verify your role.", ephemeral=True)
+            return False
+        if not (any(r.id == config.FIXER_ROLE_ID for r in member.roles) or member.guild_permissions.administrator):
+            await interaction.response.send_message("This panel is for Fixers only.", ephemeral=True)
             return False
         return True
 
-    async def on_timeout(self):
-        if self.message:
-            try:
-                await self.message.edit(view=None)
-            except Exception:
-                pass
-
-    @discord.ui.button(label="Player", style=discord.ButtonStyle.primary, emoji="👤", row=0)
+    @discord.ui.button(label="Player", style=discord.ButtonStyle.primary, emoji="👤", row=0, custom_id="fixer:player_menu")
     async def player_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.stop()
-        view = PlayerSubView(self.cog, self.ctx, parent=self)
+        cog = interaction.client.get_cog("FixerHub")
+        ctx = PanelContext(interaction)
+        view = PlayerSubView(cog, ctx)
         embed = discord.Embed(
             title="👤 Fixer Panel — Player",
             description=(
@@ -119,12 +119,13 @@ class FixerTopView(SafeView):
             ),
             color=discord.Color.blue(),
         )
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-    @discord.ui.button(label="Store", style=discord.ButtonStyle.primary, emoji="🏪", row=0)
+    @discord.ui.button(label="Store", style=discord.ButtonStyle.primary, emoji="🏪", row=0, custom_id="fixer:store_menu")
     async def store_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.stop()
-        view = StoreSubView(self.cog, self.ctx, parent=self)
+        cog = interaction.client.get_cog("FixerHub")
+        ctx = PanelContext(interaction)
+        view = StoreSubView(cog, ctx)
         embed = discord.Embed(
             title="🏪 Fixer Panel — Store",
             description=(
@@ -135,12 +136,13 @@ class FixerTopView(SafeView):
             ),
             color=discord.Color.green(),
         )
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-    @discord.ui.button(label="Wholesaler", style=discord.ButtonStyle.primary, emoji="🏭", row=0)
+    @discord.ui.button(label="Wholesaler", style=discord.ButtonStyle.primary, emoji="🏭", row=0, custom_id="fixer:wholesaler_menu")
     async def wholesaler_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.stop()
-        view = WholesalerSubView(self.cog, self.ctx, parent=self)
+        cog = interaction.client.get_cog("FixerHub")
+        ctx = PanelContext(interaction)
+        view = WholesalerSubView(cog, ctx)
         embed = discord.Embed(
             title="🏭 Fixer Panel — Wholesaler",
             description=(
@@ -153,28 +155,21 @@ class FixerTopView(SafeView):
             ),
             color=discord.Color.orange(),
         )
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 class PlayerSubView(SafeView):
-    def __init__(self, cog: "FixerHubCog", ctx: commands.Context, parent: FixerTopView):
+    def __init__(self, cog: "FixerHubCog", ctx):
         super().__init__(timeout=120)
         self.cog = cog
         self.ctx = ctx
-        self.parent = parent
+        self.message: Optional[discord.Message] = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
             await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
             return False
         return True
-
-    async def on_timeout(self):
-        if self.parent and self.parent.message:
-            try:
-                await self.parent.message.edit(view=None)
-            except Exception:
-                pass
 
     @discord.ui.button(label="View Inventory", style=discord.ButtonStyle.secondary, emoji="📦", row=0)
     async def view_inventory(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -267,43 +262,24 @@ class PlayerSubView(SafeView):
         view = LOAPickerView(self.cog, self.ctx, action="end")
         await interaction.followup.send("Select a player to take off LOA:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="← Back", style=discord.ButtonStyle.secondary, row=3)
-    async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Done", style=discord.ButtonStyle.secondary, row=3)
+    async def done(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.stop()
-        new_parent = FixerTopView(self.cog, self.ctx)
-        new_parent.message = self.parent.message
-        embed = discord.Embed(
-            title="🛠️ Fixer Panel",
-            description=(
-                "Choose a category below.\n\n"
-                "**Player** — Inventory, items, LOA, history\n"
-                "**Store** — Gun store and Ripperdoc stock management\n"
-                "**Wholesaler** — Wholesale inventory and restocking"
-            ),
-            color=discord.Color.dark_gold(),
-        )
-        await interaction.response.edit_message(embed=embed, view=new_parent)
+        await interaction.response.edit_message(view=None)
 
 
 class StoreSubView(SafeView):
-    def __init__(self, cog: "FixerHubCog", ctx: commands.Context, parent: FixerTopView):
+    def __init__(self, cog: "FixerHubCog", ctx):
         super().__init__(timeout=120)
         self.cog = cog
         self.ctx = ctx
-        self.parent = parent
+        self.message: Optional[discord.Message] = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
             await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
             return False
         return True
-
-    async def on_timeout(self):
-        if self.parent and self.parent.message:
-            try:
-                await self.parent.message.edit(view=None)
-            except Exception:
-                pass
 
     @discord.ui.button(label="View Gun Store", style=discord.ButtonStyle.secondary, emoji="🔫", row=0)
     async def view_gun_store(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -329,43 +305,24 @@ class StoreSubView(SafeView):
         view = StoreRemovePickerView(self.cog, self.ctx)
         await interaction.followup.send("**Step 1** — Select the store owner:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="← Back", style=discord.ButtonStyle.secondary, row=2)
-    async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Done", style=discord.ButtonStyle.secondary, row=2)
+    async def done(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.stop()
-        new_parent = FixerTopView(self.cog, self.ctx)
-        new_parent.message = self.parent.message
-        embed = discord.Embed(
-            title="🛠️ Fixer Panel",
-            description=(
-                "Choose a category below.\n\n"
-                "**Player** — Inventory, items, LOA, history\n"
-                "**Store** — Gun store and Ripperdoc stock management\n"
-                "**Wholesaler** — Wholesale inventory and restocking"
-            ),
-            color=discord.Color.dark_gold(),
-        )
-        await interaction.response.edit_message(embed=embed, view=new_parent)
+        await interaction.response.edit_message(view=None)
 
 
 class WholesalerSubView(SafeView):
-    def __init__(self, cog: "FixerHubCog", ctx: commands.Context, parent: FixerTopView):
+    def __init__(self, cog: "FixerHubCog", ctx):
         super().__init__(timeout=120)
         self.cog = cog
         self.ctx = ctx
-        self.parent = parent
+        self.message: Optional[discord.Message] = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
             await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
             return False
         return True
-
-    async def on_timeout(self):
-        if self.parent and self.parent.message:
-            try:
-                await self.parent.message.edit(view=None)
-            except Exception:
-                pass
 
     @discord.ui.button(label="View Stock", style=discord.ButtonStyle.secondary, emoji="📋", row=0)
     async def view_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -478,22 +435,10 @@ class WholesalerSubView(SafeView):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="← Back", style=discord.ButtonStyle.secondary, row=2)
-    async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Done", style=discord.ButtonStyle.secondary, row=2)
+    async def done(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.stop()
-        new_parent = FixerTopView(self.cog, self.ctx)
-        new_parent.message = self.parent.message
-        embed = discord.Embed(
-            title="🛠️ Fixer Panel",
-            description=(
-                "Choose a category below.\n\n"
-                "**Player** — Inventory, items, LOA, history\n"
-                "**Store** — Gun store and Ripperdoc stock management\n"
-                "**Wholesaler** — Wholesale inventory and restocking"
-            ),
-            color=discord.Color.dark_gold(),
-        )
-        await interaction.response.edit_message(embed=embed, view=new_parent)
+        await interaction.response.edit_message(view=None)
 
 
 async def _process_fixer_reassign_item(cog, interaction, text):
@@ -1398,18 +1343,12 @@ class FixerHubCog(commands.Cog, name="FixerHub"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._panel_view = FixerTopView()
+        bot.add_view(self._panel_view)
 
-    @commands.hybrid_command(name="fixer")
-    @commands.check_any(is_fixer(), commands.has_permissions(administrator=True))
-    @commands.max_concurrency(1, per=commands.BucketType.user)
-    @commands.cooldown(1, 5, commands.BucketType.user)
-    async def fixer(self, ctx: commands.Context):
-        """Open the Fixer management panel."""
-        if not ctx.guild:
-            await ctx.send("This command can only be used in the server.")
-            return
-
-        embed = discord.Embed(
+    @staticmethod
+    def _panel_embed() -> discord.Embed:
+        return discord.Embed(
             title="🛠️ Fixer Panel",
             description=(
                 "Choose a category below.\n\n"
@@ -1419,14 +1358,19 @@ class FixerHubCog(commands.Cog, name="FixerHub"):
             ),
             color=discord.Color.dark_gold(),
         )
-        embed.set_footer(text=f"Fixer: {ctx.author.display_name}")
 
-        view = FixerTopView(self, ctx)
-        if ctx.interaction:
-            msg = await ctx.send(embed=embed, view=view, ephemeral=True)
-        else:
-            msg = await ctx.send(embed=embed, view=view, delete_after=120)
-        view.message = msg
+    @commands.hybrid_command(name="fixer")
+    @commands.has_permissions(administrator=True)
+    @commands.cooldown(1, 5, commands.BucketType.user)
+    async def fixer(self, ctx: commands.Context):
+        """Post (or refresh) the persistent Fixer panel in the designated channel."""
+        channel = self.bot.get_channel(config.FIXER_HUB_CHANNEL_ID)
+        if channel is None:
+            await ctx.send("❌ Fixer hub channel not found.", ephemeral=True)
+            return
+        view = FixerTopView()
+        await channel.send(embed=self._panel_embed(), view=view)
+        await ctx.send("✅ Fixer panel posted.", ephemeral=True)
         try:
             await ctx.message.delete()
         except Exception:

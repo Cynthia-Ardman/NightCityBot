@@ -22,35 +22,37 @@ from NightCityBot.utils.db import (
 )
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active
 from NightCityBot.utils.inline_helpers import collect_text_input, QtySelectView
-from NightCityBot.utils.permissions import is_store_owner
+from NightCityBot.utils.permissions import is_store_owner, is_fixer
+from NightCityBot.utils.panel_context import PanelContext
 
 logger = logging.getLogger(__name__)
 
 
 class GunstoreMenuView(SafeView):
-    def __init__(self, cog: "GunstoreHub", ctx: commands.Context):
-        super().__init__(timeout=120)
-        self.cog = cog
-        self.ctx = ctx
-        self.message: Optional[discord.Message] = None
+    def __init__(self):
+        super().__init__(timeout=None)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            guild = interaction.client.get_guild(config.GUILD_ID)
+            if guild:
+                member = guild.get_member(interaction.user.id)
+        if member is None:
+            await interaction.response.send_message("Could not verify your role.", ephemeral=True)
+            return False
+        raw = config.WHOLESALER_STORE_ROLE_IDS
+        store_ids = {int(raw)} if isinstance(raw, (int, float, str)) and str(raw).strip().isdigit() else {int(x) for x in raw}
+        if not (any(r.id in store_ids for r in member.roles) or member.guild_permissions.administrator):
+            await interaction.response.send_message("This panel is for Store Owners only.", ephemeral=True)
             return False
         return True
 
-    async def on_timeout(self):
-        if self.message:
-            try:
-                await self.message.edit(view=None)
-            except Exception:
-                pass
-
-    @discord.ui.button(label="Buy from Wholesale", style=discord.ButtonStyle.primary, emoji="🛒", row=0)
+    @discord.ui.button(label="Buy from Wholesale", style=discord.ButtonStyle.primary, emoji="🛒", row=0, custom_id="gunstore:buy_wholesale")
     async def buy_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        guns_cog = self.cog._guns_cog()
+        cog = interaction.client.get_cog("GunstoreHub")
+        guns_cog = cog._guns_cog() if cog else None
         if not guns_cog:
             await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
             return
@@ -59,27 +61,20 @@ class GunstoreMenuView(SafeView):
         if not lots:
             await interaction.followup.send("No wholesale stock available.", ephemeral=True)
             return
-        options = []
-        for i, lot in enumerate(lots[:25]):
-            restriction = lot.get("restriction", "basic")
-            r_tag = f" [{restriction}]" if restriction != "basic" else ""
-            label = f"{lot['gun_name']}{r_tag} — ${int(lot['unit_cost']):,} (×{lot['qty_available']})"
-            options.append(discord.SelectOption(
-                label=label[:100],
-                value=str(i),
-            ))
-        view = GunBuySelect(self.cog, self.ctx, lots, guns_cog)
+        ctx = PanelContext(interaction)
+        view = GunBuySelect(cog, ctx, lots, guns_cog)
         await interaction.followup.send("Select a gun to buy:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="Sell to Customer", style=discord.ButtonStyle.success, emoji="🔫", row=0)
+    @discord.ui.button(label="Sell to Customer", style=discord.ButtonStyle.success, emoji="🔫", row=0, custom_id="gunstore:sell_customer")
     async def sell_to_customer(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        guns_cog = self.cog._guns_cog()
+        cog = interaction.client.get_cog("GunstoreHub")
+        guns_cog = cog._guns_cog() if cog else None
         if not guns_cog:
             await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
             return
         state = await guns_cog._load_state()
-        store_id = guns_cog._store_id(self.ctx.guild.id, self.ctx.author.id)
+        store_id = guns_cog._store_id(interaction.guild.id, interaction.user.id)
         store = state.get("stores", {}).get(store_id)
         if not store or not store.get("lots"):
             await interaction.followup.send("Your store inventory is empty. Buy from wholesale first.", ephemeral=True)
@@ -88,21 +83,23 @@ class GunstoreMenuView(SafeView):
         if not available:
             await interaction.followup.send("Your store inventory is empty.", ephemeral=True)
             return
-        view = GunSellSetupView(self.cog, self.ctx, available, store_id)
+        ctx = PanelContext(interaction)
+        view = GunSellSetupView(cog, ctx, available, store_id)
         msg = "**Step 1** — Select the customer and the gun to sell:"
         if view.truncated:
             msg += f"\n⚠️ Showing first 25 of {len(available)} lots."
         await interaction.followup.send(msg, view=view, ephemeral=True)
 
-    @discord.ui.button(label="My Store Inventory", style=discord.ButtonStyle.secondary, emoji="📦", row=1)
+    @discord.ui.button(label="My Store Inventory", style=discord.ButtonStyle.secondary, emoji="📦", row=1, custom_id="gunstore:my_inv")
     async def view_inventory(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        guns_cog = self.cog._guns_cog()
+        cog = interaction.client.get_cog("GunstoreHub")
+        guns_cog = cog._guns_cog() if cog else None
         if not guns_cog:
             await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
             return
         state = await guns_cog._load_state()
-        store_id = guns_cog._store_id(self.ctx.guild.id, self.ctx.author.id)
+        store_id = guns_cog._store_id(interaction.guild.id, interaction.user.id)
         store = state.get("stores", {}).get(store_id)
         if not store or not store.get("lots"):
             await interaction.followup.send("Your store inventory is empty.", ephemeral=True)
@@ -122,30 +119,35 @@ class GunstoreMenuView(SafeView):
             await interaction.followup.send("Your store inventory is empty.", ephemeral=True)
             return
         embed = discord.Embed(
-            title=f"📦 {self.ctx.author.display_name}'s Gun Store",
+            title=f"📦 {interaction.user.display_name}'s Gun Store",
             description="\n".join(lines[:30]),
             color=discord.Color.dark_gold(),
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Approve Buyer", style=discord.ButtonStyle.secondary, emoji="✅", row=1)
+    @discord.ui.button(label="Approve Buyer", style=discord.ButtonStyle.secondary, emoji="✅", row=1, custom_id="gunstore:approve_buyer")
     async def approve_buyer(self, interaction: discord.Interaction, button: discord.ui.Button):
-        view = _ApproveBuyerView(self.cog, self.ctx, approve=True)
+        cog = interaction.client.get_cog("GunstoreHub")
+        ctx = PanelContext(interaction)
+        view = _ApproveBuyerView(cog, ctx, approve=True)
         await interaction.response.send_message(
             "📝 **Select a buyer to approve:**", view=view, ephemeral=True
         )
 
-    @discord.ui.button(label="Unapprove Buyer", style=discord.ButtonStyle.secondary, emoji="🚫", row=1)
+    @discord.ui.button(label="Unapprove Buyer", style=discord.ButtonStyle.secondary, emoji="🚫", row=1, custom_id="gunstore:unapprove_buyer")
     async def unapprove_buyer(self, interaction: discord.Interaction, button: discord.ui.Button):
-        view = _ApproveBuyerView(self.cog, self.ctx, approve=False)
+        cog = interaction.client.get_cog("GunstoreHub")
+        ctx = PanelContext(interaction)
+        view = _ApproveBuyerView(cog, ctx, approve=False)
         await interaction.response.send_message(
             "📝 **Select a buyer to remove from your approved list:**", view=view, ephemeral=True
         )
 
-    @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=2)
+    @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=2, custom_id="gunstore:wholesale_list")
     async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        guns_cog = self.cog._guns_cog()
+        cog = interaction.client.get_cog("GunstoreHub")
+        guns_cog = cog._guns_cog() if cog else None
         if not guns_cog:
             await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
             return
@@ -170,15 +172,16 @@ class GunstoreMenuView(SafeView):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Approved Buyers", style=discord.ButtonStyle.secondary, emoji="📝", row=2)
+    @discord.ui.button(label="Approved Buyers", style=discord.ButtonStyle.secondary, emoji="📝", row=2, custom_id="gunstore:approved_list")
     async def approved_list(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        guns_cog = self.cog._guns_cog()
+        cog = interaction.client.get_cog("GunstoreHub")
+        guns_cog = cog._guns_cog() if cog else None
         if not guns_cog:
             await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
             return
         state = await guns_cog._load_state()
-        store_id = guns_cog._store_id(self.ctx.guild.id, self.ctx.author.id)
+        store_id = guns_cog._store_id(interaction.guild.id, interaction.user.id)
         store = state.get("stores", {}).get(store_id)
         approved = store.get("controlled_buyers", []) if store else []
         if not approved:
@@ -954,6 +957,8 @@ class GunstoreHub(commands.Cog, name="GunstoreHub"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.unbelievaboat = bot.unbelievaboat
+        self._panel_view = GunstoreMenuView()
+        bot.add_view(self._panel_view)
 
     def _guns_cog(self):
         return self.bot.cogs.get("GunsShopCog")
@@ -987,21 +992,9 @@ class GunstoreHub(commands.Cog, name="GunstoreHub"):
                 return None
         return member
 
-    @commands.hybrid_command(name="gunstore")
-    @is_store_owner()
-    @commands.max_concurrency(1, per=commands.BucketType.user)
-    @commands.cooldown(1, 5, commands.BucketType.user)
-    async def gunstore_hub(self, ctx: commands.Context):
-        """Open the Gun Store interactive panel.
-
-        Actions: Buy from wholesale, Sell to customer, View inventory,
-        Approve/Unapprove controlled buyers.
-        """
-        if not ctx.guild:
-            await ctx.send("This command can only be used in the server.")
-            return
-
-        embed = discord.Embed(
+    @staticmethod
+    def _panel_embed() -> discord.Embed:
+        return discord.Embed(
             title="🔫 Gun Store",
             description=(
                 "Welcome, Store Owner. Choose an action below.\n\n"
@@ -1014,14 +1007,19 @@ class GunstoreHub(commands.Cog, name="GunstoreHub"):
             ),
             color=discord.Color.dark_gold(),
         )
-        embed.set_footer(text=f"Store Owner: {ctx.author.display_name}")
 
-        view = GunstoreMenuView(self, ctx)
-        if ctx.interaction:
-            msg = await ctx.send(embed=embed, view=view, ephemeral=True)
-        else:
-            msg = await ctx.send(embed=embed, view=view, delete_after=120)
-        view.message = msg
+    @commands.hybrid_command(name="gunstore")
+    @commands.has_permissions(administrator=True)
+    @commands.cooldown(1, 5, commands.BucketType.user)
+    async def gunstore_hub(self, ctx: commands.Context):
+        """Post (or refresh) the persistent Gun Store panel in the designated channel."""
+        channel = self.bot.get_channel(config.GUN_HUB_CHANNEL_ID)
+        if channel is None:
+            await ctx.send("❌ Gun store hub channel not found.", ephemeral=True)
+            return
+        view = GunstoreMenuView()
+        await channel.send(embed=self._panel_embed(), view=view)
+        await ctx.send("✅ Gun Store panel posted.", ephemeral=True)
         try:
             await ctx.message.delete()
         except Exception:

@@ -32,6 +32,7 @@ from NightCityBot.utils.db import (
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active, get_character_by_name
 from NightCityBot.utils.permissions import is_fixer
 from NightCityBot.utils.inline_helpers import collect_text_input
+from NightCityBot.utils.panel_context import PanelContext
 from NightCityBot.services.cyberware_shop_data import download_sheet, parse_cyberware_sheet
 
 logger = logging.getLogger(__name__)
@@ -53,85 +54,90 @@ async def _resolve_user_select(ctx, user) -> Optional[discord.Member]:
 
 
 class AdminShopMenuView(SafeView):
-    def __init__(self, cog: "AdminShopCog", ctx: commands.Context):
-        super().__init__(timeout=120)
-        self.cog = cog
-        self.ctx = ctx
-        self.message: Optional[discord.Message] = None
+    def __init__(self):
+        super().__init__(timeout=None)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            guild = interaction.client.get_guild(config.GUILD_ID)
+            if guild:
+                member = guild.get_member(interaction.user.id)
+        if member is None:
+            await interaction.response.send_message("Could not verify your role.", ephemeral=True)
+            return False
+        if not (any(r.id == config.FIXER_ROLE_ID for r in member.roles) or member.guild_permissions.administrator):
+            await interaction.response.send_message("This panel is for Admins / Fixers only.", ephemeral=True)
             return False
         return True
 
-    async def on_timeout(self):
-        if self.message:
-            try:
-                await self.message.edit(view=None)
-            except Exception:
-                pass
-
-    @discord.ui.button(label="Add Item", style=discord.ButtonStyle.primary, emoji="➕", row=0)
+    @discord.ui.button(label="Add Item", style=discord.ButtonStyle.primary, emoji="➕", row=0, custom_id="admin_shop:add_item")
     async def add_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        view = AdminAddItemPickerView(self.cog, self.ctx)
+        cog = interaction.client.get_cog("AdminShop")
+        ctx = PanelContext(interaction)
+        view = AdminAddItemPickerView(cog, ctx)
         await interaction.followup.send("**Step 1** — Select the player to add an item to:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="Remove Item", style=discord.ButtonStyle.danger, emoji="🗑️", row=0)
+    @discord.ui.button(label="Remove Item", style=discord.ButtonStyle.danger, emoji="🗑️", row=0, custom_id="admin_shop:remove_item")
     async def remove_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("AdminShop")
         await interaction.followup.send(
             "📝 **Enter:** `player_mention_or_id, item_uuid`\n"
             "Example: `@Player, 12345678-abcd-...`\n"
             "Type `cancel` to abort.",
             ephemeral=True,
         )
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
-        await _inline_remove_item(self.cog, interaction, text)
+        await _inline_remove_item(cog, interaction, text)
 
-    @discord.ui.button(label="Reassign Item", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
+    @discord.ui.button(label="Reassign Item", style=discord.ButtonStyle.secondary, emoji="✏️", row=0, custom_id="admin_shop:reassign_item")
     async def reassign_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("AdminShop")
         await interaction.followup.send(
             "📝 **Enter:** `item_uuid, new_owner_mention_or_id, new_character_name`\n"
             "Example: `12345678-abcd-..., @Player, V`\n"
             "Type `cancel` to abort.",
             ephemeral=True,
         )
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
-        await _inline_reassign_item(self.cog, interaction, text)
+        await _inline_reassign_item(cog, interaction, text)
 
-    @discord.ui.button(label="Item History", style=discord.ButtonStyle.secondary, emoji="📜", row=1)
+    @discord.ui.button(label="Item History", style=discord.ButtonStyle.secondary, emoji="📜", row=1, custom_id="admin_shop:item_history")
     async def item_history(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("AdminShop")
         await interaction.followup.send(
             "📝 **Enter the Item UUID** to look up (or type `cancel`):",
             ephemeral=True,
         )
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
-        await _inline_item_history(self.cog, interaction, text.strip())
+        await _inline_item_history(cog, interaction, text.strip())
 
-    @discord.ui.button(label="Player Inventory", style=discord.ButtonStyle.secondary, emoji="📦", row=1)
+    @discord.ui.button(label="Player Inventory", style=discord.ButtonStyle.secondary, emoji="📦", row=1, custom_id="admin_shop:player_inv")
     async def player_inv(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        view = PlayerInvPickerView(self.cog, self.ctx)
+        cog = interaction.client.get_cog("AdminShop")
+        ctx = PanelContext(interaction)
+        view = PlayerInvPickerView(cog, ctx)
         await interaction.followup.send("Select a player to view their inventory:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="Wholesale Stock", style=discord.ButtonStyle.secondary, emoji="🏭", row=2)
+    @discord.ui.button(label="Wholesale Stock", style=discord.ButtonStyle.secondary, emoji="🏭", row=2, custom_id="admin_shop:wholesale_stock")
     async def wholesale_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        guns_cog = self.cog.bot.cogs.get("GunsShopCog")
-        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
+        guns_cog = interaction.client.get_cog("GunsShopCog")
+        cw_cog = interaction.client.get_cog("CyberwareShop")
         lines = []
         if guns_cog:
             state = await guns_cog._load_state()
@@ -169,9 +175,10 @@ class AdminShopMenuView(SafeView):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Restock Wholesale", style=discord.ButtonStyle.primary, emoji="📥", row=2)
+    @discord.ui.button(label="Restock Wholesale", style=discord.ButtonStyle.primary, emoji="📥", row=2, custom_id="admin_shop:restock_wholesale")
     async def restock_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("AdminShop")
         await interaction.followup.send(
             "📝 **Enter:** `gun_name, quantity, unit_cost, restriction`\n"
             "Restriction is optional (defaults to `basic`).\n"
@@ -179,51 +186,56 @@ class AdminShopMenuView(SafeView):
             "Type `cancel` to abort.",
             ephemeral=True,
         )
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
-        await _inline_restock_wholesale(self.cog, interaction, text)
+        await _inline_restock_wholesale(cog, interaction, text)
 
-    @discord.ui.button(label="Clear Gun WH", style=discord.ButtonStyle.danger, emoji="🗑️", row=2)
+    @discord.ui.button(label="Clear Gun WH", style=discord.ButtonStyle.danger, emoji="🗑️", row=2, custom_id="admin_shop:clear_wholesale")
     async def clear_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        confirm_view = WholesaleClearConfirmView(self.cog, self.ctx, target="guns")
+        cog = interaction.client.get_cog("AdminShop")
+        ctx = PanelContext(interaction)
+        confirm_view = WholesaleClearConfirmView(cog, ctx, target="guns")
         await interaction.followup.send(
             "⚠️ This will clear **all** gun wholesale lots. Are you sure?",
             view=confirm_view,
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Restock CW", style=discord.ButtonStyle.primary, emoji="💉", row=3)
+    @discord.ui.button(label="Restock CW", style=discord.ButtonStyle.primary, emoji="💉", row=3, custom_id="admin_shop:restock_cw")
     async def restock_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("AdminShop")
         await interaction.followup.send(
             "📝 **Enter:** `cyberware_name, quantity, unit_cost`\n"
             "Example: `Neural Link Mk.2, 10, 8000`\n"
             "Type `cancel` to abort.",
             ephemeral=True,
         )
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
-        await _inline_restock_cw(self.cog, interaction, text)
+        await _inline_restock_cw(cog, interaction, text)
 
-    @discord.ui.button(label="Clear CW WH", style=discord.ButtonStyle.danger, emoji="🧹", row=3)
+    @discord.ui.button(label="Clear CW WH", style=discord.ButtonStyle.danger, emoji="🧹", row=3, custom_id="admin_shop:clear_cw_wholesale")
     async def clear_cw_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        confirm_view = WholesaleClearConfirmView(self.cog, self.ctx, target="cw")
+        cog = interaction.client.get_cog("AdminShop")
+        ctx = PanelContext(interaction)
+        confirm_view = WholesaleClearConfirmView(cog, ctx, target="cw")
         await interaction.followup.send(
             "⚠️ This will clear **all** cyberware wholesale lots. Are you sure?",
             view=confirm_view,
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Set Gun Sheet", style=discord.ButtonStyle.secondary, emoji="🔫", row=4)
+    @discord.ui.button(label="Set Gun Sheet", style=discord.ButtonStyle.secondary, emoji="🔫", row=4, custom_id="admin_shop:set_gun_sheet")
     async def set_gun_sheet(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        guns_cog = self.cog.bot.cogs.get("GunsShopCog")
+        guns_cog = interaction.client.get_cog("GunsShopCog")
         if not guns_cog:
             await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
             return
@@ -234,7 +246,7 @@ class AdminShopMenuView(SafeView):
             prompt += f"\nCurrent: `{current[:80]}{'…' if len(current) > 80 else ''}`"
         prompt += "\nType `cancel` to abort."
         await interaction.followup.send(prompt, ephemeral=True)
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
@@ -249,10 +261,10 @@ class AdminShopMenuView(SafeView):
             await guns_cog._save_state(latest)
         await interaction.followup.send(f"✅ Gun sheet URL updated.", ephemeral=True)
 
-    @discord.ui.button(label="Set CW Sheet", style=discord.ButtonStyle.secondary, emoji="💉", row=4)
+    @discord.ui.button(label="Set CW Sheet", style=discord.ButtonStyle.secondary, emoji="💉", row=4, custom_id="admin_shop:set_cw_sheet")
     async def set_cw_sheet(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
+        cw_cog = interaction.client.get_cog("CyberwareShop")
         if not cw_cog:
             await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
             return
@@ -263,7 +275,7 @@ class AdminShopMenuView(SafeView):
             prompt += f"\nCurrent: `{current[:80]}{'…' if len(current) > 80 else ''}`"
         prompt += "\nType `cancel` to abort."
         await interaction.followup.send(prompt, ephemeral=True)
-        text = await collect_text_input(self.cog.bot, interaction.channel_id, interaction.user.id)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
             return
@@ -277,11 +289,11 @@ class AdminShopMenuView(SafeView):
             await cw_cog._save_state(cw_state)
         await interaction.followup.send(f"✅ Cyberware sheet URL updated.", ephemeral=True)
 
-    @discord.ui.button(label="Reload Sheets", style=discord.ButtonStyle.success, emoji="🔄", row=4)
+    @discord.ui.button(label="Reload Sheets", style=discord.ButtonStyle.success, emoji="🔄", row=4, custom_id="admin_shop:reload_sheets")
     async def reload_sheets(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         results = []
-        guns_cog = self.cog.bot.cogs.get("GunsShopCog")
+        guns_cog = interaction.client.get_cog("GunsShopCog")
         if guns_cog:
             try:
                 guns = await guns_cog._load_master_guns()
@@ -291,7 +303,7 @@ class AdminShopMenuView(SafeView):
                 results.append(f"🔫 Gun catalog reload failed: {e}")
         else:
             results.append("🔫 Gun shop system unavailable")
-        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
+        cw_cog = interaction.client.get_cog("CyberwareShop")
         if cw_cog:
             try:
                 cw_state = await cw_cog._load_state()
@@ -870,6 +882,8 @@ class WholesaleClearConfirmView(SafeView):
 class AdminShopCog(commands.Cog, name="AdminShop"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._panel_view = AdminShopMenuView()
+        bot.add_view(self._panel_view)
 
     async def _audit_channel(self) -> Optional[discord.TextChannel]:
         ch_id = getattr(config, "NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
@@ -900,20 +914,9 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
                 return None
         return member
 
-    @commands.hybrid_command(name="admin", aliases=["admin_shop"])
-    @commands.check_any(is_fixer(), commands.has_permissions(administrator=True))
-    @commands.max_concurrency(1, per=commands.BucketType.user)
-    @commands.cooldown(1, 5, commands.BucketType.user)
-    async def admin_shop(self, ctx: commands.Context):
-        """Open the Admin Shop management panel.
-
-        Actions: Add/Remove items, Reassign, Item history lookup, Player inventory lookup.
-        """
-        if not ctx.guild:
-            await ctx.send("This command can only be used in the server.")
-            return
-
-        embed = discord.Embed(
+    @staticmethod
+    def _panel_embed() -> discord.Embed:
+        return discord.Embed(
             title="🔧 Admin Shop Panel",
             description=(
                 "Choose an admin action below.\n\n"
@@ -932,14 +935,19 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
             ),
             color=discord.Color.orange(),
         )
-        embed.set_footer(text=f"Admin: {ctx.author.display_name}")
 
-        view = AdminShopMenuView(self, ctx)
-        if ctx.interaction:
-            msg = await ctx.send(embed=embed, view=view, ephemeral=True)
-        else:
-            msg = await ctx.send(embed=embed, view=view, delete_after=120)
-        view.message = msg
+    @commands.hybrid_command(name="admin", aliases=["admin_shop"])
+    @commands.has_permissions(administrator=True)
+    @commands.cooldown(1, 5, commands.BucketType.user)
+    async def admin_shop(self, ctx: commands.Context):
+        """Post (or refresh) the persistent Admin Shop panel in the designated channel."""
+        channel = self.bot.get_channel(config.ADMIN_HUB_CHANNEL_ID)
+        if channel is None:
+            await ctx.send("❌ Admin hub channel not found.", ephemeral=True)
+            return
+        view = AdminShopMenuView()
+        await channel.send(embed=self._panel_embed(), view=view)
+        await ctx.send("✅ Admin Shop panel posted.", ephemeral=True)
         try:
             await ctx.message.delete()
         except Exception:

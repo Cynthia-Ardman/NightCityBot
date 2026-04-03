@@ -25,34 +25,33 @@ from NightCityBot.utils.db import (
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active
 from NightCityBot.utils.inline_helpers import collect_text_input, QtySelectView
 from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
+from NightCityBot.utils.panel_context import PanelContext
 
 logger = logging.getLogger(__name__)
 
 
 class RipperdocMenuView(SafeView):
-    def __init__(self, cog: "RipperdocHub", ctx: commands.Context):
-        super().__init__(timeout=120)
-        self.cog = cog
-        self.ctx = ctx
-        self.message: Optional[discord.Message] = None
+    def __init__(self):
+        super().__init__(timeout=None)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            guild = interaction.client.get_guild(config.GUILD_ID)
+            if guild:
+                member = guild.get_member(interaction.user.id)
+        if member is None:
+            await interaction.response.send_message("Could not verify your role.", ephemeral=True)
+            return False
+        if not (any(r.id == config.RIPPERDOC_ROLE_ID for r in member.roles) or member.guild_permissions.administrator):
+            await interaction.response.send_message("This panel is for Ripperdocs only.", ephemeral=True)
             return False
         return True
 
-    async def on_timeout(self):
-        if self.message:
-            try:
-                await self.message.edit(view=None)
-            except Exception:
-                pass
-
-    @discord.ui.button(label="Buy from Wholesale", style=discord.ButtonStyle.primary, emoji="🛒", row=0)
+    @discord.ui.button(label="Buy from Wholesale", style=discord.ButtonStyle.primary, emoji="🛒", row=0, custom_id="ripperdoc:buy_wholesale")
     async def buy_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
+        cw_cog = interaction.client.get_cog("CyberwareShop")
         if not cw_cog:
             await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
             return
@@ -62,30 +61,26 @@ class RipperdocMenuView(SafeView):
         if not available:
             await interaction.followup.send("No wholesale stock available this week.", ephemeral=True)
             return
-        options = []
-        for i, lot in enumerate(available[:25]):
-            label = f"{lot['item_name']} — ${int(lot['unit_cost']):,} (×{lot['qty_available']})"
-            options.append(discord.SelectOption(
-                label=label[:100],
-                value=str(i),
-                description=f"Lot: {lot.get('lot_id', '?')}"[:100],
-            ))
-        view = WholesaleBuySelect(self.cog, self.ctx, available, cw_cog)
+        cog = interaction.client.get_cog("RipperdocHub")
+        ctx = PanelContext(interaction)
+        view = WholesaleBuySelect(cog, ctx, available, cw_cog)
         await interaction.followup.send("Select an item to buy:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="Sell to Patient", style=discord.ButtonStyle.success, emoji="💉", row=0)
+    @discord.ui.button(label="Sell to Patient", style=discord.ButtonStyle.success, emoji="💉", row=0, custom_id="ripperdoc:sell_patient")
     async def sell_to_patient(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
+        cw_cog = interaction.client.get_cog("CyberwareShop")
         if not cw_cog:
             await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
             return
-        inventory = await cw_cog._load_inventory(self.ctx.author.id)
+        inventory = await cw_cog._load_inventory(interaction.user.id)
         if not inventory:
             await interaction.followup.send("Your cyberware stock is empty. Buy from wholesale first.", ephemeral=True)
             return
         groups = cw_cog._grouped_inventory(inventory)
-        view = SellSetupView(self.cog, self.ctx, groups, mode="sell")
+        cog = interaction.client.get_cog("RipperdocHub")
+        ctx = PanelContext(interaction)
+        view = SellSetupView(cog, ctx, groups, mode="sell")
         msg = "**Step 1** — Select the patient and the item to sell:"
         if view.truncated:
             msg += (
@@ -94,19 +89,21 @@ class RipperdocMenuView(SafeView):
             )
         await interaction.followup.send(msg, view=view, ephemeral=True)
 
-    @discord.ui.button(label="Install on Patient", style=discord.ButtonStyle.success, emoji="🔧", row=0)
+    @discord.ui.button(label="Install on Patient", style=discord.ButtonStyle.success, emoji="🔧", row=0, custom_id="ripperdoc:install_patient")
     async def install_on_patient(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
+        cw_cog = interaction.client.get_cog("CyberwareShop")
         if not cw_cog:
             await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
             return
-        inventory = await cw_cog._load_inventory(self.ctx.author.id)
+        inventory = await cw_cog._load_inventory(interaction.user.id)
         if not inventory:
             await interaction.followup.send("Your cyberware stock is empty. Buy from wholesale first.", ephemeral=True)
             return
         groups = cw_cog._grouped_inventory(inventory)
-        view = SellSetupView(self.cog, self.ctx, groups, mode="install")
+        cog = interaction.client.get_cog("RipperdocHub")
+        ctx = PanelContext(interaction)
+        view = SellSetupView(cog, ctx, groups, mode="install")
         msg = "**Step 1** — Select the patient and the item to install:"
         if view.truncated:
             msg += (
@@ -115,14 +112,14 @@ class RipperdocMenuView(SafeView):
             )
         await interaction.followup.send(msg, view=view, ephemeral=True)
 
-    @discord.ui.button(label="My Stock", style=discord.ButtonStyle.secondary, emoji="📦", row=1)
+    @discord.ui.button(label="My Stock", style=discord.ButtonStyle.secondary, emoji="📦", row=1, custom_id="ripperdoc:my_stock")
     async def view_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
+        cw_cog = interaction.client.get_cog("CyberwareShop")
         if not cw_cog:
             await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
             return
-        inventory = await cw_cog._load_inventory(self.ctx.author.id)
+        inventory = await cw_cog._load_inventory(interaction.user.id)
         if not inventory:
             await interaction.followup.send("Your cyberware stock is empty.", ephemeral=True)
             return
@@ -132,17 +129,17 @@ class RipperdocMenuView(SafeView):
             qty_str = f" ×{g['count']}" if g["count"] > 1 else ""
             lines.append(f"`{i}.` **{g['name']}**{qty_str}")
         embed = discord.Embed(
-            title=f"📦 {self.ctx.author.display_name}'s CW Stock",
+            title=f"📦 {interaction.user.display_name}'s CW Stock",
             description="\n".join(lines[:30]),
             color=discord.Color.teal(),
         )
         embed.set_footer(text=f"{len(inventory)} item(s) total")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=1)
+    @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=1, custom_id="ripperdoc:wholesale_list")
     async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
+        cw_cog = interaction.client.get_cog("CyberwareShop")
         if not cw_cog:
             await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
             return
@@ -797,6 +794,8 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.unbelievaboat = bot.unbelievaboat
+        self._panel_view = RipperdocMenuView()
+        bot.add_view(self._panel_view)
 
     async def _log_channel(self) -> Optional[discord.TextChannel]:
         ch_id = getattr(config, "CYBERWARE_LOG_CHANNEL_ID", 0)
@@ -828,20 +827,9 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
                 return None
         return member
 
-    @commands.hybrid_command(name="ripperdoc")
-    @is_ripperdoc()
-    @commands.max_concurrency(1, per=commands.BucketType.user)
-    @commands.cooldown(1, 5, commands.BucketType.user)
-    async def ripperdoc_hub(self, ctx: commands.Context):
-        """Open the Ripperdoc interactive shop panel.
-
-        Actions: Buy from wholesale, Sell to patient, Install, View stock.
-        """
-        if not ctx.guild:
-            await ctx.send("This command can only be used in the server.")
-            return
-
-        embed = discord.Embed(
+    @staticmethod
+    def _panel_embed() -> discord.Embed:
+        return discord.Embed(
             title="💉 Ripperdoc Shop",
             description=(
                 "Welcome, Ripperdoc. Choose an action below.\n\n"
@@ -853,14 +841,19 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
             ),
             color=discord.Color.teal(),
         )
-        embed.set_footer(text=f"Ripperdoc: {ctx.author.display_name}")
 
-        view = RipperdocMenuView(self, ctx)
-        if ctx.interaction:
-            msg = await ctx.send(embed=embed, view=view, ephemeral=True)
-        else:
-            msg = await ctx.send(embed=embed, view=view, delete_after=120)
-        view.message = msg
+    @commands.hybrid_command(name="ripperdoc")
+    @commands.has_permissions(administrator=True)
+    @commands.cooldown(1, 5, commands.BucketType.user)
+    async def ripperdoc_hub(self, ctx: commands.Context):
+        """Post (or refresh) the persistent Ripperdoc panel in the designated channel."""
+        channel = self.bot.get_channel(config.RIPPERDOC_HUB_CHANNEL_ID)
+        if channel is None:
+            await ctx.send("❌ Ripperdoc hub channel not found.", ephemeral=True)
+            return
+        view = RipperdocMenuView()
+        await channel.send(embed=self._panel_embed(), view=view)
+        await ctx.send("✅ Ripperdoc panel posted.", ephemeral=True)
         try:
             await ctx.message.delete()
         except Exception:

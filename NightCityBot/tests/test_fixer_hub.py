@@ -50,12 +50,15 @@ def _ctx(author_id=111, guild=True, admin=False):
     return ctx
 
 
-def _make_interaction(user_id=111):
+def _make_interaction(user_id=111, cog=None, roles=None, admin=False):
     inter = MagicMock(spec=discord.Interaction)
     inter.user = MagicMock(spec=discord.Member)
     inter.user.id = user_id
     inter.user.display_name = f"User{user_id}"
     inter.user.mention = f"<@{user_id}>"
+    inter.user.roles = roles or []
+    inter.user.guild_permissions = MagicMock()
+    inter.user.guild_permissions.administrator = admin
     inter.response = MagicMock()
     inter.response.defer = AsyncMock()
     inter.response.send_message = AsyncMock()
@@ -66,6 +69,9 @@ def _make_interaction(user_id=111):
     inter.guild.id = 999
     inter.guild.get_member = MagicMock(return_value=None)
     inter.guild.fetch_member = AsyncMock(return_value=None)
+    inter.client = MagicMock()
+    inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "FixerHub" else None)
+    inter.client.get_guild = MagicMock(return_value=inter.guild)
     return inter
 
 
@@ -108,78 +114,78 @@ def _run(coro):
 
 
 class TestFixerCommand:
-    def test_dm_guard(self):
+    def test_channel_not_found(self):
         cog = _make_cog()
-        ctx = _ctx(guild=False)
+        cog.bot.get_channel = MagicMock(return_value=None)
+        ctx = _ctx(admin=True)
         _run(cog.fixer.callback(cog, ctx))
         ctx.send.assert_called_once()
-        assert "server" in ctx.send.call_args[0][0].lower()
+        assert "not found" in ctx.send.call_args[0][0].lower()
 
-    def test_opens_top_view(self):
+    def test_posts_panel_to_channel(self):
         cog = _make_cog()
-        ctx = _ctx()
+        channel = MagicMock()
+        channel.send = AsyncMock()
+        cog.bot.get_channel = MagicMock(return_value=channel)
+        ctx = _ctx(admin=True)
+        ctx.message = MagicMock()
+        ctx.message.delete = AsyncMock()
         _run(cog.fixer.callback(cog, ctx))
-        ctx.send.assert_called_once()
-        kwargs = ctx.send.call_args.kwargs
+        channel.send.assert_called_once()
+        kwargs = channel.send.call_args.kwargs
         assert isinstance(kwargs["view"], FixerTopView)
-        assert "Fixer Panel" in kwargs["embed"].title
 
 
 class TestTopViewNavigation:
-    def test_player_button_edits(self):
+    def test_player_button_sends_ephemeral(self):
         async def _test():
             cog = _make_cog()
-            ctx = _ctx()
-            view = FixerTopView(cog, ctx)
-            inter = _make_interaction()
+            view = FixerTopView()
+            inter = _make_interaction(cog=cog, admin=True)
             btn = _find_button(view, "Player")
             await btn.callback(inter)
-            inter.response.edit_message.assert_called_once()
-            kwargs = inter.response.edit_message.call_args.kwargs
+            inter.response.send_message.assert_called_once()
+            kwargs = inter.response.send_message.call_args.kwargs
             assert isinstance(kwargs["view"], PlayerSubView)
         _run(_test())
 
-    def test_store_button_edits(self):
+    def test_store_button_sends_ephemeral(self):
         async def _test():
             cog = _make_cog()
-            ctx = _ctx()
-            view = FixerTopView(cog, ctx)
-            inter = _make_interaction()
+            view = FixerTopView()
+            inter = _make_interaction(cog=cog, admin=True)
             btn = _find_button(view, "Store")
             await btn.callback(inter)
-            inter.response.edit_message.assert_called_once()
-            kwargs = inter.response.edit_message.call_args.kwargs
+            inter.response.send_message.assert_called_once()
+            kwargs = inter.response.send_message.call_args.kwargs
             assert isinstance(kwargs["view"], StoreSubView)
         _run(_test())
 
-    def test_wholesaler_button_edits(self):
+    def test_wholesaler_button_sends_ephemeral(self):
         async def _test():
             cog = _make_cog()
-            ctx = _ctx()
-            view = FixerTopView(cog, ctx)
-            inter = _make_interaction()
+            view = FixerTopView()
+            inter = _make_interaction(cog=cog, admin=True)
             btn = _find_button(view, "Wholesaler")
             await btn.callback(inter)
-            inter.response.edit_message.assert_called_once()
-            kwargs = inter.response.edit_message.call_args.kwargs
+            inter.response.send_message.assert_called_once()
+            kwargs = inter.response.send_message.call_args.kwargs
             assert isinstance(kwargs["view"], WholesalerSubView)
         _run(_test())
 
-    def test_interaction_check_owner(self):
+    def test_interaction_check_admin(self):
         async def _test():
-            cog = _make_cog()
-            ctx = _ctx(author_id=111)
-            view = FixerTopView(cog, ctx)
-            inter = _make_interaction(user_id=111)
+            view = FixerTopView()
+            inter = _make_interaction(user_id=111, admin=True)
+            inter.guild.get_member = MagicMock(return_value=inter.user)
             assert await view.interaction_check(inter)
         _run(_test())
 
-    def test_interaction_check_other(self):
+    def test_interaction_check_no_role(self):
         async def _test():
-            cog = _make_cog()
-            ctx = _ctx(author_id=111)
-            view = FixerTopView(cog, ctx)
-            inter = _make_interaction(user_id=222)
+            view = FixerTopView()
+            inter = _make_interaction(user_id=222, admin=False)
+            inter.guild.get_member = MagicMock(return_value=inter.user)
             assert not await view.interaction_check(inter)
         _run(_test())
 
@@ -189,8 +195,7 @@ class TestPlayerSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = PlayerSubView(cog, ctx, parent)
+            view = PlayerSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "View Inventory")
             await btn.callback(inter)
@@ -203,8 +208,7 @@ class TestPlayerSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = PlayerSubView(cog, ctx, parent)
+            view = PlayerSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "Add Item")
             await btn.callback(inter)
@@ -216,8 +220,7 @@ class TestPlayerSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = PlayerSubView(cog, ctx, parent)
+            view = PlayerSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "Remove Item")
             await btn.callback(inter)
@@ -231,8 +234,7 @@ class TestPlayerSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = PlayerSubView(cog, ctx, parent)
+            view = PlayerSubView(cog, ctx)
             inter = _make_interaction()
             inter.channel_id = 123
             btn = _find_button(view, "Reassign Item")
@@ -245,8 +247,7 @@ class TestPlayerSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = PlayerSubView(cog, ctx, parent)
+            view = PlayerSubView(cog, ctx)
             inter = _make_interaction()
             inter.channel_id = 123
             btn = _find_button(view, "Item History")
@@ -258,8 +259,7 @@ class TestPlayerSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = PlayerSubView(cog, ctx, parent)
+            view = PlayerSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "Start LOA")
             await btn.callback(inter)
@@ -273,30 +273,25 @@ class TestPlayerSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = PlayerSubView(cog, ctx, parent)
+            view = PlayerSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "End LOA")
             await btn.callback(inter)
             kwargs = inter.followup.send.call_args.kwargs
             picker = kwargs["view"]
-            assert isinstance(picker, LOAPickerView)
+            assert isinstance(kwargs["view"], LOAPickerView)
             assert picker.action == "end"
         _run(_test())
 
-    def test_back_button(self):
+    def test_done_button(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            parent.message = MagicMock()
-            view = PlayerSubView(cog, ctx, parent)
+            view = PlayerSubView(cog, ctx)
             inter = _make_interaction()
-            btn = _find_button(view, "← Back")
+            btn = _find_button(view, "Done")
             await btn.callback(inter)
             inter.response.edit_message.assert_called_once()
-            kwargs = inter.response.edit_message.call_args.kwargs
-            assert isinstance(kwargs["view"], FixerTopView)
         _run(_test())
 
 
@@ -305,8 +300,7 @@ class TestStoreSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = StoreSubView(cog, ctx, parent)
+            view = StoreSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "View Gun Store")
             await btn.callback(inter)
@@ -320,8 +314,7 @@ class TestStoreSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = StoreSubView(cog, ctx, parent)
+            view = StoreSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "View CW Store")
             await btn.callback(inter)
@@ -335,8 +328,7 @@ class TestStoreSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = StoreSubView(cog, ctx, parent)
+            view = StoreSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "Add to Gun Store")
             await btn.callback(inter)
@@ -348,8 +340,7 @@ class TestStoreSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = StoreSubView(cog, ctx, parent)
+            view = StoreSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "Remove from Gun Store")
             await btn.callback(inter)
@@ -357,19 +348,15 @@ class TestStoreSubViewButtons:
             assert isinstance(kwargs["view"], StoreRemovePickerView)
         _run(_test())
 
-    def test_back_button(self):
+    def test_done_button(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            parent.message = MagicMock()
-            view = StoreSubView(cog, ctx, parent)
+            view = StoreSubView(cog, ctx)
             inter = _make_interaction()
-            btn = _find_button(view, "← Back")
+            btn = _find_button(view, "Done")
             await btn.callback(inter)
             inter.response.edit_message.assert_called_once()
-            kwargs = inter.response.edit_message.call_args.kwargs
-            assert isinstance(kwargs["view"], FixerTopView)
         _run(_test())
 
 
@@ -378,8 +365,7 @@ class TestWholesalerSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = WholesalerSubView(cog, ctx, parent)
+            view = WholesalerSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "View Stock")
             await btn.callback(inter)
@@ -398,8 +384,7 @@ class TestWholesalerSubViewButtons:
             })
             cog.bot.cogs["GunsShopCog"] = guns_cog
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = WholesalerSubView(cog, ctx, parent)
+            view = WholesalerSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "View Stock")
             await btn.callback(inter)
@@ -413,8 +398,7 @@ class TestWholesalerSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = WholesalerSubView(cog, ctx, parent)
+            view = WholesalerSubView(cog, ctx)
             inter = _make_interaction()
             inter.channel_id = 123
             btn = _find_button(view, "Add Gun")
@@ -427,8 +411,7 @@ class TestWholesalerSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = WholesalerSubView(cog, ctx, parent)
+            view = WholesalerSubView(cog, ctx)
             inter = _make_interaction()
             inter.channel_id = 123
             btn = _find_button(view, "Add CW")
@@ -441,8 +424,7 @@ class TestWholesalerSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = WholesalerSubView(cog, ctx, parent)
+            view = WholesalerSubView(cog, ctx)
             inter = _make_interaction()
             inter.channel_id = 123
             btn = _find_button(view, "Remove Lot")
@@ -454,8 +436,7 @@ class TestWholesalerSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = WholesalerSubView(cog, ctx, parent)
+            view = WholesalerSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "Restock Guns")
             await btn.callback(inter)
@@ -466,27 +447,22 @@ class TestWholesalerSubViewButtons:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            view = WholesalerSubView(cog, ctx, parent)
+            view = WholesalerSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "Restock CW")
             await btn.callback(inter)
             inter.followup.send.assert_called_once()
         _run(_test())
 
-    def test_back_button(self):
+    def test_done_button(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            parent = FixerTopView(cog, ctx)
-            parent.message = MagicMock()
-            view = WholesalerSubView(cog, ctx, parent)
+            view = WholesalerSubView(cog, ctx)
             inter = _make_interaction()
-            btn = _find_button(view, "← Back")
+            btn = _find_button(view, "Done")
             await btn.callback(inter)
             inter.response.edit_message.assert_called_once()
-            kwargs = inter.response.edit_message.call_args.kwargs
-            assert isinstance(kwargs["view"], FixerTopView)
         _run(_test())
 
 

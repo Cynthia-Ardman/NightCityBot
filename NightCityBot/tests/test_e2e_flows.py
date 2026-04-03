@@ -129,6 +129,9 @@ def _make_interaction(user_id=100, guild_id=999):
     inter.channel_id = 12345
     inter.data = {}
     inter.edit_original_response = AsyncMock()
+    inter.client = MagicMock()
+    inter.client.get_cog = MagicMock(return_value=None)
+    inter.client.get_guild = MagicMock(return_value=inter.guild)
     return inter
 
 
@@ -184,15 +187,14 @@ class TestFlowA_FixerAddItem:
             bot = _make_bot()
             cog = FixerHubCog.__new__(FixerHubCog)
             cog.bot = bot
-            ctx = _make_ctx(author_id=100)
 
-            top_view = FixerTopView(cog, ctx)
+            top_view = FixerTopView()
             inter = _make_interaction(user_id=100)
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "FixerHub" else None)
             player_btn = _find_button(top_view, "Player")
             await player_btn.callback(inter)
 
-            assert top_view.is_finished(), "Parent FixerTopView must be stopped before transitioning"
-            sub_view = inter.response.edit_message.call_args[1]["view"]
+            sub_view = inter.response.send_message.call_args[1]["view"]
             assert isinstance(sub_view, PlayerSubView)
 
             inter2 = _make_interaction(user_id=100)
@@ -240,43 +242,29 @@ class TestFlowA_FixerAddItem:
         _run(_test())
 
 
-class TestFlowB_FixerBackButton:
-    """Flow B: Fixer Top -> Player -> Back -> Player (view lifecycle)."""
+class TestFlowB_FixerDoneButton:
+    """Flow B: Fixer Top -> Player -> Done (persistent view lifecycle)."""
 
-    def test_back_creates_fresh_parent(self):
+    def test_done_dismisses_sub_view(self):
         async def _test():
             bot = _make_bot()
             cog = FixerHubCog.__new__(FixerHubCog)
             cog.bot = bot
-            ctx = _make_ctx(author_id=100)
 
-            top_view = FixerTopView(cog, ctx)
-            top_view.message = MagicMock()
-
+            top_view = FixerTopView()
             inter1 = _make_interaction(user_id=100)
+            inter1.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "FixerHub" else None)
             player_btn = _find_button(top_view, "Player")
             await player_btn.callback(inter1)
-            assert top_view.is_finished(), "Parent must stop() before transitioning"
 
-            sub_view = inter1.response.edit_message.call_args[1]["view"]
+            sub_view = inter1.response.send_message.call_args[1]["view"]
             assert isinstance(sub_view, PlayerSubView)
 
             inter2 = _make_interaction(user_id=100)
-            back_btn = _find_button(sub_view, "← Back")
-            await back_btn.callback(inter2)
-            assert sub_view.is_finished(), "Sub-view must stop() when going back"
-
-            new_top = inter2.response.edit_message.call_args[1]["view"]
-            assert isinstance(new_top, FixerTopView)
-            assert new_top is not top_view, "Back button must create a FRESH FixerTopView"
-            assert new_top.message is top_view.message, "New parent must inherit message reference"
-
-            inter3 = _make_interaction(user_id=100)
-            player_btn2 = _find_button(new_top, "Player")
-            await player_btn2.callback(inter3)
-            assert new_top.is_finished()
-            sub_view2 = inter3.response.edit_message.call_args[1]["view"]
-            assert isinstance(sub_view2, PlayerSubView)
+            done_btn = _find_button(sub_view, "Done")
+            await done_btn.callback(inter2)
+            inter2.response.edit_message.assert_called_once()
+            assert sub_view.is_finished(), "Sub-view must stop() when Done is clicked"
 
         _run(_test())
 
@@ -709,12 +697,12 @@ class TestFlowH_AdminAddItem:
             bot = _make_bot()
             cog = AdminShopCog.__new__(AdminShopCog)
             cog.bot = bot
-            ctx = _make_ctx(author_id=100, admin=True)
 
-            menu_view = AdminShopMenuView(cog, ctx)
+            menu_view = AdminShopMenuView()
             add_btn = _find_button(menu_view, "Add Item")
 
             inter1 = _make_interaction(user_id=100)
+            inter1.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
             await add_btn.callback(inter1)
             picker_view = inter1.followup.send.call_args[1]["view"]
             assert isinstance(picker_view, AdminAddItemPickerView)

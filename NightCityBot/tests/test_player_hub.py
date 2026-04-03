@@ -71,7 +71,7 @@ def _make_ctx(author_id=100, guild_id=999):
     return ctx
 
 
-def _make_interaction(user_id=100, guild_id=999):
+def _make_interaction(user_id=100, guild_id=999, cog=None, inv_cog=None):
     inter = MagicMock()
     inter.response = MagicMock()
     inter.response.defer = AsyncMock()
@@ -86,6 +86,17 @@ def _make_interaction(user_id=100, guild_id=999):
     inter.user.id = user_id
     inter.user.display_name = "TestPlayer"
     inter.user.mention = f"<@{user_id}>"
+    inter.client = MagicMock()
+
+    def _get_cog(name):
+        if name == "PlayerHub" and cog is not None:
+            return cog
+        if name == "PlayerInventory" and inv_cog is not None:
+            return inv_cog
+        if name == "SystemControl":
+            return None
+        return None
+    inter.client.get_cog = MagicMock(side_effect=_get_cog)
     return inter
 
 
@@ -133,10 +144,13 @@ def test_player_cmd_sends_hub():
     async def _test():
         cog = _make_cog()
         ctx = _make_ctx()
+        channel = MagicMock()
+        channel.send = AsyncMock()
+        cog.bot.get_channel = MagicMock(return_value=channel)
         await PlayerHubCog.player_cmd(cog, ctx)
-        ctx.send.assert_called_once()
-        call_kwargs = ctx.send.call_args
-        assert "embed" in call_kwargs.kwargs or len(call_kwargs.args) > 0
+        channel.send.assert_called_once()
+        call_kwargs = channel.send.call_args
+        assert "embed" in call_kwargs.kwargs
         assert "view" in call_kwargs.kwargs
     _run(_test())
 
@@ -145,9 +159,9 @@ def test_player_cmd_no_guild():
     async def _test():
         cog = _make_cog()
         ctx = _make_ctx()
-        ctx.guild = None
+        cog.bot.get_channel = MagicMock(return_value=None)
         await PlayerHubCog.player_cmd(cog, ctx)
-        assert "server" in ctx.send.call_args[0][0].lower()
+        assert ctx.send.called
     _run(_test())
 
 
@@ -162,24 +176,20 @@ def test_helpplayer():
 
 # --- View tests ---
 
-def test_hub_view_interaction_check():
+def test_hub_view_no_owner_check():
     async def _test():
-        cog = _make_cog()
-        ctx = _make_ctx(author_id=100)
-        view = PlayerHubView(cog, ctx)
-        inter_ok = _make_interaction(user_id=100)
-        inter_bad = _make_interaction(user_id=999)
-        assert await view.interaction_check(inter_ok) is True
-        assert await view.interaction_check(inter_bad) is False
+        view = PlayerHubView()
+        inter_any = _make_interaction(user_id=999)
+        assert await view.interaction_check(inter_any) is True
     _run(_test())
 
 
 def test_view_inv_empty():
     async def _test():
         cog = _make_cog()
-        ctx = _make_ctx()
-        view = PlayerHubView(cog, ctx)
-        inter = _make_interaction()
+        inv_cog = _make_inv_cog()
+        view = PlayerHubView()
+        inter = _make_interaction(cog=cog, inv_cog=inv_cog)
         btn = _find_button(view, "View Inventory")
         with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=[]):
             await btn.callback(inter)
@@ -192,11 +202,11 @@ def test_view_inv_system_disabled():
         cog = _make_cog()
         control = MagicMock()
         control.is_enabled = MagicMock(return_value=False)
-        cog.bot.cogs["SystemControl"] = control
         cog.bot.get_cog = MagicMock(return_value=control)
-        ctx = _make_ctx()
-        view = PlayerHubView(cog, ctx)
+        view = PlayerHubView()
         inter = _make_interaction()
+        inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "PlayerHub" else None)
+        cog._inv_system_enabled = MagicMock(return_value=False)
         btn = _find_button(view, "View Inventory")
         await btn.callback(inter)
         assert "offline" in inter.followup.send.call_args[0][0].lower()
@@ -207,11 +217,8 @@ def test_view_inv_shows_items():
     async def _test():
         cog = _make_cog()
         inv_cog = _make_inv_cog()
-        cog.bot.cogs["PlayerInventory"] = inv_cog
-        cog.bot.get_cog = MagicMock(return_value=None)
-        ctx = _make_ctx()
-        view = PlayerHubView(cog, ctx)
-        inter = _make_interaction()
+        view = PlayerHubView()
+        inter = _make_interaction(cog=cog, inv_cog=inv_cog)
         btn = _find_button(view, "View Inventory")
         with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=SAMPLE_ITEMS):
             await btn.callback(inter)
@@ -225,11 +232,8 @@ def test_trade_button_opens_setup():
     async def _test():
         cog = _make_cog()
         inv_cog = _make_inv_cog()
-        cog.bot.cogs["PlayerInventory"] = inv_cog
-        cog.bot.get_cog = MagicMock(return_value=None)
-        ctx = _make_ctx()
-        view = PlayerHubView(cog, ctx)
-        inter = _make_interaction()
+        view = PlayerHubView()
+        inter = _make_interaction(cog=cog, inv_cog=inv_cog)
         btn = _find_button(view, "Trade Item")
         with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=SAMPLE_ITEMS):
             await btn.callback(inter)
@@ -243,11 +247,8 @@ def test_trade_button_empty_inv():
     async def _test():
         cog = _make_cog()
         inv_cog = _make_inv_cog()
-        cog.bot.cogs["PlayerInventory"] = inv_cog
-        cog.bot.get_cog = MagicMock(return_value=None)
-        ctx = _make_ctx()
-        view = PlayerHubView(cog, ctx)
-        inter = _make_interaction()
+        view = PlayerHubView()
+        inter = _make_interaction(cog=cog, inv_cog=inv_cog)
         btn = _find_button(view, "Trade Item")
         with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=[]):
             await btn.callback(inter)
@@ -259,11 +260,8 @@ def test_give_button_opens_setup():
     async def _test():
         cog = _make_cog()
         inv_cog = _make_inv_cog()
-        cog.bot.cogs["PlayerInventory"] = inv_cog
-        cog.bot.get_cog = MagicMock(return_value=None)
-        ctx = _make_ctx()
-        view = PlayerHubView(cog, ctx)
-        inter = _make_interaction()
+        view = PlayerHubView()
+        inter = _make_interaction(cog=cog, inv_cog=inv_cog)
         btn = _find_button(view, "Give Item")
         with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=SAMPLE_ITEMS):
             await btn.callback(inter)
@@ -277,11 +275,8 @@ def test_give_button_empty_inv():
     async def _test():
         cog = _make_cog()
         inv_cog = _make_inv_cog()
-        cog.bot.cogs["PlayerInventory"] = inv_cog
-        cog.bot.get_cog = MagicMock(return_value=None)
-        ctx = _make_ctx()
-        view = PlayerHubView(cog, ctx)
-        inter = _make_interaction()
+        view = PlayerHubView()
+        inter = _make_interaction(cog=cog, inv_cog=inv_cog)
         btn = _find_button(view, "Give Item")
         with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=[]):
             await btn.callback(inter)
@@ -774,12 +769,9 @@ def test_trade_confirm_view_decline():
 def test_trade_button_system_disabled():
     async def _test():
         cog = _make_cog()
-        control = MagicMock()
-        control.is_enabled = MagicMock(return_value=False)
-        cog.bot.get_cog = MagicMock(return_value=control)
-        ctx = _make_ctx()
-        view = PlayerHubView(cog, ctx)
-        inter = _make_interaction()
+        cog._inv_system_enabled = MagicMock(return_value=False)
+        view = PlayerHubView()
+        inter = _make_interaction(cog=cog)
         btn = _find_button(view, "Trade Item")
         await btn.callback(inter)
         assert "offline" in inter.followup.send.call_args[0][0].lower()
@@ -789,12 +781,9 @@ def test_trade_button_system_disabled():
 def test_give_button_system_disabled():
     async def _test():
         cog = _make_cog()
-        control = MagicMock()
-        control.is_enabled = MagicMock(return_value=False)
-        cog.bot.get_cog = MagicMock(return_value=control)
-        ctx = _make_ctx()
-        view = PlayerHubView(cog, ctx)
-        inter = _make_interaction()
+        cog._inv_system_enabled = MagicMock(return_value=False)
+        view = PlayerHubView()
+        inter = _make_interaction(cog=cog)
         btn = _find_button(view, "Give Item")
         await btn.callback(inter)
         assert "offline" in inter.followup.send.call_args[0][0].lower()
@@ -827,9 +816,9 @@ class TestSellToStoreButton:
     def test_sell_to_store_button_no_active_chars(self):
         async def _test():
             cog = _make_cog()
-            ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
-            inter = _make_interaction()
+            inv_cog = _make_inv_cog()
+            view = PlayerHubView()
+            inter = _make_interaction(cog=cog, inv_cog=inv_cog)
             with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=[]):
                 btn = _find_button(view, "Sell to Store")
                 await btn.callback(inter)
@@ -839,9 +828,9 @@ class TestSellToStoreButton:
     def test_sell_to_store_button_no_items(self):
         async def _test():
             cog = _make_cog()
-            ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
-            inter = _make_interaction()
+            inv_cog = _make_inv_cog()
+            view = PlayerHubView()
+            inter = _make_interaction(cog=cog, inv_cog=inv_cog)
             with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_SELLER_CHARS), \
                  patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=[]):
                 btn = _find_button(view, "Sell to Store")
@@ -852,9 +841,9 @@ class TestSellToStoreButton:
     def test_sell_to_store_button_no_guns(self):
         async def _test():
             cog = _make_cog()
-            ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
-            inter = _make_interaction()
+            inv_cog = _make_inv_cog()
+            view = PlayerHubView()
+            inter = _make_interaction(cog=cog, inv_cog=inv_cog)
             non_gun_items = [{
                 "item_id": "uuid-1", "owner_id": "100", "character_name": "V",
                 "name": "Medkit", "item_type": "misc", "restriction": "basic",
@@ -872,10 +861,8 @@ class TestSellToStoreButton:
         async def _test():
             cog = _make_cog()
             inv_cog = _make_inv_cog()
-            cog.bot.cogs = {"PlayerInventory": inv_cog}
-            ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
-            inter = _make_interaction()
+            view = PlayerHubView()
+            inter = _make_interaction(cog=cog, inv_cog=inv_cog)
             with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_SELLER_CHARS), \
                  patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=SAMPLE_ITEMS):
                 btn = _find_button(view, "Sell to Store")
@@ -887,12 +874,9 @@ class TestSellToStoreButton:
     def test_sell_to_store_system_disabled(self):
         async def _test():
             cog = _make_cog()
-            control = MagicMock()
-            control.is_enabled = MagicMock(return_value=False)
-            cog.bot.get_cog = MagicMock(return_value=control)
-            ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
-            inter = _make_interaction()
+            cog._inv_system_enabled = MagicMock(return_value=False)
+            view = PlayerHubView()
+            inter = _make_interaction(cog=cog)
             btn = _find_button(view, "Sell to Store")
             await btn.callback(inter)
             assert "offline" in inter.followup.send.call_args[0][0].lower()
@@ -1345,14 +1329,12 @@ class TestCreateCharacterButton:
     def test_create_char_success(self):
         async def _test():
             cog = _make_cog()
-            cog.bot.wait_for = AsyncMock()
             msg_mock = MagicMock()
             msg_mock.content = "V"
             msg_mock.delete = AsyncMock()
-            cog.bot.wait_for.return_value = msg_mock
-            ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
-            inter = _make_interaction()
+            view = PlayerHubView()
+            inter = _make_interaction(cog=cog)
+            inter.client.wait_for = AsyncMock(return_value=msg_mock)
             inter.channel = MagicMock()
             inter.channel.id = 123
             btn = _find_button(view, "Create Character")
@@ -1368,10 +1350,9 @@ class TestCreateCharacterButton:
     def test_create_char_timeout(self):
         async def _test():
             cog = _make_cog()
-            cog.bot.wait_for = AsyncMock(side_effect=asyncio.TimeoutError)
-            ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
-            inter = _make_interaction()
+            view = PlayerHubView()
+            inter = _make_interaction(cog=cog)
+            inter.client.wait_for = AsyncMock(side_effect=asyncio.TimeoutError)
             inter.channel = MagicMock()
             inter.channel.id = 123
             btn = _find_button(view, "Create Character")
@@ -1386,10 +1367,9 @@ class TestCreateCharacterButton:
             msg_mock = MagicMock()
             msg_mock.content = ""
             msg_mock.delete = AsyncMock()
-            cog.bot.wait_for = AsyncMock(return_value=msg_mock)
-            ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
-            inter = _make_interaction()
+            view = PlayerHubView()
+            inter = _make_interaction(cog=cog)
+            inter.client.wait_for = AsyncMock(return_value=msg_mock)
             inter.channel = MagicMock()
             inter.channel.id = 123
             btn = _find_button(view, "Create Character")
@@ -1404,10 +1384,9 @@ class TestCreateCharacterButton:
             msg_mock = MagicMock()
             msg_mock.content = "A" * 65
             msg_mock.delete = AsyncMock()
-            cog.bot.wait_for = AsyncMock(return_value=msg_mock)
-            ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
-            inter = _make_interaction()
+            view = PlayerHubView()
+            inter = _make_interaction(cog=cog)
+            inter.client.wait_for = AsyncMock(return_value=msg_mock)
             inter.channel = MagicMock()
             inter.channel.id = 123
             btn = _find_button(view, "Create Character")
@@ -1422,10 +1401,9 @@ class TestCreateCharacterButton:
             msg_mock = MagicMock()
             msg_mock.content = "V"
             msg_mock.delete = AsyncMock()
-            cog.bot.wait_for = AsyncMock(return_value=msg_mock)
-            ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
-            inter = _make_interaction()
+            view = PlayerHubView()
+            inter = _make_interaction(cog=cog)
+            inter.client.wait_for = AsyncMock(return_value=msg_mock)
             inter.channel = MagicMock()
             inter.channel.id = 123
             btn = _find_button(view, "Create Character")
@@ -1445,7 +1423,7 @@ class TestManageCharactersView:
         async def _test():
             cog = _make_cog()
             ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
+            view = PlayerHubView()
             inter = _make_interaction()
             btn = _find_button(view, "Characters")
             await btn.callback(inter)
@@ -1462,7 +1440,7 @@ class TestManageCharactersView:
         async def _test():
             cog = _make_cog()
             ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
+            view = PlayerHubView()
             inter = _make_interaction()
             btn = _find_button(view, "Characters")
             await btn.callback(inter)
@@ -1476,7 +1454,7 @@ class TestManageCharactersView:
         async def _test():
             cog = _make_cog()
             ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
+            view = PlayerHubView()
             inter = _make_interaction()
             btn = _find_button(view, "Manage Characters")
             await btn.callback(inter)
@@ -1706,10 +1684,8 @@ class TestInventoryCharFilter:
         async def _test():
             cog = _make_cog()
             inv_cog = _make_inv_cog()
-            cog.bot.cogs["PlayerInventory"] = inv_cog
-            ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
-            inter = _make_interaction()
+            view = PlayerHubView()
+            inter = _make_interaction(cog=cog, inv_cog=inv_cog)
             with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=MULTI_CHAR_ITEMS):
                 btn = _find_button(view, "View Inventory")
                 await btn.callback(inter)
@@ -1721,10 +1697,8 @@ class TestInventoryCharFilter:
         async def _test():
             cog = _make_cog()
             inv_cog = _make_inv_cog()
-            cog.bot.cogs["PlayerInventory"] = inv_cog
-            ctx = _make_ctx()
-            view = PlayerHubView(cog, ctx)
-            inter = _make_interaction()
+            view = PlayerHubView()
+            inter = _make_interaction(cog=cog, inv_cog=inv_cog)
             with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=SAMPLE_ITEMS):
                 btn = _find_button(view, "View Inventory")
                 await btn.callback(inter)

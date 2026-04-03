@@ -30,6 +30,7 @@ from NightCityBot.utils.characters import (
     reactivate_character,
     character_name_exists,
 )
+from NightCityBot.utils.panel_context import PanelContext
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,8 @@ async def _route_log_channel(bot: commands.Bot, item_type: str) -> Optional[disc
 class PlayerHubCog(commands.Cog, name="PlayerHub"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._panel_view = PlayerHubView()
+        bot.add_view(self._panel_view)
 
     def _inv_system_enabled(self) -> bool:
         control = self.bot.get_cog("SystemControl")
@@ -90,25 +93,26 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
             return False
         return True
 
-    @commands.hybrid_command(name="player")
-    @commands.max_concurrency(1, per=commands.BucketType.user)
-    @commands.cooldown(1, 5, commands.BucketType.user)
-    async def player_cmd(self, ctx: commands.Context):
-        """Open the player hub — view inventory, trade items, give items."""
-        if not ctx.guild:
-            await ctx.send("❌ This command can only be used in the server.")
-            return
-        embed = discord.Embed(
+    @staticmethod
+    def _panel_embed() -> discord.Embed:
+        return discord.Embed(
             title="🎒 Player Hub",
             description="Manage your inventory, trade with other players, give items, or sell guns to a store.",
             color=discord.Color.blue(),
         )
-        view = PlayerHubView(self, ctx)
-        if ctx.interaction:
-            msg = await ctx.send(embed=embed, view=view, ephemeral=True)
-        else:
-            msg = await ctx.send(embed=embed, view=view, delete_after=120)
-        view.message = msg
+
+    @commands.hybrid_command(name="player")
+    @commands.has_permissions(administrator=True)
+    @commands.cooldown(1, 5, commands.BucketType.user)
+    async def player_cmd(self, ctx: commands.Context):
+        """Post (or refresh) the persistent Player Hub panel in the designated channel."""
+        channel = self.bot.get_channel(config.PLAYER_HUB_CHANNEL_ID)
+        if channel is None:
+            await ctx.send("❌ Player hub channel not found.", ephemeral=True)
+            return
+        view = PlayerHubView()
+        await channel.send(embed=self._panel_embed(), view=view)
+        await ctx.send("✅ Player Hub panel posted.", ephemeral=True)
         try:
             await ctx.message.delete()
         except Exception:
@@ -120,12 +124,13 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
         embed = discord.Embed(
             title="📘 Player Hub Help",
             description=(
-                "`!player` — open the interactive player panel.\n\n"
+                f"Head to <#{config.PLAYER_HUB_CHANNEL_ID}> and use the **Player Hub** panel.\n\n"
                 "From the panel you can:\n"
                 "• **View Inventory** — see all your items grouped by character\n"
                 "• **Trade Item** — sell an item to another player (with payment)\n"
                 "• **Give Item** — transfer an item for free\n"
                 "• **Sell to Store** — sell any gun to a gunstore owner\n"
+                "• **Create / Manage Characters** — create, deactivate, or reactivate characters"
             ),
             color=discord.Color.blue(),
         )
@@ -213,32 +218,28 @@ class InventoryCharFilterView(SafeView):
 
 
 class PlayerHubView(SafeView):
-    def __init__(self, cog: PlayerHubCog, ctx: commands.Context):
-        super().__init__(timeout=120)
-        self.cog = cog
-        self.ctx = ctx
-        self.message: Optional[discord.Message] = None
+    def __init__(self):
+        super().__init__(timeout=None)
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        return interaction.user.id == self.ctx.author.id
-
-    @discord.ui.button(label="View Inventory", style=discord.ButtonStyle.primary, emoji="📦", row=0)
+    @discord.ui.button(label="View Inventory", style=discord.ButtonStyle.primary, emoji="📦", row=0, custom_id="player_hub:view_inv")
     async def view_inv(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        if not self.cog._inv_system_enabled():
+        cog = interaction.client.get_cog("PlayerHub")
+        if not cog or not cog._inv_system_enabled():
             await interaction.followup.send("⚠️ The player inventory system is currently offline.", ephemeral=True)
             return
         items = await pi_get_by_owner(str(interaction.user.id))
         if not items:
             await interaction.followup.send("📦 Your inventory is empty.", ephemeral=True)
             return
-        inv_cog = self.cog.bot.cogs.get("PlayerInventory")
+        inv_cog = interaction.client.get_cog("PlayerInventory")
         if not inv_cog:
             await interaction.followup.send("Inventory system unavailable.", ephemeral=True)
             return
+        ctx = PanelContext(interaction)
         char_names = sorted({item.get("character_name", "") for item in items if item.get("character_name")})
         if len(char_names) > 1:
-            view = InventoryCharFilterView(self.cog, self.ctx, items, inv_cog, char_names)
+            view = InventoryCharFilterView(cog, ctx, items, inv_cog, char_names)
             await interaction.followup.send(
                 "🔎 **Filter inventory by character** (or select **All Characters**):",
                 view=view,
@@ -248,17 +249,18 @@ class PlayerHubView(SafeView):
             embed = _build_inventory_embed(interaction.user.display_name, items, inv_cog)
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Trade Item", style=discord.ButtonStyle.success, emoji="💱", row=0)
+    @discord.ui.button(label="Trade Item", style=discord.ButtonStyle.success, emoji="💱", row=0, custom_id="player_hub:trade_item")
     async def trade_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        if not self.cog._inv_system_enabled():
+        cog = interaction.client.get_cog("PlayerHub")
+        if not cog or not cog._inv_system_enabled():
             await interaction.followup.send("⚠️ The player inventory system is currently offline.", ephemeral=True)
             return
         items = await pi_get_by_owner(str(interaction.user.id))
         if not items:
             await interaction.followup.send("📦 Your inventory is empty — nothing to trade.", ephemeral=True)
             return
-        inv_cog = self.cog.bot.cogs.get("PlayerInventory")
+        inv_cog = interaction.client.get_cog("PlayerInventory")
         if not inv_cog:
             await interaction.followup.send("Inventory system unavailable.", ephemeral=True)
             return
@@ -266,17 +268,19 @@ class PlayerHubView(SafeView):
         if not all_groups:
             await interaction.followup.send("📦 Your inventory is empty — nothing to trade.", ephemeral=True)
             return
-        view = TradeSetupView(self.cog, self.ctx, all_groups)
+        ctx = PanelContext(interaction)
+        view = TradeSetupView(cog, ctx, all_groups)
         await interaction.followup.send(
             "**Step 1** — Select the buyer and the item to trade:",
             view=view,
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Sell to Store", style=discord.ButtonStyle.primary, emoji="🏪", row=1)
+    @discord.ui.button(label="Sell to Store", style=discord.ButtonStyle.primary, emoji="🏪", row=1, custom_id="player_hub:sell_to_store")
     async def sell_to_store(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        if not self.cog._inv_system_enabled():
+        cog = interaction.client.get_cog("PlayerHub")
+        if not cog or not cog._inv_system_enabled():
             await interaction.followup.send("⚠️ The player inventory system is currently offline.", ephemeral=True)
             return
         seller_chars = await get_active_characters(str(interaction.user.id))
@@ -294,7 +298,7 @@ class PlayerHubView(SafeView):
         if not gun_items:
             await interaction.followup.send("📦 You have no guns to sell to a store.", ephemeral=True)
             return
-        inv_cog = self.cog.bot.cogs.get("PlayerInventory")
+        inv_cog = interaction.client.get_cog("PlayerInventory")
         if not inv_cog:
             await interaction.followup.send("Inventory system unavailable.", ephemeral=True)
             return
@@ -302,24 +306,26 @@ class PlayerHubView(SafeView):
         if not all_groups:
             await interaction.followup.send("📦 You have no guns to sell to a store.", ephemeral=True)
             return
-        view = SellToStoreSetupView(self.cog, self.ctx, all_groups, seller_chars)
+        ctx = PanelContext(interaction)
+        view = SellToStoreSetupView(cog, ctx, all_groups, seller_chars)
         await interaction.followup.send(
             "**Step 1** — Select the store owner, your character, and the gun to sell:",
             view=view,
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Give Item", style=discord.ButtonStyle.secondary, emoji="🎁", row=1)
+    @discord.ui.button(label="Give Item", style=discord.ButtonStyle.secondary, emoji="🎁", row=1, custom_id="player_hub:give_item")
     async def give_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        if not self.cog._inv_system_enabled():
+        cog = interaction.client.get_cog("PlayerHub")
+        if not cog or not cog._inv_system_enabled():
             await interaction.followup.send("⚠️ The player inventory system is currently offline.", ephemeral=True)
             return
         items = await pi_get_by_owner(str(interaction.user.id))
         if not items:
             await interaction.followup.send("📦 Your inventory is empty — nothing to give.", ephemeral=True)
             return
-        inv_cog = self.cog.bot.cogs.get("PlayerInventory")
+        inv_cog = interaction.client.get_cog("PlayerInventory")
         if not inv_cog:
             await interaction.followup.send("Inventory system unavailable.", ephemeral=True)
             return
@@ -327,16 +333,18 @@ class PlayerHubView(SafeView):
         if not all_groups:
             await interaction.followup.send("📦 Your inventory is empty — nothing to give.", ephemeral=True)
             return
-        view = GiveSetupView(self.cog, self.ctx, all_groups)
+        ctx = PanelContext(interaction)
+        view = GiveSetupView(cog, ctx, all_groups)
         await interaction.followup.send(
             "**Step 1** — Select the recipient and the item to give:",
             view=view,
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Create Character", style=discord.ButtonStyle.success, emoji="🧑", row=2)
+    @discord.ui.button(label="Create Character", style=discord.ButtonStyle.success, emoji="🧑", row=2, custom_id="player_hub:create_char")
     async def create_char(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
+        bot = interaction.client
         await interaction.followup.send(
             "🧑 **Create Character** — Please type your new character's name below (max 64 characters).\n"
             "You have 60 seconds to reply.",
@@ -347,7 +355,7 @@ class PlayerHubView(SafeView):
             return m.author.id == interaction.user.id and m.channel.id == interaction.channel.id
 
         try:
-            msg = await self.cog.bot.wait_for("message", check=check, timeout=60)
+            msg = await bot.wait_for("message", check=check, timeout=60)
         except asyncio.TimeoutError:
             await interaction.followup.send("⏰ Character creation timed out.", ephemeral=True)
             return
@@ -381,7 +389,7 @@ class PlayerHubView(SafeView):
             await interaction.followup.send("❌ Failed to create character. Please try again.", ephemeral=True)
             return
 
-        log_ch = await _log_channel(self.cog.bot, "NIGHTCITYBOT_LOG_CHANNEL_ID")
+        log_ch = await _log_channel(bot, "NIGHTCITYBOT_LOG_CHANNEL_ID")
         if log_ch:
             embed = discord.Embed(
                 title="🧑 Character Created",
@@ -397,7 +405,7 @@ class PlayerHubView(SafeView):
             f"✅ Character **{char_name}** created successfully!", ephemeral=True
         )
 
-    @discord.ui.button(label="Characters", style=discord.ButtonStyle.primary, emoji="🪪", row=2)
+    @discord.ui.button(label="Characters", style=discord.ButtonStyle.primary, emoji="🪪", row=2, custom_id="player_hub:view_chars")
     async def view_characters(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         characters = await get_all_characters(str(interaction.user.id))
@@ -421,10 +429,12 @@ class PlayerHubView(SafeView):
         embed.set_footer(text=f"{len(characters)} character(s) total — {active} active")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Manage Characters", style=discord.ButtonStyle.secondary, emoji="📋", row=2)
+    @discord.ui.button(label="Manage Characters", style=discord.ButtonStyle.secondary, emoji="📋", row=2, custom_id="player_hub:manage_chars")
     async def manage_chars(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        view = ManageCharactersView(self.cog, self.ctx)
+        cog = interaction.client.get_cog("PlayerHub")
+        ctx = PanelContext(interaction)
+        view = ManageCharactersView(cog, ctx)
         await interaction.followup.send(
             "📋 **Manage Characters** — Choose an action:",
             view=view,

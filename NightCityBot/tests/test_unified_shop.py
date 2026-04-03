@@ -88,16 +88,23 @@ def _make_member(member_id, name="Member", roles=None):
     return m
 
 
-def _make_interaction(user_id=111):
+def _make_interaction(user_id=111, roles=None, admin=False):
     inter = MagicMock(spec=discord.Interaction)
     inter.user = MagicMock(spec=discord.Member)
     inter.user.id = user_id
+    inter.user.roles = roles or []
+    inter.user.guild_permissions = MagicMock()
+    inter.user.guild_permissions.administrator = admin
     inter.response = MagicMock()
     inter.response.defer = AsyncMock()
     inter.response.send_message = AsyncMock()
     inter.response.edit_message = AsyncMock()
     inter.followup = MagicMock()
     inter.followup.send = AsyncMock()
+    inter.client = MagicMock()
+    inter.client.get_cog = MagicMock(return_value=None)
+    inter.guild = MagicMock()
+    inter.guild.id = 999
     return inter
 
 
@@ -134,42 +141,46 @@ def _make_admin_cog():
 class TestRipperdocHubCommand:
     def test_dm_guard(self, monkeypatch):
         monkeypatch.setattr("config.CYBERWARE_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("config.RIPPERDOC_HUB_CHANNEL_ID", 0)
         cog = _make_ripperdoc_cog()
-        ctx = _ctx(guild=False)
+        cog.bot.get_channel = MagicMock(return_value=None)
+        ctx = _ctx(admin=True)
         _run(_cmd(cog, "ripperdoc_hub", ctx))
-        assert "server" in ctx.send.call_args[0][0].lower()
+        assert ctx.send.called
 
     def test_sends_embed_with_view(self, monkeypatch):
         monkeypatch.setattr("config.CYBERWARE_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("config.RIPPERDOC_HUB_CHANNEL_ID", 12345)
         cog = _make_ripperdoc_cog()
-        ctx = _ctx()
+        channel = MagicMock()
+        channel.send = AsyncMock()
+        cog.bot.get_channel = MagicMock(return_value=channel)
+        ctx = _ctx(admin=True)
         _run(_cmd(cog, "ripperdoc_hub", ctx))
-        assert ctx.send.called
-        call_kwargs = ctx.send.call_args
+        assert channel.send.called
+        call_kwargs = channel.send.call_args
         assert "view" in call_kwargs.kwargs
 
 
 class TestRipperdocMenuView:
-    def test_interaction_check_owner_passes(self, monkeypatch):
-        monkeypatch.setattr("config.CYBERWARE_LOG_CHANNEL_ID", 0)
+    def test_interaction_check_ripperdoc_passes(self, monkeypatch):
+        monkeypatch.setattr("config.RIPPERDOC_ROLE_ID", 555)
 
         async def run():
-            cog = _make_ripperdoc_cog()
-            ctx = _ctx(author_id=111)
-            view = RipperdocMenuView(cog, ctx)
-            inter = _make_interaction(user_id=111)
+            view = RipperdocMenuView()
+            role = MagicMock()
+            role.id = 555
+            inter = _make_interaction(user_id=111, roles=[role])
             return await view.interaction_check(inter)
 
         assert _run(run()) is True
 
-    def test_interaction_check_other_user_fails(self, monkeypatch):
-        monkeypatch.setattr("config.CYBERWARE_LOG_CHANNEL_ID", 0)
+    def test_interaction_check_non_ripperdoc_fails(self, monkeypatch):
+        monkeypatch.setattr("config.RIPPERDOC_ROLE_ID", 555)
 
         async def run():
-            cog = _make_ripperdoc_cog()
-            ctx = _ctx(author_id=111)
-            view = RipperdocMenuView(cog, ctx)
-            inter = _make_interaction(user_id=999)
+            view = RipperdocMenuView()
+            inter = _make_interaction(user_id=999, roles=[])
             result = await view.interaction_check(inter)
             inter.response.send_message.assert_called_once()
             return result
@@ -180,11 +191,9 @@ class TestRipperdocMenuView:
         monkeypatch.setattr("config.CYBERWARE_LOG_CHANNEL_ID", 0)
 
         async def run():
-            cog = _make_ripperdoc_cog()
-            cog.bot.cogs = {}
-            ctx = _ctx()
-            view = RipperdocMenuView(cog, ctx)
+            view = RipperdocMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(return_value=None)
             btn = _find_button(view, "Buy from Wholesale")
             await btn.callback(inter)
             return inter.followup.send.call_args[0][0]
@@ -197,7 +206,6 @@ class TestRipperdocMenuView:
 
         async def run():
             cog = _make_ripperdoc_cog()
-            ctx = _ctx()
             cw_cog = MagicMock()
             cw_cog._load_inventory = AsyncMock(return_value=[
                 {"item_id": "x", "name": "Optics", "price_paid": 100}
@@ -207,9 +215,9 @@ class TestRipperdocMenuView:
                     {"item_id": "x", "name": "Optics"}
                 ]}
             ])
-            cog.bot.cogs = {"CyberwareShop": cw_cog}
-            view = RipperdocMenuView(cog, ctx)
+            view = RipperdocMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cw_cog if n == "CyberwareShop" else cog if n == "RipperdocHub" else None)
             btn = _find_button(view, "Sell to Patient")
             await btn.callback(inter)
             inter.response.defer.assert_called_once()
@@ -224,7 +232,6 @@ class TestRipperdocMenuView:
 
         async def run():
             cog = _make_ripperdoc_cog()
-            ctx = _ctx()
             cw_cog = MagicMock()
             cw_cog._load_inventory = AsyncMock(return_value=[
                 {"item_id": "x", "name": "Optics", "price_paid": 100}
@@ -234,9 +241,9 @@ class TestRipperdocMenuView:
                     {"item_id": "x", "name": "Optics"}
                 ]}
             ])
-            cog.bot.cogs = {"CyberwareShop": cw_cog}
-            view = RipperdocMenuView(cog, ctx)
+            view = RipperdocMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cw_cog if n == "CyberwareShop" else cog if n == "RipperdocHub" else None)
             btn = _find_button(view, "Install on Patient")
             await btn.callback(inter)
             inter.response.defer.assert_called_once()
@@ -274,42 +281,46 @@ class TestDMConfirmView:
 class TestGunstoreHubCommand:
     def test_dm_guard(self, monkeypatch):
         monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("config.GUN_HUB_CHANNEL_ID", 0)
         cog = _make_gunstore_cog()
-        ctx = _ctx(guild=False)
+        cog.bot.get_channel = MagicMock(return_value=None)
+        ctx = _ctx(admin=True)
         _run(_cmd(cog, "gunstore_hub", ctx))
-        assert "server" in ctx.send.call_args[0][0].lower()
+        assert ctx.send.called
 
     def test_sends_embed_with_view(self, monkeypatch):
         monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("config.GUN_HUB_CHANNEL_ID", 12345)
         cog = _make_gunstore_cog()
-        ctx = _ctx()
+        channel = MagicMock()
+        channel.send = AsyncMock()
+        cog.bot.get_channel = MagicMock(return_value=channel)
+        ctx = _ctx(admin=True)
         _run(_cmd(cog, "gunstore_hub", ctx))
-        assert ctx.send.called
-        call_kwargs = ctx.send.call_args
+        assert channel.send.called
+        call_kwargs = channel.send.call_args
         assert "view" in call_kwargs.kwargs
 
 
 class TestGunstoreMenuView:
-    def test_interaction_check_owner_passes(self, monkeypatch):
-        monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
+    def test_interaction_check_store_owner_passes(self, monkeypatch):
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
 
         async def run():
-            cog = _make_gunstore_cog()
-            ctx = _ctx(author_id=111)
-            view = GunstoreMenuView(cog, ctx)
-            inter = _make_interaction(user_id=111)
+            view = GunstoreMenuView()
+            role = MagicMock()
+            role.id = 777
+            inter = _make_interaction(user_id=111, roles=[role])
             return await view.interaction_check(inter)
 
         assert _run(run()) is True
 
-    def test_interaction_check_other_user_fails(self, monkeypatch):
-        monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
+    def test_interaction_check_non_owner_fails(self, monkeypatch):
+        monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
 
         async def run():
-            cog = _make_gunstore_cog()
-            ctx = _ctx(author_id=111)
-            view = GunstoreMenuView(cog, ctx)
-            inter = _make_interaction(user_id=999)
+            view = GunstoreMenuView()
+            inter = _make_interaction(user_id=999, roles=[])
             result = await view.interaction_check(inter)
             return result
 
@@ -321,9 +332,9 @@ class TestGunstoreMenuView:
         async def run():
             cog = _make_gunstore_cog()
             cog.bot.cogs = {}
-            ctx = _ctx()
-            view = GunstoreMenuView(cog, ctx)
+            view = GunstoreMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "GunstoreHub" else None)
             btn = _find_button(view, "Buy from Wholesale")
             await btn.callback(inter)
             return inter.followup.send.call_args[0][0]
@@ -336,7 +347,6 @@ class TestGunstoreMenuView:
 
         async def run():
             cog = _make_gunstore_cog()
-            ctx = _ctx()
             guns_cog = MagicMock()
             guns_cog._store_id = MagicMock(return_value="s1")
             guns_cog._load_state = AsyncMock(return_value={
@@ -356,8 +366,9 @@ class TestGunstoreMenuView:
                 }
             })
             cog.bot.cogs = {"GunsShopCog": guns_cog}
-            view = GunstoreMenuView(cog, ctx)
+            view = GunstoreMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "GunstoreHub" else None)
             btn = _find_button(view, "Sell to Customer")
             await btn.callback(inter)
             call_kwargs = inter.followup.send.call_args[1]
@@ -371,9 +382,9 @@ class TestGunstoreMenuView:
         async def run():
             cog = _make_gunstore_cog()
             cog.bot.cogs = {}
-            ctx = _ctx()
-            view = GunstoreMenuView(cog, ctx)
+            view = GunstoreMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "GunstoreHub" else None)
             btn = _find_button(view, "My Store Inventory")
             await btn.callback(inter)
             return inter.followup.send.call_args[0][0]
@@ -409,42 +420,46 @@ class TestGunDMConfirmView:
 class TestAdminShopCommand:
     def test_dm_guard(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("config.ADMIN_HUB_CHANNEL_ID", 0)
         cog = _make_admin_cog()
-        ctx = _ctx(guild=False)
-        _run(_cmd(cog, "admin_shop", ctx))
-        assert "server" in ctx.send.call_args[0][0].lower()
-
-    def test_sends_embed_with_view(self, monkeypatch):
-        monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
-        cog = _make_admin_cog()
+        cog.bot.get_channel = MagicMock(return_value=None)
         ctx = _ctx(admin=True)
         _run(_cmd(cog, "admin_shop", ctx))
         assert ctx.send.called
-        call_kwargs = ctx.send.call_args
+
+    def test_sends_embed_with_view(self, monkeypatch):
+        monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
+        monkeypatch.setattr("config.ADMIN_HUB_CHANNEL_ID", 12345)
+        cog = _make_admin_cog()
+        channel = MagicMock()
+        channel.send = AsyncMock()
+        cog.bot.get_channel = MagicMock(return_value=channel)
+        ctx = _ctx(admin=True)
+        _run(_cmd(cog, "admin_shop", ctx))
+        assert channel.send.called
+        call_kwargs = channel.send.call_args
         assert "view" in call_kwargs.kwargs
 
 
 class TestAdminShopMenuView:
-    def test_interaction_check_owner_passes(self, monkeypatch):
-        monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
+    def test_interaction_check_fixer_passes(self, monkeypatch):
+        monkeypatch.setattr("config.FIXER_ROLE_ID", 888)
 
         async def run():
-            cog = _make_admin_cog()
-            ctx = _ctx(author_id=111)
-            view = AdminShopMenuView(cog, ctx)
-            inter = _make_interaction(user_id=111)
+            view = AdminShopMenuView()
+            role = MagicMock()
+            role.id = 888
+            inter = _make_interaction(user_id=111, roles=[role])
             return await view.interaction_check(inter)
 
         assert _run(run()) is True
 
-    def test_interaction_check_other_user_fails(self, monkeypatch):
-        monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
+    def test_interaction_check_non_fixer_fails(self, monkeypatch):
+        monkeypatch.setattr("config.FIXER_ROLE_ID", 888)
 
         async def run():
-            cog = _make_admin_cog()
-            ctx = _ctx(author_id=111)
-            view = AdminShopMenuView(cog, ctx)
-            inter = _make_interaction(user_id=999)
+            view = AdminShopMenuView()
+            inter = _make_interaction(user_id=999, roles=[])
             return await view.interaction_check(inter)
 
         assert _run(run()) is False
@@ -454,9 +469,9 @@ class TestAdminShopMenuView:
 
         async def run():
             cog = _make_admin_cog()
-            ctx = _ctx()
-            view = AdminShopMenuView(cog, ctx)
+            view = AdminShopMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
             btn = _find_button(view, "Add Item")
             await btn.callback(inter)
             inter.response.defer.assert_called_once()
@@ -471,9 +486,9 @@ class TestAdminShopMenuView:
 
         async def run():
             cog = _make_admin_cog()
-            ctx = _ctx()
-            view = AdminShopMenuView(cog, ctx)
+            view = AdminShopMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
             inter.channel_id = 123
             btn = _find_button(view, "Remove Item")
             await btn.callback(inter)
@@ -487,9 +502,9 @@ class TestAdminShopMenuView:
 
         async def run():
             cog = _make_admin_cog()
-            ctx = _ctx()
-            view = AdminShopMenuView(cog, ctx)
+            view = AdminShopMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
             inter.channel_id = 123
             btn = _find_button(view, "Reassign Item")
             await btn.callback(inter)
@@ -503,9 +518,9 @@ class TestAdminShopMenuView:
 
         async def run():
             cog = _make_admin_cog()
-            ctx = _ctx()
-            view = AdminShopMenuView(cog, ctx)
+            view = AdminShopMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
             inter.channel_id = 123
             btn = _find_button(view, "Item History")
             await btn.callback(inter)
@@ -518,9 +533,9 @@ class TestAdminShopMenuView:
 
         async def run():
             cog = _make_admin_cog()
-            ctx = _ctx()
-            view = AdminShopMenuView(cog, ctx)
+            view = AdminShopMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
             btn = _find_button(view, "Player Inventory")
             await btn.callback(inter)
             inter.response.defer.assert_called_once()
@@ -641,54 +656,23 @@ class TestLogChannelHelpers:
         assert _run(cog._audit_channel()) is None
 
 
-class TestViewTimeout:
-    def test_ripperdoc_menu_timeout_edits_message(self):
+class TestPersistentViewTimeout:
+    def test_ripperdoc_menu_has_no_timeout(self):
         async def run():
-            cog = _make_ripperdoc_cog()
-            ctx = _ctx()
-            view = RipperdocMenuView(cog, ctx)
-            msg = MagicMock()
-            msg.edit = AsyncMock()
-            view.message = msg
-            await view.on_timeout()
-            msg.edit.assert_called_once_with(view=None)
-
+            view = RipperdocMenuView()
+            assert view.timeout is None
         _run(run())
 
-    def test_gunstore_menu_timeout_edits_message(self):
+    def test_gunstore_menu_has_no_timeout(self):
         async def run():
-            cog = _make_gunstore_cog()
-            ctx = _ctx()
-            view = GunstoreMenuView(cog, ctx)
-            msg = MagicMock()
-            msg.edit = AsyncMock()
-            view.message = msg
-            await view.on_timeout()
-            msg.edit.assert_called_once_with(view=None)
-
+            view = GunstoreMenuView()
+            assert view.timeout is None
         _run(run())
 
-    def test_admin_menu_timeout_edits_message(self):
+    def test_admin_menu_has_no_timeout(self):
         async def run():
-            cog = _make_admin_cog()
-            ctx = _ctx()
-            view = AdminShopMenuView(cog, ctx)
-            msg = MagicMock()
-            msg.edit = AsyncMock()
-            view.message = msg
-            await view.on_timeout()
-            msg.edit.assert_called_once_with(view=None)
-
-        _run(run())
-
-    def test_ripperdoc_menu_timeout_no_message(self):
-        async def run():
-            cog = _make_ripperdoc_cog()
-            ctx = _ctx()
-            view = RipperdocMenuView(cog, ctx)
-            view.message = None
-            await view.on_timeout()
-
+            view = AdminShopMenuView()
+            assert view.timeout is None
         _run(run())
 
 
@@ -1040,27 +1024,22 @@ class TestPiAddItemFailureCompensation:
 
 
 class TestAdminWholesaleButtons:
-    def test_wholesale_stock_button_exists(self, monkeypatch):
-        monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
-
+    def test_wholesale_stock_button_exists(self):
         async def run():
-            cog = _make_admin_cog()
-            ctx = _ctx()
-            view = AdminShopMenuView(cog, ctx)
+            view = AdminShopMenuView()
             btn = _find_button(view, "Wholesale Stock")
             assert btn is not None
 
         _run(run())
 
     def test_restock_button_starts_inline_flow(self, monkeypatch):
-        monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
         monkeypatch.setattr("NightCityBot.cogs.admin_shop.collect_text_input", AsyncMock(return_value=None))
 
         async def run():
             cog = _make_admin_cog()
-            ctx = _ctx()
-            view = AdminShopMenuView(cog, ctx)
+            view = AdminShopMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
             inter.channel_id = 123
             btn = _find_button(view, "Restock Wholesale")
             await btn.callback(inter)
@@ -1068,14 +1047,12 @@ class TestAdminWholesaleButtons:
 
         _run(run())
 
-    def test_clear_gun_button_sends_confirm(self, monkeypatch):
-        monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
-
+    def test_clear_gun_button_sends_confirm(self):
         async def run():
             cog = _make_admin_cog()
-            ctx = _ctx()
-            view = AdminShopMenuView(cog, ctx)
+            view = AdminShopMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
             btn = _find_button(view, "Clear Gun WH")
             await btn.callback(inter)
             inter.followup.send.assert_called_once()
@@ -1085,14 +1062,13 @@ class TestAdminWholesaleButtons:
         _run(run())
 
     def test_restock_cw_button_starts_inline_flow(self, monkeypatch):
-        monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
         monkeypatch.setattr("NightCityBot.cogs.admin_shop.collect_text_input", AsyncMock(return_value=None))
 
         async def run():
             cog = _make_admin_cog()
-            ctx = _ctx()
-            view = AdminShopMenuView(cog, ctx)
+            view = AdminShopMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
             inter.channel_id = 123
             btn = _find_button(view, "Restock CW")
             await btn.callback(inter)
@@ -1100,14 +1076,12 @@ class TestAdminWholesaleButtons:
 
         _run(run())
 
-    def test_clear_cw_button_sends_confirm(self, monkeypatch):
-        monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
-
+    def test_clear_cw_button_sends_confirm(self):
         async def run():
             cog = _make_admin_cog()
-            ctx = _ctx()
-            view = AdminShopMenuView(cog, ctx)
+            view = AdminShopMenuView()
             inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
             btn = _find_button(view, "Clear CW WH")
             await btn.callback(inter)
             inter.followup.send.assert_called_once()

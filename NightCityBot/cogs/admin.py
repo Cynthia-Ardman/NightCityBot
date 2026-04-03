@@ -290,9 +290,9 @@ class Admin(commands.Cog):
         embed.add_field(
             name="📦 Inventories & Trading",
             value=(
-                "`!player` — **Player hub**: view your inventory, trade items, give items.\n\n"
-                "**🔫 Gun store** — own a shop? Use `!gunstore` to manage everything.\n"
-                "**💉 Ripperdoc** — licensed doc? Use `!ripperdoc` to manage everything."
+                f"Head to <#{config.PLAYER_HUB_CHANNEL_ID}> for the **Player Hub** — view your inventory, trade items, give items.\n\n"
+                f"**🔫 Gun store** — own a shop? Use the panel in <#{config.GUN_HUB_CHANNEL_ID}>.\n"
+                f"**💉 Ripperdoc** — licensed doc? Use the panel in <#{config.RIPPERDOC_HUB_CHANNEL_ID}>."
             ),
             inline=False,
         )
@@ -308,8 +308,8 @@ class Admin(commands.Cog):
             (
                 "🏪 Interactive Hubs",
                 "\n".join([
-                    "`!fixer` – **Fixer panel**: player inventory, items, LOA, store & wholesale management.",
-                    "`!ripperdoc` – ripperdoc hub: buy, sell, install, view stock.",
+                    f"<#{config.FIXER_HUB_CHANNEL_ID}> – **Fixer panel**: player inventory, items, LOA, store & wholesale management.",
+                    f"<#{config.RIPPERDOC_HUB_CHANNEL_ID}> – ripperdoc hub: buy, sell, install, view stock.",
                 ]),
             ),
             (
@@ -381,9 +381,9 @@ class Admin(commands.Cog):
             (
                 "🏪 Interactive Hubs",
                 "\n".join([
-                    "`!admin` – admin panel: add/remove items, reassign, history lookup, wholesale management.",
-                    "`!gunstore` – gun store hub: buy, sell, view stock, manage approved buyers.",
-                    "`!ripperdoc` – ripperdoc hub: buy, sell, install, view stock.",
+                    f"<#{config.ADMIN_HUB_CHANNEL_ID}> – admin panel: add/remove items, reassign, history lookup, wholesale management.",
+                    f"<#{config.GUN_HUB_CHANNEL_ID}> – gun store hub: buy, sell, view stock, manage approved buyers.",
+                    f"<#{config.RIPPERDOC_HUB_CHANNEL_ID}> – ripperdoc hub: buy, sell, install, view stock.",
                 ]),
             ),
             (
@@ -460,7 +460,7 @@ class Admin(commands.Cog):
             description=(
                 "The corporate wholesaler stocks guns every week. "
                 "Store owners buy from the wholesaler, then sell to players at their own markup.\n\n"
-                "**Run `!gunstore` to open the interactive hub** — buy, sell, and view stock all from one place."
+                f"**Head to <#{config.GUN_HUB_CHANNEL_ID}>** to use the interactive hub — buy, sell, and view stock all from one place."
             ),
             color=discord.Color.orange(),
         )
@@ -472,7 +472,7 @@ class Admin(commands.Cog):
                 "2. **Buy stock** — pay wholesale price, guns go into your store\n"
                 "3. **Sell to players** — pick the customer, pick the gun, set your price\n"
                 "4. **Customer confirms** — they get a DM to accept or decline\n\n"
-                "All of this is handled through the `!gunstore` hub with dropdowns."
+                "All of this is handled through the Gun Store hub panel with dropdowns."
             ),
             inline=False,
         )
@@ -484,7 +484,7 @@ class Admin(commands.Cog):
                 "- **Basic** — anyone can buy.\n"
                 "- **Controlled** — only buyers on your approved list.\n"
                 "- **Restricted** — approved list + admin approval per sale.\n\n"
-                "Manage your approved list through the `!gunstore` hub."
+                "Manage your approved list through the Gun Store hub panel."
             ),
             inline=False,
         )
@@ -495,7 +495,7 @@ class Admin(commands.Cog):
                 "- Wholesale stock refreshes **weekly** — buy before it's gone.\n"
                 "- You set your own sale prices — wholesale cost is your floor.\n"
                 "- Restriction levels carry over from the wholesaler.\n"
-                "- Admin tools are available via `!admin`."
+                f"- Admin tools are available in <#{config.ADMIN_HUB_CHANNEL_ID}>."
             ),
             inline=False,
         )
@@ -512,7 +512,7 @@ class Admin(commands.Cog):
             description=(
                 "Ripperdocs buy parts from the corporate supplier at catalogue price, "
                 "then install them for patients at their own rate.\n\n"
-                "**Run `!ripperdoc` to open the interactive hub** — buy, sell, install, "
+                f"**Head to <#{config.RIPPERDOC_HUB_CHANNEL_ID}>** to use the interactive hub — buy, sell, install, "
                 "and view stock all from one place."
             ),
             color=discord.Color.teal(),
@@ -525,7 +525,7 @@ class Admin(commands.Cog):
                 "2. **Buy parts** — pay catalogue price, parts go into your stock\n"
                 "3. **Sell or install** — pick the patient, pick the part, set your price\n"
                 "4. **Patient confirms** — they get a DM to accept or decline\n\n"
-                "All of this is handled through the `!ripperdoc` hub with dropdowns."
+                "All of this is handled through the Ripperdoc hub panel with dropdowns."
             ),
             inline=False,
         )
@@ -537,7 +537,7 @@ class Admin(commands.Cog):
                 "- Stock is per-Ripperdoc: your inventory is yours alone.\n"
                 "- Wholesale stock rotates every **Sunday**.\n"
                 "- Catalogue prices are the supplier floor — charge what you want.\n"
-                "- Admin tools are available via `!admin`."
+                f"- Admin tools are available in <#{config.ADMIN_HUB_CHANNEL_ID}>."
             ),
             inline=False,
         )
