@@ -234,7 +234,7 @@ def test_trade_button_opens_setup():
         inv_cog = _make_inv_cog()
         view = PlayerHubView()
         inter = _make_interaction(cog=cog, inv_cog=inv_cog)
-        btn = _find_button(view, "Trade Item")
+        btn = _find_button(view, "Sell to Player")
         with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=SAMPLE_ITEMS):
             await btn.callback(inter)
         call_kwargs = inter.followup.send.call_args.kwargs
@@ -249,7 +249,7 @@ def test_trade_button_empty_inv():
         inv_cog = _make_inv_cog()
         view = PlayerHubView()
         inter = _make_interaction(cog=cog, inv_cog=inv_cog)
-        btn = _find_button(view, "Trade Item")
+        btn = _find_button(view, "Sell to Player")
         with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=[]):
             await btn.callback(inter)
         assert "empty" in inter.followup.send.call_args[0][0].lower()
@@ -774,7 +774,7 @@ def test_trade_button_system_disabled():
         cog._inv_system_enabled = MagicMock(return_value=False)
         view = PlayerHubView()
         inter = _make_interaction(cog=cog)
-        btn = _find_button(view, "Trade Item")
+        btn = _find_button(view, "Sell to Player")
         await btn.callback(inter)
         assert "offline" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
@@ -1427,7 +1427,7 @@ class TestManageCharactersView:
             ctx = _make_ctx()
             view = PlayerHubView()
             inter = _make_interaction()
-            btn = _find_button(view, "Characters")
+            btn = _find_button(view, "View Characters")
             await btn.callback(inter)
             inter.followup.send.assert_called_once()
             kwargs = inter.followup.send.call_args.kwargs
@@ -1444,7 +1444,7 @@ class TestManageCharactersView:
             ctx = _make_ctx()
             view = PlayerHubView()
             inter = _make_interaction()
-            btn = _find_button(view, "Characters")
+            btn = _find_button(view, "View Characters")
             await btn.callback(inter)
             inter.followup.send.assert_called_once()
             call = inter.followup.send.call_args
@@ -1458,7 +1458,7 @@ class TestManageCharactersView:
             ctx = _make_ctx()
             view = PlayerHubView()
             inter = _make_interaction()
-            btn = _find_button(view, "Manage Characters")
+            btn = _find_button(view, "Deactivate Character")
             await btn.callback(inter)
             call_kwargs = inter.followup.send.call_args.kwargs
             assert isinstance(call_kwargs["view"], ManageCharactersView)

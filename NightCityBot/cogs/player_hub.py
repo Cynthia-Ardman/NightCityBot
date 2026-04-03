@@ -127,7 +127,7 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
                 f"Head to <#{config.PLAYER_HUB_CHANNEL_ID}> and use the **Player Hub** panel.\n\n"
                 "From the panel you can:\n"
                 "• **View Inventory** — see all your items grouped by character\n"
-                "• **Trade Item** — sell an item to another player (with payment)\n"
+                "• **Sell to Player** — sell an item to another player (with payment)\n"
                 "• **Give Item** — transfer an item for free\n"
                 "• **Sell to Store** — sell any gun to a gunstore owner\n"
                 "• **Create / Manage Characters** — create, deactivate, or reactivate characters"
@@ -249,7 +249,7 @@ class PlayerHubView(SafeView):
             embed = _build_inventory_embed(interaction.user.display_name, items, inv_cog)
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Trade Item", style=discord.ButtonStyle.success, emoji="💱", row=0, custom_id="player_hub:trade_item")
+    @discord.ui.button(label="Sell to Player", style=discord.ButtonStyle.success, emoji="💱", row=0, custom_id="player_hub:trade_item")
     async def trade_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("PlayerHub")
@@ -405,7 +405,7 @@ class PlayerHubView(SafeView):
             f"✅ Character **{char_name}** created successfully!", ephemeral=True
         )
 
-    @discord.ui.button(label="Characters", style=discord.ButtonStyle.primary, emoji="🪪", row=2, custom_id="player_hub:view_chars")
+    @discord.ui.button(label="View Characters", style=discord.ButtonStyle.primary, emoji="🪪", row=2, custom_id="player_hub:view_chars")
     async def view_characters(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         characters = await get_all_characters(str(interaction.user.id))
@@ -429,7 +429,7 @@ class PlayerHubView(SafeView):
         embed.set_footer(text=f"{len(characters)} character(s) total — {active} active")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Manage Characters", style=discord.ButtonStyle.secondary, emoji="📋", row=2, custom_id="player_hub:manage_chars")
+    @discord.ui.button(label="Deactivate Character", style=discord.ButtonStyle.secondary, emoji="📋", row=2, custom_id="player_hub:manage_chars")
     async def manage_chars(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("PlayerHub")
@@ -655,7 +655,7 @@ class TradeSetupView(SafeView):
         item_select = discord.ui.Select(
             placeholder="Choose an item to trade…",
             options=options,
-            row=1,
+            row=2,
         )
         item_select.callback = self._on_item_select
         self.add_item(item_select)
@@ -710,7 +710,7 @@ class TradeSetupView(SafeView):
         char_select = discord.ui.Select(
             placeholder="Choose buyer's character…",
             options=char_options,
-            row=2,
+            row=1,
         )
         char_select.callback = self._on_buyer_char_select
         self._buyer_char_select = char_select
