@@ -1,4 +1,4 @@
-"""Unified !admin_shop panel — admin operations for the shop system.
+"""Unified !admin panel — admin operations for the shop system.
 
 Provides a single interactive panel for Fixers/admins to manage inventory,
 look up item history, add/remove items, and view audit trails.

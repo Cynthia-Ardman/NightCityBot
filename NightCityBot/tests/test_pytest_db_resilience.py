@@ -1,4 +1,4 @@
-"""Tests for db.py retry/resilience helpers (Task #3).
+"""Tests for db.py retry/resilience helpers.
 
 These tests run fully offline — no real DB connection required.
 """

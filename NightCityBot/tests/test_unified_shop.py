@@ -95,7 +95,6 @@ def _make_interaction(user_id=111):
     inter.response = MagicMock()
     inter.response.defer = AsyncMock()
     inter.response.send_message = AsyncMock()
-    inter.response.send_modal = AsyncMock()
     inter.response.edit_message = AsyncMock()
     inter.followup = MagicMock()
     inter.followup.send = AsyncMock()
@@ -251,7 +250,7 @@ class TestRipperdocMenuView:
 class TestDMConfirmView:
     def test_accept_sets_flag(self):
         async def run():
-            view = DMConfirmView(timeout=10)
+            view = DMConfirmView(recipient_id=100, timeout=10)
             assert view.accepted is None
             inter = _make_interaction()
             btn = _find_button(view, "Accept")
@@ -262,7 +261,7 @@ class TestDMConfirmView:
 
     def test_decline_sets_flag(self):
         async def run():
-            view = DMConfirmView(timeout=10)
+            view = DMConfirmView(recipient_id=100, timeout=10)
             assert view.accepted is None
             inter = _make_interaction()
             btn = _find_button(view, "Decline")
@@ -386,7 +385,7 @@ class TestGunstoreMenuView:
 class TestGunDMConfirmView:
     def test_accept_sets_flag(self):
         async def run():
-            view = GunDMConfirmView(timeout=10)
+            view = GunDMConfirmView(recipient_id=100, timeout=10)
             assert view.accepted is None
             inter = _make_interaction()
             btn = _find_button(view, "Accept")
@@ -397,7 +396,7 @@ class TestGunDMConfirmView:
 
     def test_decline_sets_flag(self):
         async def run():
-            view = GunDMConfirmView(timeout=10)
+            view = GunDMConfirmView(recipient_id=100, timeout=10)
             assert view.accepted is None
             inter = _make_interaction()
             btn = _find_button(view, "Decline")

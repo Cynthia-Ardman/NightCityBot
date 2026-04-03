@@ -1042,6 +1042,12 @@ class PlayerRemoveItemView(SafeView):
             )
             return
         item_name = item.get("name", "?")
+        fresh = await pi_get_item(item_id)
+        if fresh is None or fresh.get("owner_id") != str(player.id):
+            await interaction.followup.send(
+                f"Item `{item_id}` was modified before removal. Please try again.", ephemeral=True
+            )
+            return
         ok = await pi_delete_item(item_id)
         if not ok:
             await interaction.followup.send("Failed to remove item.", ephemeral=True)

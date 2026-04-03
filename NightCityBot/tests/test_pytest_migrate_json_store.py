@@ -1,4 +1,4 @@
-"""Offline tests for migrate_json_store_blobs() and its per-key handlers (Task #4).
+"""Offline tests for migrate_json_store_blobs() and its per-key handlers.
 
 All tests use a lightweight fake pool/connection — no real database required.
 """

@@ -544,7 +544,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
         if not fixer_ok:
             return
 
-    confirm_view = GunDMConfirmView(timeout=60)
+    confirm_view = GunDMConfirmView(recipient_id=customer.id, timeout=60)
     try:
         dm_msg = await customer.send(
             f"**{ctx.author.display_name}** wants to sell you **{gun_name}** "
@@ -634,7 +634,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                 )
                 if seller_credited:
                     await cog.unbelievaboat.update_balance(
-                        ctx.author.id, {"bank": -price}, reason="Gun sale refund"
+                        ctx.author.id, {"cash": -price}, reason="Gun sale refund"
                     )
             await ctx.send("Store not found. Refunded.")
             return
@@ -650,7 +650,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                 )
                 if seller_credited:
                     await cog.unbelievaboat.update_balance(
-                        ctx.author.id, {"bank": -price}, reason="Gun sale refund — out of stock"
+                        ctx.author.id, {"cash": -price}, reason="Gun sale refund — out of stock"
                     )
             await ctx.send("Item out of stock. Refunded.")
             return
@@ -685,7 +685,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
             )
             if seller_credited:
                 await cog.unbelievaboat.update_balance(
-                    ctx.author.id, {"bank": -price}, reason="Gun sale refund — item grant failed"
+                    ctx.author.id, {"cash": -price}, reason="Gun sale refund — item grant failed"
                 )
         await ctx.send(
             f"⚠️ Failed to add **{gun_name}** to {customer.display_name}'s inventory. "
@@ -824,6 +824,9 @@ class InlineApproveView(SafeView):
         self.approved = False
         self.message: Optional[discord.Message] = None
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.ctx.author.id
+
     async def on_timeout(self) -> None:
         if self.message:
             try:
@@ -926,9 +929,13 @@ class _ApproveBuyerView(SafeView):
 
 
 class GunDMConfirmView(SafeView):
-    def __init__(self, timeout: float = 60):
+    def __init__(self, recipient_id: int, timeout: float = 60):
         super().__init__(timeout=timeout)
+        self.recipient_id = recipient_id
         self.accepted: Optional[bool] = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.recipient_id
 
     @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, emoji="✅")
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):

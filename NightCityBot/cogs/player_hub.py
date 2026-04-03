@@ -969,7 +969,7 @@ async def _process_trade(cog, interaction, buyer, group, buyer_character, price)
                 )
                 await ub.update_balance(
                     interaction.user.id,
-                    {"bank": -price},
+                    {"cash": -price},
                     reason=f"Trade refund (DB failure): {item_name}",
                 )
             await interaction.followup.send(
@@ -1717,7 +1717,7 @@ async def _process_sell_to_store(cog, interaction, store_owner, group, seller_ch
                 )
                 await ub.update_balance(
                     interaction.user.id,
-                    {"bank": -price},
+                    {"cash": -price},
                     reason=f"Store buy refund (DB failure): {item_name}",
                 )
         await interaction.followup.send(

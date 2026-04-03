@@ -640,7 +640,7 @@ class CyberwareShop(commands.Cog):
                 )
                 await self.unbelievaboat.update_balance(
                     ctx.author.id,
-                    {"bank": -price},
+                    {"cash": -price},
                     reason=f"Cyberware sale refund (item no longer in inventory): {item_name}",
                 )
                 await ctx.send(
@@ -658,7 +658,7 @@ class CyberwareShop(commands.Cog):
                 )
                 await self.unbelievaboat.update_balance(
                     ctx.author.id,
-                    {"bank": -price},
+                    {"cash": -price},
                     reason=f"Cyberware sale refund (inventory changed): {item_name}",
                 )
                 await ctx.send(
@@ -697,7 +697,7 @@ class CyberwareShop(commands.Cog):
                 )
                 await self.unbelievaboat.update_balance(
                     ctx.author.id,
-                    {"bank": -price},
+                    {"cash": -price},
                     reason=f"Cyberware sale refund (DB write failed): {item_name}",
                 )
                 await ctx.send(

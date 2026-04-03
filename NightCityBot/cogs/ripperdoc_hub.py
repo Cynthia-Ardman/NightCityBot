@@ -472,7 +472,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
         await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
         return
 
-    confirm_view = DMConfirmView(timeout=60)
+    confirm_view = DMConfirmView(recipient_id=patient.id, timeout=60)
     try:
         dm_msg = await patient.send(
             f"**{ctx.author.display_name}** wants to sell you **{item_name}** "
@@ -562,7 +562,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
                 )
                 if seller_credited:
                     await cog.unbelievaboat.update_balance(
-                        ctx.author.id, {"bank": -price}, reason="CW sale refund — item missing"
+                        ctx.author.id, {"cash": -price}, reason="CW sale refund — item missing"
                     )
             await ctx.send("Item no longer in stock. Refunded.")
             return
@@ -589,7 +589,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
             )
             if seller_credited:
                 await cog.unbelievaboat.update_balance(
-                    ctx.author.id, {"bank": -price}, reason="CW sale refund — item grant failed"
+                    ctx.author.id, {"cash": -price}, reason="CW sale refund — item grant failed"
                 )
         await ctx.send(
             f"⚠️ Failed to add **{item_name}** to {patient.display_name}'s inventory. "
@@ -646,7 +646,7 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
         return
 
     price_text = f" for **${price:,}**" if price > 0 else " (free install)"
-    confirm_view = DMConfirmView(timeout=60)
+    confirm_view = DMConfirmView(recipient_id=patient.id, timeout=60)
     try:
         dm_msg = await patient.send(
             f"**{ctx.author.display_name}** wants to install **{item_name}** on "
@@ -736,7 +736,7 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
                 )
                 if seller_credited:
                     await cog.unbelievaboat.update_balance(
-                        ctx.author.id, {"bank": -price}, reason="CW install refund — item missing"
+                        ctx.author.id, {"cash": -price}, reason="CW install refund — item missing"
                     )
             await ctx.send("Item no longer in stock. Refunded.")
             return
@@ -772,9 +772,13 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
 
 
 class DMConfirmView(SafeView):
-    def __init__(self, timeout: float = 60):
+    def __init__(self, recipient_id: int, timeout: float = 60):
         super().__init__(timeout=timeout)
+        self.recipient_id = recipient_id
         self.accepted: Optional[bool] = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.recipient_id
 
     @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, emoji="✅")
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):

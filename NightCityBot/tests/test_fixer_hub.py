@@ -59,7 +59,6 @@ def _make_interaction(user_id=111):
     inter.response = MagicMock()
     inter.response.defer = AsyncMock()
     inter.response.send_message = AsyncMock()
-    inter.response.send_modal = AsyncMock()
     inter.response.edit_message = AsyncMock()
     inter.followup = MagicMock()
     inter.followup.send = AsyncMock()

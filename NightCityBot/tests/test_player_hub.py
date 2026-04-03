@@ -75,7 +75,6 @@ def _make_interaction(user_id=100, guild_id=999):
     inter = MagicMock()
     inter.response = MagicMock()
     inter.response.defer = AsyncMock()
-    inter.response.send_modal = AsyncMock()
     inter.response.send_message = AsyncMock()
     inter.response.edit_message = AsyncMock()
     inter.followup = MagicMock()
@@ -428,7 +427,6 @@ def test_trade_setup_continue_self_trade_blocked():
         btn = _find_button(view, "Continue →")
         await btn.callback(inter)
         assert "cannot trade items to yourself" in inter.response.send_message.call_args[0][0].lower()
-        inter.response.send_modal.assert_not_called()
     _run(_test())
 
 
@@ -445,7 +443,6 @@ def test_trade_setup_continue_restricted_blocked():
         btn = _find_button(view, "Continue →")
         await btn.callback(inter)
         assert "restricted" in inter.response.send_message.call_args[0][0].lower()
-        inter.response.send_modal.assert_not_called()
     _run(_test())
 
 
