@@ -70,7 +70,26 @@ class GunstoreMenuView(discord.ui.View):
 
     @discord.ui.button(label="Sell to Customer", style=discord.ButtonStyle.success, emoji="🔫", row=0)
     async def sell_to_customer(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(GunSellModal(self.cog, self.ctx))
+        await interaction.response.defer(ephemeral=True)
+        guns_cog = self.cog._guns_cog()
+        if not guns_cog:
+            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            return
+        state = await guns_cog._load_state()
+        store_id = guns_cog._store_id(self.ctx.guild.id, self.ctx.author.id)
+        store = state.get("stores", {}).get(store_id)
+        if not store or not store.get("lots"):
+            await interaction.followup.send("Your store inventory is empty. Buy from wholesale first.", ephemeral=True)
+            return
+        available = [l for l in store["lots"] if int(l.get("qty_remaining", 0)) > 0]
+        if not available:
+            await interaction.followup.send("Your store inventory is empty.", ephemeral=True)
+            return
+        view = GunSellSetupView(self.cog, self.ctx, available, store_id)
+        msg = "**Step 1** — Select the customer and the gun to sell:"
+        if view.truncated:
+            msg += f"\n⚠️ Showing first 25 of {len(available)} lots."
+        await interaction.followup.send(msg, view=view, ephemeral=True)
 
     @discord.ui.button(label="My Store Inventory", style=discord.ButtonStyle.secondary, emoji="📦", row=1)
     async def view_inventory(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -305,34 +324,125 @@ class GunBuyQtyModal(discord.ui.Modal, title="Buy Gun from Wholesale"):
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-class GunSellModal(discord.ui.Modal, title="Sell Gun to Customer"):
-    customer_input = discord.ui.TextInput(label="Customer (mention or ID)", placeholder="@buyer or 123456789")
-    character_input = discord.ui.TextInput(label="Customer Character Name", placeholder="V")
-    lot_row_input = discord.ui.TextInput(label="Store Lot Row #", placeholder="1")
-    price_input = discord.ui.TextInput(label="Sale Price", placeholder="5000")
+GUN_APPROVALS_CHANNEL_ID = 1489460511199465693
 
-    def __init__(self, cog: "GunstoreHub", ctx: commands.Context):
+
+class GunSellSetupView(discord.ui.View):
+    def __init__(self, cog: "GunstoreHub", ctx: commands.Context,
+                 lots: list, store_id: str):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.lots = lots
+        self.store_id = store_id
+        self.selected_customer: Optional[discord.Member] = None
+        self.selected_lot_idx: Optional[int] = None
+
+        self.truncated = len(lots) > 25
+        options = []
+        for i, lot in enumerate(lots[:25]):
+            restriction = lot.get("restriction", "basic")
+            r_tag = f" [{restriction}]" if restriction != "basic" else ""
+            qty = int(lot.get("qty_remaining", 0))
+            label = f"{lot['gun_name']}{r_tag} (×{qty})"
+            options.append(discord.SelectOption(label=label[:100], value=str(i)))
+        stock_select = discord.ui.Select(
+            placeholder="Choose gun from your stock…",
+            options=options,
+            row=1,
+        )
+        stock_select.callback = self._on_stock_select
+        self.add_item(stock_select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a customer…", row=0)
+    async def customer_select(self, interaction: discord.Interaction,
+                              select: discord.ui.UserSelect):
+        user = select.values[0] if select.values else None
+        if user is None:
+            await interaction.response.send_message(
+                "Please select a server member.", ephemeral=True
+            )
+            return
+        if isinstance(user, discord.Member):
+            self.selected_customer = user
+        else:
+            guild = self.ctx.guild
+            if guild:
+                member = guild.get_member(user.id)
+                if member:
+                    self.selected_customer = member
+                else:
+                    await interaction.response.send_message(
+                        "That user doesn't appear to be in this server.", ephemeral=True
+                    )
+                    return
+            else:
+                await interaction.response.send_message(
+                    "Could not resolve server member.", ephemeral=True
+                )
+                return
+        await interaction.response.send_message(
+            f"Customer: **{self.selected_customer.display_name}** ✓", ephemeral=True
+        )
+
+    async def _on_stock_select(self, interaction: discord.Interaction):
+        self.selected_lot_idx = int(interaction.data["values"][0])
+        lot = self.lots[self.selected_lot_idx]
+        await interaction.response.send_message(
+            f"Gun: **{lot['gun_name']}** ✓", ephemeral=True
+        )
+
+    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=2)
+    async def continue_btn(self, interaction: discord.Interaction,
+                           button: discord.ui.Button):
+        if self.selected_customer is None:
+            await interaction.response.send_message(
+                "Please select a customer first.", ephemeral=True
+            )
+            return
+        if self.selected_lot_idx is None:
+            await interaction.response.send_message(
+                "Please select a gun from your stock first.", ephemeral=True
+            )
+            return
+        lot = self.lots[self.selected_lot_idx]
+        modal = GunSellDetailsModal(
+            self.cog, self.ctx, self.selected_customer,
+            lot, self.store_id,
+        )
+        await interaction.response.send_modal(modal)
+        self.stop()
+
+
+class GunSellDetailsModal(discord.ui.Modal, title="Sell — Finalize Details"):
+    character_input = discord.ui.TextInput(label="Customer Character Name", placeholder="V")
+    price_input = discord.ui.TextInput(
+        label="Sale Price (0 = gift)",
+        placeholder="5000 (enter 0 to gift for free)",
+    )
+
+    def __init__(self, cog: "GunstoreHub", ctx: commands.Context,
+                 customer: discord.Member, lot: dict, store_id: str):
         super().__init__()
         self.cog = cog
         self.ctx = ctx
+        self.customer = customer
+        self.lot = lot
+        self.store_id = store_id
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        guild = self.ctx.guild
-        if not guild:
-            await interaction.followup.send("Must be used in server.", ephemeral=True)
-            return
-
-        customer = await self.cog._resolve_member(guild, self.customer_input.value)
-        if not customer:
-            await interaction.followup.send("Could not find that customer.", ephemeral=True)
-            return
 
         try:
-            lot_row = int(self.lot_row_input.value)
             price = int(self.price_input.value)
         except ValueError:
-            await interaction.followup.send("Row and price must be numbers.", ephemeral=True)
+            await interaction.followup.send("Price must be a number.", ephemeral=True)
             return
         if price < 0:
             await interaction.followup.send("Price cannot be negative.", ephemeral=True)
@@ -343,52 +453,41 @@ class GunSellModal(discord.ui.Modal, title="Sell Gun to Customer"):
             await interaction.followup.send("Character name required.", ephemeral=True)
             return
 
+        customer = self.customer
+        lot = self.lot
+        store_id = self.store_id
+        gun_name = lot["gun_name"]
+        restriction = lot.get("restriction", "basic")
+
         guns_cog = self.cog._guns_cog()
         if not guns_cog:
             await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
             return
 
-        state = await guns_cog._load_state()
-        store_id = guns_cog._store_id(guild.id, self.ctx.author.id)
-        store = state.get("stores", {}).get(store_id)
-        if not store or not store.get("lots"):
-            await interaction.followup.send("Your store is empty.", ephemeral=True)
-            return
-
-        available_lots = [l for l in store["lots"] if int(l.get("qty_remaining", 0)) > 0]
-        if lot_row < 1 or lot_row > len(available_lots):
-            await interaction.followup.send(
-                f"Invalid row {lot_row}. You have {len(available_lots)} lot(s).", ephemeral=True
-            )
-            return
-
-        lot = available_lots[lot_row - 1]
-        gun_name = lot["gun_name"]
-        restriction = lot.get("restriction", "basic")
-
-        if restriction == "restricted":
-            await interaction.followup.send(
-                f"**{gun_name}** is **restricted**. Only a Fixer or admin can authorize this sale. "
-                "Use `!admin_shop` to manage restricted items.",
-                ephemeral=True,
-            )
-            return
-
-        if restriction == "controlled":
-            approved = store.get("controlled_buyers", [])
+        if restriction in ("controlled", "restricted"):
+            state = await guns_cog._load_state()
+            store = state.get("stores", {}).get(store_id)
+            approved = store.get("controlled_buyers", []) if store else []
             if customer.id not in approved:
                 approve_view = InlineApproveView(
                     self.cog, self.ctx, guns_cog, store_id, customer
                 )
                 await interaction.followup.send(
-                    f"**{gun_name}** is controlled. {customer.display_name} is not on your approved list.\n"
-                    "Would you like to approve them and proceed with the sale?",
+                    f"**{gun_name}** is **{restriction}**. {customer.display_name} is not on your approved list.\n"
+                    "Would you like to approve them and proceed?",
                     view=approve_view,
                     ephemeral=True,
                 )
                 await approve_view.wait()
                 if not approve_view.approved:
                     return
+
+        if restriction == "restricted":
+            fixer_ok = await self._request_fixer_approval(
+                interaction, customer, gun_name, lot, price, character_name
+            )
+            if not fixer_ok:
+                return
 
         confirm_view = GunDMConfirmView(timeout=60)
         try:
@@ -560,8 +659,101 @@ class GunSellModal(discord.ui.Modal, title="Sell Gun to Customer"):
             embed.add_field(name="Customer", value=f"{customer.mention} — {character_name}", inline=False)
             embed.add_field(name="Gun", value=gun_name, inline=True)
             embed.add_field(name="Price", value=f"${price:,}", inline=True)
+            if restriction != "basic":
+                embed.add_field(name="Restriction", value=restriction.title(), inline=True)
             embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+    async def _request_fixer_approval(self, interaction, customer, gun_name, lot, price, character_name):
+        channel = self.cog.bot.get_channel(GUN_APPROVALS_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await self.cog.bot.fetch_channel(GUN_APPROVALS_CHANNEL_ID)
+            except Exception:
+                await interaction.followup.send(
+                    "Gun approvals channel not found. Cannot process restricted sales.", ephemeral=True
+                )
+                return False
+
+        fixer_role_id = getattr(config, "FIXER_ROLE_ID", 0)
+        fixer_ping = f"<@&{fixer_role_id}>" if fixer_role_id else "**Fixers**"
+
+        embed = discord.Embed(
+            title="🔒 Restricted Gun Sale — Fixer Approval Required",
+            color=discord.Color.orange(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Seller", value=f"{self.ctx.author.mention}", inline=True)
+        embed.add_field(name="Buyer", value=f"{customer.mention} (character: {character_name})", inline=True)
+        embed.add_field(name="Gun", value=f"{gun_name} (Tier {lot.get('gun_level', '?')})", inline=True)
+        embed.add_field(name="Price", value=f"${price:,}", inline=True)
+        embed.set_footer(text="React ✅ to approve or ❌ to deny. Expires in 5 minutes.")
+
+        try:
+            msg = await channel.send(
+                f"{fixer_ping} — restricted sale requires approval.",
+                embed=embed,
+                allowed_mentions=discord.AllowedMentions(roles=True),
+            )
+            await msg.add_reaction("✅")
+            await msg.add_reaction("❌")
+        except Exception:
+            logger.exception("Failed to post restricted sale approval request")
+            await interaction.followup.send(
+                "Failed to post approval request to the approvals channel.", ephemeral=True
+            )
+            return False
+
+        await interaction.followup.send(
+            "⏳ Restricted sale pending Fixer approval. Waiting up to 5 minutes...", ephemeral=True
+        )
+
+        fixer_role_id_int = int(fixer_role_id) if fixer_role_id else 0
+
+        def check(reaction, user):
+            if reaction.message.id != msg.id:
+                return False
+            if str(reaction.emoji) not in ("✅", "❌"):
+                return False
+            if user.bot:
+                return False
+            if isinstance(user, discord.Member):
+                if user.guild_permissions.administrator:
+                    return True
+                if fixer_role_id_int and any(r.id == fixer_role_id_int for r in user.roles):
+                    return True
+            return False
+
+        try:
+            reaction, approver = await self.cog.bot.wait_for("reaction_add", timeout=300.0, check=check)
+        except asyncio.TimeoutError:
+            await self.ctx.send(
+                f"{self.ctx.author.mention} — restricted sale of **{gun_name}** timed out. No Fixer responded within 5 minutes."
+            )
+            try:
+                await msg.edit(embed=embed.set_footer(text="EXPIRED — no response."))
+            except Exception:
+                pass
+            return False
+
+        if str(reaction.emoji) == "✅":
+            await self.ctx.send(
+                f"✅ Restricted sale of **{gun_name}** approved by {approver.mention}. Processing..."
+            )
+            try:
+                await msg.edit(embed=embed.set_footer(text=f"APPROVED by {approver.display_name}"))
+            except Exception:
+                pass
+            return True
+        else:
+            await self.ctx.send(
+                f"❌ Restricted sale of **{gun_name}** denied by {approver.mention}."
+            )
+            try:
+                await msg.edit(embed=embed.set_footer(text=f"DENIED by {approver.display_name}"))
+            except Exception:
+                pass
+            return False
 
 
 class InlineApproveView(discord.ui.View):

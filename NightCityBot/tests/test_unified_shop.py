@@ -17,7 +17,8 @@ from NightCityBot.cogs.gunstore_hub import (
     GunstoreMenuView,
     GunDMConfirmView,
     InlineApproveView,
-    GunSellModal,
+    GunSellDetailsModal,
+    GunSellSetupView,
     GunBuyQtyModal,
 )
 from NightCityBot.cogs.admin_shop import (
@@ -334,17 +335,37 @@ class TestGunstoreMenuView:
         msg = _run(run())
         assert "unavailable" in msg.lower()
 
-    def test_sell_opens_modal(self, monkeypatch):
+    def test_sell_opens_setup_view(self, monkeypatch):
         monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
 
         async def run():
             cog = _make_gunstore_cog()
             ctx = _ctx()
+            guns_cog = MagicMock()
+            guns_cog._store_id = MagicMock(return_value="s1")
+            guns_cog._load_state = AsyncMock(return_value={
+                "stores": {
+                    "s1": {
+                        "owner_id": 111,
+                        "lots": [{
+                            "lot_id": "lot-1",
+                            "gun_name": "Pistol",
+                            "gun_level": "L",
+                            "unit_cost": 100,
+                            "qty_remaining": 1,
+                            "restriction": "basic",
+                        }],
+                        "controlled_buyers": [],
+                    }
+                }
+            })
+            cog.bot.cogs = {"GunsShopCog": guns_cog}
             view = GunstoreMenuView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "Sell to Customer")
             await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            call_kwargs = inter.followup.send.call_args[1]
+            assert isinstance(call_kwargs.get("view"), GunSellSetupView)
 
         _run(run())
 
@@ -798,12 +819,10 @@ class TestGunSellUUIDContinuity:
 
             guns_cog = MagicMock()
             guns_cog.lock = asyncio.Lock()
-            guns_cog._store_id = MagicMock(return_value="s1")
-
             known_uuid = "aaaa-bbbb-cccc-dddd"
             store_data = {
                 "stores": {
-                    "s1": {
+                    "test_store": {
                         "owner_id": 111,
                         "lots": [{
                             "lot_id": "lot-1",
@@ -823,10 +842,10 @@ class TestGunSellUUIDContinuity:
             guns_cog._save_state = AsyncMock()
             cog.bot.cogs = {"GunsShopCog": guns_cog}
 
-            modal = GunSellModal(cog, ctx)
-            modal.customer_input = MagicMock(value="222")
+            customer = _make_member(222, "Customer")
+            lot = store_data["stores"]["test_store"]["lots"][0]
+            modal = GunSellDetailsModal(cog, ctx, customer, lot, "test_store")
             modal.character_input = MagicMock(value="V")
-            modal.lot_row_input = MagicMock(value="1")
             modal.price_input = MagicMock(value="0")
 
             dm_view_cls = "NightCityBot.cogs.gunstore_hub.GunDMConfirmView"
