@@ -1,0 +1,76 @@
+Remaining Bug: Missing interaction_check on 10 View Classes
+All 10 views share the same structural problem: they store self.ctx (which contains the original invoker's identity), their callbacks act on behalf of self.ctx.author, but they never verify that interaction.user.id == self.ctx.author.id. While they're all sent as ephemeral followups (which means only the original user should see them), interaction_check is the defense-in-depth layer that Discord library maintainers recommend because ephemeral delivery is a client-side courtesy, not a server-side enforcement.
+
+Here's each one in detail:
+
+1. GunBuySelect — gunstore_hub.py lines 288-312
+What it does: Dropdown that lets a store owner/employee buy a gun from the wholesale catalog. After selecting, it debits the user via UnbelievaBoat and modifies wholesale stock.
+
+What goes wrong without the check: The on_select callback at line 303 uses interaction.user.id for the QtySelectView (that part is fine), but then at line 313+ calls _process_gun_buy which uses ctx.author.id to determine who gets debited and who receives the stock. If a different user somehow triggers the select, ctx.author still points to the original invoker -- so the original invoker gets charged for a purchase they didn't make.
+
+Severity: High. This is a financial operation — wholesale gun purchase.
+
+Fix: Add async def interaction_check that returns interaction.user.id == self.ctx.author.id.
+
+2. _ApproveBuyerView — gunstore_hub.py lines 968-996
+What it does: UserSelect dropdown that lets a store owner pick a buyer to add to (or remove from) their approved-buyers list for controlled/restricted guns.
+
+What goes wrong: The callback at line 976 resolves the selected user and then modifies the store's controlled_buyers list under the guns_cog.lock. It reads self.ctx.author.id at line 1000+ to determine which store to modify. If a different user clicks, they'd be modifying the original invoker's store's buyer list -- approving or revoking buyers on someone else's store.
+
+Severity: High. This is an access control mutation — the approved buyers list gates who can buy restricted weapons.
+
+3. _EmployeePickerView — gunstore_hub.py lines 1117-1143
+What it does: UserSelect for adding or removing employees from a gun store.
+
+What goes wrong: The callback at line 1125 picks a member and either adds or removes them as an employee. It uses self.ctx.author.id to determine the store being modified (line 1144+). A wrong clicker would be adding/removing employees from the original invoker's store, and the employee would receive a Discord role.
+
+Severity: High. Grants or revokes a Discord role (GUNSTORE_EMPLOYEE_ROLE_ID) and modifies store employee lists.
+
+4. _StorePickerForAction — gunstore_hub.py lines 1253-1282
+What it does: Dropdown for picking which store to act on when a user has access to multiple gun stores (as owner or employee). Used for both "sell" and "view inventory" actions.
+
+What goes wrong: The callback at line 1270 selects a store and then either opens a sell flow (_open_sell_for_store) or shows inventory. For the sell action, this transitions into GunSellSetupView which does have interaction_check -- so the downstream is protected. For view inventory, it shows store data that should only be visible to authorized personnel.
+
+Severity: Medium. The sell flow is gated downstream, but the inventory view could leak store stock information.
+
+5. _GunTransferOwnerView — gunstore_hub.py lines 1485-1510
+What it does: UserSelect for transferring ownership of a gun store to another player. Sends a DM confirmation to the new owner.
+
+What goes wrong: The callback at line 1492 selects the new owner, then at line 1508 checks new_owner.id == self.ctx.author.id (can't transfer to yourself). It then modifies the store's owner_id in the gun shop state. If a different user clicks this, they could initiate a store transfer away from the original invoker to an arbitrary user — effectively stealing someone's store.
+
+Severity: Critical. This permanently changes store ownership. The DM confirmation view (_GunTransferDMConfirmView) sent to the new owner does have interaction_check, but the damage is that the transfer process was initiated by the wrong person.
+
+6. WholesaleBuySelect — ripperdoc_hub.py lines 279-307
+What it does: Identical pattern to GunBuySelect but for cyberware wholesale. Lets a ripperdoc buy CW items from the weekly wholesale catalog.
+
+What goes wrong: Same as GunBuySelect — ctx.author gets charged for a purchase triggered by a different user.
+
+Severity: High. Financial operation — cyberware wholesale purchase.
+
+7. _RDStorePickerForAction — ripperdoc_hub.py lines 908-937
+What it does: Store picker for ripperdocs with multiple stores. Routes to sell, install, or view stock actions.
+
+What goes wrong: Same pattern as the gunstore _StorePickerForAction. Downstream sell/install flows have their own checks, but store stock viewing could leak information.
+
+Severity: Medium.
+
+8. _RDAddEmployeeView — ripperdoc_hub.py lines 1047-1071
+What it does: UserSelect to add an employee to a ripperdoc store. Grants a Discord role and sends a DM confirmation.
+
+What goes wrong: The callback uses self.ctx.author.id to look up the store to modify. A wrong clicker would add employees to someone else's ripperdoc store and grant them the ripperdoc employee role.
+
+Severity: High. Role grant + store mutation.
+
+9. _RDRemoveEmployeeView — ripperdoc_hub.py lines 1135-1159
+What it does: StringSelect dropdown of current employees to remove from a ripperdoc store.
+
+What goes wrong: The callback at line 1144 removes the selected employee from the store and potentially removes their Discord role. It uses self.ctx.author.id at line 1154 (_rd_store_id(guild_id, self.ctx.author.id)) to determine the store. A wrong clicker fires employees from someone else's store.
+
+Severity: High. Role revocation + store mutation.
+
+10. _RDTransferOwnerView — ripperdoc_hub.py lines 1349-1373
+What it does: UserSelect for transferring ripperdoc store ownership. Sends a DM to the new owner for confirmation.
+
+What goes wrong: Same as _GunTransferOwnerView — a wrong clicker could initiate a store ownership transfer away from the original invoker.
+
+Severity: Critical. Permanent store ownership change.
