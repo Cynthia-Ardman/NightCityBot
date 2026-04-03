@@ -112,7 +112,7 @@ class FixerTopView(SafeView):
                 "**View Inventory** — Browse a player's items\n"
                 "**Add Item** — Give an item to a player\n"
                 "**Remove Item** — Delete an item by UUID\n"
-                "**Reassign Item** — Transfer item to new owner/character\n"
+                "**Reassign Item** — Transfer an item to a new owner/character\n"
                 "**Start LOA** — Put a player on Leave of Absence\n"
                 "**End LOA** — Take a player off LOA"
             ),
@@ -143,11 +143,11 @@ class FixerTopView(SafeView):
         embed = discord.Embed(
             title="🏭 Fixer Panel — Wholesaler",
             description=(
-                "**View Stock** — See current gun + CW wholesale inventory\n"
+                "**View Stock** — See current gun + cyberware wholesale inventory\n"
                 "**Add Gun** — Add a gun lot to wholesale\n"
-                "**Add CW** — Add a cyberware lot to wholesale\n"
+                "**Add Cyberware** — Add a cyberware lot to wholesale\n"
                 "**Remove Gun** — Remove a gun lot from wholesale\n"
-                "**Remove CW** — Remove a CW lot from wholesale"
+                "**Remove Cyberware** — Remove a cyberware lot from wholesale"
             ),
             color=discord.Color.orange(),
         )
@@ -192,16 +192,12 @@ class PlayerSubView(SafeView):
     @discord.ui.button(label="Reassign Item", style=discord.ButtonStyle.secondary, emoji="✏️", row=1)
     async def reassign_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        await interaction.edit_original_response(
-            content="📝 **Enter:** `item_uuid, new_owner_mention_or_id, new_character_name`\n"
-            "Example: `12345678-abcd-..., @Player, V`\n"
-            "Type `cancel` to abort.",
+        view = ReassignSourcePickerView(self.cog, self.ctx)
+        await interaction.followup.send(
+            "✏️ **Reassign Item — Step 1** — Select the player who currently owns the item:",
+            view=view,
+            ephemeral=True,
         )
-        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
-        if text is None:
-            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
-            return
-        await _process_fixer_reassign_item(self.cog, interaction, text)
 
     @discord.ui.button(label="Start LOA", style=discord.ButtonStyle.success, emoji="🏖️", row=1)
     async def start_loa(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -326,13 +322,13 @@ class WholesalerSubView(SafeView):
             cw_lots = state.get("cw_wholesale_lots", [])
             available = [l for l in cw_lots if int(l.get("qty_available", 0)) > 0]
             if available:
-                lines.append("\n**💉 CW Wholesale:**")
+                lines.append("\n**💉 Cyberware Wholesale:**")
                 for i, lot in enumerate(available[:15], 1):
                     lines.append(
                         f"`{i}.` **{lot['item_name']}** — ${int(lot['unit_cost']):,} × {lot['qty_available']}"
                     )
             else:
-                lines.append("**💉 CW Wholesale:** Empty")
+                lines.append("**💉 Cyberware Wholesale:** Empty")
         if not lines:
             await interaction.followup.send("No wholesale systems available.", ephemeral=True)
             return
@@ -343,7 +339,7 @@ class WholesalerSubView(SafeView):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Add Gun", style=discord.ButtonStyle.primary, emoji="🔫", row=0)
+    @discord.ui.button(label="Add Gun", style=discord.ButtonStyle.primary, emoji="🔫", row=1)
     async def add_gun(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         msg = await interaction.followup.send(
@@ -360,11 +356,11 @@ class WholesalerSubView(SafeView):
             return
         await _process_wh_add_gun(self.cog, interaction, text, msg)
 
-    @discord.ui.button(label="Add CW", style=discord.ButtonStyle.primary, emoji="💉", row=0)
+    @discord.ui.button(label="Add Cyberware", style=discord.ButtonStyle.primary, emoji="💉", row=1)
     async def add_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         msg = await interaction.followup.send(
-            "📝 **Enter CW wholesale details** in this format:\n"
+            "📝 **Enter cyberware wholesale details** in this format:\n"
             "`cyberware name, quantity, unit cost`\n"
             "Example: `Neural Link, 10, 5000`\n"
             "Type `cancel` to abort.",
@@ -377,7 +373,7 @@ class WholesalerSubView(SafeView):
             return
         await _process_wh_add_cw(self.cog, interaction, text, msg)
 
-    @discord.ui.button(label="Remove Gun", style=discord.ButtonStyle.danger, emoji="🔫", row=1)
+    @discord.ui.button(label="Remove Gun", style=discord.ButtonStyle.danger, emoji="🔫", row=2)
     async def remove_gun(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         guns_cog = self.cog.bot.cogs.get("GunsShopCog")
@@ -406,18 +402,18 @@ class WholesalerSubView(SafeView):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Remove CW", style=discord.ButtonStyle.danger, emoji="💉", row=1)
+    @discord.ui.button(label="Remove Cyberware", style=discord.ButtonStyle.danger, emoji="💉", row=2)
     async def remove_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cw_cog = self.cog.bot.cogs.get("CyberwareShop")
         if not cw_cog:
-            await interaction.followup.send("CW shop system not loaded.", ephemeral=True)
+            await interaction.followup.send("Cyberware shop system not loaded.", ephemeral=True)
             return
         state = await cw_cog._load_state()
         lots = state.get("cw_wholesale_lots", [])
         available = [l for l in lots if int(l.get("qty_available", 0)) > 0]
         if not available:
-            await interaction.followup.send("💉 CW wholesale is empty — nothing to remove.", ephemeral=True)
+            await interaction.followup.send("💉 Cyberware wholesale is empty — nothing to remove.", ephemeral=True)
             return
         options = []
         for lot in available[:25]:
@@ -428,82 +424,211 @@ class WholesalerSubView(SafeView):
             options.append(discord.SelectOption(label=label, value=lid, description=desc))
         view = WHRemoveCWPickerView(self.cog, self.ctx, options)
         await interaction.followup.send(
-            "💉 **Remove CW Lot** — Select the lot to remove:",
+            "💉 **Remove Cyberware Lot** — Select the lot to remove:",
             view=view,
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Done", style=discord.ButtonStyle.danger, row=2)
-    async def done(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+class ReassignSourcePickerView(SafeView):
+    def __init__(self, cog, ctx):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Select the item's current owner…", row=0)
+    async def source_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        raw_user = select.values[0] if select.values else None
+        if raw_user is None:
+            await interaction.response.send_message("Please select a player.", ephemeral=True)
+            return
+        guild = self.ctx.guild
+        if not guild:
+            await interaction.response.send_message("Must be used in server.", ephemeral=True)
+            return
+        member = raw_user if isinstance(raw_user, discord.Member) else guild.get_member(raw_user.id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(raw_user.id)
+            except Exception:
+                await interaction.response.send_message("Could not find that member.", ephemeral=True)
+                return
+        await interaction.response.defer(ephemeral=True)
+        items = await pi_get_by_owner(str(member.id))
+        if not items:
+            await interaction.followup.send(
+                f"{member.display_name} has no items to reassign.", ephemeral=True
+            )
+            return
+        options = []
+        for item in items[:25]:
+            iid = item.get("item_id", "")
+            name = item.get("name", "?")
+            char = item.get("character_name", "—")
+            label = f"{name}"[:100]
+            desc = f"Character: {char}"[:100]
+            options.append(discord.SelectOption(label=label, value=iid, description=desc))
+        view = ReassignItemPickerView(self.cog, self.ctx, member, items[:25])
+        await interaction.followup.send(
+            f"✏️ **Step 2** — Select the item from **{member.display_name}**:",
+            view=view,
+            ephemeral=True,
+        )
         self.stop()
-        await interaction.message.delete()
 
 
-async def _process_fixer_reassign_item(cog, interaction, text):
-    parts = [p.strip() for p in text.split(",")]
-    if len(parts) < 3:
-        await interaction.edit_original_response(
-            content="❌ Please provide: `item_uuid, new_owner_mention_or_id, new_character_name`",
+class ReassignItemPickerView(SafeView):
+    def __init__(self, cog, ctx, source_owner: discord.Member, items: list):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.source_owner = source_owner
+        self.items_map = {item.get("item_id", ""): item for item in items}
+        options = []
+        for item in items[:25]:
+            iid = item.get("item_id", "")
+            name = item.get("name", "?")
+            char = item.get("character_name", "—")
+            label = f"{name}"[:100]
+            desc = f"Character: {char}"[:100]
+            options.append(discord.SelectOption(label=label, value=iid, description=desc))
+        select = discord.ui.Select(placeholder="Choose an item…", options=options, row=0)
+        select.callback = self._on_select
+        self.add_item(select)
+
+    async def _on_select(self, interaction: discord.Interaction):
+        item_id = interaction.data["values"][0]
+        item = self.items_map.get(item_id)
+        if not item:
+            await interaction.response.send_message("Item not found.", ephemeral=True)
+            return
+        view = ReassignDestPickerView(self.cog, self.ctx, self.source_owner, item)
+        await interaction.response.send_message(
+            f"✏️ **Step 3** — Select the new owner for **{item.get('name', '?')}**:",
+            view=view,
+            ephemeral=True,
         )
-        return
-    item_id = parts[0]
-    raw_owner = parts[1]
-    new_char_name = parts[2]
-    guild = interaction.guild
-    if not guild:
-        await interaction.edit_original_response(content="Must be used in server.")
-        return
-    item = await pi_get_item(item_id)
-    if item is None:
-        await interaction.edit_original_response(content=f"Item `{item_id}` not found.")
-        return
-    new_owner = await _resolve_member(guild, raw_owner)
-    if not new_owner:
-        await interaction.edit_original_response(content="Could not find new owner.")
-        return
-    char_record = await get_character_by_name(str(new_owner.id), new_char_name)
-    if char_record and not await ensure_character_active(char_record["character_id"]):
-        await interaction.edit_original_response(
-            content=f"❌ Character **{new_char_name}** is not active.",
+        self.stop()
+
+
+class ReassignDestPickerView(SafeView):
+    def __init__(self, cog, ctx, source_owner: discord.Member, item: dict):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.source_owner = source_owner
+        self.item = item
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Select the new owner…", row=0)
+    async def dest_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        raw_user = select.values[0] if select.values else None
+        if raw_user is None:
+            await interaction.response.send_message("Please select a player.", ephemeral=True)
+            return
+        guild = self.ctx.guild
+        if not guild:
+            await interaction.response.send_message("Must be used in server.", ephemeral=True)
+            return
+        member = raw_user if isinstance(raw_user, discord.Member) else guild.get_member(raw_user.id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(raw_user.id)
+            except Exception:
+                await interaction.response.send_message("Could not find that member.", ephemeral=True)
+                return
+        await interaction.response.defer(ephemeral=True)
+        chars = await get_active_characters(str(member.id))
+        if not chars:
+            await interaction.followup.send(
+                f"{member.display_name} has no active characters.", ephemeral=True
+            )
+            return
+        options = []
+        for c in chars[:25]:
+            cname = c.get("name", "?")
+            options.append(discord.SelectOption(label=cname[:100], value=cname))
+        view = ReassignCharPickerView(
+            self.cog, self.ctx, self.source_owner, self.item, member, chars[:25]
         )
-        return
-    item_name = item.get("name", "?")
-    old_owner_id = item.get("owner_id", "")
-    old_char = item.get("character_name", "")
-    if str(new_owner.id) == old_owner_id:
-        ok = await pi_update_character(item_id, new_char_name, expected_owner_id=old_owner_id)
-    else:
-        ok = await pi_update_owner(item_id, str(new_owner.id), new_char_name, old_owner_id)
-    if not ok:
-        await interaction.edit_original_response(content="Failed to reassign item.")
-        return
-    await ih_record_event(
-        item_id, "fixer_reassign",
-        actor_id=str(interaction.user.id),
-        target_id=str(new_owner.id),
-        metadata={
-            "item_name": item_name,
-            "old_owner": old_owner_id,
-            "old_character": old_char,
-            "new_character": new_char_name,
-        },
-    )
-    await interaction.edit_original_response(
-        content=f"✅ Reassigned **{item_name}** to {new_owner.display_name} — {new_char_name}.",
-    )
-    log_ch = await _audit_channel(cog.bot)
-    if log_ch:
-        embed = discord.Embed(
-            title="✏️ Fixer: Item Reassigned",
-            color=discord.Color.blurple(),
-            timestamp=datetime.now(timezone.utc),
+        await interaction.followup.send(
+            f"✏️ **Step 4** — Select the character on **{member.display_name}** to receive the item:",
+            view=view,
+            ephemeral=True,
         )
-        embed.add_field(name="Fixer", value=f"{interaction.user.mention}", inline=False)
-        embed.add_field(name="Item", value=f"**{item_name}** (`{item_id}`)", inline=False)
-        embed.add_field(name="Old", value=f"<@{old_owner_id}> — {old_char}", inline=True)
-        embed.add_field(name="New", value=f"{new_owner.mention} — {new_char_name}", inline=True)
-        embed.set_footer(text="NightCityBot Audit Log")
-        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        self.stop()
+
+
+class ReassignCharPickerView(SafeView):
+    def __init__(self, cog, ctx, source_owner: discord.Member, item: dict,
+                 dest_owner: discord.Member, chars: list):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.source_owner = source_owner
+        self.item = item
+        self.dest_owner = dest_owner
+        options = []
+        for c in chars[:25]:
+            cname = c.get("name", "?")
+            options.append(discord.SelectOption(label=cname[:100], value=cname))
+        select = discord.ui.Select(placeholder="Choose a character…", options=options, row=0)
+        select.callback = self._on_select
+        self.add_item(select)
+
+    async def _on_select(self, interaction: discord.Interaction):
+        new_char_name = interaction.data["values"][0]
+        item_id = self.item.get("item_id", "")
+        item_name = self.item.get("name", "?")
+        old_owner_id = self.item.get("owner_id", "")
+        old_char = self.item.get("character_name", "")
+
+        await interaction.response.defer(ephemeral=True)
+
+        char_record = await get_character_by_name(str(self.dest_owner.id), new_char_name)
+        if char_record and not await ensure_character_active(char_record["character_id"]):
+            await interaction.followup.send(
+                f"❌ Character **{new_char_name}** is not active.", ephemeral=True
+            )
+            return
+
+        if str(self.dest_owner.id) == old_owner_id:
+            ok = await pi_update_character(item_id, new_char_name, expected_owner_id=old_owner_id)
+        else:
+            ok = await pi_update_owner(item_id, str(self.dest_owner.id), new_char_name, old_owner_id)
+        if not ok:
+            await interaction.followup.send("Failed to reassign item.", ephemeral=True)
+            return
+
+        await ih_record_event(
+            item_id, "fixer_reassign",
+            actor_id=str(interaction.user.id),
+            target_id=str(self.dest_owner.id),
+            metadata={
+                "item_name": item_name,
+                "old_owner": old_owner_id,
+                "old_character": old_char,
+                "new_character": new_char_name,
+            },
+        )
+        await interaction.followup.send(
+            f"✅ Reassigned **{item_name}** from {self.source_owner.display_name} "
+            f"to {self.dest_owner.display_name} — {new_char_name}.",
+            ephemeral=True,
+        )
+        log_ch = await _audit_channel(self.cog.bot)
+        if log_ch:
+            embed = discord.Embed(
+                title="✏️ Fixer: Item Reassigned",
+                color=discord.Color.blurple(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.add_field(name="Fixer", value=f"{interaction.user.mention}", inline=False)
+            embed.add_field(name="Item", value=f"**{item_name}** (`{item_id}`)", inline=False)
+            embed.add_field(name="Old", value=f"<@{old_owner_id}> — {old_char}", inline=True)
+            embed.add_field(name="New", value=f"{self.dest_owner.mention} — {new_char_name}", inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
+            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        self.stop()
 
 
 async def _process_wh_add_gun(cog, interaction, text, msg=None):
@@ -1386,29 +1511,32 @@ class StoreOwnerPickerView(SafeView):
                 return
             state = await guns_cog._load_state()
             store_id = guns_cog._store_id(guild.id, owner.id)
+            store_data = state.get("stores", {}).get(store_id, {})
             lots = [
-                l for l in state.get("stores", {}).get(store_id, {}).get("lots", [])
+                l for l in store_data.get("lots", [])
                 if l.get("qty_remaining", 0) > 0
             ]
-            if not lots:
-                await interaction.followup.send(
-                    f"{owner.display_name}'s gun store is empty.", ephemeral=True
-                )
-                return
-            lines = []
-            for i, l in enumerate(lots[:25], 1):
-                r = l.get("restriction", "basic")
-                r_tag = f" [{r}]" if r != "basic" else ""
-                lines.append(
-                    f"`{i}.` **{l['gun_name']}**{r_tag} — ${int(l['unit_cost']):,} × {l['qty_remaining']}"
-                )
-            store_data = state.get("stores", {}).get(store_id, {})
             store_title = store_data.get("store_name") or f"{owner.display_name}'s Gun Store"
-            embed = discord.Embed(
-                title=f"🔫 {store_title}",
-                description="\n".join(lines),
-                color=discord.Color.dark_green(),
-            )
+            if lots:
+                lines = []
+                for i, l in enumerate(lots[:25], 1):
+                    r = l.get("restriction", "basic")
+                    r_tag = f" [{r}]" if r != "basic" else ""
+                    lines.append(
+                        f"`{i}.` **{l['gun_name']}**{r_tag} — ${int(l['unit_cost']):,} × {l['qty_remaining']}"
+                    )
+                embed = discord.Embed(
+                    title=f"🔫 {store_title}",
+                    description="\n".join(lines),
+                    color=discord.Color.dark_green(),
+                )
+                embed.set_footer(text=f"{len(lots)} lot(s)")
+            else:
+                embed = discord.Embed(
+                    title=f"🔫 {store_title}",
+                    description="This store is currently empty.",
+                    color=discord.Color.dark_green(),
+                )
             employees = store_data.get("employees", [])
             if employees:
                 emp_mentions = [f"<@{uid}>" for uid in employees]
@@ -1417,30 +1545,31 @@ class StoreOwnerPickerView(SafeView):
                     value=", ".join(emp_mentions),
                     inline=False,
                 )
-            embed.set_footer(text=f"{len(lots)} lot(s)")
         else:
             cw_cog = self.cog.bot.cogs.get("CyberwareShop")
             if not cw_cog:
                 await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
                 return
             inventory = await cw_cog._load_inventory(owner.id)
-            if not inventory:
-                await interaction.followup.send(
-                    f"{owner.display_name}'s Ripperdoc stock is empty.", ephemeral=True
+            if inventory:
+                groups = cw_cog._grouped_inventory(inventory)
+                lines = []
+                for i, g in enumerate(groups[:25], 1):
+                    count_str = f" × {g['count']}" if g['count'] > 1 else ""
+                    price_str = f"${g['price_paid']:,}" if g.get('price_paid') else "—"
+                    lines.append(f"`{i}.` **{g['name']}**{count_str} — {price_str}")
+                embed = discord.Embed(
+                    title=f"💉 {owner.display_name}'s Ripperdoc Stock",
+                    description="\n".join(lines),
+                    color=discord.Color.purple(),
                 )
-                return
-            groups = cw_cog._grouped_inventory(inventory)
-            lines = []
-            for i, g in enumerate(groups[:25], 1):
-                count_str = f" × {g['count']}" if g['count'] > 1 else ""
-                price_str = f"${g['price_paid']:,}" if g.get('price_paid') else "—"
-                lines.append(f"`{i}.` **{g['name']}**{count_str} — {price_str}")
-            embed = discord.Embed(
-                title=f"💉 {owner.display_name}'s Ripperdoc Stock",
-                description="\n".join(lines),
-                color=discord.Color.purple(),
-            )
-            embed.set_footer(text=f"{len(inventory)} item(s) in {len(groups)} slot(s)")
+                embed.set_footer(text=f"{len(inventory)} item(s) in {len(groups)} slot(s)")
+            else:
+                embed = discord.Embed(
+                    title=f"💉 {owner.display_name}'s Ripperdoc Stock",
+                    description="This store is currently empty.",
+                    color=discord.Color.purple(),
+                )
 
         action_view = StoreActionView(self.cog, self.ctx, owner, self.store_type)
         await interaction.followup.send(embed=embed, view=action_view, ephemeral=True)
