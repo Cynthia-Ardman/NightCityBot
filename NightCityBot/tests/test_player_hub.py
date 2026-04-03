@@ -330,7 +330,8 @@ def test_trade_setup_buyer_select():
         with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_ACTIVE_CHARS):
             await select.callback(inter)
         assert view.selected_buyer == buyer
-        assert "✓" in inter.response.send_message.call_args[0][0]
+        inter.response.edit_message.assert_called_once()
+        assert "✓" in inter.followup.send.call_args[0][0]
     _run(_test())
 
 
@@ -582,7 +583,8 @@ def test_give_setup_recipient_select():
         with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_ACTIVE_CHARS):
             await select.callback(inter)
         assert view.selected_recipient == recipient
-        assert "✓" in inter.response.send_message.call_args[0][0]
+        inter.response.edit_message.assert_called_once()
+        assert "✓" in inter.followup.send.call_args[0][0]
     _run(_test())
 
 

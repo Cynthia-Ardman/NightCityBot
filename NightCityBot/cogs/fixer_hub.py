@@ -967,55 +967,129 @@ class PlayerRemoveItemView(SafeView):
             await interaction.response.send_message("Please select a player first.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
+        player = self.selected_player
+        items = await pi_get_by_owner(str(player.id))
+        if not items:
+            await interaction.followup.send(
+                f"{player.display_name} has no items.", ephemeral=True
+            )
+            return
+        grouped: dict[str, list[dict]] = {}
+        for item in items:
+            name = item.get("name", "?")
+            if name not in grouped:
+                grouped[name] = []
+            grouped[name].append(item)
+        options = []
+        for name, group in sorted(grouped.items()):
+            count = len(group)
+            itype = group[0].get("item_type", "misc")
+            label = f"{name} ×{count}" if count > 1 else name
+            if len(label) > 100:
+                label = label[:97] + "..."
+            desc = f"Type: {itype}"
+            options.append(discord.SelectOption(
+                label=label, value=name, description=desc,
+            ))
+        if len(options) > 25:
+            options = options[:25]
+        step2 = RemoveItemPickerView(
+            self.cog, self.ctx, player, grouped,
+        )
+        step2.item_dropdown.options = options
         await interaction.followup.send(
-            "📝 **Enter the Item UUID** to remove (or type `cancel`):",
+            f"**{player.display_name}**'s inventory — select the item to remove:",
+            view=step2, ephemeral=True,
+        )
+        self.stop()
+
+
+class RemoveItemPickerView(SafeView):
+    def __init__(self, cog: "FixerHubCog", ctx: commands.Context,
+                 player: discord.Member, grouped: dict[str, list[dict]]):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.player = player
+        self.grouped = grouped
+        self.selected_name: Optional[str] = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(placeholder="Select item to remove…", row=0)
+    async def item_dropdown(self, interaction: discord.Interaction, select: discord.ui.Select):
+        self.selected_name = select.values[0]
+        group = self.grouped.get(self.selected_name, [])
+        count = len(group)
+        if count > 1:
+            await interaction.response.defer(ephemeral=True)
+            await interaction.followup.send(
+                f"**{self.selected_name}** — this player owns **{count}**. "
+                f"How many to remove? (1-{count}, or type `cancel`):",
+                ephemeral=True,
+            )
+            text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+            if text is None:
+                await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+                return
+            try:
+                qty = int(text.strip())
+            except ValueError:
+                await interaction.followup.send("Invalid number.", ephemeral=True)
+                return
+            if qty < 1 or qty > count:
+                await interaction.followup.send(
+                    f"Quantity must be between 1 and {count}.", ephemeral=True
+                )
+                return
+        else:
+            qty = 1
+            await interaction.response.defer(ephemeral=True)
+        await self._do_remove(interaction, qty)
+
+    async def _do_remove(self, interaction: discord.Interaction, qty: int):
+        group = self.grouped.get(self.selected_name, [])
+        to_remove = group[:qty]
+        removed = 0
+        for item in to_remove:
+            item_id = item.get("item_id") or item.get("id", "")
+            fresh = await pi_get_item(item_id)
+            if fresh is None or fresh.get("owner_id") != str(self.player.id):
+                continue
+            ok = await pi_delete_item(item_id)
+            if ok:
+                removed += 1
+                await ih_record_event(
+                    item_id, "admin_remove",
+                    actor_id=str(interaction.user.id),
+                    target_id=str(self.player.id),
+                    metadata={"item_name": self.selected_name},
+                )
+        count_str = f"×{removed}" if removed > 1 else ""
+        await interaction.followup.send(
+            f"Removed **{self.selected_name}** {count_str} from {self.player.display_name}."
+            if removed > 0
+            else f"Failed to remove **{self.selected_name}**.",
             ephemeral=True,
         )
-        item_id = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
-        if item_id is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
-            return
-        player = self.selected_player
-
-        item = await pi_get_item(item_id)
-        if item is None:
-            await interaction.followup.send(f"Item `{item_id}` not found.", ephemeral=True)
-            return
-        if item.get("owner_id") != str(player.id):
-            await interaction.followup.send(
-                f"Item does not belong to {player.display_name}.", ephemeral=True
-            )
-            return
-        item_name = item.get("name", "?")
-        fresh = await pi_get_item(item_id)
-        if fresh is None or fresh.get("owner_id") != str(player.id):
-            await interaction.followup.send(
-                f"Item `{item_id}` was modified before removal. Please try again.", ephemeral=True
-            )
-            return
-        ok = await pi_delete_item(item_id)
-        if not ok:
-            await interaction.followup.send("Failed to remove item.", ephemeral=True)
-            return
-        await ih_record_event(
-            item_id, "admin_remove",
-            actor_id=str(interaction.user.id),
-            target_id=str(player.id),
-            metadata={"item_name": item_name},
-        )
-        await interaction.followup.send(
-            f"Removed **{item_name}** (`{item_id}`) from {player.display_name}.", ephemeral=True
-        )
         log_ch = await _audit_channel(self.cog.bot)
-        if log_ch:
+        if log_ch and removed > 0:
             embed = discord.Embed(
                 title="🗑️ Fixer: Item Removed",
                 color=discord.Color.red(),
                 timestamp=datetime.now(timezone.utc),
             )
             embed.add_field(name="Fixer", value=f"{interaction.user.mention}", inline=False)
-            embed.add_field(name="Player", value=f"{player.mention}", inline=False)
-            embed.add_field(name="Item", value=f"**{item_name}** (`{item_id}`)", inline=False)
+            embed.add_field(name="Player", value=f"{self.player.mention}", inline=False)
+            embed.add_field(
+                name="Item",
+                value=f"**{self.selected_name}** {count_str}",
+                inline=False,
+            )
             embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
         self.stop()

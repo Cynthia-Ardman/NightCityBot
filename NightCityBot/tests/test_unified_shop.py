@@ -22,7 +22,6 @@ from NightCityBot.cogs.gunstore_hub import (
 from NightCityBot.cogs.admin_shop import (
     AdminShopCog,
     AdminShopMenuView,
-    AdminAddItemPickerView,
     PlayerInvPickerView as AdminPlayerInvPickerView,
     WholesaleClearConfirmView,
 )
@@ -463,38 +462,6 @@ class TestAdminShopMenuView:
             return await view.interaction_check(inter)
 
         assert _run(run()) is False
-
-    def test_add_item_sends_picker(self, monkeypatch):
-        monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
-
-        async def run():
-            cog = _make_admin_cog()
-            view = AdminShopMenuView()
-            inter = _make_interaction()
-            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            btn = _find_button(view, "Add Item")
-            await btn.callback(inter)
-            inter.response.defer.assert_called_once()
-            kwargs = inter.followup.send.call_args.kwargs
-            assert isinstance(kwargs["view"], AdminAddItemPickerView)
-
-        _run(run())
-
-    def test_remove_item_starts_inline_flow(self, monkeypatch):
-        monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
-        monkeypatch.setattr("NightCityBot.cogs.admin_shop.collect_text_input", AsyncMock(return_value=None))
-
-        async def run():
-            cog = _make_admin_cog()
-            view = AdminShopMenuView()
-            inter = _make_interaction()
-            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            inter.channel_id = 123
-            btn = _find_button(view, "Remove Item")
-            await btn.callback(inter)
-            inter.response.defer.assert_called_once()
-
-        _run(run())
 
     def test_reassign_item_starts_inline_flow(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)

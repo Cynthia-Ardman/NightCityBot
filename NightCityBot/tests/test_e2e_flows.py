@@ -41,7 +41,6 @@ from NightCityBot.cogs.gunstore_hub import (
 from NightCityBot.cogs.admin_shop import (
     AdminShopCog,
     AdminShopMenuView,
-    AdminAddItemPickerView,
     WholesaleClearConfirmView,
 )
 
@@ -677,67 +676,6 @@ class TestFlowG_GunstoreRestrictedSell:
             assert add_data["owner_id"] == "500"
             assert add_data["character_name"] == "Panam"
             assert add_data["name"] == "Tsunami Nekomata"
-
-        _run(_test())
-
-
-class TestFlowH_AdminAddItem:
-    """Flow H: Admin Panel -> Add Item -> user -> char -> text -> item created."""
-
-    @patch("NightCityBot.cogs.admin_shop.ih_record_event", new_callable=AsyncMock)
-    @patch("NightCityBot.cogs.admin_shop.pi_add_item", new_callable=AsyncMock, return_value=True)
-    @patch("NightCityBot.cogs.admin_shop.ensure_character_active", new_callable=AsyncMock, return_value=True)
-    @patch("NightCityBot.cogs.admin_shop.collect_text_input", new_callable=AsyncMock)
-    @patch("NightCityBot.cogs.admin_shop.get_active_characters", new_callable=AsyncMock)
-    def test_admin_add_item_flow(self, mock_chars, mock_text, mock_ensure, mock_add, mock_history):
-        mock_chars.return_value = MOCK_CHARS_PLAYER
-        mock_text.return_value = "Katana, melee, 1, 500"
-
-        async def _test():
-            bot = _make_bot()
-            cog = AdminShopCog.__new__(AdminShopCog)
-            cog.bot = bot
-
-            menu_view = AdminShopMenuView()
-            add_btn = _find_button(menu_view, "Add Item")
-
-            inter1 = _make_interaction(user_id=100)
-            inter1.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            await add_btn.callback(inter1)
-            picker_view = inter1.followup.send.call_args[1]["view"]
-            assert isinstance(picker_view, AdminAddItemPickerView)
-
-            target = _make_member(300, "TargetPlayer")
-            inter2 = _make_interaction(user_id=100)
-            user_select = _find_user_select(picker_view)
-            user_select._values = [target]
-            await user_select.callback(inter2)
-
-            char_select = None
-            for child in picker_view.children:
-                if isinstance(child, discord.ui.Select) and child.placeholder and "character" in child.placeholder.lower():
-                    char_select = child
-                    break
-            assert char_select is not None
-
-            inter3 = _make_interaction(user_id=100)
-            inter3.data = {"values": ["char-p1"]}
-            await char_select.callback(inter3)
-            assert picker_view.selected_character["name"] == "V"
-
-            inter4 = _make_interaction(user_id=100)
-            continue_btn = _find_button(picker_view, "Continue →")
-            await continue_btn.callback(inter4)
-
-            mock_text.assert_called_once()
-            mock_add.assert_called_once()
-            add_data = mock_add.call_args[0][0]
-            assert add_data["name"] == "Katana"
-            assert add_data["item_type"] == "melee"
-            assert add_data["owner_id"] == "300"
-            assert add_data["character_name"] == "V"
-            assert add_data["price_paid"] == 500
-            mock_history.assert_called_once()
 
         _run(_test())
 

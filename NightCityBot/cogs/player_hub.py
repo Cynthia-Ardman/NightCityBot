@@ -716,7 +716,8 @@ class TradeSetupView(SafeView):
         self._buyer_char_select = char_select
         self.add_item(char_select)
 
-        await interaction.response.send_message(
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send(
             f"Buyer: **{self.selected_buyer.display_name}** ✓ — Now select their character.",
             ephemeral=True,
         )
@@ -1137,7 +1138,8 @@ class GiveSetupView(SafeView):
         self._recipient_char_select = char_select
         self.add_item(char_select)
 
-        await interaction.response.send_message(
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send(
             f"Recipient: **{self.selected_recipient.display_name}** ✓ — Now select their character.",
             ephemeral=True,
         )

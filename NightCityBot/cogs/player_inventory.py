@@ -137,21 +137,22 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             visible = (char_filter_lower is None) or (char.lower() == char_filter_lower)
             groups = PlayerInventoryCog._group_items(char_groups[char])
             if visible:
-                display.append((None, f"**— {char or '(no character)'} —**"))
+                display.append((None, f"\n**— {char or '(no character)'} —**"))
             for g in groups:
-                price_str = f"${g['price_paid']:,}" if g["price_paid"] else "—"
-                seller_str = g["seller_name"] or "—"
-                date_str = g.get("acquired_date") or "—"
                 count_str = f" ×{g['count']}" if g["count"] > 1 else ""
-                detail_parts = []
-                if price_str != "—":
-                    detail_parts.append(price_str)
-                if seller_str != "—":
-                    detail_parts.append(seller_str)
-                detail_parts.append(date_str)
-                detail = " · ".join(detail_parts)
-                char_label = g["items"][0].get("character_name") or "(no character)"
-                line = f"`{row_num}.` **{g['name']}**{count_str} [{g['item_type']}] ({char_label}) — {detail}"
+                type_tag = g["item_type"]
+                meta_parts = []
+                if g["price_paid"]:
+                    meta_parts.append(f"💰 ${g['price_paid']:,}")
+                if g["seller_name"]:
+                    meta_parts.append(f"🏪 {g['seller_name']}")
+                date_str = g.get("acquired_date") or ""
+                if date_str:
+                    meta_parts.append(f"📅 {date_str}")
+                meta_line = "  ".join(meta_parts)
+                line = f"`{row_num}.` **{g['name']}**{count_str}  `{type_tag}`"
+                if meta_line:
+                    line += f"\n ╰ {meta_line}"
                 if visible:
                     display.append((row_num, line))
                     all_groups.append(g)
