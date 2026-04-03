@@ -26,8 +26,9 @@ from NightCityBot.cogs.admin_shop import (
     WholesaleClearConfirmView,
 )
 from NightCityBot.cogs.ripperdoc_hub import (
-    SellModal,
-    InstallModal,
+    SellDetailsModal,
+    InstallDetailsModal,
+    SellSetupView,
     BuyQtyModal,
 )
 from NightCityBot.cogs.player_inventory import TradeConfirmView
@@ -194,31 +195,57 @@ class TestRipperdocMenuView:
         msg = _run(run())
         assert "unavailable" in msg.lower()
 
-    def test_sell_opens_modal(self, monkeypatch):
+    def test_sell_opens_setup_view(self, monkeypatch):
         monkeypatch.setattr("config.CYBERWARE_LOG_CHANNEL_ID", 0)
 
         async def run():
             cog = _make_ripperdoc_cog()
             ctx = _ctx()
+            cw_cog = MagicMock()
+            cw_cog._load_inventory = AsyncMock(return_value=[
+                {"item_id": "x", "name": "Optics", "price_paid": 100}
+            ])
+            cw_cog._grouped_inventory = MagicMock(return_value=[
+                {"name": "Optics", "count": 1, "items": [
+                    {"item_id": "x", "name": "Optics"}
+                ]}
+            ])
+            cog.bot.cogs = {"CyberwareShop": cw_cog}
             view = RipperdocMenuView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "Sell to Patient")
             await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            inter.response.defer.assert_called_once()
+            inter.followup.send.assert_called_once()
+            sent_view = inter.followup.send.call_args[1].get("view")
+            assert isinstance(sent_view, SellSetupView)
 
         _run(run())
 
-    def test_install_opens_modal(self, monkeypatch):
+    def test_install_opens_setup_view(self, monkeypatch):
         monkeypatch.setattr("config.CYBERWARE_LOG_CHANNEL_ID", 0)
 
         async def run():
             cog = _make_ripperdoc_cog()
             ctx = _ctx()
+            cw_cog = MagicMock()
+            cw_cog._load_inventory = AsyncMock(return_value=[
+                {"item_id": "x", "name": "Optics", "price_paid": 100}
+            ])
+            cw_cog._grouped_inventory = MagicMock(return_value=[
+                {"name": "Optics", "count": 1, "items": [
+                    {"item_id": "x", "name": "Optics"}
+                ]}
+            ])
+            cog.bot.cogs = {"CyberwareShop": cw_cog}
             view = RipperdocMenuView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "Install on Patient")
             await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            inter.response.defer.assert_called_once()
+            inter.followup.send.assert_called_once()
+            sent_view = inter.followup.send.call_args[1].get("view")
+            assert isinstance(sent_view, SellSetupView)
 
         _run(run())
 
@@ -824,7 +851,11 @@ class TestInstallDMConfirmation:
         async def run():
             cog = _make_ripperdoc_cog()
             ctx = _ctx()
-            modal = InstallModal(cog, ctx)
+            patient = _make_member(333, "Patient")
+            group = {"name": "Mantis Blades", "count": 1, "items": [
+                {"item_id": "test-uuid", "name": "Mantis Blades"}
+            ]}
+            modal = InstallDetailsModal(cog, ctx, patient, group, 1)
             return hasattr(modal, "price_input")
 
         assert _run(run())
@@ -834,7 +865,6 @@ class TestInstallDMConfirmation:
             cog = _make_ripperdoc_cog()
             ctx = _ctx()
             patient = _make_member(333, "Patient")
-            ctx.guild.get_member = MagicMock(return_value=patient)
 
             cw_cog = MagicMock()
             cw_cog.lock = asyncio.Lock()
@@ -849,10 +879,11 @@ class TestInstallDMConfirmation:
             cw_cog._save_inventory = AsyncMock()
             cog.bot.cogs = {"CyberwareShop": cw_cog}
 
-            modal = InstallModal(cog, ctx)
-            modal.patient_input = MagicMock(value="333")
+            group = {"name": "Mantis Blades", "count": 1, "items": [
+                {"item_id": "test-uuid", "name": "Mantis Blades"}
+            ]}
+            modal = InstallDetailsModal(cog, ctx, patient, group, 1)
             modal.character_input = MagicMock(value="V")
-            modal.inv_row_input = MagicMock(value="1")
             modal.price_input = MagicMock(value="0")
 
             dm_view_cls = "NightCityBot.cogs.ripperdoc_hub.DMConfirmView"
@@ -877,28 +908,23 @@ class TestSellRefundMath:
             cog = _make_ripperdoc_cog()
             ctx = _ctx()
             patient = _make_member(444, "Patient")
-            ctx.guild.get_member = MagicMock(return_value=patient)
 
             cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 3000, "bank": 7000})
             cog.unbelievaboat.update_balance = AsyncMock(return_value=True)
 
             cw_cog = MagicMock()
             cw_cog.lock = asyncio.Lock()
-            cw_cog._load_inventory = AsyncMock(side_effect=[
-                [{"item_id": "uid-1", "name": "Chrome Arms"}],
-                [],
+            cw_cog._load_inventory = AsyncMock(return_value=[
+                {"item_id": "uid-1", "name": "Chrome Arms"}
             ])
-            cw_cog._grouped_inventory = MagicMock(return_value=[
-                {"name": "Chrome Arms", "count": 1, "items": [
-                    {"item_id": "uid-1", "name": "Chrome Arms"}
-                ]}
-            ])
+            cw_cog._save_inventory = AsyncMock()
             cog.bot.cogs = {"CyberwareShop": cw_cog}
 
-            modal = SellModal(cog, ctx)
-            modal.patient_input = MagicMock(value="444")
+            group = {"name": "Chrome Arms", "count": 1, "items": [
+                {"item_id": "uid-1", "name": "Chrome Arms"}
+            ]}
+            modal = SellDetailsModal(cog, ctx, patient, group, 1)
             modal.character_input = MagicMock(value="V")
-            modal.inv_row_input = MagicMock(value="1")
             modal.price_input = MagicMock(value="5000")
 
             dm_view_cls = "NightCityBot.cogs.ripperdoc_hub.DMConfirmView"
@@ -930,7 +956,6 @@ class TestSellerCreditFailurePendingTransfer:
             cog = _make_ripperdoc_cog()
             ctx = _ctx()
             patient = _make_member(555, "Patient")
-            ctx.guild.get_member = MagicMock(return_value=patient)
 
             call_count = [0]
             async def fake_update(uid, bal, reason=""):
@@ -955,10 +980,11 @@ class TestSellerCreditFailurePendingTransfer:
             cw_cog._save_inventory = AsyncMock()
             cog.bot.cogs = {"CyberwareShop": cw_cog}
 
-            modal = SellModal(cog, ctx)
-            modal.patient_input = MagicMock(value="555")
+            group = {"name": "Optics", "count": 1, "items": [
+                {"item_id": "uid-2", "name": "Optics"}
+            ]}
+            modal = SellDetailsModal(cog, ctx, patient, group, 1)
             modal.character_input = MagicMock(value="V")
-            modal.inv_row_input = MagicMock(value="1")
             modal.price_input = MagicMock(value="1000")
 
             dm_view_cls = "NightCityBot.cogs.ripperdoc_hub.DMConfirmView"
@@ -983,7 +1009,6 @@ class TestPiAddItemFailureCompensation:
             cog = _make_ripperdoc_cog()
             ctx = _ctx()
             patient = _make_member(666, "Patient")
-            ctx.guild.get_member = MagicMock(return_value=patient)
 
             cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 50000, "bank": 0})
             cog.unbelievaboat.update_balance = AsyncMock(return_value=True)
@@ -1001,10 +1026,11 @@ class TestPiAddItemFailureCompensation:
             cw_cog._save_inventory = AsyncMock()
             cog.bot.cogs = {"CyberwareShop": cw_cog}
 
-            modal = SellModal(cog, ctx)
-            modal.patient_input = MagicMock(value="666")
+            group = {"name": "Neural Link", "count": 1, "items": [
+                {"item_id": "uid-3", "name": "Neural Link"}
+            ]}
+            modal = SellDetailsModal(cog, ctx, patient, group, 1)
             modal.character_input = MagicMock(value="V")
-            modal.inv_row_input = MagicMock(value="1")
             modal.price_input = MagicMock(value="2000")
 
             dm_view_cls = "NightCityBot.cogs.ripperdoc_hub.DMConfirmView"

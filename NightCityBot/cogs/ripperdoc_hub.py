@@ -72,11 +72,45 @@ class RipperdocMenuView(discord.ui.View):
 
     @discord.ui.button(label="Sell to Patient", style=discord.ButtonStyle.success, emoji="💉", row=0)
     async def sell_to_patient(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(SellModal(self.cog, self.ctx))
+        await interaction.response.defer(ephemeral=True)
+        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
+        if not cw_cog:
+            await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+            return
+        inventory = await cw_cog._load_inventory(self.ctx.author.id)
+        if not inventory:
+            await interaction.followup.send("Your cyberware stock is empty. Buy from wholesale first.", ephemeral=True)
+            return
+        groups = cw_cog._grouped_inventory(inventory)
+        view = SellSetupView(self.cog, self.ctx, groups, mode="sell")
+        msg = "**Step 1** — Select the patient and the item to sell:"
+        if view.truncated:
+            msg += (
+                f"\n⚠️ Showing first 25 of {len(groups)} item groups. "
+                "Use `!cw_sell @patient <row> <price> <name>` for items beyond 25."
+            )
+        await interaction.followup.send(msg, view=view, ephemeral=True)
 
     @discord.ui.button(label="Install on Patient", style=discord.ButtonStyle.success, emoji="🔧", row=0)
     async def install_on_patient(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(InstallModal(self.cog, self.ctx))
+        await interaction.response.defer(ephemeral=True)
+        cw_cog = self.cog.bot.cogs.get("CyberwareShop")
+        if not cw_cog:
+            await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+            return
+        inventory = await cw_cog._load_inventory(self.ctx.author.id)
+        if not inventory:
+            await interaction.followup.send("Your cyberware stock is empty. Buy from wholesale first.", ephemeral=True)
+            return
+        groups = cw_cog._grouped_inventory(inventory)
+        view = SellSetupView(self.cog, self.ctx, groups, mode="install")
+        msg = "**Step 1** — Select the patient and the item to install:"
+        if view.truncated:
+            msg += (
+                f"\n⚠️ Showing first 25 of {len(groups)} item groups. "
+                "Use `!cw_install @patient <row> <fee> <name>` for items beyond 25."
+            )
+        await interaction.followup.send(msg, view=view, ephemeral=True)
 
     @discord.ui.button(label="My Stock", style=discord.ButtonStyle.secondary, emoji="📦", row=1)
     async def view_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -258,34 +292,126 @@ class BuyQtyModal(discord.ui.Modal, title="Buy Cyberware"):
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-class SellModal(discord.ui.Modal, title="Sell Cyberware to Patient"):
-    patient_input = discord.ui.TextInput(label="Patient (mention or ID)", placeholder="@patient or 123456789")
-    character_input = discord.ui.TextInput(label="Patient Character Name", placeholder="V")
-    inv_row_input = discord.ui.TextInput(label="Your Stock Row #", placeholder="1")
-    price_input = discord.ui.TextInput(label="Price to Charge", placeholder="5000")
+class SellSetupView(discord.ui.View):
+    def __init__(self, cog: "RipperdocHub", ctx: commands.Context,
+                 groups: list[dict], *, mode: str = "sell"):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.groups = groups
+        self.mode = mode
+        self.selected_patient: Optional[discord.Member] = None
+        self.selected_group_idx: Optional[int] = None
 
-    def __init__(self, cog: "RipperdocHub", ctx: commands.Context):
+        self.truncated = len(groups) > 25
+        options = []
+        for i, g in enumerate(groups[:25]):
+            qty_str = f" ×{g['count']}" if g["count"] > 1 else ""
+            label = f"{g['name']}{qty_str}"
+            options.append(discord.SelectOption(label=label[:100], value=str(i)))
+        stock_select = discord.ui.Select(
+            placeholder="Choose item from your stock…",
+            options=options,
+            row=1,
+        )
+        stock_select.callback = self._on_stock_select
+        self.add_item(stock_select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a patient…", row=0)
+    async def patient_select(self, interaction: discord.Interaction,
+                             select: discord.ui.UserSelect):
+        user = select.values[0] if select.values else None
+        if user is None:
+            await interaction.response.send_message(
+                "Please select a server member.", ephemeral=True
+            )
+            return
+        if isinstance(user, discord.Member):
+            self.selected_patient = user
+        else:
+            guild = self.ctx.guild
+            if guild:
+                member = guild.get_member(user.id)
+                if member:
+                    self.selected_patient = member
+                else:
+                    await interaction.response.send_message(
+                        "That user doesn't appear to be in this server.", ephemeral=True
+                    )
+                    return
+            else:
+                await interaction.response.send_message(
+                    "Could not resolve server member.", ephemeral=True
+                )
+                return
+        await interaction.response.send_message(
+            f"Patient: **{self.selected_patient.display_name}** ✓", ephemeral=True
+        )
+
+    async def _on_stock_select(self, interaction: discord.Interaction):
+        self.selected_group_idx = int(interaction.data["values"][0])
+        item_name = self.groups[self.selected_group_idx]["name"]
+        await interaction.response.send_message(
+            f"Item: **{item_name}** ✓", ephemeral=True
+        )
+
+    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=2)
+    async def continue_btn(self, interaction: discord.Interaction,
+                           button: discord.ui.Button):
+        if self.selected_patient is None:
+            await interaction.response.send_message(
+                "Please select a patient first.", ephemeral=True
+            )
+            return
+        if self.selected_group_idx is None:
+            await interaction.response.send_message(
+                "Please select an item from your stock first.", ephemeral=True
+            )
+            return
+        group = self.groups[self.selected_group_idx]
+        if self.mode == "install":
+            modal = InstallDetailsModal(
+                self.cog, self.ctx, self.selected_patient,
+                group, self.selected_group_idx + 1,
+            )
+        else:
+            modal = SellDetailsModal(
+                self.cog, self.ctx, self.selected_patient,
+                group, self.selected_group_idx + 1,
+            )
+        await interaction.response.send_modal(modal)
+        self.stop()
+
+
+class SellDetailsModal(discord.ui.Modal, title="Sell — Finalize Details"):
+    character_input = discord.ui.TextInput(label="Patient Character Name", placeholder="V")
+    price_input = discord.ui.TextInput(
+        label="Price to Charge (0 = gift)",
+        placeholder="5000 (enter 0 to gift for free)",
+    )
+
+    def __init__(self, cog: "RipperdocHub", ctx: commands.Context,
+                 patient: discord.Member, group: dict, inv_row: int):
         super().__init__()
         self.cog = cog
         self.ctx = ctx
+        self.patient = patient
+        self.group = group
+        self.inv_row = inv_row
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        guild = self.ctx.guild
-        if not guild:
-            await interaction.followup.send("Must be used in server.", ephemeral=True)
-            return
-
-        patient = await self.cog._resolve_member_from_input(guild, self.patient_input.value)
-        if not patient:
-            await interaction.followup.send("Could not find that patient.", ephemeral=True)
-            return
 
         try:
-            inv_row = int(self.inv_row_input.value)
             price = int(self.price_input.value)
         except ValueError:
-            await interaction.followup.send("Row and price must be numbers.", ephemeral=True)
+            await interaction.followup.send("Price must be a number.", ephemeral=True)
             return
         if price < 0:
             await interaction.followup.send("Price cannot be negative.", ephemeral=True)
@@ -296,23 +422,15 @@ class SellModal(discord.ui.Modal, title="Sell Cyberware to Patient"):
             await interaction.followup.send("Character name required.", ephemeral=True)
             return
 
+        patient = self.patient
+        item_name = self.group["name"]
+        selected = self.group["items"][0]
+        item_id = selected.get("item_id", str(uuid.uuid4()))
+
         cw_cog = self.cog.bot.cogs.get("CyberwareShop")
         if not cw_cog:
             await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
             return
-
-        inventory = await cw_cog._load_inventory(self.ctx.author.id)
-        groups = cw_cog._grouped_inventory(inventory)
-        if inv_row < 1 or inv_row > len(groups):
-            await interaction.followup.send(
-                f"Invalid row {inv_row}. You have {len(groups)} group(s).", ephemeral=True
-            )
-            return
-
-        group = groups[inv_row - 1]
-        item_name = group["name"]
-        selected = group["items"][0]
-        item_id = selected.get("item_id", str(uuid.uuid4()))
 
         confirm_view = DMConfirmView(timeout=60)
         try:
@@ -465,34 +583,30 @@ class SellModal(discord.ui.Modal, title="Sell Cyberware to Patient"):
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-class InstallModal(discord.ui.Modal, title="Install Cyberware on Patient"):
-    patient_input = discord.ui.TextInput(label="Patient (mention or ID)", placeholder="@patient or 123456789")
+class InstallDetailsModal(discord.ui.Modal, title="Install — Finalize Details"):
     character_input = discord.ui.TextInput(label="Patient Character Name", placeholder="V")
-    inv_row_input = discord.ui.TextInput(label="Your Stock Row #", placeholder="1")
-    price_input = discord.ui.TextInput(label="Install Fee (0 for free)", placeholder="0", default="0")
+    price_input = discord.ui.TextInput(
+        label="Install Fee (0 = free)",
+        placeholder="0 (enter 0 for free install)",
+        default="0",
+    )
 
-    def __init__(self, cog: "RipperdocHub", ctx: commands.Context):
+    def __init__(self, cog: "RipperdocHub", ctx: commands.Context,
+                 patient: discord.Member, group: dict, inv_row: int):
         super().__init__()
         self.cog = cog
         self.ctx = ctx
+        self.patient = patient
+        self.group = group
+        self.inv_row = inv_row
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        guild = self.ctx.guild
-        if not guild:
-            await interaction.followup.send("Must be used in server.", ephemeral=True)
-            return
-
-        patient = await self.cog._resolve_member_from_input(guild, self.patient_input.value)
-        if not patient:
-            await interaction.followup.send("Could not find that patient.", ephemeral=True)
-            return
 
         try:
-            inv_row = int(self.inv_row_input.value)
             price = int(self.price_input.value)
         except ValueError:
-            await interaction.followup.send("Row and price must be numbers.", ephemeral=True)
+            await interaction.followup.send("Price must be a number.", ephemeral=True)
             return
         if price < 0:
             await interaction.followup.send("Price cannot be negative.", ephemeral=True)
@@ -503,23 +617,15 @@ class InstallModal(discord.ui.Modal, title="Install Cyberware on Patient"):
             await interaction.followup.send("Character name required.", ephemeral=True)
             return
 
+        patient = self.patient
+        item_name = self.group["name"]
+        selected = self.group["items"][0]
+        item_id = selected.get("item_id", str(uuid.uuid4()))
+
         cw_cog = self.cog.bot.cogs.get("CyberwareShop")
         if not cw_cog:
             await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
             return
-
-        inventory = await cw_cog._load_inventory(self.ctx.author.id)
-        groups = cw_cog._grouped_inventory(inventory)
-        if inv_row < 1 or inv_row > len(groups):
-            await interaction.followup.send(
-                f"Invalid row {inv_row}. You have {len(groups)} group(s).", ephemeral=True
-            )
-            return
-
-        group = groups[inv_row - 1]
-        item_name = group["name"]
-        selected = group["items"][0]
-        item_id = selected.get("item_id", str(uuid.uuid4()))
 
         price_text = f" for **${price:,}**" if price > 0 else " (free install)"
         confirm_view = DMConfirmView(timeout=60)
