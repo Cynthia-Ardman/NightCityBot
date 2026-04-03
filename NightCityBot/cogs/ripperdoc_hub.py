@@ -280,6 +280,14 @@ class RipperdocMenuView(SafeView):
             store = stores.setdefault(store_id, {"owner_id": interaction.user.id, "employees": []})
             store["store_name"] = name
             await cw_cog._save_state(state)
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if member and interaction.guild:
+            owner_role = interaction.guild.get_role(config.RIPPERDOC_OWNER_ROLE_ID)
+            if owner_role and owner_role not in member.roles:
+                try:
+                    await member.add_roles(owner_role, reason="Set ripperdoc store name")
+                except discord.Forbidden:
+                    pass
         await interaction.followup.send(f"Store name set to **{name}**.", ephemeral=True)
 
     @discord.ui.button(label="Manage Employees", style=discord.ButtonStyle.secondary, emoji="👥", row=2, custom_id="ripperdoc:manage_employees")
@@ -1055,6 +1063,28 @@ class _RDManageEmployeesView(SafeView):
         )
 
 
+class _EmployeeDMConfirmView(SafeView):
+    def __init__(self, recipient_id: int, timeout: float = 60):
+        super().__init__(timeout=timeout)
+        self.recipient_id = recipient_id
+        self.accepted: Optional[bool] = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.recipient_id
+
+    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, emoji="✅")
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.accepted = True
+        await interaction.response.edit_message(content="✅ You accepted the employee offer.", view=None)
+        self.stop()
+
+    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, emoji="❌")
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.accepted = False
+        await interaction.response.edit_message(content="❌ You declined the employee offer.", view=None)
+        self.stop()
+
+
 class _RDAddEmployeeView(SafeView):
     def __init__(self, cog, ctx):
         super().__init__(timeout=60)
@@ -1083,19 +1113,62 @@ class _RDAddEmployeeView(SafeView):
         if not cw_cog:
             await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
             return
+        state = await cw_cog._load_state()
+        store_id = _rd_store_id(guild.id, self.ctx.author.id)
+        stores = state.get("ripperdoc_stores", {})
+        store = stores.get(store_id, {"owner_id": self.ctx.author.id, "employees": []})
+        employees = store.get("employees", [])
+        if new_emp.id in employees:
+            await interaction.followup.send(f"{new_emp.display_name} is already an employee.", ephemeral=True)
+            self.stop()
+            return
+        store_name = store.get("store_name") or f"{self.ctx.author.display_name}'s Ripperdoc"
+        dm_view = _EmployeeDMConfirmView(new_emp.id, timeout=60)
+        try:
+            dm_msg = await new_emp.send(
+                f"📋 **{self.ctx.author.display_name}** wants to hire you as an employee at **{store_name}**.\n"
+                "Do you accept?",
+                view=dm_view,
+            )
+        except discord.Forbidden:
+            await interaction.followup.send(
+                f"❌ Could not DM {new_emp.display_name}. They may have DMs disabled.", ephemeral=True
+            )
+            self.stop()
+            return
+        await interaction.followup.send(
+            f"📨 Sent a DM to **{new_emp.display_name}** — waiting for their response…", ephemeral=True
+        )
+        timed_out = await dm_view.wait()
+        if timed_out or not dm_view.accepted:
+            reason = "timed out" if timed_out else "declined"
+            await interaction.followup.send(
+                f"❌ **{new_emp.display_name}** {reason} the employee offer.", ephemeral=True
+            )
+            if timed_out:
+                try:
+                    await dm_msg.edit(content="⏰ Employee offer expired.", view=None)
+                except Exception:
+                    pass
+            self.stop()
+            return
         async with cw_cog.lock:
             state = await cw_cog._load_state()
-            store_id = _rd_store_id(guild.id, self.ctx.author.id)
             stores = state.setdefault("ripperdoc_stores", {})
             store = stores.setdefault(store_id, {"owner_id": self.ctx.author.id, "employees": []})
             employees = store.setdefault("employees", [])
-            if new_emp.id in employees:
-                await interaction.followup.send(f"{new_emp.display_name} is already an employee.", ephemeral=True)
-                return
-            employees.append(new_emp.id)
-            await cw_cog._save_state(state)
+            if new_emp.id not in employees:
+                employees.append(new_emp.id)
+                await cw_cog._save_state(state)
+        emp_role = guild.get_role(config.RIPPERDOC_EMPLOYEE_ROLE_ID) if guild else None
+        if emp_role and emp_role not in new_emp.roles:
+            try:
+                await new_emp.add_roles(emp_role, reason=f"Hired as ripperdoc employee at {store_name}")
+            except discord.Forbidden:
+                pass
         await interaction.followup.send(
-            f"✅ **{new_emp.display_name}** added as employee.", ephemeral=True
+            f"✅ **{new_emp.display_name}** accepted and has been added as employee at **{store_name}**.",
+            ephemeral=True,
         )
         self.stop()
 
@@ -1116,6 +1189,7 @@ class _RDRemoveEmployeeView(SafeView):
         if not cw_cog:
             await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
             return
+        still_employed_elsewhere = False
         async with cw_cog.lock:
             state = await cw_cog._load_state()
             store_id = _rd_store_id(interaction.guild.id, self.ctx.author.id)
@@ -1124,10 +1198,31 @@ class _RDRemoveEmployeeView(SafeView):
             if emp_id in employees:
                 employees.remove(emp_id)
                 await cw_cog._save_state(state)
+                prefix = f"rd:{interaction.guild.id}:"
+                for sid, s in state.get("ripperdoc_stores", {}).items():
+                    if sid.startswith(prefix) and emp_id in s.get("employees", []):
+                        still_employed_elsewhere = True
+                        break
                 await interaction.followup.send(f"✅ Employee <@{emp_id}> removed.", ephemeral=True,
                                                 allowed_mentions=discord.AllowedMentions.none())
             else:
                 await interaction.followup.send("Employee not found.", ephemeral=True)
+                self.stop()
+                return
+        if not still_employed_elsewhere and interaction.guild:
+            emp_role = interaction.guild.get_role(config.RIPPERDOC_EMPLOYEE_ROLE_ID)
+            if emp_role:
+                member = interaction.guild.get_member(emp_id)
+                if member is None:
+                    try:
+                        member = await interaction.guild.fetch_member(emp_id)
+                    except Exception:
+                        member = None
+                if member and emp_role in member.roles:
+                    try:
+                        await member.remove_roles(emp_role, reason="Removed as ripperdoc employee")
+                    except discord.Forbidden:
+                        pass
         self.stop()
 
 

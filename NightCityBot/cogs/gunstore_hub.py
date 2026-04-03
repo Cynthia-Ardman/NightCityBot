@@ -308,6 +308,17 @@ class GunstoreMenuView(SafeView):
             )
             store["store_name"] = name
             await guns_cog._save_state(state)
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if member and interaction.guild:
+            raw = config.WHOLESALER_STORE_ROLE_IDS
+            owner_role_id = int(raw) if isinstance(raw, (int, float, str)) and str(raw).strip().isdigit() else None
+            if owner_role_id:
+                owner_role = interaction.guild.get_role(owner_role_id)
+                if owner_role and owner_role not in member.roles:
+                    try:
+                        await member.add_roles(owner_role, reason="Set gun store name")
+                    except discord.Forbidden:
+                        pass
         await interaction.followup.send(
             f"Store name set to **{name}**.", ephemeral=True
         )
@@ -1150,6 +1161,28 @@ class _ManageEmployeesView(SafeView):
         )
 
 
+class _GunEmployeeDMConfirmView(SafeView):
+    def __init__(self, recipient_id: int, timeout: float = 60):
+        super().__init__(timeout=timeout)
+        self.recipient_id = recipient_id
+        self.accepted: Optional[bool] = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.recipient_id
+
+    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, emoji="✅")
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.accepted = True
+        await interaction.response.edit_message(content="✅ You accepted the employee offer.", view=None)
+        self.stop()
+
+    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, emoji="❌")
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.accepted = False
+        await interaction.response.edit_message(content="❌ You declined the employee offer.", view=None)
+        self.stop()
+
+
 class _EmployeePickerView(SafeView):
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context, add: bool = True):
         super().__init__(timeout=60)
@@ -1182,29 +1215,82 @@ class _EmployeePickerView(SafeView):
             await interaction.response.send_message("Gun shop system unavailable.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
-        async with guns_cog.lock:
+        if self.add:
             state = await guns_cog._load_state()
             store_id = guns_cog._store_id(guild.id, self.ctx.author.id)
-            store = state.setdefault("stores", {}).setdefault(
-                store_id, {"owner_id": self.ctx.author.id, "lots": [], "controlled_buyers": []}
+            store = state.get("stores", {}).get(store_id, {"owner_id": self.ctx.author.id, "lots": [], "controlled_buyers": []})
+            employees = store.get("employees", [])
+            if user.id in employees:
+                await interaction.followup.send(
+                    f"{user.display_name} is already an employee.", ephemeral=True
+                )
+                self.stop()
+                return
+            if len(employees) >= 25:
+                await interaction.followup.send(
+                    "❌ Employee limit reached (25 max). Remove an employee before adding a new one.",
+                    ephemeral=True,
+                )
+                self.stop()
+                return
+            store_name = store.get("store_name") or f"{self.ctx.author.display_name}'s Gun Store"
+            dm_view = _GunEmployeeDMConfirmView(user.id, timeout=60)
+            try:
+                dm_msg = await user.send(
+                    f"📋 **{self.ctx.author.display_name}** wants to hire you as an employee at **{store_name}**.\n"
+                    "Do you accept?",
+                    view=dm_view,
+                )
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    f"❌ Could not DM {user.display_name}. They may have DMs disabled.", ephemeral=True
+                )
+                self.stop()
+                return
+            await interaction.followup.send(
+                f"📨 Sent a DM to **{user.display_name}** — waiting for their response…", ephemeral=True
             )
-            employees = store.setdefault("employees", [])
-            if self.add:
-                if user.id in employees:
-                    await interaction.followup.send(
-                        f"{user.display_name} is already an employee.", ephemeral=True
-                    )
-                    self.stop()
-                    return
-                if len(employees) >= 25:
-                    await interaction.followup.send(
-                        "❌ Employee limit reached (25 max). Remove an employee before adding a new one.",
-                        ephemeral=True,
-                    )
-                    self.stop()
-                    return
-                employees.append(user.id)
-            else:
+            timed_out = await dm_view.wait()
+            if timed_out or not dm_view.accepted:
+                reason = "timed out" if timed_out else "declined"
+                await interaction.followup.send(
+                    f"❌ **{user.display_name}** {reason} the employee offer.", ephemeral=True
+                )
+                if timed_out:
+                    try:
+                        await dm_msg.edit(content="⏰ Employee offer expired.", view=None)
+                    except Exception:
+                        pass
+                self.stop()
+                return
+            async with guns_cog.lock:
+                state = await guns_cog._load_state()
+                store_id = guns_cog._store_id(guild.id, self.ctx.author.id)
+                store = state.setdefault("stores", {}).setdefault(
+                    store_id, {"owner_id": self.ctx.author.id, "lots": [], "controlled_buyers": []}
+                )
+                employees = store.setdefault("employees", [])
+                if user.id not in employees:
+                    employees.append(user.id)
+                    await guns_cog._save_state(state)
+            emp_role = guild.get_role(GUN_STORE_EMPLOYEE_ROLE_ID)
+            if emp_role and emp_role not in user.roles:
+                try:
+                    await user.add_roles(emp_role, reason=f"Hired as gun store employee at {store_name}")
+                except discord.Forbidden:
+                    pass
+            await interaction.followup.send(
+                f"✅ **{user.display_name}** accepted and has been added as employee at **{store_name}**.",
+                ephemeral=True,
+            )
+        else:
+            async with guns_cog.lock:
+                state = await guns_cog._load_state()
+                store_id = guns_cog._store_id(guild.id, self.ctx.author.id)
+                store = state.setdefault("stores", {}).setdefault(
+                    store_id, {"owner_id": self.ctx.author.id, "lots": [], "controlled_buyers": []}
+                )
+                employees = store.setdefault("employees", [])
                 if user.id not in employees:
                     await interaction.followup.send(
                         f"{user.display_name} is not an employee.", ephemeral=True
@@ -1212,12 +1298,24 @@ class _EmployeePickerView(SafeView):
                     self.stop()
                     return
                 employees.remove(user.id)
-            await guns_cog._save_state(state)
-        action = "added as employee to" if self.add else "removed as employee from"
-        store_name = store.get("store_name") or f"{self.ctx.author.display_name}'s Gun Store"
-        await interaction.followup.send(
-            f"{user.display_name} {action} **{store_name}**.", ephemeral=True
-        )
+                still_employed = False
+                prefix = f"{guild.id}:"
+                for sid, s in state.get("stores", {}).items():
+                    if sid.startswith(prefix) and user.id in s.get("employees", []):
+                        still_employed = True
+                        break
+                await guns_cog._save_state(state)
+            store_name = store.get("store_name") or f"{self.ctx.author.display_name}'s Gun Store"
+            if not still_employed:
+                emp_role = guild.get_role(GUN_STORE_EMPLOYEE_ROLE_ID)
+                if emp_role and emp_role in user.roles:
+                    try:
+                        await user.remove_roles(emp_role, reason="Removed as gun store employee")
+                    except discord.Forbidden:
+                        pass
+            await interaction.followup.send(
+                f"{user.display_name} removed as employee from **{store_name}**.", ephemeral=True
+            )
         self.stop()
 
 

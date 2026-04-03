@@ -1529,12 +1529,22 @@ class TestManageEmployees:
             view = _EmployeePickerView(cog, ctx, add=True)
             select = _find_user_select(view)
             new_emp = _make_member(333, "Employee1")
+            new_emp.send = AsyncMock(return_value=MagicMock())
+            emp_role = MagicMock(id=GUN_STORE_EMPLOYEE_ROLE_ID)
+            new_emp.roles = []
+            new_emp.add_roles = AsyncMock()
+            ctx.guild.get_role = MagicMock(return_value=emp_role)
             select._values = [new_emp]
             inter = _make_interaction()
-            await select.callback(inter)
+            with patch("NightCityBot.cogs.gunstore_hub._GunEmployeeDMConfirmView") as mock_dm:
+                inst = MagicMock()
+                inst.accepted = True
+                inst.wait = AsyncMock(return_value=False)
+                mock_dm.return_value = inst
+                await select.callback(inter)
             saved_state = guns_cog._save_state.call_args[0][0]
             assert 333 in saved_state["stores"]["999:111"]["employees"]
-            assert "added" in inter.followup.send.call_args[0][0].lower()
+            assert "accepted" in inter.followup.send.call_args[0][0].lower()
 
         _run(run())
 
@@ -1551,9 +1561,14 @@ class TestManageEmployees:
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs = {"GunsShopCog": guns_cog}
             ctx = _ctx(author_id=111)
+            emp_role = MagicMock(id=GUN_STORE_EMPLOYEE_ROLE_ID)
+            ctx.guild.get_role = MagicMock(return_value=emp_role)
             view = _EmployeePickerView(cog, ctx, add=False)
             select = _find_user_select(view)
             emp = _make_member(333, "Employee1")
+            emp.roles = [emp_role]
+            emp.remove_roles = AsyncMock()
+            ctx.guild.get_member = MagicMock(return_value=emp)
             select._values = [emp]
             inter = _make_interaction()
             await select.callback(inter)
@@ -1658,9 +1673,18 @@ class TestEmployeeCap:
             view = _EmployeePickerView(cog, ctx, add=True)
             select = _find_user_select(view)
             new_member = _make_member(2000, "NewGuy")
+            new_member.send = AsyncMock(return_value=MagicMock())
+            new_member.roles = []
+            new_member.add_roles = AsyncMock()
+            ctx.guild.get_role = MagicMock(return_value=MagicMock(id=GUN_STORE_EMPLOYEE_ROLE_ID))
             select._values = [new_member]
             inter = _make_interaction()
-            await select.callback(inter)
+            with patch("NightCityBot.cogs.gunstore_hub._GunEmployeeDMConfirmView") as mock_dm:
+                inst = MagicMock()
+                inst.accepted = True
+                inst.wait = AsyncMock(return_value=False)
+                mock_dm.return_value = inst
+                await select.callback(inter)
             guns_cog._save_state.assert_called_once()
             saved = guns_cog._save_state.call_args[0][0]
             assert 2000 in saved["stores"]["999:111"]["employees"]
