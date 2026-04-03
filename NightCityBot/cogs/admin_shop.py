@@ -26,6 +26,7 @@ from NightCityBot.utils.db import (
     wh_lots_replace_all,
     cw_catalog_get_all,
 )
+from NightCityBot.utils.characters import get_active_characters, ensure_character_active, get_character_by_name
 from NightCityBot.utils.permissions import is_fixer
 
 logger = logging.getLogger(__name__)
@@ -167,6 +168,8 @@ class AdminAddItemPickerView(discord.ui.View):
         self.cog = cog
         self.ctx = ctx
         self.selected_player: Optional[discord.Member] = None
+        self.selected_character: Optional[dict] = None
+        self._character_select: Optional[discord.ui.Select] = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
@@ -182,20 +185,73 @@ class AdminAddItemPickerView(discord.ui.View):
             await interaction.response.send_message("Could not resolve member.", ephemeral=True)
             return
         self.selected_player = member
-        await interaction.response.send_message(f"Player: **{member.display_name}** ✓", ephemeral=True)
+        self.selected_character = None
+        characters = await get_active_characters(str(member.id))
+        if not characters:
+            await interaction.response.send_message(
+                f"❌ {member.display_name} has no active characters. "
+                "They must create a character before receiving items.",
+                ephemeral=True,
+            )
+            self.selected_player = None
+            return
+        if self._character_select is not None:
+            self.remove_item(self._character_select)
+        char_options = []
+        for ch in characters[:25]:
+            char_options.append(discord.SelectOption(
+                label=ch["name"][:100],
+                value=ch["character_id"],
+            ))
+        char_select = discord.ui.Select(
+            placeholder="Choose character…",
+            options=char_options,
+            row=1,
+        )
+        char_select.callback = self._on_character_select
+        self._character_select = char_select
+        self._characters = characters
+        self.add_item(char_select)
+        await interaction.response.send_message(
+            f"Player: **{member.display_name}** ✓ — Now select their character.",
+            ephemeral=True,
+        )
 
-    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=1)
+    async def _on_character_select(self, interaction: discord.Interaction):
+        char_id = interaction.data["values"][0]
+        for ch in self._characters:
+            if ch["character_id"] == char_id:
+                self.selected_character = ch
+                break
+        if self.selected_character:
+            await interaction.response.send_message(
+                f"Character: **{self.selected_character['name']}** ✓", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message("Character not found.", ephemeral=True)
+
+    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=2)
     async def continue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.selected_player is None:
             await interaction.response.send_message("Please select a player first.", ephemeral=True)
             return
-        await interaction.response.send_modal(AdminAddItemDetailsModal(self.cog, self.ctx, self.selected_player))
+        if self.selected_character is None:
+            await interaction.response.send_message("Please select a character.", ephemeral=True)
+            return
+        if not await ensure_character_active(self.selected_character["character_id"]):
+            await interaction.response.send_message(
+                f"❌ Character **{self.selected_character['name']}** is no longer active.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_modal(
+            AdminAddItemDetailsModal(self.cog, self.ctx, self.selected_player, self.selected_character)
+        )
         self.stop()
 
 
 class AdminAddItemDetailsModal(discord.ui.Modal, title="Add Item — Details"):
     name_input = discord.ui.TextInput(label="Item Name")
-    character_input = discord.ui.TextInput(label="Character Name")
     item_type_input = discord.ui.TextInput(label="Type (gun/cyberware/gear/misc)", default="misc")
     qty_price_input = discord.ui.TextInput(
         label="Qty,Price (e.g. 1,5000 or just 1)",
@@ -203,11 +259,13 @@ class AdminAddItemDetailsModal(discord.ui.Modal, title="Add Item — Details"):
         required=False,
     )
 
-    def __init__(self, cog: "AdminShopCog", ctx: commands.Context, player: discord.Member):
+    def __init__(self, cog: "AdminShopCog", ctx: commands.Context,
+                 player: discord.Member, character: dict | None = None):
         super().__init__()
         self.cog = cog
         self.ctx = ctx
         self.player = player
+        self.character = character or {}
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -218,7 +276,16 @@ class AdminAddItemDetailsModal(discord.ui.Modal, title="Add Item — Details"):
 
         player = self.player
         name = self.name_input.value.strip()
-        character = self.character_input.value.strip()
+        character = self.character.get("name", "")
+        character_id = self.character.get("character_id")
+        if not character:
+            await interaction.followup.send("Character selection required.", ephemeral=True)
+            return
+        if character_id and not await ensure_character_active(character_id):
+            await interaction.followup.send(
+                f"❌ Character **{character}** is no longer active.", ephemeral=True
+            )
+            return
         item_type = self.item_type_input.value.strip().lower() or "misc"
 
         qty = 1
@@ -246,6 +313,7 @@ class AdminAddItemDetailsModal(discord.ui.Modal, title="Add Item — Details"):
                 "item_id": item_id,
                 "owner_id": str(player.id),
                 "character_name": character,
+                "character_id": character_id,
                 "item_type": item_type,
                 "name": name,
                 "restriction": "basic",
@@ -415,7 +483,14 @@ class AdminReassignModal(discord.ui.Modal, title="Reassign Item"):
             await interaction.followup.send("Could not find new owner.", ephemeral=True)
             return
 
-        new_char = self.character_input.value.strip()
+        new_char_name = self.character_input.value.strip()
+        char_record = await get_character_by_name(str(new_owner.id), new_char_name)
+        if char_record and not await ensure_character_active(char_record["character_id"]):
+            await interaction.followup.send(
+                f"❌ Character **{new_char_name}** is not active.", ephemeral=True
+            )
+            return
+        new_char = new_char_name
         item_name = item.get("name", "?")
         old_owner_id = item.get("owner_id", "")
         old_char = item.get("character_name", "")

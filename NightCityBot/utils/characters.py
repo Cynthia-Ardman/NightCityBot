@@ -1,6 +1,14 @@
+"""Character service — lookup and validation for player characters.
+
+Provides functions for querying the ``characters`` table, which tracks each
+player's character roster with name and active/inactive status.
+"""
+from __future__ import annotations
+
 import logging
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 from NightCityBot.utils.db import get_pool, _with_retry
 
@@ -20,6 +28,25 @@ def validate_name(name: str) -> tuple[bool, str]:
     if len(stripped) > MAX_NAME_LENGTH:
         return False, f"Character name must be at most {MAX_NAME_LENGTH} characters."
     return True, ""
+
+
+def _row_to_dict(row) -> dict:
+    d = dict(row)
+    for k in ("created_at", "updated_at", "deactivated_at", "reactivated_at"):
+        if d.get(k) is not None and hasattr(d[k], "isoformat"):
+            d[k] = d[k].isoformat()
+    if "character_name" in d:
+        d["name"] = d["character_name"]
+    if "discord_user_id" in d:
+        d["owner_id"] = d["discord_user_id"]
+    return d
+
+
+_ALL_COLS = (
+    "character_id, discord_user_id, character_name, "
+    "normalized_character_name, status, "
+    "created_at, updated_at, deactivated_at, reactivated_at"
+)
 
 
 async def create_character(discord_user_id: str, character_name: str) -> dict | None:
@@ -53,7 +80,9 @@ async def create_character(discord_user_id: str, character_name: str) -> dict | 
         return {
             "character_id": char_id,
             "discord_user_id": str(discord_user_id),
+            "owner_id": str(discord_user_id),
             "character_name": stripped,
+            "name": stripped,
             "normalized_character_name": norm,
             "status": "active",
             "created_at": now.isoformat(),
@@ -119,23 +148,13 @@ async def reactivate_character(character_id: str) -> bool:
         return False
 
 
-def _row_to_dict(row) -> dict:
-    d = dict(row)
-    for k in ("created_at", "updated_at", "deactivated_at", "reactivated_at"):
-        if d.get(k) is not None and hasattr(d[k], "isoformat"):
-            d[k] = d[k].isoformat()
-    return d
-
-
 async def get_active_characters(discord_user_id: str) -> list[dict]:
     try:
         pool = await get_pool()
         rows = await _with_retry(
             lambda: pool.fetch(
-                """
-                SELECT character_id, discord_user_id, character_name,
-                       normalized_character_name, status,
-                       created_at, updated_at, deactivated_at, reactivated_at
+                f"""
+                SELECT {_ALL_COLS}
                 FROM characters
                 WHERE discord_user_id = $1 AND status = 'active'
                 ORDER BY character_name
@@ -150,15 +169,34 @@ async def get_active_characters(discord_user_id: str) -> list[dict]:
         return []
 
 
+async def get_all_characters(discord_user_id: str) -> list[dict]:
+    try:
+        pool = await get_pool()
+        rows = await _with_retry(
+            lambda: pool.fetch(
+                f"""
+                SELECT {_ALL_COLS}
+                FROM characters
+                WHERE discord_user_id = $1
+                ORDER BY character_name
+                """,
+                str(discord_user_id),
+            ),
+            label="get_all_characters",
+        )
+        return [_row_to_dict(r) for r in rows]
+    except Exception:
+        logger.error("get_all_characters failed for '%s'", discord_user_id, exc_info=True)
+        return []
+
+
 async def get_inactive_characters(discord_user_id: str) -> list[dict]:
     try:
         pool = await get_pool()
         rows = await _with_retry(
             lambda: pool.fetch(
-                """
-                SELECT character_id, discord_user_id, character_name,
-                       normalized_character_name, status,
-                       created_at, updated_at, deactivated_at, reactivated_at
+                f"""
+                SELECT {_ALL_COLS}
                 FROM characters
                 WHERE discord_user_id = $1 AND status = 'inactive'
                 ORDER BY character_name
@@ -178,10 +216,8 @@ async def get_character(character_id: str) -> dict | None:
         pool = await get_pool()
         row = await _with_retry(
             lambda: pool.fetchrow(
-                """
-                SELECT character_id, discord_user_id, character_name,
-                       normalized_character_name, status,
-                       created_at, updated_at, deactivated_at, reactivated_at
+                f"""
+                SELECT {_ALL_COLS}
                 FROM characters
                 WHERE character_id = $1
                 """,
@@ -195,3 +231,48 @@ async def get_character(character_id: str) -> dict | None:
     except Exception:
         logger.error("get_character failed for '%s'", character_id, exc_info=True)
         return None
+
+
+async def get_character_by_id(character_id: str) -> Optional[dict]:
+    return await get_character(character_id)
+
+
+async def get_character_by_name(discord_user_id: str, name: str) -> Optional[dict]:
+    try:
+        pool = await get_pool()
+        row = await _with_retry(
+            lambda: pool.fetchrow(
+                f"""
+                SELECT {_ALL_COLS}
+                FROM characters
+                WHERE discord_user_id = $1
+                  AND normalized_character_name = $2
+                """,
+                str(discord_user_id),
+                normalize_name(name),
+            ),
+            label="get_character_by_name",
+        )
+        if row is None:
+            return None
+        return _row_to_dict(row)
+    except Exception:
+        logger.error(
+            "get_character_by_name failed for user='%s' name='%s'",
+            discord_user_id, name, exc_info=True,
+        )
+        return None
+
+
+async def ensure_character_active(character_id: str) -> bool:
+    char = await get_character(character_id)
+    if char is None:
+        return False
+    return char.get("status") == "active"
+
+
+async def resolve_character_name(discord_user_id: str, name: str) -> Optional[dict]:
+    char = await get_character_by_name(discord_user_id, name)
+    if char is not None:
+        return char
+    return await create_character(discord_user_id, name)

@@ -850,8 +850,7 @@ class TestGunSellUUIDContinuity:
 
             customer = _make_member(222, "Customer")
             lot = store_data["stores"]["test_store"]["lots"][0]
-            modal = GunSellDetailsModal(cog, ctx, customer, lot, "test_store")
-            modal.character_input = MagicMock(value="V")
+            modal = GunSellDetailsModal(cog, ctx, customer, lot, "test_store", character={"character_id": "char-1", "name": "V"})
             modal.price_input = MagicMock(value="0")
 
             dm_view_cls = "NightCityBot.cogs.gunstore_hub.GunDMConfirmView"
@@ -862,11 +861,12 @@ class TestGunSellUUIDContinuity:
                 MockView.return_value = mock_view_inst
                 with patch("NightCityBot.cogs.gunstore_hub.pi_add_item", new_callable=AsyncMock, return_value=True) as mock_pi:
                     with patch("NightCityBot.cogs.gunstore_hub.ih_record_event", new_callable=AsyncMock):
-                        inter = _make_interaction()
-                        await modal.on_submit(inter)
-                        if mock_pi.called:
-                            call_args = mock_pi.call_args[0][0]
-                            assert call_args["item_id"] == known_uuid
+                        with patch("NightCityBot.cogs.gunstore_hub.ensure_character_active", new_callable=AsyncMock, return_value=True):
+                            inter = _make_interaction()
+                            await modal.on_submit(inter)
+                            if mock_pi.called:
+                                call_args = mock_pi.call_args[0][0]
+                                assert call_args["item_id"] == known_uuid
 
         _run(run())
 
@@ -907,8 +907,7 @@ class TestInstallDMConfirmation:
             group = {"name": "Mantis Blades", "count": 1, "items": [
                 {"item_id": "test-uuid", "name": "Mantis Blades"}
             ]}
-            modal = InstallDetailsModal(cog, ctx, patient, group, 1)
-            modal.character_input = MagicMock(value="V")
+            modal = InstallDetailsModal(cog, ctx, patient, group, 1, character={"character_id": "char-1", "name": "V"})
             modal.price_input = MagicMock(value="0")
 
             dm_view_cls = "NightCityBot.cogs.ripperdoc_hub.DMConfirmView"
@@ -918,11 +917,12 @@ class TestInstallDMConfirmation:
                 mock_view_inst.wait = AsyncMock()
                 MockView.return_value = mock_view_inst
                 with patch("NightCityBot.cogs.ripperdoc_hub.ih_record_event", new_callable=AsyncMock):
-                    inter = _make_interaction()
-                    await modal.on_submit(inter)
-                    patient.send.assert_called_once()
-                    msg = patient.send.call_args[0][0]
-                    assert "Mantis Blades" in msg
+                    with patch("NightCityBot.cogs.ripperdoc_hub.ensure_character_active", new_callable=AsyncMock, return_value=True):
+                        inter = _make_interaction()
+                        await modal.on_submit(inter)
+                        patient.send.assert_called_once()
+                        msg = patient.send.call_args[0][0]
+                        assert "Mantis Blades" in msg
 
         _run(run())
 
@@ -948,8 +948,7 @@ class TestSellRefundMath:
             group = {"name": "Chrome Arms", "count": 1, "items": [
                 {"item_id": "uid-1", "name": "Chrome Arms"}
             ]}
-            modal = SellDetailsModal(cog, ctx, patient, group, 1)
-            modal.character_input = MagicMock(value="V")
+            modal = SellDetailsModal(cog, ctx, patient, group, 1, character={"character_id": "char-1", "name": "V"})
             modal.price_input = MagicMock(value="5000")
 
             dm_view_cls = "NightCityBot.cogs.ripperdoc_hub.DMConfirmView"
@@ -958,19 +957,20 @@ class TestSellRefundMath:
                 mock_view_inst.accepted = True
                 mock_view_inst.wait = AsyncMock()
                 MockView.return_value = mock_view_inst
-                inter = _make_interaction()
-                await modal.on_submit(inter)
-                refund_call = None
-                for call in cog.unbelievaboat.update_balance.call_args_list:
-                    args = call[0]
-                    kwargs = call[1] if len(call) > 1 else {}
-                    reason = kwargs.get("reason", "")
-                    if "refund" in reason.lower():
-                        refund_call = call
-                        break
-                if refund_call:
-                    balance_dict = refund_call[0][1]
-                    assert "bank" in balance_dict
+                with patch("NightCityBot.cogs.ripperdoc_hub.ensure_character_active", new_callable=AsyncMock, return_value=True):
+                    inter = _make_interaction()
+                    await modal.on_submit(inter)
+                    refund_call = None
+                    for call in cog.unbelievaboat.update_balance.call_args_list:
+                        args = call[0]
+                        kwargs = call[1] if len(call) > 1 else {}
+                        reason = kwargs.get("reason", "")
+                        if "refund" in reason.lower():
+                            refund_call = call
+                            break
+                    if refund_call:
+                        balance_dict = refund_call[0][1]
+                        assert "bank" in balance_dict
 
         _run(run())
 
@@ -1008,8 +1008,7 @@ class TestSellerCreditFailurePendingTransfer:
             group = {"name": "Optics", "count": 1, "items": [
                 {"item_id": "uid-2", "name": "Optics"}
             ]}
-            modal = SellDetailsModal(cog, ctx, patient, group, 1)
-            modal.character_input = MagicMock(value="V")
+            modal = SellDetailsModal(cog, ctx, patient, group, 1, character={"character_id": "char-1", "name": "V"})
             modal.price_input = MagicMock(value="1000")
 
             dm_view_cls = "NightCityBot.cogs.ripperdoc_hub.DMConfirmView"
@@ -1018,12 +1017,13 @@ class TestSellerCreditFailurePendingTransfer:
                 mock_view_inst.accepted = True
                 mock_view_inst.wait = AsyncMock()
                 MockView.return_value = mock_view_inst
-                with patch("NightCityBot.cogs.ripperdoc_hub.pt_create", new_callable=AsyncMock) as mock_pt:
-                    with patch("NightCityBot.cogs.ripperdoc_hub.pi_add_item", new_callable=AsyncMock, return_value=True):
-                        with patch("NightCityBot.cogs.ripperdoc_hub.ih_record_event", new_callable=AsyncMock):
-                            inter = _make_interaction()
-                            await modal.on_submit(inter)
-                            mock_pt.assert_called_once()
+                with patch("NightCityBot.cogs.ripperdoc_hub.ensure_character_active", new_callable=AsyncMock, return_value=True):
+                    with patch("NightCityBot.cogs.ripperdoc_hub.pt_create", new_callable=AsyncMock) as mock_pt:
+                        with patch("NightCityBot.cogs.ripperdoc_hub.pi_add_item", new_callable=AsyncMock, return_value=True):
+                            with patch("NightCityBot.cogs.ripperdoc_hub.ih_record_event", new_callable=AsyncMock):
+                                inter = _make_interaction()
+                                await modal.on_submit(inter)
+                                mock_pt.assert_called_once()
 
         _run(run())
 
@@ -1054,8 +1054,7 @@ class TestPiAddItemFailureCompensation:
             group = {"name": "Neural Link", "count": 1, "items": [
                 {"item_id": "uid-3", "name": "Neural Link"}
             ]}
-            modal = SellDetailsModal(cog, ctx, patient, group, 1)
-            modal.character_input = MagicMock(value="V")
+            modal = SellDetailsModal(cog, ctx, patient, group, 1, character={"character_id": "char-1", "name": "V"})
             modal.price_input = MagicMock(value="2000")
 
             dm_view_cls = "NightCityBot.cogs.ripperdoc_hub.DMConfirmView"
@@ -1064,20 +1063,21 @@ class TestPiAddItemFailureCompensation:
                 mock_view_inst.accepted = True
                 mock_view_inst.wait = AsyncMock()
                 MockView.return_value = mock_view_inst
-                with patch("NightCityBot.cogs.ripperdoc_hub.pi_add_item", new_callable=AsyncMock, return_value=False):
-                    with patch("NightCityBot.cogs.ripperdoc_hub.ih_record_event", new_callable=AsyncMock):
-                        inter = _make_interaction()
-                        await modal.on_submit(inter)
-                        refund_calls = [
-                            c for c in cog.unbelievaboat.update_balance.call_args_list
-                            if "refund" in str(c).lower() or "grant failed" in str(c).lower()
-                        ]
-                        assert len(refund_calls) >= 1
-                        found_send = False
-                        for c in ctx.send.call_args_list:
-                            if "failed" in str(c).lower() and "refund" in str(c).lower():
-                                found_send = True
-                        assert found_send
+                with patch("NightCityBot.cogs.ripperdoc_hub.ensure_character_active", new_callable=AsyncMock, return_value=True):
+                    with patch("NightCityBot.cogs.ripperdoc_hub.pi_add_item", new_callable=AsyncMock, return_value=False):
+                        with patch("NightCityBot.cogs.ripperdoc_hub.ih_record_event", new_callable=AsyncMock):
+                            inter = _make_interaction()
+                            await modal.on_submit(inter)
+                            refund_calls = [
+                                c for c in cog.unbelievaboat.update_balance.call_args_list
+                                if "refund" in str(c).lower() or "grant failed" in str(c).lower()
+                            ]
+                            assert len(refund_calls) >= 1
+                            found_send = False
+                            for c in ctx.send.call_args_list:
+                                if "failed" in str(c).lower() and "refund" in str(c).lower():
+                                    found_send = True
+                            assert found_send
 
         _run(run())
 

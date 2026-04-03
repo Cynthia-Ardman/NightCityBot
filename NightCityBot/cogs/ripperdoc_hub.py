@@ -21,6 +21,7 @@ from NightCityBot.utils.db import (
     ih_get_history,
     pt_create,
 )
+from NightCityBot.utils.characters import get_active_characters, ensure_character_active
 from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
 
 logger = logging.getLogger(__name__)
@@ -302,6 +303,8 @@ class SellSetupView(discord.ui.View):
         self.mode = mode
         self.selected_patient: Optional[discord.Member] = None
         self.selected_group_idx: Optional[int] = None
+        self.selected_character: Optional[dict] = None
+        self._character_select: Optional[discord.ui.Select] = None
 
         self.truncated = len(groups) > 25
         options = []
@@ -312,7 +315,7 @@ class SellSetupView(discord.ui.View):
         stock_select = discord.ui.Select(
             placeholder="Choose item from your stock…",
             options=options,
-            row=1,
+            row=2,
         )
         stock_select.callback = self._on_stock_select
         self.add_item(stock_select)
@@ -350,9 +353,50 @@ class SellSetupView(discord.ui.View):
                     "Could not resolve server member.", ephemeral=True
                 )
                 return
-        await interaction.response.send_message(
-            f"Patient: **{self.selected_patient.display_name}** ✓", ephemeral=True
+        self.selected_character = None
+        characters = await get_active_characters(str(self.selected_patient.id))
+        if not characters:
+            await interaction.response.send_message(
+                f"❌ {self.selected_patient.display_name} has no active characters. "
+                "They must create a character before receiving items.",
+                ephemeral=True,
+            )
+            self.selected_patient = None
+            return
+        if self._character_select is not None:
+            self.remove_item(self._character_select)
+        char_options = []
+        for ch in characters[:25]:
+            char_options.append(discord.SelectOption(
+                label=ch["name"][:100],
+                value=ch["character_id"],
+            ))
+        char_select = discord.ui.Select(
+            placeholder="Choose character…",
+            options=char_options,
+            row=1,
         )
+        char_select.callback = self._on_character_select
+        self._character_select = char_select
+        self._characters = characters
+        self.add_item(char_select)
+        await interaction.response.send_message(
+            f"Patient: **{self.selected_patient.display_name}** ✓ — Now select their character.",
+            ephemeral=True,
+        )
+
+    async def _on_character_select(self, interaction: discord.Interaction):
+        char_id = interaction.data["values"][0]
+        for ch in self._characters:
+            if ch["character_id"] == char_id:
+                self.selected_character = ch
+                break
+        if self.selected_character:
+            await interaction.response.send_message(
+                f"Character: **{self.selected_character['name']}** ✓", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message("Character not found.", ephemeral=True)
 
     async def _on_stock_select(self, interaction: discord.Interaction):
         self.selected_group_idx = int(interaction.data["values"][0])
@@ -361,7 +405,7 @@ class SellSetupView(discord.ui.View):
             f"Item: **{item_name}** ✓", ephemeral=True
         )
 
-    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=2)
+    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=3)
     async def continue_btn(self, interaction: discord.Interaction,
                            button: discord.ui.Button):
         if self.selected_patient is None:
@@ -369,9 +413,20 @@ class SellSetupView(discord.ui.View):
                 "Please select a patient first.", ephemeral=True
             )
             return
+        if self.selected_character is None:
+            await interaction.response.send_message(
+                "Please select a character for the patient.", ephemeral=True
+            )
+            return
         if self.selected_group_idx is None:
             await interaction.response.send_message(
                 "Please select an item from your stock first.", ephemeral=True
+            )
+            return
+        if not await ensure_character_active(self.selected_character["character_id"]):
+            await interaction.response.send_message(
+                f"❌ Character **{self.selected_character['name']}** is no longer active.",
+                ephemeral=True,
             )
             return
         group = self.groups[self.selected_group_idx]
@@ -379,31 +434,34 @@ class SellSetupView(discord.ui.View):
             modal = InstallDetailsModal(
                 self.cog, self.ctx, self.selected_patient,
                 group, self.selected_group_idx + 1,
+                character=self.selected_character,
             )
         else:
             modal = SellDetailsModal(
                 self.cog, self.ctx, self.selected_patient,
                 group, self.selected_group_idx + 1,
+                character=self.selected_character,
             )
         await interaction.response.send_modal(modal)
         self.stop()
 
 
 class SellDetailsModal(discord.ui.Modal, title="Sell — Finalize Details"):
-    character_input = discord.ui.TextInput(label="Patient Character Name", placeholder="V")
     price_input = discord.ui.TextInput(
         label="Price to Charge (0 = gift)",
         placeholder="5000 (enter 0 to gift for free)",
     )
 
     def __init__(self, cog: "RipperdocHub", ctx: commands.Context,
-                 patient: discord.Member, group: dict, inv_row: int):
+                 patient: discord.Member, group: dict, inv_row: int,
+                 character: dict | None = None):
         super().__init__()
         self.cog = cog
         self.ctx = ctx
         self.patient = patient
         self.group = group
         self.inv_row = inv_row
+        self.character = character or {}
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -417,9 +475,15 @@ class SellDetailsModal(discord.ui.Modal, title="Sell — Finalize Details"):
             await interaction.followup.send("Price cannot be negative.", ephemeral=True)
             return
 
-        character_name = self.character_input.value.strip()
+        character_name = self.character.get("name", "")
+        character_id = self.character.get("character_id")
         if not character_name:
-            await interaction.followup.send("Character name required.", ephemeral=True)
+            await interaction.followup.send("Character selection required.", ephemeral=True)
+            return
+        if character_id and not await ensure_character_active(character_id):
+            await interaction.followup.send(
+                f"❌ Character **{character_name}** is no longer active.", ephemeral=True
+            )
             return
 
         patient = self.patient
@@ -532,6 +596,7 @@ class SellDetailsModal(discord.ui.Modal, title="Sell — Finalize Details"):
             "item_id": item_id,
             "owner_id": str(patient.id),
             "character_name": character_name,
+            "character_id": character_id,
             "item_type": "cyberware",
             "name": item_name,
             "restriction": "basic",
@@ -584,7 +649,6 @@ class SellDetailsModal(discord.ui.Modal, title="Sell — Finalize Details"):
 
 
 class InstallDetailsModal(discord.ui.Modal, title="Install — Finalize Details"):
-    character_input = discord.ui.TextInput(label="Patient Character Name", placeholder="V")
     price_input = discord.ui.TextInput(
         label="Install Fee (0 = free)",
         placeholder="0 (enter 0 for free install)",
@@ -592,13 +656,15 @@ class InstallDetailsModal(discord.ui.Modal, title="Install — Finalize Details"
     )
 
     def __init__(self, cog: "RipperdocHub", ctx: commands.Context,
-                 patient: discord.Member, group: dict, inv_row: int):
+                 patient: discord.Member, group: dict, inv_row: int,
+                 character: dict | None = None):
         super().__init__()
         self.cog = cog
         self.ctx = ctx
         self.patient = patient
         self.group = group
         self.inv_row = inv_row
+        self.character = character or {}
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -612,9 +678,15 @@ class InstallDetailsModal(discord.ui.Modal, title="Install — Finalize Details"
             await interaction.followup.send("Price cannot be negative.", ephemeral=True)
             return
 
-        character_name = self.character_input.value.strip()
+        character_name = self.character.get("name", "")
+        character_id = self.character.get("character_id")
         if not character_name:
-            await interaction.followup.send("Character name required.", ephemeral=True)
+            await interaction.followup.send("Character selection required.", ephemeral=True)
+            return
+        if character_id and not await ensure_character_active(character_id):
+            await interaction.followup.send(
+                f"❌ Character **{character_name}** is no longer active.", ephemeral=True
+            )
             return
 
         patient = self.patient

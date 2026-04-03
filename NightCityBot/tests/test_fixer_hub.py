@@ -535,12 +535,14 @@ class TestPlayerPickerViews:
             assert "select a player" in inter.response.send_message.call_args[0][0].lower()
         _run(_test())
 
-    def test_add_item_picker_continue_opens_modal(self):
+    @patch("NightCityBot.cogs.fixer_hub.ensure_character_active", new_callable=AsyncMock, return_value=True)
+    def test_add_item_picker_continue_opens_modal(self, mock_active):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
             view = PlayerAddItemPickerView(cog, ctx)
             view.selected_player = _make_member(222, "TestPlayer")
+            view.selected_character = {"character_id": "char-1", "name": "V"}
             inter = _make_interaction()
             btn = _find_button(view, "Continue →")
             await btn.callback(inter)
@@ -552,13 +554,13 @@ class TestPlayerPickerViews:
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
     @patch("NightCityBot.cogs.fixer_hub.ih_record_event", new_callable=AsyncMock)
     @patch("NightCityBot.cogs.fixer_hub.pi_add_item", new_callable=AsyncMock, return_value=True)
-    def test_add_item_details_success(self, mock_add, mock_record, mock_audit):
+    @patch("NightCityBot.cogs.fixer_hub.ensure_character_active", new_callable=AsyncMock, return_value=True)
+    def test_add_item_details_success(self, mock_active, mock_add, mock_record, mock_audit):
         async def _test():
             cog = _make_cog()
             member = _make_member(222, "TestPlayer")
-            modal = PlayerAddItemDetailsModal(cog, member)
+            modal = PlayerAddItemDetailsModal(cog, member, character={"character_id": "char-1", "name": "V"})
             modal.name_input = MagicMock(value="Katana")
-            modal.character_input = MagicMock(value="V")
             modal.item_type_input = MagicMock(value="gun")
             modal.qty_price_input = MagicMock(value="2,3000")
             inter = _make_interaction()
@@ -609,7 +611,9 @@ class TestPlayerModals:
     @patch("NightCityBot.cogs.fixer_hub.pi_update_owner", new_callable=AsyncMock, return_value=True)
     @patch("NightCityBot.cogs.fixer_hub.pi_get_item", new_callable=AsyncMock)
     @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_reassign_success(self, mock_resolve, mock_get, mock_update, mock_record, mock_audit):
+    @patch("NightCityBot.cogs.fixer_hub.get_character_by_name", new_callable=AsyncMock, return_value={"character_id": "char-1", "name": "NewChar", "status": "active"})
+    @patch("NightCityBot.cogs.fixer_hub.ensure_character_active", new_callable=AsyncMock, return_value=True)
+    def test_reassign_success(self, mock_active, mock_resolve_char, mock_resolve, mock_get, mock_update, mock_record, mock_audit):
         async def _test():
             cog = _make_cog()
             new_owner = _make_member(333, "NewOwner")
@@ -1109,7 +1113,8 @@ def test_wh_remove_negative_qty_cw():
 
 
 class TestPickerUserSelectCallbacks:
-    def test_add_item_picker_select_sets_player(self):
+    @patch("NightCityBot.cogs.fixer_hub.get_active_characters", new_callable=AsyncMock, return_value=[{"character_id": "char-1", "name": "V", "status": "active"}])
+    def test_add_item_picker_select_sets_player(self, mock_chars):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()

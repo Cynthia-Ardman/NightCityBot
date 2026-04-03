@@ -42,6 +42,7 @@ from NightCityBot.utils.player_inventory import (
     reassign_player_item as pi_update_character,
 )
 from NightCityBot.utils.db import pt_create, ih_record_event
+from NightCityBot.utils.characters import resolve_character_name, ensure_character_active, get_character_by_name
 from NightCityBot.utils.permissions import is_fixer
 
 logger = logging.getLogger(__name__)
@@ -496,6 +497,11 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
             return
         recv_char = receiver_char.strip().strip('"').strip("'")
 
+        recv_char_record = await get_character_by_name(str(target.id), recv_char)
+        if recv_char_record and not await ensure_character_active(recv_char_record["character_id"]):
+            await ctx.send(f"❌ Character **{recv_char}** is not active.")
+            return
+
         ok = await pi_update_owner(item_id, str(target.id), recv_char, str(ctx.author.id))
         if not ok:
             await ctx.send("❌ Failed to transfer item. Please try again or contact an admin.")
@@ -584,6 +590,11 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         buyer_character = buyer_character.strip().strip('"').strip("'")
         if not buyer_character:
             await ctx.send("❌ Buyer character name is required.")
+            return
+
+        buyer_char_record = await get_character_by_name(str(buyer.id), buyer_character)
+        if buyer_char_record and not await ensure_character_active(buyer_char_record["character_id"]):
+            await ctx.send(f"❌ Character **{buyer_character}** is not active.")
             return
 
         items = await pi_get_by_owner(str(ctx.author.id))
@@ -863,8 +874,6 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         restriction = restriction.strip().lower()
         seller = seller.strip().strip('"').strip("'")
 
-        # Detect keyword-style arguments (e.g. item_type=gun, restriction=basic) —
-        # this command is positional; keyword syntax is not supported.
         _kw_args = {"item_type": item_type, "restriction": restriction,
                     "description": description, "seller": seller}
         _bad_kw = [v for v in _kw_args.values() if "=" in v]
@@ -887,6 +896,12 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         if not character_name:
             await ctx.send("❌ Character name is required.")
             return
+
+        char_record = await resolve_character_name(str(player.id), character_name)
+        character_id = char_record.get("character_id") if char_record else None
+        if char_record and not await ensure_character_active(char_record["character_id"]):
+            await ctx.send(f"❌ Character **{character_name}** is not active.")
+            return
         if restriction not in self.VALID_RESTRICTIONS:
             await ctx.send(
                 f"❌ Invalid restriction **{restriction}**. "
@@ -907,6 +922,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 "item_id": new_item_id,
                 "owner_id": str(player.id),
                 "character_name": character_name,
+                "character_id": character_id,
                 "item_type": item_type,
                 "name": name,
                 "restriction": restriction,
@@ -1064,6 +1080,11 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         new_character = new_character.strip().strip('"').strip("'")
         if not new_character:
             await ctx.send("❌ New character name is required.")
+            return
+
+        char_record = await get_character_by_name(str(player.id), new_character)
+        if char_record and not await ensure_character_active(char_record["character_id"]):
+            await ctx.send(f"❌ Character **{new_character}** is not active.")
             return
 
         item_id = item_id.strip()

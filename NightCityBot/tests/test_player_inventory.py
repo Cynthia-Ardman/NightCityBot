@@ -606,6 +606,8 @@ class TestInvGive:
 # ------------------------------------------------------------------
 
 class TestInvAdd:
+    _CHAR_RECORD = {"character_id": "char-1", "name": "V", "character_name": "V", "status": "active"}
+
     def test_qty_creates_multiple_rows(self, monkeypatch):
         cog = _make_cog(monkeypatch)
         added_items = []
@@ -615,6 +617,8 @@ class TestInvAdd:
             return True
 
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_add_item", capture_add)
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.resolve_character_name", AsyncMock(return_value=self._CHAR_RECORD))
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.ensure_character_active", AsyncMock(return_value=True))
 
         ctx = _ctx(author_id=900)
         ctx.author.roles = [MagicMock(id=900)]  # fixer role
@@ -659,6 +663,8 @@ class TestInvAdd:
             return True
 
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_add_item", capture_add)
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.resolve_character_name", AsyncMock(return_value=self._CHAR_RECORD))
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.ensure_character_active", AsyncMock(return_value=True))
 
         ctx = _ctx(author_id=900)
         player = _make_member(999)
@@ -687,6 +693,8 @@ class TestInvAdd:
             return True
 
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_add_item", capture_add)
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.resolve_character_name", AsyncMock(return_value=self._CHAR_RECORD))
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.ensure_character_active", AsyncMock(return_value=True))
 
         ctx = _ctx(author_id=900)
         player = _make_member(999)
@@ -709,6 +717,8 @@ class TestInvAdd:
         """!inv_add rejects unknown restriction values."""
         cog = _make_cog(monkeypatch)
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_add_item", AsyncMock(return_value=True))
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.resolve_character_name", AsyncMock(return_value=self._CHAR_RECORD))
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.ensure_character_active", AsyncMock(return_value=True))
         ctx = _ctx(author_id=900)
         player = _make_member(999)
 
@@ -727,6 +737,8 @@ class TestInvAdd:
         """Confirmation message omits restriction note when restriction=basic."""
         cog = _make_cog(monkeypatch)
         monkeypatch.setattr("NightCityBot.cogs.player_inventory.pi_add_item", AsyncMock(return_value=True))
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.resolve_character_name", AsyncMock(return_value=self._CHAR_RECORD))
+        monkeypatch.setattr("NightCityBot.cogs.player_inventory.ensure_character_active", AsyncMock(return_value=True))
         ctx = _ctx(author_id=900)
         player = _make_member(999)
 
