@@ -290,13 +290,14 @@ class TestPlayerSubViewButtons:
             cog = _make_cog()
             ctx = _ctx()
             parent = FixerTopView(cog, ctx)
+            parent.message = MagicMock()
             view = PlayerSubView(cog, ctx, parent)
             inter = _make_interaction()
             btn = _find_button(view, "← Back")
             await btn.callback(inter)
             inter.response.edit_message.assert_called_once()
             kwargs = inter.response.edit_message.call_args.kwargs
-            assert kwargs["view"] is parent
+            assert isinstance(kwargs["view"], FixerTopView)
         _run(_test())
 
 
@@ -362,11 +363,14 @@ class TestStoreSubViewButtons:
             cog = _make_cog()
             ctx = _ctx()
             parent = FixerTopView(cog, ctx)
+            parent.message = MagicMock()
             view = StoreSubView(cog, ctx, parent)
             inter = _make_interaction()
             btn = _find_button(view, "← Back")
             await btn.callback(inter)
             inter.response.edit_message.assert_called_once()
+            kwargs = inter.response.edit_message.call_args.kwargs
+            assert isinstance(kwargs["view"], FixerTopView)
         _run(_test())
 
 
@@ -476,11 +480,14 @@ class TestWholesalerSubViewButtons:
             cog = _make_cog()
             ctx = _ctx()
             parent = FixerTopView(cog, ctx)
+            parent.message = MagicMock()
             view = WholesalerSubView(cog, ctx, parent)
             inter = _make_interaction()
             btn = _find_button(view, "← Back")
             await btn.callback(inter)
             inter.response.edit_message.assert_called_once()
+            kwargs = inter.response.edit_message.call_args.kwargs
+            assert isinstance(kwargs["view"], FixerTopView)
         _run(_test())
 
 
@@ -1000,8 +1007,8 @@ class TestPickerUserSelectCallbacks:
             inter = _make_interaction()
             await select.callback(inter)
             assert view.selected_player is member
-            inter.response.send_message.assert_called_once()
-            assert "TestPlayer" in inter.response.send_message.call_args[0][0]
+            inter.response.edit_message.assert_called_once()
+            assert "TestPlayer" in inter.response.edit_message.call_args.kwargs["content"]
         _run(_test())
 
     def test_store_add_picker_select_sets_owner(self):

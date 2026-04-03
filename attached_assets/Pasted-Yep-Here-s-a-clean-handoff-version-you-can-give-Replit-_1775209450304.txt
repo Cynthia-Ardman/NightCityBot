@@ -1,0 +1,78 @@
+Yep. Here’s a clean handoff version you can give Replit:
+
+**Fixer Panel UI flow fixes**
+
+There is a bug in the **Fixer Panel** causing frequent **“interaction failed”** errors when using the **Player** and **Store** sections. This needs to be investigated and fixed.
+
+### Expected behavior
+
+#### Player
+
+When a fixer clicks **Player** in the Fixer Panel:
+
+* The bot should **prompt the fixer to select which player they want to edit**
+* Do **not** try to immediately continue without a player context
+* The selection step should happen first, then the editing actions for that player should appear
+
+#### Store
+
+When a fixer clicks **Store** in the Fixer Panel:
+
+* The bot should **prompt the fixer to select which store they want to edit**
+* Do **not** assume a store automatically
+* The store must be selected first, then the store management actions should appear
+
+#### Wholesaler
+
+When a fixer clicks **Wholesaler**:
+
+* Current behavior is likely fine
+* This path does **not** appear to have the same issue as Player and Store
+* Still verify it works consistently, but no major UX change is currently requested here
+
+### Problem to investigate
+
+The **Player** and **Store** button flows are producing **interaction failed** errors. Likely causes could include:
+
+* interaction response timing out
+* no deferred response
+* trying to update an interaction after it has expired
+* broken state handling between button click and next UI step
+* missing context when transitioning to the next selection screen
+* invalid component state or custom ID handling
+
+### Required fix
+
+Refactor the **Player** and **Store** flows so they are stable and always do the following:
+
+1. User clicks **Player** or **Store**
+2. Bot acknowledges the interaction properly
+3. Bot presents a valid next-step selector for the chosen category
+4. User selects the target player/store
+5. Bot then loads the relevant edit interface for that selected target
+
+### UX requirement
+
+The flow should be:
+
+* **Fixer Panel → choose category**
+* **Then choose target entity**
+* **Then manage/edit that entity**
+
+Not:
+
+* click category and silently fail
+* click category and rely on missing prior context
+* click category and attempt to open a broken or expired interaction state
+
+### Priority
+
+This should be treated as a **bug fix plus flow cleanup**, because the current behavior is blocking normal fixer usage.
+
+If you want, I can turn this into a cleaner **engineering task spec** format with:
+
+* problem
+* expected behavior
+* suspected root causes
+* acceptance criteria
+* test cases
