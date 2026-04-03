@@ -64,12 +64,18 @@ async def _audit_channel(bot: commands.Bot) -> Optional[discord.TextChannel]:
     return ch
 
 
-def _resolve_user_select(ctx, user) -> Optional[discord.Member]:
+async def _resolve_user_select(ctx, user) -> Optional[discord.Member]:
     if isinstance(user, discord.Member):
         return user
     guild = ctx.guild
     if guild and user:
-        return guild.get_member(user.id)
+        member = guild.get_member(user.id)
+        if member:
+            return member
+        try:
+            return await guild.fetch_member(user.id)
+        except Exception:
+            pass
     return None
 
 
@@ -377,7 +383,7 @@ class PlayerInvPickerView(discord.ui.View):
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
     async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         user = select.values[0] if select.values else None
-        member = _resolve_user_select(self.ctx, user)
+        member = await _resolve_user_select(self.ctx, user)
         if not member:
             await interaction.response.send_message("Could not resolve member.", ephemeral=True)
             return
@@ -418,7 +424,7 @@ class PlayerAddItemPickerView(discord.ui.View):
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
     async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         user = select.values[0] if select.values else None
-        member = _resolve_user_select(self.ctx, user)
+        member = await _resolve_user_select(self.ctx, user)
         if not member:
             await interaction.response.send_message("Could not resolve member.", ephemeral=True)
             return
@@ -700,7 +706,7 @@ class LOAPickerView(discord.ui.View):
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
     async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         user = select.values[0] if select.values else None
-        member = _resolve_user_select(self.ctx, user)
+        member = await _resolve_user_select(self.ctx, user)
         if not member:
             await interaction.response.send_message("Could not resolve member.", ephemeral=True)
             return
@@ -757,7 +763,7 @@ class StoreInvPickerView(discord.ui.View):
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose the store owner…", row=0)
     async def owner_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         user = select.values[0] if select.values else None
-        owner = _resolve_user_select(self.ctx, user)
+        owner = await _resolve_user_select(self.ctx, user)
         if not owner:
             await interaction.response.send_message("Could not resolve member.", ephemeral=True)
             return
@@ -836,7 +842,7 @@ class StoreAddPickerView(discord.ui.View):
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose the store owner…", row=0)
     async def owner_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         user = select.values[0] if select.values else None
-        member = _resolve_user_select(self.ctx, user)
+        member = await _resolve_user_select(self.ctx, user)
         if not member:
             await interaction.response.send_message("Could not resolve member.", ephemeral=True)
             return
@@ -940,7 +946,7 @@ class StoreRemovePickerView(discord.ui.View):
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose the store owner…", row=0)
     async def owner_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         user = select.values[0] if select.values else None
-        member = _resolve_user_select(self.ctx, user)
+        member = await _resolve_user_select(self.ctx, user)
         if not member:
             await interaction.response.send_message("Could not resolve member.", ephemeral=True)
             return

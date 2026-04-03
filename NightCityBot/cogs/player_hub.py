@@ -974,6 +974,8 @@ class SellToStoreSetupView(discord.ui.View):
             return
         if isinstance(raw_role, (list, tuple, set, frozenset)):
             allowed_ids = {int(r) for r in raw_role}
+        elif isinstance(raw_role, str):
+            allowed_ids = {int(raw_role)}
         else:
             allowed_ids = {int(raw_role)}
         member_role_ids = {r.id for r in getattr(member, "roles", [])}
@@ -1218,11 +1220,14 @@ class SellToStoreDetailsModal(discord.ui.Modal, title="Sell to Store — Finaliz
             return
 
         lot_id = f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
+        weapon_type = ""
+        if hasattr(guns_cog, "_derive_weapon_type"):
+            weapon_type = guns_cog._derive_weapon_type(item_name, "") or ""
         store_lot = {
             "lot_id": lot_id,
             "gun_name": item_name,
             "gun_level": selected_item.get("gun_level", ""),
-            "weapon_type": selected_item.get("weapon_type", ""),
+            "weapon_type": weapon_type,
             "unit_cost": price,
             "qty_remaining": 1,
             "restriction": restriction,

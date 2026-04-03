@@ -31,12 +31,18 @@ from NightCityBot.utils.permissions import is_fixer
 logger = logging.getLogger(__name__)
 
 
-def _resolve_user_select(ctx, user) -> Optional[discord.Member]:
+async def _resolve_user_select(ctx, user) -> Optional[discord.Member]:
     if isinstance(user, discord.Member):
         return user
     guild = ctx.guild
     if guild and user:
-        return guild.get_member(user.id)
+        member = guild.get_member(user.id)
+        if member:
+            return member
+        try:
+            return await guild.fetch_member(user.id)
+        except Exception:
+            pass
     return None
 
 
@@ -171,7 +177,7 @@ class AdminAddItemPickerView(discord.ui.View):
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
     async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         user = select.values[0] if select.values else None
-        member = _resolve_user_select(self.ctx, user)
+        member = await _resolve_user_select(self.ctx, user)
         if not member:
             await interaction.response.send_message("Could not resolve member.", ephemeral=True)
             return
@@ -294,7 +300,7 @@ class PlayerInvPickerView(discord.ui.View):
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
     async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         user = select.values[0] if select.values else None
-        member = _resolve_user_select(self.ctx, user)
+        member = await _resolve_user_select(self.ctx, user)
         if not member:
             await interaction.response.send_message("Could not resolve member.", ephemeral=True)
             return
