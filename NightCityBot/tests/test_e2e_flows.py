@@ -243,33 +243,6 @@ class TestFlowA_FixerAddItem:
         _run(_test())
 
 
-class TestFlowB_FixerDoneButton:
-    """Flow B: Fixer Top -> Player -> Done (persistent view lifecycle)."""
-
-    def test_done_dismisses_sub_view(self):
-        async def _test():
-            bot = _make_bot()
-            cog = FixerHubCog.__new__(FixerHubCog)
-            cog.bot = bot
-
-            top_view = FixerTopView()
-            inter1 = _make_interaction(user_id=100)
-            inter1.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "FixerHub" else None)
-            player_btn = _find_button(top_view, "Player")
-            await player_btn.callback(inter1)
-
-            sub_view = inter1.response.send_message.call_args[1]["view"]
-            assert isinstance(sub_view, PlayerSubView)
-
-            inter2 = _make_interaction(user_id=100)
-            done_btn = _find_button(sub_view, "Done")
-            await done_btn.callback(inter2)
-            inter2.message.delete.assert_called_once()
-            assert sub_view.is_finished(), "Sub-view must stop() when Done is clicked"
-
-        _run(_test())
-
-
 class TestFlowC_TradeFullFlow:
     """Flow C: Player Hub Trade -> select buyer -> item -> char -> price -> DM -> accept."""
 

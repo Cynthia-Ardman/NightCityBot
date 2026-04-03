@@ -277,18 +277,6 @@ class TestPlayerSubViewButtons:
             assert picker.action == "end"
         _run(_test())
 
-    def test_done_button(self):
-        async def _test():
-            cog = _make_cog()
-            ctx = _ctx()
-            view = PlayerSubView(cog, ctx)
-            inter = _make_interaction()
-            btn = _find_button(view, "Done")
-            await btn.callback(inter)
-            inter.message.delete.assert_called_once()
-        _run(_test())
-
-
 class TestStoreSubViewButtons:
     def test_view_gun_store_with_role_members(self):
         async def _test():
@@ -355,18 +343,6 @@ class TestStoreSubViewButtons:
             msg = inter.followup.send.call_args[0][0]
             assert "no ripperdocs" in msg.lower()
         _run(_test())
-
-    def test_done_button(self):
-        async def _test():
-            cog = _make_cog()
-            ctx = _ctx()
-            view = StoreSubView(cog, ctx)
-            inter = _make_interaction()
-            btn = _find_button(view, "Done")
-            await btn.callback(inter)
-            inter.message.delete.assert_called_once()
-        _run(_test())
-
 
 class TestWholesalerSubViewButtons:
     def test_view_stock_empty(self):

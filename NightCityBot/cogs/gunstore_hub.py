@@ -153,7 +153,36 @@ class GunstoreMenuView(SafeView):
         view = GunBuySelect(cog, ctx, lots, guns_cog)
         await interaction.followup.send("Select a gun to buy:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="Sell to Customer", style=discord.ButtonStyle.success, emoji="🔫", row=0, custom_id="gunstore:sell_customer")
+    @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=0, custom_id="gunstore:wholesale_list")
+    async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("GunstoreHub")
+        guns_cog = cog._guns_cog() if cog else None
+        if not guns_cog:
+            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            return
+        state = await guns_cog._load_state()
+        lots = state.get("wholesale_lots", [])
+        available = [l for l in lots if int(l.get("qty_available", 0)) > 0]
+        if not available:
+            await interaction.followup.send("No wholesale stock available.", ephemeral=True)
+            return
+        lines = []
+        for i, lot in enumerate(available[:30], 1):
+            r = lot.get("restriction", "basic")
+            r_tag = f" [{r}]" if r != "basic" else ""
+            lines.append(
+                f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}] "
+                f"— ${int(lot['unit_cost']):,} × {lot['qty_available']}"
+            )
+        embed = discord.Embed(
+            title="🔫 Gun Wholesale",
+            description="\n".join(lines),
+            color=discord.Color.dark_gold(),
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="Sell to Customer", style=discord.ButtonStyle.success, emoji="🔫", row=1, custom_id="gunstore:sell_customer")
     async def sell_to_customer(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("GunstoreHub")
@@ -206,129 +235,32 @@ class GunstoreMenuView(SafeView):
         store_id, store = stores[0]
         await _show_gun_inventory(interaction, store, store_id)
 
-    @discord.ui.button(label="Approve Buyer", style=discord.ButtonStyle.secondary, emoji="✅", row=1, custom_id="gunstore:approve_buyer")
-    async def approve_buyer(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cog = interaction.client.get_cog("GunstoreHub")
-        ctx = PanelContext(interaction)
-        view = _ApproveBuyerView(cog, ctx, approve=True)
-        await interaction.response.send_message(
-            "📝 **Select a buyer to approve:**", view=view, ephemeral=True
-        )
-
-    @discord.ui.button(label="Unapprove Buyer", style=discord.ButtonStyle.secondary, emoji="🚫", row=2, custom_id="gunstore:unapprove_buyer")
-    async def unapprove_buyer(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cog = interaction.client.get_cog("GunstoreHub")
-        ctx = PanelContext(interaction)
-        view = _ApproveBuyerView(cog, ctx, approve=False)
-        await interaction.response.send_message(
-            "📝 **Select a buyer to remove from your approved list:**", view=view, ephemeral=True
-        )
-
-    @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=2, custom_id="gunstore:wholesale_list")
-    async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        cog = interaction.client.get_cog("GunstoreHub")
-        guns_cog = cog._guns_cog() if cog else None
-        if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
-            return
-        state = await guns_cog._load_state()
-        lots = state.get("wholesale_lots", [])
-        available = [l for l in lots if int(l.get("qty_available", 0)) > 0]
-        if not available:
-            await interaction.followup.send("No wholesale stock available.", ephemeral=True)
-            return
-        lines = []
-        for i, lot in enumerate(available[:30], 1):
-            r = lot.get("restriction", "basic")
-            r_tag = f" [{r}]" if r != "basic" else ""
-            lines.append(
-                f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}] "
-                f"— ${int(lot['unit_cost']):,} × {lot['qty_available']}"
-            )
-        embed = discord.Embed(
-            title="🔫 Gun Wholesale",
-            description="\n".join(lines),
-            color=discord.Color.dark_gold(),
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-    @discord.ui.button(label="Approved Buyers", style=discord.ButtonStyle.secondary, emoji="📝", row=2, custom_id="gunstore:approved_list")
-    async def approved_list(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        cog = interaction.client.get_cog("GunstoreHub")
-        guns_cog = cog._guns_cog() if cog else None
-        if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
-            return
-        state = await guns_cog._load_state()
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        if member and _is_employee_member(member) and not _is_store_owner_member(member):
-            store_id, store = _find_employee_store(state, interaction.guild.id, interaction.user.id)
-        else:
-            store_id = guns_cog._store_id(interaction.guild.id, interaction.user.id)
-            store = state.get("stores", {}).get(store_id)
-        approved = store.get("controlled_buyers", []) if store else []
-        if not approved:
-            await interaction.followup.send("Controlled-buyer list is empty.", ephemeral=True)
-            return
-        lines = [f"<@{uid}>" for uid in approved[:25]]
-        await interaction.followup.send(
-            "**Approved Controlled Buyers:**\n" + "\n".join(lines),
-            ephemeral=True,
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
-
-    @discord.ui.button(label="Set Store Name", style=discord.ButtonStyle.secondary, emoji="✏️", row=3, custom_id="gunstore:set_name")
-    async def set_store_name(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Manage Store", style=discord.ButtonStyle.danger, emoji="⚙️", row=2, custom_id="gunstore:manage_store")
+    async def manage_store(self, interaction: discord.Interaction, button: discord.ui.Button):
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if member and _is_employee_member(member) and not _is_store_owner_member(member):
             await interaction.response.send_message(
-                "Only Store Owners can set the store name.", ephemeral=True
+                "Only Store Owners can manage their store.", ephemeral=True
             )
-            return
-        await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "✏️ **Enter your store name** (e.g. `Hellfire Arms`), or type `cancel`:",
-            ephemeral=True,
-        )
-        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
-        if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
-            return
-        name = text.strip()[:100]
-        if not name:
-            await interaction.followup.send("Name cannot be empty.", ephemeral=True)
             return
         cog = interaction.client.get_cog("GunstoreHub")
         guns_cog = cog._guns_cog() if cog else None
-        if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
-            return
-        async with guns_cog.lock:
+        store_name = None
+        if guns_cog:
             state = await guns_cog._load_state()
             store_id = guns_cog._store_id(interaction.guild.id, interaction.user.id)
-            store = state.setdefault("stores", {}).setdefault(
-                store_id, {"owner_id": interaction.user.id, "lots": [], "controlled_buyers": []}
-            )
-            store["store_name"] = name
-            await guns_cog._save_state(state)
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        if member and interaction.guild:
-            raw = config.WHOLESALER_STORE_ROLE_IDS
-            owner_role_id = int(raw) if isinstance(raw, (int, float, str)) and str(raw).strip().isdigit() else None
-            if owner_role_id:
-                owner_role = interaction.guild.get_role(owner_role_id)
-                if owner_role and owner_role not in member.roles:
-                    try:
-                        await member.add_roles(owner_role, reason="Set gun store name")
-                    except discord.Forbidden:
-                        pass
-        await interaction.followup.send(
-            f"Store name set to **{name}**.", ephemeral=True
-        )
+            store = state.get("stores", {}).get(store_id)
+            if store:
+                store_name = store.get("store_name")
+        ctx = PanelContext(interaction)
+        view = _ManageGunStoreView(cog, ctx)
+        header = "⚙️ **Manage Store"
+        if store_name:
+            header += f" — {store_name}"
+        header += "** — choose an action:"
+        await interaction.response.send_message(header, view=view, ephemeral=True)
 
-    @discord.ui.button(label="Manage Employees", style=discord.ButtonStyle.secondary, emoji="👥", row=3, custom_id="gunstore:manage_employees")
+    @discord.ui.button(label="Manage Employees", style=discord.ButtonStyle.secondary, emoji="👥", row=2, custom_id="gunstore:manage_employees")
     async def manage_employees(self, interaction: discord.Interaction, button: discord.ui.Button):
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if member and _is_employee_member(member) and not _is_store_owner_member(member):
@@ -343,19 +275,13 @@ class GunstoreMenuView(SafeView):
             "👥 **Manage Employees** — choose an action:", view=view, ephemeral=True
         )
 
-    @discord.ui.button(label="Manage Store", style=discord.ButtonStyle.danger, emoji="⚙️", row=4, custom_id="gunstore:manage_store")
-    async def manage_store(self, interaction: discord.Interaction, button: discord.ui.Button):
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        if member and _is_employee_member(member) and not _is_store_owner_member(member):
-            await interaction.response.send_message(
-                "Only Store Owners can manage their store.", ephemeral=True
-            )
-            return
+    @discord.ui.button(label="Manage Buyers", style=discord.ButtonStyle.secondary, emoji="📝", row=2, custom_id="gunstore:manage_buyers")
+    async def manage_buyers(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("GunstoreHub")
         ctx = PanelContext(interaction)
-        view = _ManageGunStoreView(cog, ctx)
+        view = _ManageBuyersView(cog, ctx)
         await interaction.response.send_message(
-            "⚙️ **Manage Store** — choose an action:", view=view, ephemeral=True
+            "📝 **Manage Buyers** — choose an action:", view=view, ephemeral=True
         )
 
 
@@ -1356,6 +1282,63 @@ class _StorePickerForAction(SafeView):
         self.stop()
 
 
+class _ManageBuyersView(SafeView):
+    def __init__(self, cog, ctx):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Approve Buyer", style=discord.ButtonStyle.success, emoji="✅", row=0)
+    async def approve_buyer(self, interaction: discord.Interaction, button: discord.ui.Button):
+        cog = interaction.client.get_cog("GunstoreHub")
+        ctx = PanelContext(interaction)
+        view = _ApproveBuyerView(cog, ctx, approve=True)
+        await interaction.response.send_message(
+            "📝 **Select a buyer to approve:**", view=view, ephemeral=True
+        )
+
+    @discord.ui.button(label="Unapprove Buyer", style=discord.ButtonStyle.danger, emoji="🚫", row=0)
+    async def unapprove_buyer(self, interaction: discord.Interaction, button: discord.ui.Button):
+        cog = interaction.client.get_cog("GunstoreHub")
+        ctx = PanelContext(interaction)
+        view = _ApproveBuyerView(cog, ctx, approve=False)
+        await interaction.response.send_message(
+            "📝 **Select a buyer to remove from your approved list:**", view=view, ephemeral=True
+        )
+
+    @discord.ui.button(label="Approved Buyers", style=discord.ButtonStyle.secondary, emoji="📋", row=0)
+    async def approved_list(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("GunstoreHub")
+        guns_cog = cog._guns_cog() if cog else None
+        if not guns_cog:
+            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            return
+        state = await guns_cog._load_state()
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if member and _is_employee_member(member) and not _is_store_owner_member(member):
+            store_id, store = _find_employee_store(state, interaction.guild.id, interaction.user.id)
+        else:
+            store_id = guns_cog._store_id(interaction.guild.id, interaction.user.id)
+            store = state.get("stores", {}).get(store_id)
+        approved = store.get("controlled_buyers", []) if store else []
+        if not approved:
+            await interaction.followup.send("Controlled-buyer list is empty.", ephemeral=True)
+            return
+        lines = [f"<@{uid}>" for uid in approved[:25]]
+        await interaction.followup.send(
+            "**Approved Controlled Buyers:**\n" + "\n".join(lines),
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+
 class _ManageGunStoreView(SafeView):
     def __init__(self, cog, ctx):
         super().__init__(timeout=120)
@@ -1368,7 +1351,89 @@ class _ManageGunStoreView(SafeView):
             return False
         return True
 
-    @discord.ui.button(label="Transfer Ownership", style=discord.ButtonStyle.primary, emoji="🔄", row=0)
+    @discord.ui.button(label="Create Store", style=discord.ButtonStyle.success, emoji="🏪", row=0)
+    async def create_store(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("GunstoreHub")
+        guns_cog = cog._guns_cog() if cog else None
+        if not guns_cog:
+            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            return
+        state = await guns_cog._load_state()
+        store_id = guns_cog._store_id(interaction.guild.id, interaction.user.id)
+        existing = state.get("stores", {}).get(store_id)
+        if existing and existing.get("store_name"):
+            await interaction.followup.send(
+                f"You already own a gun store: **{existing['store_name']}**.", ephemeral=True
+            )
+            return
+        await interaction.followup.send(
+            "🏪 **Enter a name for your new store** (e.g. `Hellfire Arms`), or type `cancel`:",
+            ephemeral=True,
+        )
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+        if text is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            return
+        name = text.strip()[:100]
+        if not name:
+            await interaction.followup.send("Name cannot be empty.", ephemeral=True)
+            return
+        async with guns_cog.lock:
+            state = await guns_cog._load_state()
+            store = state.setdefault("stores", {}).setdefault(
+                store_id, {"owner_id": interaction.user.id, "lots": [], "controlled_buyers": []}
+            )
+            store["store_name"] = name
+            await guns_cog._save_state(state)
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if member and interaction.guild:
+            raw = config.WHOLESALER_STORE_ROLE_IDS
+            owner_role_id = int(raw) if isinstance(raw, (int, float, str)) and str(raw).strip().isdigit() else None
+            if owner_role_id:
+                owner_role = interaction.guild.get_role(owner_role_id)
+                if owner_role and owner_role not in member.roles:
+                    try:
+                        await member.add_roles(owner_role, reason="Created gun store")
+                    except discord.Forbidden:
+                        pass
+        await interaction.followup.send(f"✅ Store **{name}** created!", ephemeral=True)
+
+    @discord.ui.button(label="Change Store Name", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
+    async def change_store_name(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("GunstoreHub")
+        guns_cog = cog._guns_cog() if cog else None
+        if not guns_cog:
+            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            return
+        state = await guns_cog._load_state()
+        store_id = guns_cog._store_id(interaction.guild.id, interaction.user.id)
+        store = state.get("stores", {}).get(store_id)
+        current_name = store.get("store_name") if store else None
+        prompt = "✏️ "
+        if current_name:
+            prompt += f"Current name: **{current_name}**\n"
+        prompt += "**Enter a new store name**, or type `cancel`:"
+        await interaction.followup.send(prompt, ephemeral=True)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+        if text is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            return
+        name = text.strip()[:100]
+        if not name:
+            await interaction.followup.send("Name cannot be empty.", ephemeral=True)
+            return
+        async with guns_cog.lock:
+            state = await guns_cog._load_state()
+            store = state.setdefault("stores", {}).setdefault(
+                store_id, {"owner_id": interaction.user.id, "lots": [], "controlled_buyers": []}
+            )
+            store["store_name"] = name
+            await guns_cog._save_state(state)
+        await interaction.followup.send(f"Store name changed to **{name}**.", ephemeral=True)
+
+    @discord.ui.button(label="Transfer Ownership", style=discord.ButtonStyle.primary, emoji="🔄", row=1)
     async def transfer_ownership(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("GunstoreHub")
         ctx = PanelContext(interaction)
@@ -1377,7 +1442,7 @@ class _ManageGunStoreView(SafeView):
             "🔄 **Select the new owner for your gun store:**", view=view, ephemeral=True
         )
 
-    @discord.ui.button(label="Close Store", style=discord.ButtonStyle.danger, emoji="🗑️", row=0)
+    @discord.ui.button(label="Close Store", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
     async def close_store(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("GunstoreHub")
         ctx = PanelContext(interaction)
@@ -1393,6 +1458,28 @@ class _ManageGunStoreView(SafeView):
             view=view,
             ephemeral=True,
         )
+
+
+class _GunTransferDMConfirmView(SafeView):
+    def __init__(self, recipient_id: int, timeout: float = 60):
+        super().__init__(timeout=timeout)
+        self.recipient_id = recipient_id
+        self.accepted: Optional[bool] = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.recipient_id
+
+    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, emoji="✅")
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.accepted = True
+        await interaction.response.edit_message(content="✅ You accepted the ownership transfer.", view=None)
+        self.stop()
+
+    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, emoji="❌")
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.accepted = False
+        await interaction.response.edit_message(content="❌ You declined the ownership transfer.", view=None)
+        self.stop()
 
 
 class _GunTransferOwnerView(SafeView):
@@ -1425,6 +1512,42 @@ class _GunTransferOwnerView(SafeView):
         guns_cog = self.cog._guns_cog()
         if not guns_cog:
             await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            return
+        state = await guns_cog._load_state()
+        new_store_id = guns_cog._store_id(guild.id, new_owner.id)
+        existing = state.get("stores", {}).get(new_store_id)
+        if existing and existing.get("store_name"):
+            await interaction.followup.send(
+                f"{new_owner.display_name} already owns a gun store.", ephemeral=True
+            )
+            return
+        old_store_id = guns_cog._store_id(guild.id, self.ctx.author.id)
+        store = state.get("stores", {}).get(old_store_id)
+        if not store:
+            await interaction.followup.send("You don't have a store to transfer.", ephemeral=True)
+            return
+        store_name = store.get("store_name") or "Gun Store"
+        confirm_view = _GunTransferDMConfirmView(new_owner.id, timeout=120)
+        try:
+            dm = await new_owner.send(
+                f"🔄 **{self.ctx.author.display_name}** wants to transfer **{store_name}** to you.\n"
+                "Do you accept?",
+                view=confirm_view,
+            )
+        except discord.Forbidden:
+            await interaction.followup.send(
+                f"Could not DM {new_owner.display_name}. They may have DMs disabled.", ephemeral=True
+            )
+            return
+        await interaction.followup.send(
+            f"📩 Sent a DM to {new_owner.display_name} for confirmation. Waiting…", ephemeral=True
+        )
+        await confirm_view.wait()
+        if not confirm_view.accepted:
+            reason = "declined" if confirm_view.accepted is False else "timed out"
+            await interaction.followup.send(
+                f"❌ Transfer {reason} by {new_owner.display_name}.", ephemeral=True
+            )
             return
         async with guns_cog.lock:
             state = await guns_cog._load_state()
@@ -1586,15 +1709,13 @@ class GunstoreHub(commands.Cog, name="GunstoreHub"):
             title="🔫 Gun Store",
             description=(
                 "Welcome to the Gun Store panel.\n\n"
-                "**Buy** — Purchase guns from wholesale *(owners only)*\n"
-                "**Sell** — Sell a gun to a customer (DM confirmation)\n"
-                "**Inventory** — View your store stock\n"
-                "**Approve/Unapprove** — Manage controlled-buyer list\n"
+                "**Buy from Wholesale** — Purchase guns from wholesale *(owners only)*\n"
                 "**Wholesale List** — Browse available wholesale stock\n"
-                "**Approved Buyers** — See your approved buyer list\n"
-                "**Set Store Name** — Give your store a custom name *(owners only)*\n"
+                "**Sell to Customer** — Sell a gun to a customer (DM confirmation)\n"
+                "**My Store Inventory** — View your store stock\n"
+                "**Manage Store** — Create/rename store, transfer or close *(owners only)*\n"
                 "**Manage Employees** — Add/remove store employees *(owners only)*\n"
-                "**Manage Store** — Transfer ownership or close store *(owners only)*"
+                "**Manage Buyers** — Approve/unapprove/list controlled buyers"
             ),
             color=discord.Color.dark_gold(),
         )

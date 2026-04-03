@@ -136,7 +136,7 @@ class RipperdocMenuView(SafeView):
         view = WholesaleBuySelect(cog, ctx, available, cw_cog)
         await interaction.followup.send("Select an item to buy:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="Sell to Patient", style=discord.ButtonStyle.success, emoji="💉", row=0, custom_id="ripperdoc:sell_patient")
+    @discord.ui.button(label="Sell to Patient", style=discord.ButtonStyle.success, emoji="💉", row=1, custom_id="ripperdoc:sell_patient")
     async def sell_to_patient(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cw_cog = interaction.client.get_cog("CyberwareShop")
@@ -172,7 +172,7 @@ class RipperdocMenuView(SafeView):
             msg += f"\n⚠️ Showing first 25 of {len(groups)} item groups."
         await interaction.followup.send(msg, view=view, ephemeral=True)
 
-    @discord.ui.button(label="Install on Patient", style=discord.ButtonStyle.success, emoji="🔧", row=0, custom_id="ripperdoc:install_patient")
+    @discord.ui.button(label="Install on Patient", style=discord.ButtonStyle.success, emoji="🔧", row=1, custom_id="ripperdoc:install_patient")
     async def install_on_patient(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cw_cog = interaction.client.get_cog("CyberwareShop")
@@ -208,32 +208,7 @@ class RipperdocMenuView(SafeView):
             msg += f"\n⚠️ Showing first 25 of {len(groups)} item groups."
         await interaction.followup.send(msg, view=view, ephemeral=True)
 
-    @discord.ui.button(label="My Stock", style=discord.ButtonStyle.secondary, emoji="📦", row=1, custom_id="ripperdoc:my_stock")
-    async def view_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        cw_cog = interaction.client.get_cog("CyberwareShop")
-        if not cw_cog:
-            await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
-            return
-        state = await cw_cog._load_state()
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        stores = _find_rd_accessible_stores(state, interaction.guild.id, interaction.user.id, member)
-        if not stores:
-            await interaction.followup.send("You are not assigned to any store.", ephemeral=True)
-            return
-        if len(stores) > 1:
-            cog = interaction.client.get_cog("RipperdocHub")
-            ctx = PanelContext(interaction)
-            view = _RDStorePickerForAction(cog, ctx, stores, action="view_stock", cw_cog=cw_cog)
-            await interaction.followup.send(
-                "📦 **Select which store stock to view:**", view=view, ephemeral=True
-            )
-            return
-        store_id, store = stores[0]
-        owner_id = _get_rd_owner_id(state, store_id, interaction.user.id)
-        await _show_rd_stock(interaction, cw_cog, store, store_id, owner_id)
-
-    @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=1, custom_id="ripperdoc:wholesale_list")
+    @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=0, custom_id="ripperdoc:wholesale_list")
     async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cw_cog = interaction.client.get_cog("CyberwareShop")
@@ -260,47 +235,30 @@ class RipperdocMenuView(SafeView):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Set Store Name", style=discord.ButtonStyle.secondary, emoji="✏️", row=2, custom_id="ripperdoc:set_name")
-    async def set_store_name(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Manage Store", style=discord.ButtonStyle.danger, emoji="⚙️", row=2, custom_id="ripperdoc:manage_store")
+    async def manage_store(self, interaction: discord.Interaction, button: discord.ui.Button):
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if member and _is_ripperdoc_employee(member) and not _is_ripperdoc_owner(member):
             await interaction.response.send_message(
-                "Only Ripperdoc Owners can set the store name.", ephemeral=True
+                "Only Ripperdoc Owners can manage their store.", ephemeral=True
             )
             return
-        await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "✏️ **Enter your store name** (e.g. `Chrome Cathedral`), or type `cancel`:",
-            ephemeral=True,
-        )
-        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
-        if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
-            return
-        name = text.strip()[:100]
-        if not name:
-            await interaction.followup.send("Name cannot be empty.", ephemeral=True)
-            return
         cw_cog = interaction.client.get_cog("CyberwareShop")
-        if not cw_cog:
-            await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
-            return
-        async with cw_cog.lock:
+        store_name = None
+        if cw_cog:
             state = await cw_cog._load_state()
             store_id = _rd_store_id(interaction.guild.id, interaction.user.id)
-            stores = state.setdefault("ripperdoc_stores", {})
-            store = stores.setdefault(store_id, {"owner_id": interaction.user.id, "employees": []})
-            store["store_name"] = name
-            await cw_cog._save_state(state)
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        if member and interaction.guild:
-            owner_role = interaction.guild.get_role(config.RIPPERDOC_OWNER_ROLE_ID)
-            if owner_role and owner_role not in member.roles:
-                try:
-                    await member.add_roles(owner_role, reason="Set ripperdoc store name")
-                except discord.Forbidden:
-                    pass
-        await interaction.followup.send(f"Store name set to **{name}**.", ephemeral=True)
+            store = state.get("ripperdoc_stores", {}).get(store_id)
+            if store:
+                store_name = store.get("store_name")
+        cog = interaction.client.get_cog("RipperdocHub")
+        ctx = PanelContext(interaction)
+        view = _ManageRDStoreView(cog, ctx)
+        header = "⚙️ **Manage Store"
+        if store_name:
+            header += f" — {store_name}"
+        header += "** — choose an action:"
+        await interaction.response.send_message(header, view=view, ephemeral=True)
 
     @discord.ui.button(label="Manage Employees", style=discord.ButtonStyle.secondary, emoji="👥", row=2, custom_id="ripperdoc:manage_employees")
     async def manage_employees(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -315,21 +273,6 @@ class RipperdocMenuView(SafeView):
         view = _RDManageEmployeesView(cog, ctx)
         await interaction.response.send_message(
             "👥 **Manage Employees** — choose an action:", view=view, ephemeral=True
-        )
-
-    @discord.ui.button(label="Manage Store", style=discord.ButtonStyle.danger, emoji="⚙️", row=2, custom_id="ripperdoc:manage_store")
-    async def manage_store(self, interaction: discord.Interaction, button: discord.ui.Button):
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        if member and _is_ripperdoc_employee(member) and not _is_ripperdoc_owner(member):
-            await interaction.response.send_message(
-                "Only Ripperdoc Owners can manage their store.", ephemeral=True
-            )
-            return
-        cog = interaction.client.get_cog("RipperdocHub")
-        ctx = PanelContext(interaction)
-        view = _ManageRDStoreView(cog, ctx)
-        await interaction.response.send_message(
-            "⚙️ **Manage Store** — choose an action:", view=view, ephemeral=True
         )
 
 
@@ -1254,7 +1197,107 @@ class _ManageRDStoreView(SafeView):
             return False
         return True
 
-    @discord.ui.button(label="Transfer Ownership", style=discord.ButtonStyle.primary, emoji="🔄", row=0)
+    @discord.ui.button(label="Create Store", style=discord.ButtonStyle.success, emoji="🏪", row=0)
+    async def create_store(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        cw_cog = interaction.client.get_cog("CyberwareShop")
+        if not cw_cog:
+            await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+            return
+        state = await cw_cog._load_state()
+        store_id = _rd_store_id(interaction.guild.id, interaction.user.id)
+        existing = state.get("ripperdoc_stores", {}).get(store_id)
+        if existing and existing.get("store_name"):
+            await interaction.followup.send(
+                f"You already own a ripperdoc store: **{existing['store_name']}**.", ephemeral=True
+            )
+            return
+        await interaction.followup.send(
+            "🏪 **Enter a name for your new store** (e.g. `Chrome Cathedral`), or type `cancel`:",
+            ephemeral=True,
+        )
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+        if text is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            return
+        name = text.strip()[:100]
+        if not name:
+            await interaction.followup.send("Name cannot be empty.", ephemeral=True)
+            return
+        async with cw_cog.lock:
+            state = await cw_cog._load_state()
+            stores = state.setdefault("ripperdoc_stores", {})
+            store = stores.setdefault(store_id, {"owner_id": interaction.user.id, "employees": []})
+            store["store_name"] = name
+            await cw_cog._save_state(state)
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if member and interaction.guild:
+            owner_role = interaction.guild.get_role(config.RIPPERDOC_OWNER_ROLE_ID)
+            if owner_role and owner_role not in member.roles:
+                try:
+                    await member.add_roles(owner_role, reason="Created ripperdoc store")
+                except discord.Forbidden:
+                    pass
+        await interaction.followup.send(f"✅ Store **{name}** created!", ephemeral=True)
+
+    @discord.ui.button(label="Change Store Name", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
+    async def change_store_name(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        cw_cog = interaction.client.get_cog("CyberwareShop")
+        if not cw_cog:
+            await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+            return
+        state = await cw_cog._load_state()
+        store_id = _rd_store_id(interaction.guild.id, interaction.user.id)
+        store = state.get("ripperdoc_stores", {}).get(store_id)
+        current_name = store.get("store_name") if store else None
+        prompt = "✏️ "
+        if current_name:
+            prompt += f"Current name: **{current_name}**\n"
+        prompt += "**Enter a new store name**, or type `cancel`:"
+        await interaction.followup.send(prompt, ephemeral=True)
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+        if text is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            return
+        name = text.strip()[:100]
+        if not name:
+            await interaction.followup.send("Name cannot be empty.", ephemeral=True)
+            return
+        async with cw_cog.lock:
+            state = await cw_cog._load_state()
+            stores = state.setdefault("ripperdoc_stores", {})
+            store = stores.setdefault(store_id, {"owner_id": interaction.user.id, "employees": []})
+            store["store_name"] = name
+            await cw_cog._save_state(state)
+        await interaction.followup.send(f"Store name changed to **{name}**.", ephemeral=True)
+
+    @discord.ui.button(label="My Stock", style=discord.ButtonStyle.secondary, emoji="📦", row=0)
+    async def view_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        cw_cog = interaction.client.get_cog("CyberwareShop")
+        if not cw_cog:
+            await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+            return
+        state = await cw_cog._load_state()
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        stores = _find_rd_accessible_stores(state, interaction.guild.id, interaction.user.id, member)
+        if not stores:
+            await interaction.followup.send("You are not assigned to any store.", ephemeral=True)
+            return
+        if len(stores) > 1:
+            cog = interaction.client.get_cog("RipperdocHub")
+            ctx = PanelContext(interaction)
+            view = _RDStorePickerForAction(cog, ctx, stores, action="view_stock", cw_cog=cw_cog)
+            await interaction.followup.send(
+                "📦 **Select which store stock to view:**", view=view, ephemeral=True
+            )
+            return
+        store_id, store = stores[0]
+        owner_id = _get_rd_owner_id(state, store_id, interaction.user.id)
+        await _show_rd_stock(interaction, cw_cog, store, store_id, owner_id)
+
+    @discord.ui.button(label="Transfer Ownership", style=discord.ButtonStyle.primary, emoji="🔄", row=1)
     async def transfer_ownership(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("RipperdocHub")
         ctx = PanelContext(interaction)
@@ -1263,7 +1306,7 @@ class _ManageRDStoreView(SafeView):
             "🔄 **Select the new owner for your ripperdoc store:**", view=view, ephemeral=True
         )
 
-    @discord.ui.button(label="Close Store", style=discord.ButtonStyle.danger, emoji="🗑️", row=0)
+    @discord.ui.button(label="Close Store", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
     async def close_store(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("RipperdocHub")
         ctx = PanelContext(interaction)
@@ -1279,6 +1322,28 @@ class _ManageRDStoreView(SafeView):
             view=view,
             ephemeral=True,
         )
+
+
+class _RDTransferDMConfirmView(SafeView):
+    def __init__(self, recipient_id: int, timeout: float = 60):
+        super().__init__(timeout=timeout)
+        self.recipient_id = recipient_id
+        self.accepted: Optional[bool] = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.recipient_id
+
+    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, emoji="✅")
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.accepted = True
+        await interaction.response.edit_message(content="✅ You accepted the ownership transfer.", view=None)
+        self.stop()
+
+    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, emoji="❌")
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.accepted = False
+        await interaction.response.edit_message(content="❌ You declined the ownership transfer.", view=None)
+        self.stop()
 
 
 class _RDTransferOwnerView(SafeView):
@@ -1311,6 +1376,42 @@ class _RDTransferOwnerView(SafeView):
         cw_cog = interaction.client.get_cog("CyberwareShop")
         if not cw_cog:
             await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+            return
+        state = await cw_cog._load_state()
+        new_store_id = _rd_store_id(guild.id, new_owner.id)
+        existing = state.get("ripperdoc_stores", {}).get(new_store_id)
+        if existing and existing.get("store_name"):
+            await interaction.followup.send(
+                f"{new_owner.display_name} already owns a ripperdoc store.", ephemeral=True
+            )
+            return
+        old_store_id = _rd_store_id(guild.id, self.ctx.author.id)
+        store = state.get("ripperdoc_stores", {}).get(old_store_id)
+        if not store:
+            await interaction.followup.send("You don't have a store to transfer.", ephemeral=True)
+            return
+        store_name = store.get("store_name") or "Ripperdoc Store"
+        confirm_view = _RDTransferDMConfirmView(new_owner.id, timeout=120)
+        try:
+            dm = await new_owner.send(
+                f"🔄 **{self.ctx.author.display_name}** wants to transfer **{store_name}** to you.\n"
+                "Do you accept?",
+                view=confirm_view,
+            )
+        except discord.Forbidden:
+            await interaction.followup.send(
+                f"Could not DM {new_owner.display_name}. They may have DMs disabled.", ephemeral=True
+            )
+            return
+        await interaction.followup.send(
+            f"📩 Sent a DM to {new_owner.display_name} for confirmation. Waiting…", ephemeral=True
+        )
+        await confirm_view.wait()
+        if not confirm_view.accepted:
+            reason = "declined" if confirm_view.accepted is False else "timed out"
+            await interaction.followup.send(
+                f"❌ Transfer {reason} by {new_owner.display_name}.", ephemeral=True
+            )
             return
         async with cw_cog.lock:
             state = await cw_cog._load_state()
@@ -1491,14 +1592,12 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
             title="💉 Ripperdoc Shop",
             description=(
                 "Welcome, Ripperdoc. Choose an action below.\n\n"
-                "**Buy** — Purchase cyberware from this week's wholesale *(owners only)*\n"
-                "**Sell** — Sell cyberware to a patient (DM confirmation)\n"
-                "**Install** — Install cyberware on a patient (consumes item)\n"
-                "**My Stock** — View your current inventory\n"
+                "**Buy from Wholesale** — Purchase cyberware from this week's wholesale *(owners only)*\n"
                 "**Wholesale List** — Browse this week's wholesale catalog\n"
-                "**Set Store Name** — Give your store a custom name *(owners only)*\n"
-                "**Manage Employees** — Add/remove store employees *(owners only)*\n"
-                "**Manage Store** — Transfer ownership or close store *(owners only)*"
+                "**Sell to Patient** — Sell cyberware to a patient (DM confirmation)\n"
+                "**Install on Patient** — Install cyberware on a patient (consumes item)\n"
+                "**Manage Store** — Create/rename store, view stock, transfer or close *(owners only)*\n"
+                "**Manage Employees** — Add/remove store employees *(owners only)*"
             ),
             color=discord.Color.teal(),
         )

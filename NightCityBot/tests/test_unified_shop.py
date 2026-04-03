@@ -25,6 +25,8 @@ from NightCityBot.cogs.gunstore_hub import (
     _is_employee_member,
     _find_employee_store,
     _ManageEmployeesView,
+    _ManageGunStoreView,
+    _ManageBuyersView,
     _EmployeePickerView,
 )
 from NightCityBot.cogs.admin_shop import (
@@ -128,6 +130,17 @@ def _find_user_select(view):
         if isinstance(child, discord.ui.UserSelect):
             return child
     raise ValueError("No UserSelect in view")
+
+
+def _make_panel_ctx(user_id=111, guild_id=999):
+    ctx = MagicMock()
+    ctx.author = MagicMock(spec=discord.Member)
+    ctx.author.id = user_id
+    ctx.author.display_name = f"User{user_id}"
+    ctx.author.mention = f"<@{user_id}>"
+    ctx.guild = MagicMock()
+    ctx.guild.id = guild_id
+    return ctx
 
 
 def _make_ripperdoc_cog():
@@ -1426,9 +1439,9 @@ class TestGunstoreInteractionCheckEmployee:
         assert "not assigned" in msg.lower()
 
 
-class TestSetStoreName:
+class TestChangeStoreName:
     @patch("NightCityBot.cogs.gunstore_hub.collect_text_input", new_callable=AsyncMock, return_value="Hellfire Arms")
-    def test_set_name_success(self, mock_collect, monkeypatch):
+    def test_change_name_success(self, mock_collect, monkeypatch):
         monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
         monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
 
@@ -1441,20 +1454,19 @@ class TestSetStoreName:
             guns_cog._store_id = MagicMock(return_value="999:111")
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs = {"GunsShopCog": guns_cog}
-            view = GunstoreMenuView()
-            owner_role = MagicMock()
-            owner_role.id = 777
-            inter = _make_interaction(user_id=111, roles=[owner_role])
+            ctx = _make_panel_ctx(user_id=111)
+            view = _ManageGunStoreView(cog, ctx)
+            inter = _make_interaction(user_id=111)
             inter.channel_id = 123
             inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "GunstoreHub" else None)
-            btn = _find_button(view, "Set Store Name")
+            btn = _find_button(view, "Change Store Name")
             await btn.callback(inter)
             return inter.followup.send.call_args[0][0]
 
         msg = _run(run())
         assert "Hellfire Arms" in msg
 
-    def test_set_name_employee_blocked(self, monkeypatch):
+    def test_manage_store_blocked_for_employee(self, monkeypatch):
         monkeypatch.setattr("config.GUN_LOG_CHANNEL_ID", 0)
         monkeypatch.setattr("config.WHOLESALER_STORE_ROLE_IDS", 777)
 
@@ -1463,7 +1475,7 @@ class TestSetStoreName:
             emp_role = MagicMock()
             emp_role.id = GUN_STORE_EMPLOYEE_ROLE_ID
             inter = _make_interaction(user_id=222, roles=[emp_role])
-            btn = _find_button(view, "Set Store Name")
+            btn = _find_button(view, "Manage Store")
             await btn.callback(inter)
             return inter.response.send_message.call_args[0][0]
 

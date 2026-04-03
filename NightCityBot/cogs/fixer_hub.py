@@ -105,7 +105,7 @@ class FixerTopView(SafeView):
             title="🏪 Fixer Panel — Store",
             description=(
                 "**View Gun Store** — Select a store to view, add, or remove items\n"
-                "**View CW Store** — Select a Ripperdoc to view, add, or remove stock"
+                "**View Ripperdoc Store** — Select a Ripperdoc to view, add, or remove stock"
             ),
             color=discord.Color.green(),
         )
@@ -187,11 +187,6 @@ class PlayerSubView(SafeView):
         view = LOAPickerView(self.cog, self.ctx, action="end")
         await interaction.followup.send("Select a player to take off LOA:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="Done", style=discord.ButtonStyle.danger, row=2)
-    async def done(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.stop()
-        await interaction.message.delete()
-
 
 GUN_STORE_OWNER_ROLE_ID = config.GUN_STORE_OWNER_ROLE_ID
 RIPPERDOC_ROLE_ID = config.RIPPERDOC_ROLE_ID
@@ -228,8 +223,12 @@ class StoreSubView(SafeView):
         for m in role.members[:25]:
             store_id = guns_cog._store_id(guild.id, m.id) if guns_cog else ""
             store_data = stores.get(store_id, {})
-            label = store_data.get("store_name") or f"{m.display_name}'s Gun Store"
-            options.append(discord.SelectOption(label=label[:100], value=str(m.id)))
+            store_name = store_data.get("store_name")
+            label = store_name or f"{m.display_name}'s Gun Store"
+            options.append(discord.SelectOption(
+                label=label[:100], value=str(m.id),
+                description=m.display_name[:100] if store_name else None,
+            ))
         view = StoreOwnerPickerView(self.cog, self.ctx, options, store_type="gun")
         await interaction.followup.send(
             "🔫 **Gun Store** — Select a store:", view=view, ephemeral=True
@@ -266,11 +265,6 @@ class StoreSubView(SafeView):
         await interaction.followup.send(
             "💉 **Ripperdoc Store** — Select a Ripperdoc:", view=view, ephemeral=True
         )
-
-    @discord.ui.button(label="Done", style=discord.ButtonStyle.danger, row=1)
-    async def done(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.stop()
-        await interaction.message.delete()
 
 
 class WholesalerSubView(SafeView):
