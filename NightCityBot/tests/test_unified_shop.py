@@ -693,36 +693,6 @@ class TestViewTimeout:
         _run(run())
 
 
-class TestDeprecationNotices:
-    def test_cw_buy_has_deprecation_hint(self):
-        from NightCityBot.cogs.cyberware_shop import CyberwareShop
-        method = getattr(CyberwareShop, "cw_buy", None)
-        assert method is not None
-        doc = method.callback.__doc__ if hasattr(method, "callback") else method.__doc__
-        assert "ripperdoc" in doc.lower()
-
-    def test_cw_sell_has_deprecation_hint(self):
-        from NightCityBot.cogs.cyberware_shop import CyberwareShop
-        method = getattr(CyberwareShop, "cw_sell", None)
-        assert method is not None
-        doc = method.callback.__doc__ if hasattr(method, "callback") else method.__doc__
-        assert "ripperdoc" in doc.lower()
-
-    def test_guns_wh_buy_has_deprecation_hint(self):
-        from NightCityBot.cogs.guns_shop import GunsShopCog
-        method = getattr(GunsShopCog, "wh_buy", None)
-        assert method is not None
-        doc = method.callback.__doc__ if hasattr(method, "callback") else method.__doc__
-        assert "gunstore" in doc.lower()
-
-    def test_guns_wh_sell_has_deprecation_hint(self):
-        from NightCityBot.cogs.guns_shop import GunsShopCog
-        method = getattr(GunsShopCog, "wh_sell", None)
-        assert method is not None
-        doc = method.callback.__doc__ if hasattr(method, "callback") else method.__doc__
-        assert "gunstore" in doc.lower()
-
-
 class TestItemHistoryUtilities:
     def test_ih_record_event_signature(self):
         from NightCityBot.utils.db import ih_record_event

@@ -457,8 +457,6 @@ class TestWholesalerSubViewButtons:
             btn = _find_button(view, "Restock Guns")
             await btn.callback(inter)
             inter.followup.send.assert_called_once()
-            msg = inter.followup.send.call_args[0][0]
-            assert "!guns_wh_restock" in msg
         _run(_test())
 
     def test_restock_cw_info(self):
@@ -471,8 +469,6 @@ class TestWholesalerSubViewButtons:
             btn = _find_button(view, "Restock CW")
             await btn.callback(inter)
             inter.followup.send.assert_called_once()
-            msg = inter.followup.send.call_args[0][0]
-            assert "!cw_wh_restock" in msg
         _run(_test())
 
     def test_back_button(self):

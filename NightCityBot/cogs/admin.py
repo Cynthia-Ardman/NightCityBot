@@ -407,28 +407,10 @@ class Admin(commands.Cog):
                 ]),
             ),
             (
-                "🔫 Gun Shop Admin",
+                "🔫 Gun Shop / 💉 Cyberware",
                 "\n".join([
-                    "`!guns_wh_setsheet <url>` – set/refresh gun master sheet.",
-                    "`!guns_wh_restock [seed]` – regenerate weekly wholesale stock.",
-                    "`!guns_wh_restock_settings [key] [value]` – view/tune restock settings.",
-                    "`!guns_wh_setshop <name> @owner` – bind a shop alias to an owner.",
-                    "`!guns_wh_shops` – list all shop alias mappings.",
-                    "`!guns_wh_retry_payout <tx_id>` – retry a failed seller payout.",
-                ]),
-            ),
-            (
-                "💉 Cyberware Admin",
-                "\n".join([
-                    "`!cw_setsheet <url>` – load/replace the cyberware catalogue from a sheet.",
-                    "`!cw_add \"<name>\" <price> [cwp] [desc]` – add or update a catalogue item.",
-                    "`!cw_remove <item name>` – remove an item from the catalogue.",
-                    "`!cw_give @ripperdoc <item name>` – give an item directly (bypass wholesale).",
-                    "`!cw_take @ripperdoc <item name>` – remove an item from a ripperdoc's stock.",
-                    "`!cw_wh_restock [seed]` – force a fresh weekly CW rotation.",
-                    "`!cw_wh_add <qty> <item name>` – add/restock an item mid-week.",
-                    "`!cw_wh_remove <item name>` – pull an item from this week's rotation.",
-                    "`!cw_wh_settings [key] [value]` – view/change CW restock settings.",
+                    "Gun shop and cyberware admin actions are now handled through",
+                    "the interactive hubs: `!gunstore`, `!ripperdoc`, `!fixer`, and `!admin_shop`.",
                 ]),
             ),
             (
@@ -502,8 +484,7 @@ class Admin(commands.Cog):
                 "- **Basic** — anyone can buy.\n"
                 "- **Controlled** — only buyers on your approved list.\n"
                 "- **Restricted** — approved list + admin approval per sale.\n\n"
-                "Manage your approved list through the hub or with:\n"
-                "`!guns_wh_approve @user` / `!guns_wh_unapprove @user` / `!guns_wh_approved`"
+                "Manage your approved list through the `!gunstore` hub."
             ),
             inline=False,
         )
@@ -544,8 +525,7 @@ class Admin(commands.Cog):
                 "2. **Buy parts** — pay catalogue price, parts go into your stock\n"
                 "3. **Sell or install** — pick the patient, pick the part, set your price\n"
                 "4. **Patient confirms** — they get a DM to accept or decline\n\n"
-                "All of this is handled through the `!ripperdoc` hub with dropdowns.\n"
-                "Use `!cw_catalog` to browse the full catalogue (not just this week's stock)."
+                "All of this is handled through the `!ripperdoc` hub with dropdowns."
             ),
             inline=False,
         )
