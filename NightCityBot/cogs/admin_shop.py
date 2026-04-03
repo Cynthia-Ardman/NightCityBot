@@ -814,6 +814,12 @@ class WholesaleClearConfirmView(SafeView):
         self.ctx = ctx
         self.target = target
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
     @discord.ui.button(label="Confirm Clear", style=discord.ButtonStyle.danger, emoji="⚠️")
     async def confirm_clear(self, interaction: discord.Interaction, button: discord.ui.Button):
         button.disabled = True
