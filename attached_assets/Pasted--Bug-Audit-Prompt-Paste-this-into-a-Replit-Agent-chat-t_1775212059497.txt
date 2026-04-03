@@ -1,0 +1,107 @@
+# Bug Audit Prompt
+
+Paste this into a Replit Agent chat to find the recurring bug categories.
+
+---
+
+You are auditing NightCityBot for bugs. DO NOT fix anything — only report what you find. Output a numbered bug list with file, line range, severity (critical/high/medium/low), and a one-sentence description.
+
+Search for these 6 specific bug categories across all files in `NightCityBot/cogs/` and `NightCityBot/utils/`. Examine every file — do not skip any.
+
+---
+
+## Category 1: Dead References (classes, functions, or variables that were deleted but are still referenced elsewhere)
+
+Grep the full codebase for every class name and function name defined in any cog or util file. For each one, confirm every reference to it across the project resolves to something that exists. Pay special attention to:
+- View and Modal class names used in isinstance checks, constructor calls, or type annotations
+- Imports that reference classes/functions no longer defined in the source module
+- String references to removed `!command` names in help text, error messages, docstrings, and embed content (e.g. `!my_inventory`, `!trade`, `!inv_give`, `!admin_shop`, `!wh_sell`, `!cw_sell`, `!cw_buy`)
+
+Also check the reverse: every `import` statement in every file — does the imported name actually exist in the source module?
+
+---
+
+## Category 2: View Lifecycle Bugs (parent views interfering with child views)
+
+All interactive hubs use a pattern where a top-level View (e.g. `FixerTopView`, `PlayerHubView`) transitions to sub-views by calling `interaction.response.edit_message(view=new_view)`. Audit every such transition for these issues:
+
+a) **Zombie parent timeout**: When a parent view transitions to a child view, does the parent call `self.stop()` BEFORE the edit? If not, the parent's `on_timeout` will fire later and call `message.edit(view=None)`, destroying the child view's buttons. Check every `on_timeout` in every View class and trace what it does.
+
+b) **delete_after conflicts**: If the hub command sends with `delete_after=120`, the message will auto-delete 120 seconds after SEND, not after last interaction. If a user spends more than 2 minutes navigating, the message vanishes mid-flow. Check all hub command functions for `delete_after` on the initial send and verify the timeout is appropriate for multi-step flows.
+
+c) **Back button staleness**: When a sub-view has a "Back" button that returns to the parent, does it create a FRESH parent view instance, or does it reuse the old (now stopped) instance? Reusing a stopped view means its timeout will never fire and it becomes a zombie.
+
+d) **edit_message vs send_message**: After adding components to a view dynamically (e.g. a character select dropdown), does the callback use `edit_message(view=self)` to re-render, or `send_message` which creates a new message and leaves the old one stale? Check every `add_item()` call followed by a response.
+
+---
+
+## Category 3: Financial Sign Errors (wrong debit/credit direction or wrong account)
+
+The bot uses the UnbelievaBoat API via `NightCityBot/services/unbelievaboat.py`. Balance changes are dicts like `{"cash": amount, "bank": amount}` where negative = debit.
+
+Audit every call to `update_balance` or `edit_balance` (or any function that wraps them) across all cog files. For each one, verify:
+
+a) **Refund paths use `{"bank": -price}` not `{"cash": -price}`**: Refunds that use cash can push the recipient's cash balance negative. Every refund/rollback path should debit from bank. Search for all error/except/rollback branches in sale, trade, and install flows.
+
+b) **Debit/credit direction is correct**: In a sale: buyer gets debited (negative), seller gets credited (positive). Check every two-sided transaction to confirm the signs aren't flipped.
+
+c) **Cash/bank split uses `max(cash, 0)` before splitting**: When debiting, the pattern should be `cash_deduct = min(cost, safe_cash)` then `bank_deduct = cost - cash_deduct`. Verify `safe_cash` is `max(cash_balance, 0)` to prevent negative cash from amplifying the bank deduction.
+
+d) **Double-debit on rollback failure**: If a sale debits the buyer, then the credit to the seller fails, the code should refund the buyer. But if the refund ALSO fails, the buyer is now out the money with no recourse. Check that these paths log a critical error and create a `pending_transfers` record for admin intervention.
+
+---
+
+## Category 4: Missing `interaction_check` on Views with Accept/Decline Buttons
+
+Any View that sends a DM or ephemeral message to a specific user with action buttons (Accept, Decline, Confirm, etc.) MUST have an `interaction_check` that verifies `interaction.user.id == self.expected_user_id`. Without it, any user who somehow accesses the message can click the buttons.
+
+Check every View class that has buttons meant for a specific recipient. These include:
+- Trade confirmation views (DM to buyer)
+- Store buy confirmation views (DM to store owner)
+- Approval views (sent to specific approver channels)
+- Any view created with a specific `user_id` or `recipient_id` parameter
+
+For each one, confirm `interaction_check` exists and checks the correct ID.
+
+---
+
+## Category 5: Concurrency / Race Conditions in Multi-Step Flows
+
+Hub flows often span multiple interactions (select user → select item → enter details → confirm). Between any two steps, another user (or the same user in a different tab) could modify the underlying data.
+
+Check for:
+
+a) **Stale item reference**: After a user selects an item from a dropdown, does the code re-fetch the item from the database before executing the action? Or does it use cached data from the dropdown population step? If the item was sold/transferred between selection and execution, the operation should fail gracefully.
+
+b) **Missing re-verify before financial operations**: Before debiting a buyer, does the code confirm the seller still owns the item? Look for `pi_get_item` or equivalent checks immediately before `update_balance` calls.
+
+c) **Inventory mutations outside locks**: The `ResourceLockManager` provides per-key locks. Verify that operations which read-then-write inventory (check stock → debit buyer → remove item → credit seller) hold a lock for the entire sequence. Look for cases where the lock is acquired for only part of the sequence.
+
+d) **`collect_text_input` timeout gaps**: After `collect_text_input` returns a value and before the bot acts on it, is there a window where another interaction could invalidate the input? This matters especially for item UUIDs and prices entered via text.
+
+---
+
+## Category 6: Stale Docstrings, Help Text, and Command References
+
+Search all Python files (including test files) for:
+- References to command names that no longer exist as `@commands.command` or `@commands.hybrid_command` definitions (e.g. `!my_inventory`, `!trade`, `!inv_give`, `!inv_add`, `!inv_remove`, `!inv_reassign`, `!wh_buy`, `!wh_sell`, `!wh_list`, `!store_inv`)
+- Docstrings that describe behavior no longer matching the code (e.g. claiming a modal is used when the flow now uses inline collection)
+- Help embed text that references removed buttons, removed flows, or old UX patterns
+- Test assertions that check for removed modal class names or send_modal calls
+- Comments referencing "Task #N" that describe work already completed — these aren't bugs but flag them separately as cleanup opportunities
+
+---
+
+## Output Format
+
+For each bug found, output:
+
+```
+BUG #N [SEVERITY]
+File: path/to/file.py (lines X-Y)
+Category: N — Category Name
+Description: One sentence explaining the bug.
+Evidence: The specific code snippet or reference that proves it.
+```
+
+After all bugs, output a summary table grouped by category with counts and severity breakdown.
