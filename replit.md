@@ -72,7 +72,7 @@ Removed dead constants: `TICKET_INDEX_FILE`, `WHOLESALER_RESTOCK_SCHEDULE`, `FIX
 
 ## Key Dependencies
 
-- discord.py, aiohttp, Flask, openpyxl, aiofiles, python-dotenv, rapidfuzz, asyncpg
+- discord.py, aiohttp, Flask, openpyxl, aiofiles, python-dotenv, rapidfuzz, asyncpg, google-api-python-client, google-auth
 
 ## Wholesaler System Flow
 
@@ -150,6 +150,36 @@ Old commands (`!cw_buy`, `!cw_sell`, `!guns_wh_buy`, `!guns_wh_sell`) remain fun
 - `GUN_LOG_CHANNEL_ID` — gun shop events
 - `GEAR_MISC_LOG_CHANNEL_ID` — player inventory trades/gives
 - `NIGHTCITYBOT_LOG_CHANNEL_ID` — system alerts (pending transfers, admin actions)
+
+## Google Drive Database Backups (Task #15)
+
+Automated and on-demand full database backups to Google Drive for disaster recovery.
+
+### Modules
+- `NightCityBot/utils/db_backup.py` — read-only database export (`export_all_tables()`) and restore (`import_all_tables()`). Export uses SELECT-only queries against all tables; import is the only write path.
+- `NightCityBot/utils/gdrive_backup.py` — Google Drive API wrapper using service account credentials (upload, download, list, delete, rotate).
+- `NightCityBot/cogs/backup.py` — Discord cog with `!backup_now`, `!backup_status`, `!restore_db` commands (all Fixer-only) and automated daily backup via `discord.ext.tasks`.
+
+### Commands
+| Command | Description |
+|---|---|
+| `!backup_now` | Immediate full backup to Google Drive |
+| `!backup_status` | Show last backup time, size, Drive link |
+| `!restore_db` | List available backups |
+| `!restore_db <id>` | Restore from backup (requires CONFIRM) |
+
+### Backup Contents
+Each backup bundles: all database tables (compressed JSON), plus local files from `backups/`, `sheet_backups/`, `rent_audits/`.
+
+### Environment Secrets Required
+- `GDRIVE_SERVICE_ACCOUNT_JSON` — full service account credentials JSON
+- `GDRIVE_BACKUP_FOLDER_ID` — Google Drive folder ID
+- Optional: `BACKUP_RETENTION_DAYS` (default 30), `BACKUP_HOUR` (default 4), `BACKUP_MINUTE` (default 0)
+
+Setup guide: `BACKUP_SETUP.md`
+
+### Dependencies
+- `google-api-python-client`, `google-auth` (added to `requirements.txt`)
 
 ## Gun Restriction System
 
