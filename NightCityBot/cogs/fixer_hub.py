@@ -612,7 +612,7 @@ class PlayerReassignModal(discord.ui.Modal, title="Reassign Item"):
         old_owner_id = item.get("owner_id", "")
         old_char = item.get("character_name", "")
         if str(new_owner.id) == old_owner_id:
-            ok = await pi_update_character(item_id, new_char)
+            ok = await pi_update_character(item_id, new_char, expected_owner_id=old_owner_id)
         else:
             ok = await pi_update_owner(item_id, str(new_owner.id), new_char, old_owner_id)
         if not ok:

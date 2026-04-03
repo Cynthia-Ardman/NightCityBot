@@ -472,12 +472,14 @@ class GunSellDetailsModal(discord.ui.Modal, title="Sell — Finalize Details"):
                 approve_view = InlineApproveView(
                     self.cog, self.ctx, guns_cog, store_id, customer
                 )
-                await interaction.followup.send(
+                approve_msg = await interaction.followup.send(
                     f"**{gun_name}** is **{restriction}**. {customer.display_name} is not on your approved list.\n"
                     "Would you like to approve them and proceed?",
                     view=approve_view,
                     ephemeral=True,
+                    wait=True,
                 )
+                approve_view.message = approve_msg
                 await approve_view.wait()
                 if not approve_view.approved:
                     return
@@ -765,6 +767,14 @@ class InlineApproveView(discord.ui.View):
         self.store_id = store_id
         self.customer = customer
         self.approved = False
+        self.message: Optional[discord.Message] = None
+
+    async def on_timeout(self) -> None:
+        if self.message:
+            try:
+                await self.message.edit(content="⏰ Approval timed out — sale cancelled.", view=None)
+            except discord.HTTPException:
+                pass
 
     @discord.ui.button(label="Approve & Sell", style=discord.ButtonStyle.success, emoji="✅")
     async def approve_and_sell(self, interaction: discord.Interaction, button: discord.ui.Button):

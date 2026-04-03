@@ -53,15 +53,24 @@ class DMHandler(commands.Cog):
             if user_id in self.dm_threads:
                 try:
                     thread = await self.bot.fetch_channel(self.dm_threads[user_id])
+                    if isinstance(thread, discord.Thread) and thread.archived:
+                        await thread.edit(archived=False)
                     return thread
                 except discord.NotFound:
                     pass  # Thread was deleted, create new one
 
             # Look for an existing thread if it's not in the cache
             expected_name = f"{user.name}-{user.id}".replace(" ", "-").lower()[:100]
+            if log_channel is None:
+                raise RuntimeError(
+                    f"DM inbox channel {getattr(config, 'DM_INBOX_CHANNEL_ID', '?')} "
+                    "not found — check DM_INBOX_CHANNEL_ID in config."
+                )
             if isinstance(log_channel, (discord.TextChannel, discord.ForumChannel)):
                 for t in log_channel.threads:
                     if t.name == expected_name:
+                        if t.archived:
+                            await t.edit(archived=False)
                         self.dm_threads[user_id] = t.id
                         await dm_thread_set(user_id, t.id)
                         return t
@@ -209,15 +218,28 @@ class DMHandler(commands.Cog):
             else:
                 user_files.append(await a.to_file())
                 log_files.append(await a.to_file())
+        outgoing = message.content or ""
         try:
-            await target_user.send(content=message.content or None, files=user_files)
+            if len(outgoing) <= 2000:
+                await target_user.send(content=outgoing or None, files=user_files)
+            else:
+                for i in range(0, len(outgoing), 2000):
+                    chunk = outgoing[i:i + 2000]
+                    f = user_files if i == 0 else []
+                    await target_user.send(content=chunk, files=f)
         except discord.HTTPException:
             await message.channel.send("⚠️ Failed to forward message — attachment too large.")
-        await message.channel.send(
+        log_header = (
             f"📤 **Sent to {target_user.display_name} ({target_user.id}) "
-            f"by {message.author.display_name} ({message.author.id}):**\n{message.content}",
-            files=log_files
+            f"by {message.author.display_name} ({message.author.id}):**\n"
         )
+        log_full = f"{log_header}{outgoing}"
+        if len(log_full) <= 2000:
+            await message.channel.send(log_full, files=log_files)
+        else:
+            await message.channel.send(log_full[:2000], files=log_files)
+            for i in range(2000, len(log_full), 2000):
+                await message.channel.send(log_full[i:i + 2000])
         try:
             await message.delete()
             admin = self.bot.get_cog('Admin')
@@ -315,13 +337,21 @@ class DMHandler(commands.Cog):
         dm_content = "\n\n".join(dm_content_parts) if dm_content_parts else "(No text)"
 
         try:
-            await user.send(content=dm_content)
+            if len(dm_content) <= 2000:
+                await user.send(content=dm_content)
+            else:
+                for i in range(0, len(dm_content), 2000):
+                    await user.send(content=dm_content[i:i + 2000])
 
             thread = await self.get_or_create_dm_thread(user)
             if isinstance(thread, (discord.Thread, discord.TextChannel)):
-                await thread.send(
-                    f"📤 **Sent to {user.display_name} ({user.id}) by {ctx.author.display_name} ({ctx.author.id}):**\n{dm_content}"
-                )
+                log_msg = f"📤 **Sent to {user.display_name} ({user.id}) by {ctx.author.display_name} ({ctx.author.id}):**\n{dm_content}"
+                if len(log_msg) <= 2000:
+                    await thread.send(log_msg)
+                else:
+                    await thread.send(log_msg[:2000])
+                    for i in range(2000, len(log_msg), 2000):
+                        await thread.send(log_msg[i:i + 2000])
             else:
                 logger.error("Cannot log DM — thread type is %s", type(thread))
 
