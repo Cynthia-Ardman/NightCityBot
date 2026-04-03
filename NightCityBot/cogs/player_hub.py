@@ -173,11 +173,53 @@ class PlayerHubView(discord.ui.View):
 
     @discord.ui.button(label="Trade Item", style=discord.ButtonStyle.success, emoji="💱", row=0)
     async def trade_item(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(TradeModal(self.cog))
+        await interaction.response.defer(ephemeral=True)
+        if not self.cog._inv_system_enabled():
+            await interaction.followup.send("⚠️ The player inventory system is currently offline.", ephemeral=True)
+            return
+        items = await pi_get_by_owner(str(interaction.user.id))
+        if not items:
+            await interaction.followup.send("📦 Your inventory is empty — nothing to trade.", ephemeral=True)
+            return
+        inv_cog = self.cog.bot.cogs.get("PlayerInventory")
+        if not inv_cog:
+            await interaction.followup.send("Inventory system unavailable.", ephemeral=True)
+            return
+        _, all_groups = inv_cog._build_display(items)
+        if not all_groups:
+            await interaction.followup.send("📦 Your inventory is empty — nothing to trade.", ephemeral=True)
+            return
+        view = TradeSetupView(self.cog, self.ctx, all_groups)
+        await interaction.followup.send(
+            "**Step 1** — Select the buyer and the item to trade:",
+            view=view,
+            ephemeral=True,
+        )
 
     @discord.ui.button(label="Give Item", style=discord.ButtonStyle.secondary, emoji="🎁", row=0)
     async def give_item(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(GiveModal(self.cog))
+        await interaction.response.defer(ephemeral=True)
+        if not self.cog._inv_system_enabled():
+            await interaction.followup.send("⚠️ The player inventory system is currently offline.", ephemeral=True)
+            return
+        items = await pi_get_by_owner(str(interaction.user.id))
+        if not items:
+            await interaction.followup.send("📦 Your inventory is empty — nothing to give.", ephemeral=True)
+            return
+        inv_cog = self.cog.bot.cogs.get("PlayerInventory")
+        if not inv_cog:
+            await interaction.followup.send("Inventory system unavailable.", ephemeral=True)
+            return
+        _, all_groups = inv_cog._build_display(items)
+        if not all_groups:
+            await interaction.followup.send("📦 Your inventory is empty — nothing to give.", ephemeral=True)
+            return
+        view = GiveSetupView(self.cog, self.ctx, all_groups)
+        await interaction.followup.send(
+            "**Step 1** — Select the recipient and the item to give:",
+            view=view,
+            ephemeral=True,
+        )
 
 
 class TradeConfirmView(discord.ui.View):
@@ -198,15 +240,102 @@ class TradeConfirmView(discord.ui.View):
         self.stop()
 
 
-class TradeModal(discord.ui.Modal, title="Trade Item"):
-    buyer_input = discord.ui.TextInput(label="Buyer (@mention or ID)")
-    row_input = discord.ui.TextInput(label="Row # (from View Inventory)")
-    price_input = discord.ui.TextInput(label="Price ($)", placeholder="0 for self-trade between characters")
-    buyer_char_input = discord.ui.TextInput(label="Buyer's Character Name")
+class TradeSetupView(discord.ui.View):
+    def __init__(self, cog: PlayerHubCog, ctx: commands.Context, all_groups: list):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.all_groups = all_groups
+        self.selected_buyer: Optional[discord.Member] = None
+        self.selected_group_idx: Optional[int] = None
 
-    def __init__(self, cog: PlayerHubCog):
+        options = []
+        for i, g in enumerate(all_groups[:25]):
+            item = g["items"][0]
+            item_type = item.get("item_type", "misc")
+            char = item.get("character_name", "")
+            count = g.get("count", 1)
+            count_str = f" ×{count}" if count > 1 else ""
+            char_str = f" ({char})" if char else ""
+            label = f"{g['name']}{count_str} [{item_type}]{char_str}"
+            options.append(discord.SelectOption(label=label[:100], value=str(i)))
+
+        item_select = discord.ui.Select(
+            placeholder="Choose an item to trade…",
+            options=options,
+            row=1,
+        )
+        item_select.callback = self._on_item_select
+        self.add_item(item_select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose the buyer…", row=0)
+    async def buyer_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        user = select.values[0] if select.values else None
+        if user is None:
+            await interaction.response.send_message("Please select a server member.", ephemeral=True)
+            return
+        if isinstance(user, discord.Member):
+            self.selected_buyer = user
+        else:
+            guild = self.ctx.guild
+            if guild:
+                member = guild.get_member(user.id)
+                if member:
+                    self.selected_buyer = member
+                else:
+                    await interaction.response.send_message(
+                        "That user doesn't appear to be in this server.", ephemeral=True
+                    )
+                    return
+            else:
+                await interaction.response.send_message("Could not resolve server member.", ephemeral=True)
+                return
+        await interaction.response.send_message(
+            f"Buyer: **{self.selected_buyer.display_name}** ✓", ephemeral=True
+        )
+
+    async def _on_item_select(self, interaction: discord.Interaction):
+        self.selected_group_idx = int(interaction.data["values"][0])
+        g = self.all_groups[self.selected_group_idx]
+        await interaction.response.send_message(
+            f"Item: **{g['name']}** ✓", ephemeral=True
+        )
+
+    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=2)
+    async def continue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.selected_buyer is None:
+            await interaction.response.send_message("Please select a buyer first.", ephemeral=True)
+            return
+        if self.selected_group_idx is None:
+            await interaction.response.send_message("Please select an item first.", ephemeral=True)
+            return
+        group = self.all_groups[self.selected_group_idx]
+        modal = TradeDetailsModal(self.cog, self.selected_buyer, group)
+        await interaction.response.send_modal(modal)
+        self.stop()
+
+
+class TradeDetailsModal(discord.ui.Modal, title="Trade — Finalize Details"):
+    price_input = discord.ui.TextInput(
+        label="Price ($)",
+        placeholder="0 for self-trade between characters",
+    )
+    buyer_char_input = discord.ui.TextInput(
+        label="Buyer's Character Name",
+        placeholder="Character receiving the item",
+    )
+
+    def __init__(self, cog: PlayerHubCog, buyer: discord.Member, group: dict):
         super().__init__()
         self.cog = cog
+        self.buyer = buyer
+        self.group = group
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -218,15 +347,7 @@ class TradeModal(discord.ui.Modal, title="Trade Item"):
             await interaction.followup.send("⚠️ The player inventory system is currently offline.", ephemeral=True)
             return
 
-        buyer = await _resolve_member(guild, self.buyer_input.value)
-        if not buyer:
-            await interaction.followup.send("❌ Could not find that buyer.", ephemeral=True)
-            return
-        try:
-            row = int(self.row_input.value)
-        except ValueError:
-            await interaction.followup.send("❌ Row must be a number.", ephemeral=True)
-            return
+        buyer = self.buyer
         try:
             price = int(self.price_input.value.replace(",", "").replace("$", "").strip())
         except ValueError:
@@ -247,22 +368,7 @@ class TradeModal(discord.ui.Modal, title="Trade Item"):
             await interaction.followup.send("❌ Buyer character name is required.", ephemeral=True)
             return
 
-        items = await pi_get_by_owner(str(interaction.user.id))
-        inv_cog = self.cog.bot.cogs.get("PlayerInventory")
-        if not inv_cog:
-            await interaction.followup.send("Inventory system unavailable.", ephemeral=True)
-            return
-        _, all_groups = inv_cog._build_display(items)
-        if row < 1 or row > len(all_groups):
-            await interaction.followup.send(
-                f"❌ Invalid row **{row}**. You have {len(all_groups)} item group(s). "
-                "Use View Inventory to see the list.",
-                ephemeral=True,
-            )
-            return
-
-        group = all_groups[row - 1]
-        selected_item = group["items"][0]
+        selected_item = self.group["items"][0]
         item_name = selected_item["name"]
         item_id = selected_item["item_id"]
         item_type = selected_item.get("item_type", "misc")
@@ -271,7 +377,7 @@ class TradeModal(discord.ui.Modal, title="Trade Item"):
         live_item = await pi_get_item(item_id)
         if live_item is None or str(live_item.get("owner_id")) != str(interaction.user.id):
             await interaction.followup.send(
-                f"❌ Row {row} (`{item_name}`) is no longer in your inventory. "
+                f"❌ **{item_name}** is no longer in your inventory. "
                 "Please check View Inventory and try again.",
                 ephemeral=True,
             )
@@ -285,6 +391,8 @@ class TradeModal(discord.ui.Modal, title="Trade Item"):
                 ephemeral=True,
             )
             return
+
+        inv_cog = self.cog.bot.cogs.get("PlayerInventory")
 
         if buyer.id != interaction.user.id:
             price_str = f"**${price:,}**" if price > 0 else "**free**"
@@ -304,7 +412,7 @@ class TradeModal(discord.ui.Modal, title="Trade Item"):
                 return
 
             await interaction.followup.send(
-                f"📩 Trade confirmation sent to {buyer.display_name} via DM. Waiting for response...",
+                f"📩 Confirmation sent to {buyer.display_name} via DM. Waiting…",
                 ephemeral=True,
             )
             await confirm_view.wait()
@@ -328,7 +436,7 @@ class TradeModal(discord.ui.Modal, title="Trade Item"):
         b_bank_deduct = 0
 
         if price > 0 and buyer.id != interaction.user.id:
-            ub = getattr(inv_cog, "unbelievaboat", None)
+            ub = getattr(inv_cog, "unbelievaboat", None) if inv_cog else None
             if not ub:
                 await interaction.followup.send("❌ Economy system unavailable.", ephemeral=True)
                 return
@@ -400,7 +508,7 @@ class TradeModal(discord.ui.Modal, title="Trade Item"):
         )
         if not ok_transfer:
             if price > 0 and buyer.id != interaction.user.id:
-                ub = getattr(inv_cog, "unbelievaboat", None)
+                ub = getattr(inv_cog, "unbelievaboat", None) if inv_cog else None
                 pt_id = str(uuid.uuid4())
                 await pt_create({
                     "transfer_id": pt_id,
@@ -490,15 +598,103 @@ class TradeModal(discord.ui.Modal, title="Trade Item"):
         )
 
 
-class GiveModal(discord.ui.Modal, title="Give Item"):
-    target_input = discord.ui.TextInput(label="Recipient (@mention or ID)")
-    row_input = discord.ui.TextInput(label="Row # (from View Inventory)")
-    sender_char_input = discord.ui.TextInput(label="Your Character Name")
-    receiver_char_input = discord.ui.TextInput(label="Recipient's Character Name", required=False)
+class GiveSetupView(discord.ui.View):
+    def __init__(self, cog: PlayerHubCog, ctx: commands.Context, all_groups: list):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.all_groups = all_groups
+        self.selected_recipient: Optional[discord.Member] = None
+        self.selected_group_idx: Optional[int] = None
 
-    def __init__(self, cog: PlayerHubCog):
+        options = []
+        for i, g in enumerate(all_groups[:25]):
+            item = g["items"][0]
+            item_type = item.get("item_type", "misc")
+            char = item.get("character_name", "")
+            count = g.get("count", 1)
+            count_str = f" ×{count}" if count > 1 else ""
+            char_str = f" ({char})" if char else ""
+            label = f"{g['name']}{count_str} [{item_type}]{char_str}"
+            options.append(discord.SelectOption(label=label[:100], value=str(i)))
+
+        item_select = discord.ui.Select(
+            placeholder="Choose an item to give…",
+            options=options,
+            row=1,
+        )
+        item_select.callback = self._on_item_select
+        self.add_item(item_select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose the recipient…", row=0)
+    async def recipient_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        user = select.values[0] if select.values else None
+        if user is None:
+            await interaction.response.send_message("Please select a server member.", ephemeral=True)
+            return
+        if isinstance(user, discord.Member):
+            self.selected_recipient = user
+        else:
+            guild = self.ctx.guild
+            if guild:
+                member = guild.get_member(user.id)
+                if member:
+                    self.selected_recipient = member
+                else:
+                    await interaction.response.send_message(
+                        "That user doesn't appear to be in this server.", ephemeral=True
+                    )
+                    return
+            else:
+                await interaction.response.send_message("Could not resolve server member.", ephemeral=True)
+                return
+        await interaction.response.send_message(
+            f"Recipient: **{self.selected_recipient.display_name}** ✓", ephemeral=True
+        )
+
+    async def _on_item_select(self, interaction: discord.Interaction):
+        self.selected_group_idx = int(interaction.data["values"][0])
+        g = self.all_groups[self.selected_group_idx]
+        await interaction.response.send_message(
+            f"Item: **{g['name']}** ✓", ephemeral=True
+        )
+
+    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=2)
+    async def continue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.selected_recipient is None:
+            await interaction.response.send_message("Please select a recipient first.", ephemeral=True)
+            return
+        if self.selected_group_idx is None:
+            await interaction.response.send_message("Please select an item first.", ephemeral=True)
+            return
+        group = self.all_groups[self.selected_group_idx]
+        modal = GiveDetailsModal(self.cog, self.selected_recipient, group)
+        await interaction.response.send_modal(modal)
+        self.stop()
+
+
+class GiveDetailsModal(discord.ui.Modal, title="Give — Finalize Details"):
+    sender_char_input = discord.ui.TextInput(
+        label="Your Character Name",
+        placeholder="Character giving the item",
+    )
+    receiver_char_input = discord.ui.TextInput(
+        label="Recipient's Character Name",
+        placeholder="Leave blank if giving to a Ripperdoc",
+        required=False,
+    )
+
+    def __init__(self, cog: PlayerHubCog, recipient: discord.Member, group: dict):
         super().__init__()
         self.cog = cog
+        self.recipient = recipient
+        self.group = group
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -510,45 +706,22 @@ class GiveModal(discord.ui.Modal, title="Give Item"):
             await interaction.followup.send("⚠️ The player inventory system is currently offline.", ephemeral=True)
             return
 
-        target = await _resolve_member(guild, self.target_input.value)
-        if not target:
-            await interaction.followup.send("❌ Could not find that recipient.", ephemeral=True)
-            return
-        try:
-            row = int(self.row_input.value)
-        except ValueError:
-            await interaction.followup.send("❌ Row must be a number.", ephemeral=True)
-            return
-
+        target = self.recipient
         sender_char = self.sender_char_input.value.strip().strip('"').strip("'")
         if not sender_char:
             await interaction.followup.send("❌ Your character name is required.", ephemeral=True)
             return
 
-        items = await pi_get_by_owner(str(interaction.user.id))
-        inv_cog = self.cog.bot.cogs.get("PlayerInventory")
-        if not inv_cog:
-            await interaction.followup.send("Inventory system unavailable.", ephemeral=True)
-            return
-        _, all_groups = inv_cog._build_display(items)
-        if row < 1 or row > len(all_groups):
-            await interaction.followup.send(
-                f"❌ Invalid row **{row}**. You have {len(all_groups)} item group(s). "
-                "Use View Inventory to see the list.",
-                ephemeral=True,
-            )
-            return
-
-        group = all_groups[row - 1]
-        selected_item = group["items"][0]
+        selected_item = self.group["items"][0]
         item_name = selected_item["name"]
         item_id = selected_item["item_id"]
         item_type = selected_item.get("item_type", "misc")
         item_char = selected_item.get("character_name", "")
+
         if item_char and item_char.lower() != sender_char.lower():
             await interaction.followup.send(
-                f"❌ Row {row} (`{item_name}`) belongs to character **{item_char}**, "
-                f"not **{sender_char}**. Check your row number.",
+                f"❌ **{item_name}** belongs to character **{item_char}**, "
+                f"not **{sender_char}**. Check your character name.",
                 ephemeral=True,
             )
             return

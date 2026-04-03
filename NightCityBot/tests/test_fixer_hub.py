@@ -13,15 +13,18 @@ from NightCityBot.cogs.fixer_hub import (
     PlayerSubView,
     StoreSubView,
     WholesalerSubView,
-    PlayerInvModal,
-    PlayerAddItemModal,
+    PlayerInvPickerView,
+    PlayerAddItemPickerView,
+    PlayerAddItemDetailsModal,
     PlayerRemoveItemModal,
     PlayerReassignModal,
     ItemHistoryModal,
-    LOAModal,
-    StoreInvModal,
-    StoreAddModal,
-    StoreRemoveModal,
+    LOAPickerView,
+    StoreInvPickerView,
+    StoreAddPickerView,
+    StoreAddDetailsModal,
+    StoreRemovePickerView,
+    StoreRemoveDetailsModal,
     WHAddGunModal,
     WHAddCWModal,
     WHRemoveLotModal,
@@ -94,6 +97,13 @@ def _find_button(view, label):
         if getattr(child, "label", None) == label:
             return child
     raise ValueError(f"No button with label '{label}' in view")
+
+
+def _find_user_select(view):
+    for child in view.children:
+        if isinstance(child, discord.ui.UserSelect):
+            return child
+    raise ValueError("No UserSelect in view")
 
 
 def _make_cog():
@@ -185,7 +195,7 @@ class TestTopViewNavigation:
 
 
 class TestPlayerSubViewButtons:
-    def test_view_inventory_opens_modal(self):
+    def test_view_inventory_sends_picker(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
@@ -194,12 +204,12 @@ class TestPlayerSubViewButtons:
             inter = _make_interaction()
             btn = _find_button(view, "View Inventory")
             await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, PlayerInvModal)
+            inter.followup.send.assert_called_once()
+            kwargs = inter.followup.send.call_args.kwargs
+            assert isinstance(kwargs["view"], PlayerInvPickerView)
         _run(_test())
 
-    def test_add_item_opens_modal(self):
+    def test_add_item_sends_picker(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
@@ -208,8 +218,8 @@ class TestPlayerSubViewButtons:
             inter = _make_interaction()
             btn = _find_button(view, "Add Item")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, PlayerAddItemModal)
+            kwargs = inter.followup.send.call_args.kwargs
+            assert isinstance(kwargs["view"], PlayerAddItemPickerView)
         _run(_test())
 
     def test_remove_item_opens_modal(self):
@@ -251,7 +261,7 @@ class TestPlayerSubViewButtons:
             assert isinstance(modal, ItemHistoryModal)
         _run(_test())
 
-    def test_start_loa_opens_modal(self):
+    def test_start_loa_sends_picker(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
@@ -260,12 +270,13 @@ class TestPlayerSubViewButtons:
             inter = _make_interaction()
             btn = _find_button(view, "Start LOA")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, LOAModal)
-            assert modal.action == "start"
+            kwargs = inter.followup.send.call_args.kwargs
+            picker = kwargs["view"]
+            assert isinstance(picker, LOAPickerView)
+            assert picker.action == "start"
         _run(_test())
 
-    def test_end_loa_opens_modal(self):
+    def test_end_loa_sends_picker(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
@@ -274,9 +285,10 @@ class TestPlayerSubViewButtons:
             inter = _make_interaction()
             btn = _find_button(view, "End LOA")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, LOAModal)
-            assert modal.action == "end"
+            kwargs = inter.followup.send.call_args.kwargs
+            picker = kwargs["view"]
+            assert isinstance(picker, LOAPickerView)
+            assert picker.action == "end"
         _run(_test())
 
     def test_back_button(self):
@@ -295,7 +307,7 @@ class TestPlayerSubViewButtons:
 
 
 class TestStoreSubViewButtons:
-    def test_view_gun_store_opens_modal(self):
+    def test_view_gun_store_sends_picker(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
@@ -304,12 +316,13 @@ class TestStoreSubViewButtons:
             inter = _make_interaction()
             btn = _find_button(view, "View Gun Store")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, StoreInvModal)
-            assert modal.store_type == "gun"
+            kwargs = inter.followup.send.call_args.kwargs
+            picker = kwargs["view"]
+            assert isinstance(picker, StoreInvPickerView)
+            assert picker.store_type == "gun"
         _run(_test())
 
-    def test_view_cw_store_opens_modal(self):
+    def test_view_cw_store_sends_picker(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
@@ -318,12 +331,13 @@ class TestStoreSubViewButtons:
             inter = _make_interaction()
             btn = _find_button(view, "View CW Store")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, StoreInvModal)
-            assert modal.store_type == "cw"
+            kwargs = inter.followup.send.call_args.kwargs
+            picker = kwargs["view"]
+            assert isinstance(picker, StoreInvPickerView)
+            assert picker.store_type == "cw"
         _run(_test())
 
-    def test_add_to_store_opens_modal(self):
+    def test_add_to_store_sends_picker(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
@@ -332,11 +346,11 @@ class TestStoreSubViewButtons:
             inter = _make_interaction()
             btn = _find_button(view, "Add to Gun Store")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, StoreAddModal)
+            kwargs = inter.followup.send.call_args.kwargs
+            assert isinstance(kwargs["view"], StoreAddPickerView)
         _run(_test())
 
-    def test_remove_from_store_opens_modal(self):
+    def test_remove_from_store_sends_picker(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
@@ -345,8 +359,8 @@ class TestStoreSubViewButtons:
             inter = _make_interaction()
             btn = _find_button(view, "Remove from Gun Store")
             await btn.callback(inter)
-            modal = inter.response.send_modal.call_args[0][0]
-            assert isinstance(modal, StoreRemoveModal)
+            kwargs = inter.followup.send.call_args.kwargs
+            assert isinstance(kwargs["view"], StoreRemovePickerView)
         _run(_test())
 
     def test_back_button(self):
@@ -477,49 +491,72 @@ class TestWholesalerSubViewButtons:
         _run(_test())
 
 
-class TestPlayerModals:
+class TestPlayerPickerViews:
     @patch("NightCityBot.cogs.fixer_hub.pi_get_by_owner", new_callable=AsyncMock)
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_view_inventory_success(self, mock_resolve, mock_get):
+    def test_inv_picker_success(self, mock_get):
         async def _test():
             cog = _make_cog()
+            ctx = _ctx()
             member = _make_member(222, "TestPlayer")
-            mock_resolve.return_value = member
             mock_get.return_value = [
                 {"item_type": "gun", "name": "Pistol", "character_name": "V", "item_id": "abc12345"},
             ]
-            modal = PlayerInvModal(cog)
-            modal.player_input = MagicMock(value="222")
+            view = PlayerInvPickerView(cog, ctx)
+            select = _find_user_select(view)
+            select._values = [member]
             inter = _make_interaction()
-            await modal.on_submit(inter)
-            inter.followup.send.assert_called_once()
+            await select.callback(inter)
             embed = inter.followup.send.call_args.kwargs["embed"]
             assert "Pistol" in embed.description
         _run(_test())
 
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_view_inventory_not_found(self, mock_resolve):
+    @patch("NightCityBot.cogs.fixer_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=[])
+    def test_inv_picker_empty(self, mock_get):
         async def _test():
             cog = _make_cog()
-            mock_resolve.return_value = None
-            modal = PlayerInvModal(cog)
-            modal.player_input = MagicMock(value="999")
+            ctx = _ctx()
+            member = _make_member(222, "TestPlayer")
+            view = PlayerInvPickerView(cog, ctx)
+            select = _find_user_select(view)
+            select._values = [member]
             inter = _make_interaction()
-            await modal.on_submit(inter)
-            assert "Could not find" in inter.followup.send.call_args[0][0]
+            await select.callback(inter)
+            assert "no items" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_add_item_picker_continue_no_player(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = PlayerAddItemPickerView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "Continue →")
+            await btn.callback(inter)
+            assert "select a player" in inter.response.send_message.call_args[0][0].lower()
+        _run(_test())
+
+    def test_add_item_picker_continue_opens_modal(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = PlayerAddItemPickerView(cog, ctx)
+            view.selected_player = _make_member(222, "TestPlayer")
+            inter = _make_interaction()
+            btn = _find_button(view, "Continue →")
+            await btn.callback(inter)
+            modal = inter.response.send_modal.call_args[0][0]
+            assert isinstance(modal, PlayerAddItemDetailsModal)
+            assert modal.player.id == 222
         _run(_test())
 
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
     @patch("NightCityBot.cogs.fixer_hub.ih_record_event", new_callable=AsyncMock)
     @patch("NightCityBot.cogs.fixer_hub.pi_add_item", new_callable=AsyncMock, return_value=True)
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_add_item_success(self, mock_resolve, mock_add, mock_record, mock_audit):
+    def test_add_item_details_success(self, mock_add, mock_record, mock_audit):
         async def _test():
             cog = _make_cog()
             member = _make_member(222, "TestPlayer")
-            mock_resolve.return_value = member
-            modal = PlayerAddItemModal(cog)
-            modal.player_input = MagicMock(value="222")
+            modal = PlayerAddItemDetailsModal(cog, member)
             modal.name_input = MagicMock(value="Katana")
             modal.character_input = MagicMock(value="V")
             modal.item_type_input = MagicMock(value="gun")
@@ -530,6 +567,8 @@ class TestPlayerModals:
             assert "Katana" in inter.followup.send.call_args[0][0]
         _run(_test())
 
+
+class TestPlayerModals:
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
     @patch("NightCityBot.cogs.fixer_hub.ih_record_event", new_callable=AsyncMock)
     @patch("NightCityBot.cogs.fixer_hub.pi_delete_item", new_callable=AsyncMock, return_value=True)
@@ -615,30 +654,30 @@ class TestPlayerModals:
         _run(_test())
 
 
-class TestLOAModal:
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_start_loa(self, mock_resolve):
+class TestLOAPickerView:
+    def test_start_loa(self):
         async def _test():
             cog = _make_cog()
+            ctx = _ctx()
             loa_role = MagicMock()
             loa_role.id = 9999
             loa_cog = MagicMock()
             loa_cog.get_loa_role = MagicMock(return_value=loa_role)
             cog.bot.get_cog = MagicMock(return_value=loa_cog)
             member = _make_member(222, "TestPlayer", roles=[])
-            mock_resolve.return_value = member
-            modal = LOAModal(cog, action="start")
-            modal.player_input = MagicMock(value="222")
+            view = LOAPickerView(cog, ctx, action="start")
+            select = _find_user_select(view)
+            select._values = [member]
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await select.callback(inter)
             member.add_roles.assert_called_once()
             assert "now on LOA" in inter.followup.send.call_args[0][0]
         _run(_test())
 
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_start_loa_already(self, mock_resolve):
+    def test_start_loa_already(self):
         async def _test():
             cog = _make_cog()
+            ctx = _ctx()
             loa_role = MagicMock()
             loa_role.id = 9999
             loa_cog = MagicMock()
@@ -647,19 +686,19 @@ class TestLOAModal:
             role_with_id = MagicMock()
             role_with_id.id = 9999
             member = _make_member(222, "TestPlayer", roles=[role_with_id])
-            mock_resolve.return_value = member
-            modal = LOAModal(cog, action="start")
-            modal.player_input = MagicMock(value="222")
+            view = LOAPickerView(cog, ctx, action="start")
+            select = _find_user_select(view)
+            select._values = [member]
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await select.callback(inter)
             member.add_roles.assert_not_called()
             assert "already on LOA" in inter.followup.send.call_args[0][0]
         _run(_test())
 
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_end_loa(self, mock_resolve):
+    def test_end_loa(self):
         async def _test():
             cog = _make_cog()
+            ctx = _ctx()
             loa_role = MagicMock()
             loa_role.id = 9999
             loa_cog = MagicMock()
@@ -668,59 +707,58 @@ class TestLOAModal:
             role_with_id = MagicMock()
             role_with_id.id = 9999
             member = _make_member(222, "TestPlayer", roles=[role_with_id])
-            mock_resolve.return_value = member
-            modal = LOAModal(cog, action="end")
-            modal.player_input = MagicMock(value="222")
+            view = LOAPickerView(cog, ctx, action="end")
+            select = _find_user_select(view)
+            select._values = [member]
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await select.callback(inter)
             member.remove_roles.assert_called_once()
             assert "LOA has ended" in inter.followup.send.call_args[0][0]
         _run(_test())
 
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_end_loa_not_on(self, mock_resolve):
+    def test_end_loa_not_on(self):
         async def _test():
             cog = _make_cog()
+            ctx = _ctx()
             loa_role = MagicMock()
             loa_role.id = 9999
             loa_cog = MagicMock()
             loa_cog.get_loa_role = MagicMock(return_value=loa_role)
             cog.bot.get_cog = MagicMock(return_value=loa_cog)
             member = _make_member(222, "TestPlayer", roles=[])
-            mock_resolve.return_value = member
-            modal = LOAModal(cog, action="end")
-            modal.player_input = MagicMock(value="222")
+            view = LOAPickerView(cog, ctx, action="end")
+            select = _find_user_select(view)
+            select._values = [member]
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await select.callback(inter)
             member.remove_roles.assert_not_called()
             assert "not currently on LOA" in inter.followup.send.call_args[0][0]
         _run(_test())
 
 
-class TestStoreModals:
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_view_gun_store_empty(self, mock_resolve):
+class TestStorePickerViews:
+    def test_view_gun_store_empty(self):
         async def _test():
             cog = _make_cog()
+            ctx = _ctx()
             owner = _make_member(222, "ShopOwner")
-            mock_resolve.return_value = owner
             guns_cog = MagicMock()
             guns_cog._load_state = AsyncMock(return_value={"stores": {}})
             guns_cog._store_id = MagicMock(return_value="999:222")
             cog.bot.cogs["GunsShopCog"] = guns_cog
-            modal = StoreInvModal(cog, store_type="gun")
-            modal.owner_input = MagicMock(value="222")
+            view = StoreInvPickerView(cog, ctx, store_type="gun")
+            select = _find_user_select(view)
+            select._values = [owner]
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await select.callback(inter)
             assert "empty" in inter.followup.send.call_args[0][0].lower()
         _run(_test())
 
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_view_gun_store_with_stock(self, mock_resolve):
+    def test_view_gun_store_with_stock(self):
         async def _test():
             cog = _make_cog()
+            ctx = _ctx()
             owner = _make_member(222, "ShopOwner")
-            mock_resolve.return_value = owner
             guns_cog = MagicMock()
             guns_cog._load_state = AsyncMock(return_value={
                 "stores": {"999:222": {"lots": [
@@ -729,20 +767,20 @@ class TestStoreModals:
             })
             guns_cog._store_id = MagicMock(return_value="999:222")
             cog.bot.cogs["GunsShopCog"] = guns_cog
-            modal = StoreInvModal(cog, store_type="gun")
-            modal.owner_input = MagicMock(value="222")
+            view = StoreInvPickerView(cog, ctx, store_type="gun")
+            select = _find_user_select(view)
+            select._values = [owner]
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await select.callback(inter)
             embed = inter.followup.send.call_args.kwargs["embed"]
             assert "Rifle" in embed.description
         _run(_test())
 
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_view_cw_store(self, mock_resolve):
+    def test_view_cw_store(self):
         async def _test():
             cog = _make_cog()
+            ctx = _ctx()
             owner = _make_member(222, "Doc")
-            mock_resolve.return_value = owner
             cw_cog = MagicMock()
             cw_cog._load_inventory = AsyncMock(return_value=[
                 {"name": "Sandevistan", "price_paid": 5000, "purchased_at": "2025-01-01"},
@@ -751,21 +789,44 @@ class TestStoreModals:
                 {"name": "Sandevistan", "price_paid": 5000, "count": 1, "date": "2025-01-01"},
             ])
             cog.bot.cogs["CyberwareShop"] = cw_cog
-            modal = StoreInvModal(cog, store_type="cw")
-            modal.owner_input = MagicMock(value="222")
+            view = StoreInvPickerView(cog, ctx, store_type="cw")
+            select = _find_user_select(view)
+            select._values = [owner]
             inter = _make_interaction()
-            await modal.on_submit(inter)
+            await select.callback(inter)
             embed = inter.followup.send.call_args.kwargs["embed"]
             assert "Sandevistan" in embed.description
         _run(_test())
 
+    def test_store_add_picker_continue_no_owner(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = StoreAddPickerView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "Continue →")
+            await btn.callback(inter)
+            assert "select" in inter.response.send_message.call_args[0][0].lower()
+        _run(_test())
+
+    def test_store_add_picker_continue_opens_modal(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = StoreAddPickerView(cog, ctx)
+            view.selected_owner = _make_member(222, "ShopOwner")
+            inter = _make_interaction()
+            btn = _find_button(view, "Continue →")
+            await btn.callback(inter)
+            modal = inter.response.send_modal.call_args[0][0]
+            assert isinstance(modal, StoreAddDetailsModal)
+        _run(_test())
+
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_store_add(self, mock_resolve, mock_audit):
+    def test_store_add_details_success(self, mock_audit):
         async def _test():
             cog = _make_cog()
             owner = _make_member(222, "ShopOwner")
-            mock_resolve.return_value = owner
             guns_cog = MagicMock()
             state = {"stores": {}}
             guns_cog._load_state = AsyncMock(return_value=state)
@@ -773,8 +834,7 @@ class TestStoreModals:
             guns_cog._store_id = MagicMock(return_value="999:222")
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
-            modal = StoreAddModal(cog)
-            modal.owner_input = MagicMock(value="222")
+            modal = StoreAddDetailsModal(cog, owner)
             modal.gun_name_input = MagicMock(value="TestGun")
             modal.qty_input = MagicMock(value="5")
             modal.cost_input = MagicMock(value="1000")
@@ -785,13 +845,22 @@ class TestStoreModals:
             assert "TestGun" in inter.followup.send.call_args[0][0]
         _run(_test())
 
+    def test_store_remove_picker_continue_no_owner(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = StoreRemovePickerView(cog, ctx)
+            inter = _make_interaction()
+            btn = _find_button(view, "Continue →")
+            await btn.callback(inter)
+            assert "select" in inter.response.send_message.call_args[0][0].lower()
+        _run(_test())
+
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
-    @patch("NightCityBot.cogs.fixer_hub._resolve_member", new_callable=AsyncMock)
-    def test_store_remove(self, mock_resolve, mock_audit):
+    def test_store_remove_details_success(self, mock_audit):
         async def _test():
             cog = _make_cog()
             owner = _make_member(222, "ShopOwner")
-            mock_resolve.return_value = owner
             guns_cog = MagicMock()
             state = {"stores": {"999:222": {"lots": [
                 {"lot_id": "lot-1", "gun_name": "Pistol", "qty_remaining": 3},
@@ -801,8 +870,7 @@ class TestStoreModals:
             guns_cog._store_id = MagicMock(return_value="999:222")
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
-            modal = StoreRemoveModal(cog)
-            modal.owner_input = MagicMock(value="222")
+            modal = StoreRemoveDetailsModal(cog, owner)
             modal.lot_id_input = MagicMock(value="lot-1")
             modal.qty_input = MagicMock(value="")
             inter = _make_interaction()
@@ -961,6 +1029,7 @@ def test_store_remove_negative_qty():
     async def _test():
         cog = _make_cog()
         store_key = "999:111"
+        owner = _make_member(111, "TestOwner")
         guns_cog = _make_guns_cog({
             "stores": {
                 store_key: {
@@ -970,15 +1039,10 @@ def test_store_remove_negative_qty():
         })
         guns_cog._store_id = MagicMock(return_value=store_key)
         cog.bot.cogs["GunsShopCog"] = guns_cog
-        modal = StoreRemoveModal(cog)
-        modal.owner_input = MagicMock(value="111")
+        modal = StoreRemoveDetailsModal(cog, owner)
         modal.lot_id_input = MagicMock(value="L1")
         modal.qty_input = MagicMock(value="-3")
         inter = _make_interaction()
-        owner_member = MagicMock()
-        owner_member.id = 111
-        owner_member.display_name = "TestOwner"
-        inter.guild.get_member = MagicMock(return_value=owner_member)
         await modal.on_submit(inter)
         assert "positive" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
@@ -988,6 +1052,7 @@ def test_store_remove_zero_qty():
     async def _test():
         cog = _make_cog()
         store_key = "999:111"
+        owner = _make_member(111, "TestOwner")
         guns_cog = _make_guns_cog({
             "stores": {
                 store_key: {
@@ -997,15 +1062,10 @@ def test_store_remove_zero_qty():
         })
         guns_cog._store_id = MagicMock(return_value=store_key)
         cog.bot.cogs["GunsShopCog"] = guns_cog
-        modal = StoreRemoveModal(cog)
-        modal.owner_input = MagicMock(value="111")
+        modal = StoreRemoveDetailsModal(cog, owner)
         modal.lot_id_input = MagicMock(value="L1")
         modal.qty_input = MagicMock(value="0")
         inter = _make_interaction()
-        owner_member = MagicMock()
-        owner_member.id = 111
-        owner_member.display_name = "TestOwner"
-        inter.guild.get_member = MagicMock(return_value=owner_member)
         await modal.on_submit(inter)
         assert "positive" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
@@ -1046,3 +1106,135 @@ def test_wh_remove_negative_qty_cw():
         await modal.on_submit(inter)
         assert "positive" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
+
+
+class TestPickerUserSelectCallbacks:
+    def test_add_item_picker_select_sets_player(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = PlayerAddItemPickerView(cog, ctx)
+            select = _find_user_select(view)
+            member = _make_member(222, "TestPlayer")
+            select._values = [member]
+            inter = _make_interaction()
+            await select.callback(inter)
+            assert view.selected_player is member
+            inter.response.send_message.assert_called_once()
+            assert "TestPlayer" in inter.response.send_message.call_args[0][0]
+        _run(_test())
+
+    def test_store_add_picker_select_sets_owner(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = StoreAddPickerView(cog, ctx)
+            select = _find_user_select(view)
+            member = _make_member(222, "ShopOwner")
+            select._values = [member]
+            inter = _make_interaction()
+            await select.callback(inter)
+            assert view.selected_owner is member
+            inter.response.send_message.assert_called_once()
+            assert "ShopOwner" in inter.response.send_message.call_args[0][0]
+        _run(_test())
+
+    def test_store_remove_picker_select_sets_owner(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = StoreRemovePickerView(cog, ctx)
+            select = _find_user_select(view)
+            member = _make_member(222, "ShopOwner")
+            select._values = [member]
+            inter = _make_interaction()
+            await select.callback(inter)
+            assert view.selected_owner is member
+        _run(_test())
+
+    def test_store_remove_picker_continue_opens_modal(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            view = StoreRemovePickerView(cog, ctx)
+            view.selected_owner = _make_member(222, "ShopOwner")
+            inter = _make_interaction()
+            btn = _find_button(view, "Continue →")
+            await btn.callback(inter)
+            modal = inter.response.send_modal.call_args[0][0]
+            assert isinstance(modal, StoreRemoveDetailsModal)
+        _run(_test())
+
+
+class TestPickerFailureBranches:
+    def test_loa_picker_cog_missing(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            cog.bot.get_cog = MagicMock(return_value=None)
+            member = _make_member(222, "TestPlayer")
+            view = LOAPickerView(cog, ctx, action="start")
+            select = _find_user_select(view)
+            select._values = [member]
+            inter = _make_interaction()
+            await select.callback(inter)
+            assert "unavailable" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_loa_picker_role_missing(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            loa_cog = MagicMock()
+            loa_cog.get_loa_role = MagicMock(return_value=None)
+            cog.bot.get_cog = MagicMock(return_value=loa_cog)
+            member = _make_member(222, "TestPlayer")
+            view = LOAPickerView(cog, ctx, action="start")
+            select = _find_user_select(view)
+            select._values = [member]
+            inter = _make_interaction()
+            await select.callback(inter)
+            assert "not configured" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_store_inv_picker_gun_cog_missing(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            owner = _make_member(222, "ShopOwner")
+            view = StoreInvPickerView(cog, ctx, store_type="gun")
+            select = _find_user_select(view)
+            select._values = [owner]
+            inter = _make_interaction()
+            await select.callback(inter)
+            assert "unavailable" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_store_inv_picker_cw_cog_missing(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            owner = _make_member(222, "Doc")
+            view = StoreInvPickerView(cog, ctx, store_type="cw")
+            select = _find_user_select(view)
+            select._values = [owner]
+            inter = _make_interaction()
+            await select.callback(inter)
+            assert "unavailable" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_store_inv_picker_cw_empty(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _ctx()
+            owner = _make_member(222, "Doc")
+            cw_cog = MagicMock()
+            cw_cog._load_inventory = AsyncMock(return_value=[])
+            cog.bot.cogs["CyberwareShop"] = cw_cog
+            view = StoreInvPickerView(cog, ctx, store_type="cw")
+            select = _find_user_select(view)
+            select._values = [owner]
+            inter = _make_interaction()
+            await select.callback(inter)
+            assert "empty" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())

@@ -24,6 +24,8 @@ from NightCityBot.cogs.gunstore_hub import (
 from NightCityBot.cogs.admin_shop import (
     AdminShopCog,
     AdminShopMenuView,
+    AdminAddItemPickerView,
+    PlayerInvPickerView as AdminPlayerInvPickerView,
     WholesaleClearConfirmView,
 )
 from NightCityBot.cogs.ripperdoc_hub import (
@@ -453,7 +455,7 @@ class TestAdminShopMenuView:
 
         assert _run(run()) is False
 
-    def test_add_item_opens_modal(self, monkeypatch):
+    def test_add_item_sends_picker(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
 
         async def run():
@@ -463,7 +465,9 @@ class TestAdminShopMenuView:
             inter = _make_interaction()
             btn = _find_button(view, "Add Item")
             await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            inter.response.defer.assert_called_once()
+            kwargs = inter.followup.send.call_args.kwargs
+            assert isinstance(kwargs["view"], AdminAddItemPickerView)
 
         _run(run())
 
@@ -509,7 +513,7 @@ class TestAdminShopMenuView:
 
         _run(run())
 
-    def test_player_inv_opens_modal(self, monkeypatch):
+    def test_player_inv_sends_picker(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
 
         async def run():
@@ -519,7 +523,9 @@ class TestAdminShopMenuView:
             inter = _make_interaction()
             btn = _find_button(view, "Player Inventory")
             await btn.callback(inter)
-            inter.response.send_modal.assert_called_once()
+            inter.response.defer.assert_called_once()
+            kwargs = inter.followup.send.call_args.kwargs
+            assert isinstance(kwargs["view"], AdminPlayerInvPickerView)
 
         _run(run())
 

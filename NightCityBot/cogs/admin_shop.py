@@ -31,6 +31,15 @@ from NightCityBot.utils.permissions import is_fixer
 logger = logging.getLogger(__name__)
 
 
+def _resolve_user_select(ctx, user) -> Optional[discord.Member]:
+    if isinstance(user, discord.Member):
+        return user
+    guild = ctx.guild
+    if guild and user:
+        return guild.get_member(user.id)
+    return None
+
+
 class AdminShopMenuView(discord.ui.View):
     def __init__(self, cog: "AdminShopCog", ctx: commands.Context):
         super().__init__(timeout=120)
@@ -53,7 +62,9 @@ class AdminShopMenuView(discord.ui.View):
 
     @discord.ui.button(label="Add Item", style=discord.ButtonStyle.primary, emoji="➕", row=0)
     async def add_item(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(AdminAddItemModal(self.cog, self.ctx))
+        await interaction.response.defer(ephemeral=True)
+        view = AdminAddItemPickerView(self.cog, self.ctx)
+        await interaction.followup.send("**Step 1** — Select the player to add an item to:", view=view, ephemeral=True)
 
     @discord.ui.button(label="Remove Item", style=discord.ButtonStyle.danger, emoji="🗑️", row=0)
     async def remove_item(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -69,7 +80,9 @@ class AdminShopMenuView(discord.ui.View):
 
     @discord.ui.button(label="Player Inventory", style=discord.ButtonStyle.secondary, emoji="📦", row=1)
     async def player_inv(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(PlayerInvLookupModal(self.cog, self.ctx))
+        await interaction.response.defer(ephemeral=True)
+        view = PlayerInvPickerView(self.cog, self.ctx)
+        await interaction.followup.send("Select a player to view their inventory:", view=view, ephemeral=True)
 
     @discord.ui.button(label="Wholesale Stock", style=discord.ButtonStyle.secondary, emoji="🏭", row=2)
     async def wholesale_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -142,8 +155,39 @@ class AdminShopMenuView(discord.ui.View):
         )
 
 
-class AdminAddItemModal(discord.ui.Modal, title="Add Item to Player"):
-    player_input = discord.ui.TextInput(label="Player (mention or ID)")
+class AdminAddItemPickerView(discord.ui.View):
+    def __init__(self, cog: "AdminShopCog", ctx: commands.Context):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.selected_player: Optional[discord.Member] = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
+    async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        user = select.values[0] if select.values else None
+        member = _resolve_user_select(self.ctx, user)
+        if not member:
+            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            return
+        self.selected_player = member
+        await interaction.response.send_message(f"Player: **{member.display_name}** ✓", ephemeral=True)
+
+    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=1)
+    async def continue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.selected_player is None:
+            await interaction.response.send_message("Please select a player first.", ephemeral=True)
+            return
+        await interaction.response.send_modal(AdminAddItemDetailsModal(self.cog, self.ctx, self.selected_player))
+        self.stop()
+
+
+class AdminAddItemDetailsModal(discord.ui.Modal, title="Add Item — Details"):
     name_input = discord.ui.TextInput(label="Item Name")
     character_input = discord.ui.TextInput(label="Character Name")
     item_type_input = discord.ui.TextInput(label="Type (gun/cyberware/gear/misc)", default="misc")
@@ -153,10 +197,11 @@ class AdminAddItemModal(discord.ui.Modal, title="Add Item to Player"):
         required=False,
     )
 
-    def __init__(self, cog: "AdminShopCog", ctx: commands.Context):
+    def __init__(self, cog: "AdminShopCog", ctx: commands.Context, player: discord.Member):
         super().__init__()
         self.cog = cog
         self.ctx = ctx
+        self.player = player
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -165,11 +210,7 @@ class AdminAddItemModal(discord.ui.Modal, title="Add Item to Player"):
             await interaction.followup.send("Must be used in server.", ephemeral=True)
             return
 
-        player = await self.cog._resolve_member(guild, self.player_input.value)
-        if not player:
-            await interaction.followup.send("Could not find that player.", ephemeral=True)
-            return
-
+        player = self.player
         name = self.name_input.value.strip()
         character = self.character_input.value.strip()
         item_type = self.item_type_input.value.strip().lower() or "misc"
@@ -236,6 +277,46 @@ class AdminAddItemModal(discord.ui.Modal, title="Add Item to Player"):
             embed.add_field(name="Type", value=item_type, inline=True)
             embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+
+class PlayerInvPickerView(discord.ui.View):
+    def __init__(self, cog: "AdminShopCog", ctx: commands.Context):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
+    async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        user = select.values[0] if select.values else None
+        member = _resolve_user_select(self.ctx, user)
+        if not member:
+            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        items = await pi_get_by_owner(str(member.id))
+        if not items:
+            await interaction.followup.send(f"{member.display_name} has no items.", ephemeral=True)
+            return
+        lines = []
+        for i, item in enumerate(items[:30], 1):
+            itype = item.get("item_type", "misc")
+            name = item.get("name", "?")
+            char = item.get("character_name", "—")
+            iid = item.get("item_id", "?")[:8]
+            lines.append(f"`{i}.` **{name}** [{itype}] — {char} (`{iid}...`)")
+        embed = discord.Embed(
+            title=f"📦 {member.display_name}'s Inventory",
+            description="\n".join(lines),
+            color=discord.Color.blue(),
+        )
+        embed.set_footer(text=f"{len(items)} item(s) total")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 class AdminRemoveItemModal(discord.ui.Modal, title="Remove Item"):
@@ -416,48 +497,6 @@ class ItemHistoryModal(discord.ui.Modal, title="Item History Lookup"):
             embed=embed, ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )
-
-
-class PlayerInvLookupModal(discord.ui.Modal, title="Player Inventory Lookup"):
-    player_input = discord.ui.TextInput(label="Player (mention or ID)")
-
-    def __init__(self, cog: "AdminShopCog", ctx: commands.Context):
-        super().__init__()
-        self.cog = cog
-        self.ctx = ctx
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        guild = self.ctx.guild
-        if not guild:
-            await interaction.followup.send("Must be used in server.", ephemeral=True)
-            return
-
-        player = await self.cog._resolve_member(guild, self.player_input.value)
-        if not player:
-            await interaction.followup.send("Could not find that player.", ephemeral=True)
-            return
-
-        items = await pi_get_by_owner(str(player.id))
-        if not items:
-            await interaction.followup.send(f"{player.display_name} has no items.", ephemeral=True)
-            return
-
-        lines = []
-        for i, item in enumerate(items[:30], 1):
-            itype = item.get("item_type", "misc")
-            name = item.get("name", "?")
-            char = item.get("character_name", "—")
-            iid = item.get("item_id", "?")[:8]
-            lines.append(f"`{i}.` **{name}** [{itype}] — {char} (`{iid}...`)")
-
-        embed = discord.Embed(
-            title=f"📦 {player.display_name}'s Inventory",
-            description="\n".join(lines),
-            color=discord.Color.blue(),
-        )
-        embed.set_footer(text=f"{len(items)} item(s) total")
-        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 class WholesaleRestockModal(discord.ui.Modal, title="Restock Gun Wholesale"):
