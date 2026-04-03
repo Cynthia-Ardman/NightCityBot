@@ -28,6 +28,7 @@ from NightCityBot.utils.db import (
     wh_lots_replace_all,
     cw_catalog_get_all,
     cw_catalog_upsert_many,
+    gun_catalog_get_all,
     gun_catalog_upsert_many,
     db_save,
 )
@@ -88,7 +89,7 @@ class AdminShopMenuView(SafeView):
             return
         await _inline_reassign_item(cog, interaction, text)
 
-    @discord.ui.button(label="Item History", style=discord.ButtonStyle.secondary, emoji="📜", row=1, custom_id="admin_shop:item_history")
+    @discord.ui.button(label="Item History", style=discord.ButtonStyle.secondary, emoji="📜", row=0, custom_id="admin_shop:item_history")
     async def item_history(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("AdminShop")
@@ -100,7 +101,7 @@ class AdminShopMenuView(SafeView):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Player Inventory", style=discord.ButtonStyle.secondary, emoji="📦", row=1, custom_id="admin_shop:player_inv")
+    @discord.ui.button(label="Player Inventory", style=discord.ButtonStyle.secondary, emoji="📦", row=0, custom_id="admin_shop:player_inv")
     async def player_inv(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("AdminShop")
@@ -108,7 +109,7 @@ class AdminShopMenuView(SafeView):
         view = PlayerInvPickerView(cog, ctx)
         await interaction.followup.send("Select a player to view their inventory:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="Wholesale Stock", style=discord.ButtonStyle.secondary, emoji="🏭", row=2, custom_id="admin_shop:wholesale_stock")
+    @discord.ui.button(label="Wholesale Stock", style=discord.ButtonStyle.secondary, emoji="🏭", row=1, custom_id="admin_shop:wholesale_stock")
     async def wholesale_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         guns_cog = interaction.client.get_cog("GunsShopCog")
@@ -150,23 +151,29 @@ class AdminShopMenuView(SafeView):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Restock Wholesale", style=discord.ButtonStyle.primary, emoji="📥", row=2, custom_id="admin_shop:restock_wholesale")
+    @discord.ui.button(label="Restock Gun Wholesale", style=discord.ButtonStyle.primary, emoji="📥", row=2, custom_id="admin_shop:restock_wholesale")
     async def restock_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("AdminShop")
+        catalog = await gun_catalog_get_all()
+        if not catalog:
+            await interaction.response.send_message("❌ Gun catalog is empty. Set a sheet and reload first.", ephemeral=True)
+            return
         await interaction.response.send_message(
-            "📝 **Enter:** `gun_name, quantity, unit_cost, restriction`\n"
-            "Restriction is optional (defaults to `basic`).\n"
-            "Example: `Militech M-76e, 10, 5000, controlled`\n"
-            "Type `cancel` to abort.",
+            f"📦 **Gun catalog has {len(catalog)} items.**\n"
+            f"How many unique items to stock, and max qty per item?\n"
+            f"Distribution: ~70% Basic, ~20% Controlled, ~10% Restricted\n"
+            f"**Enter:** `total_items, max_qty`\n"
+            f"Example: `10, 3` — stocks 10 random guns, up to 3 each\n"
+            f"Type `cancel` to abort.",
             ephemeral=True,
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
             return
-        await _inline_restock_wholesale(cog, interaction, text)
+        await _inline_restock_wholesale(cog, interaction, text, catalog)
 
-    @discord.ui.button(label="Clear Gun WH", style=discord.ButtonStyle.danger, emoji="🗑️", row=2, custom_id="admin_shop:clear_wholesale")
+    @discord.ui.button(label="Clear Gun Wholesale", style=discord.ButtonStyle.danger, emoji="🗑️", row=2, custom_id="admin_shop:clear_wholesale")
     async def clear_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("AdminShop")
@@ -178,7 +185,7 @@ class AdminShopMenuView(SafeView):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Restock CW", style=discord.ButtonStyle.primary, emoji="💉", row=3, custom_id="admin_shop:restock_cw")
+    @discord.ui.button(label="Restock CW Wholesale", style=discord.ButtonStyle.primary, emoji="💉", row=3, custom_id="admin_shop:restock_cw")
     async def restock_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("AdminShop")
         catalog = await cw_catalog_get_all()
@@ -199,7 +206,7 @@ class AdminShopMenuView(SafeView):
             return
         await _inline_restock_cw(cog, interaction, text, catalog)
 
-    @discord.ui.button(label="Clear CW WH", style=discord.ButtonStyle.danger, emoji="🧹", row=3, custom_id="admin_shop:clear_cw_wholesale")
+    @discord.ui.button(label="Clear CW Wholesale", style=discord.ButtonStyle.danger, emoji="🧹", row=3, custom_id="admin_shop:clear_cw_wholesale")
     async def clear_cw_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("AdminShop")
@@ -616,60 +623,101 @@ async def _inline_item_history(cog, interaction, item_id):
     )
 
 
-async def _inline_restock_wholesale(cog, interaction, text):
+def _pick_guns_by_restriction(catalog, total_items):
+    basic = [g for g in catalog if g.get("restriction", "basic").lower() == "basic"]
+    controlled = [g for g in catalog if g.get("restriction", "basic").lower() == "controlled"]
+    restricted = [g for g in catalog if g.get("restriction", "basic").lower() == "restricted"]
+
+    n_basic = max(1, round(total_items * 0.70)) if basic else 0
+    n_controlled = max(1, round(total_items * 0.20)) if controlled else 0
+    n_restricted = max(1, round(total_items * 0.10)) if restricted else 0
+
+    n_basic = min(n_basic, len(basic))
+    n_controlled = min(n_controlled, len(controlled))
+    n_restricted = min(n_restricted, len(restricted))
+
+    total_picked = n_basic + n_controlled + n_restricted
+    if total_picked > total_items:
+        overshoot = total_picked - total_items
+        for _ in range(overshoot):
+            if n_basic > 1:
+                n_basic -= 1
+            elif n_controlled > 1:
+                n_controlled -= 1
+            elif n_restricted > 1:
+                n_restricted -= 1
+
+    chosen = []
+    if n_basic:
+        chosen.extend(random.sample(basic, n_basic))
+    if n_controlled:
+        chosen.extend(random.sample(controlled, n_controlled))
+    if n_restricted:
+        chosen.extend(random.sample(restricted, n_restricted))
+    return chosen
+
+
+async def _inline_restock_wholesale(cog, interaction, text, catalog):
     parts = [p.strip() for p in text.split(",")]
-    if len(parts) < 3:
+    if len(parts) < 2:
         await interaction.edit_original_response(
-            content="❌ Please provide at least: `gun_name, quantity, unit_cost`",
+            content="❌ Please provide: `total_items, max_qty`",
         )
         return
-    gun_name = parts[0]
-    if not gun_name:
-        await interaction.edit_original_response(content="❌ Gun name is required.")
-        return
     try:
-        qty = int(parts[1])
-        cost = int(parts[2])
+        total_items = int(parts[0])
+        max_qty = int(parts[1])
     except ValueError:
-        await interaction.edit_original_response(content="Quantity and cost must be numbers.")
+        await interaction.edit_original_response(content="Both values must be numbers.")
         return
-    if qty < 1 or cost < 0:
-        await interaction.edit_original_response(content="Invalid quantity or cost.")
+    if total_items < 1:
+        await interaction.edit_original_response(content="Total items must be at least 1.")
         return
-    restriction = parts[3].strip().lower() if len(parts) > 3 and parts[3].strip() else "basic"
+    if max_qty < 1:
+        await interaction.edit_original_response(content="Max qty must be at least 1.")
+        return
+    total_items = min(total_items, len(catalog))
     guns_cog = cog.bot.cogs.get("GunsShopCog")
     if not guns_cog:
         await interaction.edit_original_response(content="Gun shop system unavailable.")
         return
+    chosen = _pick_guns_by_restriction(catalog, total_items)
     async with guns_cog.lock:
         state = await guns_cog._load_state()
         lots = state.setdefault("wholesale_lots", [])
-        lot_id = f"admin-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
-        lots.append({
-            "lot_id": lot_id,
-            "gun_name": gun_name,
-            "gun_level": "L",
-            "weapon_type": "",
-            "unit_cost": cost,
-            "qty_available": qty,
-            "restriction": restriction,
-        })
+        stocked = []
+        for gun in chosen:
+            qty = random.randint(1, max_qty)
+            cost = gun.get("price", 0) or 0
+            restriction = gun.get("restriction", "basic")
+            lot_id = f"admin-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
+            lots.append({
+                "lot_id": lot_id,
+                "gun_name": gun["gun_name"],
+                "gun_level": gun.get("gun_level", "L"),
+                "weapon_type": gun.get("weapon_type", ""),
+                "unit_cost": cost,
+                "qty_available": qty,
+                "restriction": restriction,
+            })
+            r_tag = f" [{restriction}]" if restriction != "basic" else ""
+            stocked.append(f"**{gun['gun_name']}**{r_tag} ×{qty} at ${cost:,}")
         await guns_cog._save_state(state)
+    summary = "\n".join(stocked)
     await interaction.edit_original_response(
-        content=f"Restocked **{gun_name}** ×{qty} at ${cost:,} [{restriction}].",
+        content=f"✅ Restocked **{len(stocked)}** guns:\n{summary}",
     )
     log_ch = await cog._audit_channel()
     if log_ch:
         embed = discord.Embed(
-            title="📥 Admin: Wholesale Restocked",
+            title="📥 Admin: Gun Wholesale Restocked",
             color=discord.Color.orange(),
             timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(name="Admin", value=f"{interaction.user.mention}", inline=False)
-        embed.add_field(name="Gun", value=gun_name, inline=True)
-        embed.add_field(name="Qty", value=str(qty), inline=True)
-        embed.add_field(name="Cost", value=f"${cost:,}", inline=True)
-        embed.add_field(name="Restriction", value=restriction, inline=True)
+        embed.add_field(name="Items", value=str(len(stocked)), inline=True)
+        embed.add_field(name="Max Qty", value=str(max_qty), inline=True)
+        embed.add_field(name="Details", value=summary[:1024], inline=False)
         embed.set_footer(text="NightCityBot Audit Log")
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 

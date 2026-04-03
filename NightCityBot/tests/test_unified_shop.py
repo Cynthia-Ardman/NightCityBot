@@ -1127,8 +1127,10 @@ class TestAdminWholesaleButtons:
 
         _run(run())
 
-    def test_restock_button_starts_inline_flow(self, monkeypatch):
+    @patch("NightCityBot.cogs.admin_shop.gun_catalog_get_all", new_callable=AsyncMock)
+    def test_restock_button_starts_inline_flow(self, mock_catalog, monkeypatch):
         monkeypatch.setattr("NightCityBot.cogs.admin_shop.collect_text_input", AsyncMock(return_value=None))
+        mock_catalog.return_value = [{"gun_name": "Militech M-76e", "price": 5000, "restriction": "basic"}]
 
         async def run():
             cog = _make_admin_cog()
@@ -1136,9 +1138,23 @@ class TestAdminWholesaleButtons:
             inter = _make_interaction()
             inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
             inter.channel_id = 123
-            btn = _find_button(view, "Restock Wholesale")
+            btn = _find_button(view, "Restock Gun Wholesale")
             await btn.callback(inter)
             inter.response.send_message.assert_called_once()
+
+        _run(run())
+
+    @patch("NightCityBot.cogs.admin_shop.gun_catalog_get_all", new_callable=AsyncMock, return_value=[])
+    def test_restock_gun_empty_catalog(self, mock_catalog):
+        async def run():
+            cog = _make_admin_cog()
+            view = AdminShopMenuView()
+            inter = _make_interaction()
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
+            btn = _find_button(view, "Restock Gun Wholesale")
+            await btn.callback(inter)
+            msg = inter.response.send_message.call_args[0][0]
+            assert "empty" in msg.lower()
 
         _run(run())
 
@@ -1148,7 +1164,7 @@ class TestAdminWholesaleButtons:
             view = AdminShopMenuView()
             inter = _make_interaction()
             inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            btn = _find_button(view, "Clear Gun WH")
+            btn = _find_button(view, "Clear Gun Wholesale")
             await btn.callback(inter)
             inter.followup.send.assert_called_once()
             msg = inter.followup.send.call_args[0][0]
@@ -1167,7 +1183,7 @@ class TestAdminWholesaleButtons:
             inter = _make_interaction()
             inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
             inter.channel_id = 123
-            btn = _find_button(view, "Restock CW")
+            btn = _find_button(view, "Restock CW Wholesale")
             await btn.callback(inter)
             inter.response.send_message.assert_called_once()
             msg = inter.response.send_message.call_args[0][0]
@@ -1182,7 +1198,7 @@ class TestAdminWholesaleButtons:
             view = AdminShopMenuView()
             inter = _make_interaction()
             inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            btn = _find_button(view, "Restock CW")
+            btn = _find_button(view, "Restock CW Wholesale")
             await btn.callback(inter)
             msg = inter.response.send_message.call_args[0][0]
             assert "empty" in msg.lower()
@@ -1195,7 +1211,7 @@ class TestAdminWholesaleButtons:
             view = AdminShopMenuView()
             inter = _make_interaction()
             inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            btn = _find_button(view, "Clear CW WH")
+            btn = _find_button(view, "Clear CW Wholesale")
             await btn.callback(inter)
             inter.followup.send.assert_called_once()
             msg = inter.followup.send.call_args[0][0]
