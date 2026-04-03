@@ -75,12 +75,12 @@ class AdminShopMenuView(SafeView):
 
     @discord.ui.button(label="Reassign Item", style=discord.ButtonStyle.secondary, emoji="✏️", row=0, custom_id="admin_shop:reassign_item")
     async def reassign_item(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("AdminShop")
-        await interaction.edit_original_response(
-            content="📝 **Enter:** `item_uuid, new_owner_mention_or_id, new_character_name`\n"
+        await interaction.response.send_message(
+            "📝 **Enter:** `item_uuid, new_owner_mention_or_id, new_character_name`\n"
             "Example: `12345678-abcd-..., @Player, V`\n"
             "Type `cancel` to abort.",
+            ephemeral=True,
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
@@ -152,13 +152,13 @@ class AdminShopMenuView(SafeView):
 
     @discord.ui.button(label="Restock Wholesale", style=discord.ButtonStyle.primary, emoji="📥", row=2, custom_id="admin_shop:restock_wholesale")
     async def restock_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("AdminShop")
-        await interaction.edit_original_response(
-            content="📝 **Enter:** `gun_name, quantity, unit_cost, restriction`\n"
+        await interaction.response.send_message(
+            "📝 **Enter:** `gun_name, quantity, unit_cost, restriction`\n"
             "Restriction is optional (defaults to `basic`).\n"
             "Example: `Militech M-76e, 10, 5000, controlled`\n"
             "Type `cancel` to abort.",
+            ephemeral=True,
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
@@ -180,18 +180,18 @@ class AdminShopMenuView(SafeView):
 
     @discord.ui.button(label="Restock CW", style=discord.ButtonStyle.primary, emoji="💉", row=3, custom_id="admin_shop:restock_cw")
     async def restock_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("AdminShop")
         catalog = await cw_catalog_get_all()
         if not catalog:
-            await interaction.edit_original_response(content="❌ CW catalog is empty. Set a sheet and reload first.")
+            await interaction.response.send_message("❌ CW catalog is empty. Set a sheet and reload first.", ephemeral=True)
             return
-        await interaction.edit_original_response(
-            content=f"📦 **CW catalog has {len(catalog)} items.**\n"
+        await interaction.response.send_message(
+            f"📦 **CW catalog has {len(catalog)} items.**\n"
             f"How many unique items to stock, and max qty per item?\n"
             f"**Enter:** `total_items, max_qty`\n"
             f"Example: `5, 3` — stocks 5 random items, up to 3 each\n"
             f"Type `cancel` to abort.",
+            ephemeral=True,
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:

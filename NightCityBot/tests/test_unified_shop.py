@@ -489,7 +489,7 @@ class TestAdminShopMenuView:
             inter.channel_id = 123
             btn = _find_button(view, "Reassign Item")
             await btn.callback(inter)
-            inter.response.defer.assert_called_once()
+            inter.response.send_message.assert_called_once()
 
         _run(run())
 
@@ -1138,7 +1138,7 @@ class TestAdminWholesaleButtons:
             inter.channel_id = 123
             btn = _find_button(view, "Restock Wholesale")
             await btn.callback(inter)
-            inter.response.defer.assert_called_once()
+            inter.response.send_message.assert_called_once()
 
         _run(run())
 
@@ -1169,9 +1169,9 @@ class TestAdminWholesaleButtons:
             inter.channel_id = 123
             btn = _find_button(view, "Restock CW")
             await btn.callback(inter)
-            inter.response.defer.assert_called_once()
-            msg = inter.edit_original_response.call_args[1].get("content", "")
-            assert "total_items" in msg or "timed out" in msg.lower()
+            inter.response.send_message.assert_called_once()
+            msg = inter.response.send_message.call_args[0][0]
+            assert "total_items" in msg
 
         _run(run())
 
@@ -1184,7 +1184,7 @@ class TestAdminWholesaleButtons:
             inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
             btn = _find_button(view, "Restock CW")
             await btn.callback(inter)
-            msg = inter.edit_original_response.call_args[1].get("content", "")
+            msg = inter.response.send_message.call_args[0][0]
             assert "empty" in msg.lower()
 
         _run(run())
