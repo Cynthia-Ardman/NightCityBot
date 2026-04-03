@@ -121,6 +121,8 @@ def _make_interaction(user_id=100, guild_id=999):
     inter.response.edit_message = AsyncMock()
     inter.followup = MagicMock()
     inter.followup.send = AsyncMock()
+    inter.message = MagicMock()
+    inter.message.delete = AsyncMock()
     inter.guild = MagicMock()
     inter.guild.id = guild_id
     inter.guild.get_member = MagicMock(return_value=None)
@@ -262,7 +264,7 @@ class TestFlowB_FixerDoneButton:
             inter2 = _make_interaction(user_id=100)
             done_btn = _find_button(sub_view, "Done")
             await done_btn.callback(inter2)
-            inter2.response.edit_message.assert_called_once()
+            inter2.message.delete.assert_called_once()
             assert sub_view.is_finished(), "Sub-view must stop() when Done is clicked"
 
         _run(_test())

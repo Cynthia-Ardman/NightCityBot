@@ -113,7 +113,6 @@ class FixerTopView(SafeView):
                 "**Add Item** — Give an item to a player\n"
                 "**Remove Item** — Delete an item by UUID\n"
                 "**Reassign Item** — Transfer item to new owner/character\n"
-                "**Item History** — Audit trail for an item UUID\n"
                 "**Start LOA** — Put a player on Leave of Absence\n"
                 "**End LOA** — Take a player off LOA"
             ),
@@ -129,10 +128,8 @@ class FixerTopView(SafeView):
         embed = discord.Embed(
             title="🏪 Fixer Panel — Store",
             description=(
-                "**View Gun Store** — Inspect a store owner's gun inventory\n"
-                "**View CW Store** — Inspect a Ripperdoc's cyberware stock\n"
-                "**Add to Gun Store** — Add a gun lot to a store\n"
-                "**Remove from Gun Store** — Remove a gun lot from a store"
+                "**View Gun Store** — Select a store to view, add, or remove items\n"
+                "**View CW Store** — Select a Ripperdoc to view, add, or remove stock"
             ),
             color=discord.Color.green(),
         )
@@ -149,9 +146,8 @@ class FixerTopView(SafeView):
                 "**View Stock** — See current gun + CW wholesale inventory\n"
                 "**Add Gun** — Add a gun lot to wholesale\n"
                 "**Add CW** — Add a cyberware lot to wholesale\n"
-                "**Remove Lot** — Remove a specific lot by ID\n"
-                "**Restock Guns** — Full weekly gun restock\n"
-                "**Restock CW** — Full weekly CW restock"
+                "**Remove Gun** — Remove a gun lot from wholesale\n"
+                "**Remove CW** — Remove a CW lot from wholesale"
             ),
             color=discord.Color.orange(),
         )
@@ -207,32 +203,22 @@ class PlayerSubView(SafeView):
             return
         await _process_fixer_reassign_item(self.cog, interaction, text)
 
-    @discord.ui.button(label="Item History", style=discord.ButtonStyle.secondary, emoji="📜", row=1)
-    async def item_history(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        view = FixerItemHistorySourceView(self.cog, self.ctx)
-        await interaction.followup.send(
-            "📜 **Item History** — Where is the item?",
-            view=view,
-            ephemeral=True,
-        )
-
-    @discord.ui.button(label="Start LOA", style=discord.ButtonStyle.success, emoji="🏖️", row=2)
+    @discord.ui.button(label="Start LOA", style=discord.ButtonStyle.success, emoji="🏖️", row=1)
     async def start_loa(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         view = LOAPickerView(self.cog, self.ctx, action="start")
         await interaction.followup.send("Select a player to put on LOA:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="End LOA", style=discord.ButtonStyle.danger, emoji="🔚", row=2)
+    @discord.ui.button(label="End LOA", style=discord.ButtonStyle.danger, emoji="🔚", row=1)
     async def end_loa(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         view = LOAPickerView(self.cog, self.ctx, action="end")
         await interaction.followup.send("Select a player to take off LOA:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="Done", style=discord.ButtonStyle.secondary, row=3)
+    @discord.ui.button(label="Done", style=discord.ButtonStyle.danger, row=2)
     async def done(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.stop()
-        await interaction.response.edit_message(view=None)
+        await interaction.message.delete()
 
 
 GUN_STORE_OWNER_ROLE_ID = 1489616360920318143
@@ -296,10 +282,10 @@ class StoreSubView(SafeView):
             "💉 **Ripperdoc Store** — Select a Ripperdoc:", view=view, ephemeral=True
         )
 
-    @discord.ui.button(label="Done", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Done", style=discord.ButtonStyle.danger, row=1)
     async def done(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.stop()
-        await interaction.response.edit_message(view=None)
+        await interaction.message.delete()
 
 
 class WholesalerSubView(SafeView):
@@ -360,32 +346,36 @@ class WholesalerSubView(SafeView):
     @discord.ui.button(label="Add Gun", style=discord.ButtonStyle.primary, emoji="🔫", row=0)
     async def add_gun(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        await interaction.edit_original_response(
-            content="📝 **Enter gun wholesale details** in this format:\n"
+        msg = await interaction.followup.send(
+            "📝 **Enter gun wholesale details** in this format:\n"
             "`gun name, quantity, unit cost, restriction`\n"
             "Example: `Militech Mk.31, 10, 5000, basic`\n"
             "Restriction is optional (defaults to `basic`). Type `cancel` to abort.",
+            ephemeral=True,
+            wait=True,
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
+            await msg.edit(content="⏰ Timed out or cancelled.")
             return
-        await _process_wh_add_gun(self.cog, interaction, text)
+        await _process_wh_add_gun(self.cog, interaction, text, msg)
 
     @discord.ui.button(label="Add CW", style=discord.ButtonStyle.primary, emoji="💉", row=0)
     async def add_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        await interaction.edit_original_response(
-            content="📝 **Enter CW wholesale details** in this format:\n"
+        msg = await interaction.followup.send(
+            "📝 **Enter CW wholesale details** in this format:\n"
             "`cyberware name, quantity, unit cost`\n"
             "Example: `Neural Link, 10, 5000`\n"
             "Type `cancel` to abort.",
+            ephemeral=True,
+            wait=True,
         )
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
+            await msg.edit(content="⏰ Timed out or cancelled.")
             return
-        await _process_wh_add_cw(self.cog, interaction, text)
+        await _process_wh_add_cw(self.cog, interaction, text, msg)
 
     @discord.ui.button(label="Remove Gun", style=discord.ButtonStyle.danger, emoji="🔫", row=1)
     async def remove_gun(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -443,10 +433,10 @@ class WholesalerSubView(SafeView):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Done", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="Done", style=discord.ButtonStyle.danger, row=2)
     async def done(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.stop()
-        await interaction.response.edit_message(view=None)
+        await interaction.message.delete()
 
 
 async def _process_fixer_reassign_item(cog, interaction, text):
@@ -516,24 +506,30 @@ async def _process_fixer_reassign_item(cog, interaction, text):
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-async def _process_wh_add_gun(cog, interaction, text):
+async def _process_wh_add_gun(cog, interaction, text, msg=None):
+    async def _reply(content):
+        if msg:
+            await msg.edit(content=content)
+        else:
+            await interaction.followup.send(content, ephemeral=True)
+
     guns_cog = cog.bot.cogs.get("GunsShopCog")
     if not guns_cog:
-        await interaction.edit_original_response(content="Gun shop system unavailable.")
+        await _reply("Gun shop system unavailable.")
         return
     parts = [p.strip() for p in text.split(",")]
     if len(parts) < 3:
-        await interaction.edit_original_response(content="❌ Need at least: `gun name, quantity, unit cost`")
+        await _reply("❌ Need at least: `gun name, quantity, unit cost`")
         return
     gun_name = parts[0]
     try:
         qty = int(parts[1])
         cost = int(parts[2])
     except ValueError:
-        await interaction.edit_original_response(content="Quantity and cost must be numbers.")
+        await _reply("Quantity and cost must be numbers.")
         return
     if qty < 1 or cost < 0:
-        await interaction.edit_original_response(content="Invalid quantity or cost.")
+        await _reply("Invalid quantity or cost.")
         return
     restriction = parts[3].strip().lower() if len(parts) > 3 else "basic"
     if restriction not in ("basic", "controlled", "restricted"):
@@ -552,9 +548,7 @@ async def _process_wh_add_gun(cog, interaction, text):
             "restriction": restriction,
         })
         await guns_cog._save_state(state)
-    await interaction.edit_original_response(
-        content=f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] to wholesale.",
-    )
+    await _reply(f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] to wholesale.")
     log_ch = await _audit_channel(cog.bot)
     if log_ch:
         embed = discord.Embed(
@@ -570,24 +564,30 @@ async def _process_wh_add_gun(cog, interaction, text):
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-async def _process_wh_add_cw(cog, interaction, text):
+async def _process_wh_add_cw(cog, interaction, text, msg=None):
+    async def _reply(content):
+        if msg:
+            await msg.edit(content=content)
+        else:
+            await interaction.followup.send(content, ephemeral=True)
+
     cw_cog = cog.bot.cogs.get("CyberwareShop")
     if not cw_cog:
-        await interaction.edit_original_response(content="Cyberware system unavailable.")
+        await _reply("Cyberware system unavailable.")
         return
     parts = [p.strip() for p in text.split(",")]
     if len(parts) < 3:
-        await interaction.edit_original_response(content="❌ Need at least: `cyberware name, quantity, unit cost`")
+        await _reply("❌ Need at least: `cyberware name, quantity, unit cost`")
         return
     item_name = parts[0]
     try:
         qty = int(parts[1])
         cost = int(parts[2])
     except ValueError:
-        await interaction.edit_original_response(content="Quantity and cost must be numbers.")
+        await _reply("Quantity and cost must be numbers.")
         return
     if qty < 1 or cost < 0:
-        await interaction.edit_original_response(content="Invalid quantity or cost.")
+        await _reply("Invalid quantity or cost.")
         return
     async with cw_cog.lock:
         state = await cw_cog._load_state()
@@ -600,9 +600,7 @@ async def _process_wh_add_cw(cog, interaction, text):
             "qty_available": qty,
         })
         await cw_cog._save_state(state)
-    await interaction.edit_original_response(
-        content=f"Added CW **{item_name}** ×{qty} at ${cost:,} to wholesale.",
-    )
+    await _reply(f"Added CW **{item_name}** ×{qty} at ${cost:,} to wholesale.")
     log_ch = await _audit_channel(cog.bot)
     if log_ch:
         embed = discord.Embed(

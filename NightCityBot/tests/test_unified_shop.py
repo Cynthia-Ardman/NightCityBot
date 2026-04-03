@@ -477,22 +477,6 @@ class TestAdminShopMenuView:
 
         assert _run(run()) is False
 
-    def test_reassign_item_starts_inline_flow(self, monkeypatch):
-        monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
-        monkeypatch.setattr("NightCityBot.cogs.admin_shop.collect_text_input", AsyncMock(return_value=None))
-
-        async def run():
-            cog = _make_admin_cog()
-            view = AdminShopMenuView()
-            inter = _make_interaction()
-            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            inter.channel_id = 123
-            btn = _find_button(view, "Reassign Item")
-            await btn.callback(inter)
-            inter.response.send_message.assert_called_once()
-
-        _run(run())
-
     def test_item_history_starts_inline_flow(self, monkeypatch):
         monkeypatch.setattr("config.NIGHTCITYBOT_LOG_CHANNEL_ID", 0)
 
@@ -1289,11 +1273,11 @@ class TestAdminPanelNoAddRemoveButtons:
             assert "Remove Item" not in labels
         _run(run())
 
-    def test_reassign_button_still_present(self):
+    def test_reassign_button_removed(self):
         async def run():
             view = AdminShopMenuView()
             labels = [getattr(c, "label", "") for c in view.children]
-            assert "Reassign Item" in labels
+            assert "Reassign Item" not in labels
         _run(run())
 
     def test_panel_embed_no_add_remove_text(self):

@@ -20,8 +20,6 @@ from NightCityBot.utils.db import (
     pi_get_item,
     pi_get_by_owner,
     pi_delete_item,
-    pi_update_owner,
-    pi_update_character,
     ih_record_event,
     ih_get_history,
     wh_lots_get_all,
@@ -73,21 +71,6 @@ class AdminShopMenuView(SafeView):
             await interaction.response.send_message("This panel is for Admins / Fixers only.", ephemeral=True)
             return False
         return True
-
-    @discord.ui.button(label="Reassign Item", style=discord.ButtonStyle.secondary, emoji="✏️", row=0, custom_id="admin_shop:reassign_item")
-    async def reassign_item(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cog = interaction.client.get_cog("AdminShop")
-        await interaction.response.send_message(
-            "📝 **Enter:** `item_uuid, new_owner_mention_or_id, new_character_name`\n"
-            "Example: `12345678-abcd-..., @Player, V`\n"
-            "Type `cancel` to abort.",
-            ephemeral=True,
-        )
-        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
-        if text is None:
-            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
-            return
-        await _inline_reassign_item(cog, interaction, text)
 
     @discord.ui.button(label="Item History", style=discord.ButtonStyle.secondary, emoji="📜", row=0, custom_id="admin_shop:item_history")
     async def item_history(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -522,73 +505,6 @@ class ItemHistoryItemPickerView(SafeView):
         item_id = interaction.data["values"][0]
         await interaction.response.defer(ephemeral=True)
         await _inline_item_history(self.cog, interaction, item_id)
-
-
-async def _inline_reassign_item(cog, interaction, text):
-    parts = [p.strip() for p in text.split(",")]
-    if len(parts) < 3:
-        await interaction.edit_original_response(
-            content="❌ Please provide: `item_uuid, new_owner_mention_or_id, new_character_name`",
-        )
-        return
-    item_id = parts[0]
-    raw_owner = parts[1]
-    new_char_name = parts[2]
-    guild = interaction.guild
-    if not guild:
-        await interaction.edit_original_response(content="Must be used in server.")
-        return
-    item = await pi_get_item(item_id)
-    if item is None:
-        await interaction.edit_original_response(content=f"Item `{item_id}` not found.")
-        return
-    new_owner = await cog._resolve_member(guild, raw_owner)
-    if not new_owner:
-        await interaction.edit_original_response(content="Could not find new owner.")
-        return
-    char_record = await get_character_by_name(str(new_owner.id), new_char_name)
-    if char_record and not await ensure_character_active(char_record["character_id"]):
-        await interaction.edit_original_response(
-            content=f"❌ Character **{new_char_name}** is not active.",
-        )
-        return
-    item_name = item.get("name", "?")
-    old_owner_id = item.get("owner_id", "")
-    old_char = item.get("character_name", "")
-    if str(new_owner.id) == old_owner_id:
-        ok = await pi_update_character(item_id, new_char_name, expected_owner_id=old_owner_id)
-    else:
-        ok = await pi_update_owner(item_id, str(new_owner.id), new_char_name, old_owner_id)
-    if not ok:
-        await interaction.edit_original_response(content="Failed to reassign item.")
-        return
-    await ih_record_event(
-        item_id, "admin_reassign",
-        actor_id=str(interaction.user.id),
-        target_id=str(new_owner.id),
-        metadata={
-            "item_name": item_name,
-            "old_owner": old_owner_id,
-            "old_character": old_char,
-            "new_character": new_char_name,
-        },
-    )
-    await interaction.edit_original_response(
-        content=f"Reassigned **{item_name}** to {new_owner.display_name} — {new_char_name}.",
-    )
-    log_ch = await cog._audit_channel()
-    if log_ch:
-        embed = discord.Embed(
-            title="✏️ Admin: Item Reassigned",
-            color=discord.Color.blurple(),
-            timestamp=datetime.now(timezone.utc),
-        )
-        embed.add_field(name="Admin", value=f"{interaction.user.mention}", inline=False)
-        embed.add_field(name="Item", value=f"**{item_name}** (`{item_id}`)", inline=False)
-        embed.add_field(name="Old", value=f"<@{old_owner_id}> — {old_char}", inline=True)
-        embed.add_field(name="New", value=f"{new_owner.mention} — {new_char_name}", inline=True)
-        embed.set_footer(text="NightCityBot Audit Log")
-        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
 async def _inline_item_history(cog, interaction, item_id):

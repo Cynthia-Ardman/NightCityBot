@@ -70,6 +70,8 @@ def _make_interaction(user_id=111, cog=None, roles=None, admin=False):
     inter.followup = MagicMock()
     inter.followup.send = AsyncMock()
     inter.edit_original_response = AsyncMock()
+    inter.message = MagicMock()
+    inter.message.delete = AsyncMock()
     inter.guild = MagicMock()
     inter.guild.id = 999
     inter.guild.get_member = MagicMock(return_value=None)
@@ -247,21 +249,6 @@ class TestPlayerSubViewButtons:
             inter.response.defer.assert_called_once()
         _run(_test())
 
-    def test_item_history_starts_inline_flow(self):
-        async def _test():
-            cog = _make_cog()
-            ctx = _ctx()
-            view = PlayerSubView(cog, ctx)
-            inter = _make_interaction()
-            inter.channel_id = 123
-            btn = _find_button(view, "Item History")
-            await btn.callback(inter)
-            inter.response.defer.assert_called_once()
-            kwargs = inter.followup.send.call_args.kwargs
-            from NightCityBot.cogs.fixer_hub import FixerItemHistorySourceView
-            assert isinstance(kwargs["view"], FixerItemHistorySourceView)
-        _run(_test())
-
     def test_start_loa_sends_picker(self):
         async def _test():
             cog = _make_cog()
@@ -298,7 +285,7 @@ class TestPlayerSubViewButtons:
             inter = _make_interaction()
             btn = _find_button(view, "Done")
             await btn.callback(inter)
-            inter.response.edit_message.assert_called_once()
+            inter.message.delete.assert_called_once()
         _run(_test())
 
 
@@ -377,7 +364,7 @@ class TestStoreSubViewButtons:
             inter = _make_interaction()
             btn = _find_button(view, "Done")
             await btn.callback(inter)
-            inter.response.edit_message.assert_called_once()
+            inter.message.delete.assert_called_once()
         _run(_test())
 
 
@@ -518,7 +505,7 @@ class TestWholesalerSubViewButtons:
             inter = _make_interaction()
             btn = _find_button(view, "Done")
             await btn.callback(inter)
-            inter.response.edit_message.assert_called_once()
+            inter.message.delete.assert_called_once()
         _run(_test())
 
 
@@ -843,10 +830,12 @@ class TestWholesaleProcessFunctions:
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
             inter = _make_interaction()
-            await _process_wh_add_gun(cog, inter, "TestGun, 10, 5000, basic")
+            msg = MagicMock()
+            msg.edit = AsyncMock()
+            await _process_wh_add_gun(cog, inter, "TestGun, 10, 5000, basic", msg)
             guns_cog._save_state.assert_called_once()
             assert len(state["wholesale_lots"]) == 1
-            assert "TestGun" in inter.edit_original_response.call_args[1].get("content", "")
+            assert "TestGun" in msg.edit.call_args[1].get("content", "")
         _run(_test())
 
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
@@ -861,10 +850,12 @@ class TestWholesaleProcessFunctions:
             cw_cog.lock = asyncio.Lock()
             cog.bot.cogs["CyberwareShop"] = cw_cog
             inter = _make_interaction()
-            await _process_wh_add_cw(cog, inter, "Sandevistan, 5, 8000")
+            msg = MagicMock()
+            msg.edit = AsyncMock()
+            await _process_wh_add_cw(cog, inter, "Sandevistan, 5, 8000", msg)
             cw_cog._save_state.assert_called_once()
             assert len(state["cw_wholesale_lots"]) == 1
-            assert "Sandevistan" in inter.edit_original_response.call_args[1].get("content", "")
+            assert "Sandevistan" in msg.edit.call_args[1].get("content", "")
         _run(_test())
 
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
@@ -924,8 +915,10 @@ class TestWholesaleProcessFunctions:
             guns_cog = MagicMock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
             inter = _make_interaction()
-            await _process_wh_add_gun(cog, inter, "TestGun, abc, xyz")
-            assert "numbers" in inter.edit_original_response.call_args[1].get("content", "").lower()
+            msg = MagicMock()
+            msg.edit = AsyncMock()
+            await _process_wh_add_gun(cog, inter, "TestGun, abc, xyz", msg)
+            assert "numbers" in msg.edit.call_args[1].get("content", "").lower()
         _run(_test())
 
 
