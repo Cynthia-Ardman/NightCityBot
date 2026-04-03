@@ -10,7 +10,6 @@ import discord
 logger = logging.getLogger(__name__)
 
 _USER_ERROR_MSG = "\u26a0\ufe0f Something went wrong. Please try again in a moment."
-_CAPACITY_MSG = "\u26a0\ufe0f The system is busy right now. Please wait a moment and try again."
 
 
 async def _safe_respond(interaction: discord.Interaction, msg: str) -> None:

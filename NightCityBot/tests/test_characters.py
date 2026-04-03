@@ -326,7 +326,7 @@ class TestMigrateInventoryToCharacters:
             {"owner_id": "user1"},
             {"owner_id": "user2"},
         ])
-        mock_pool.acquire = MagicMock(side_effect=lambda: _make_conn_ctx())
+        mock_pool.acquire = MagicMock(side_effect=lambda **kw: _make_conn_ctx())
         mock_pool.fetchval = AsyncMock(return_value=0)
 
         async def _test():
@@ -355,7 +355,7 @@ class TestMigrateInventoryToCharacters:
         mock_pool.fetch = AsyncMock(return_value=[
             {"owner_id": "user1"},
         ])
-        mock_pool.acquire = MagicMock(return_value=mock_ctx)
+        mock_pool.acquire = MagicMock(side_effect=lambda **kw: mock_ctx)
         mock_pool.fetchval = AsyncMock(return_value=0)
 
         async def _test():
@@ -392,7 +392,7 @@ class TestMigrateInventoryToCharacters:
         mock_pool.fetch = AsyncMock(return_value=[
             {"owner_id": "user1"},
         ])
-        mock_pool.acquire = MagicMock(return_value=mock_ctx)
+        mock_pool.acquire = MagicMock(side_effect=lambda **kw: mock_ctx)
         mock_pool.fetchval = AsyncMock(return_value=0)
 
         async def _test():

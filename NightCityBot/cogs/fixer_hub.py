@@ -441,7 +441,7 @@ class WholesalerSubView(SafeView):
         await interaction.response.defer(ephemeral=True)
         await interaction.followup.send(
             "🔫 **Full gun restock** pulls from the master sheet and applies restock settings.\n"
-            "Run `!guns_wh_restock` in chat to trigger it.\n\n"
+            "Use the **Admin Hub** (`!admin`) → Restock to trigger it.\n\n"
             "To add individual lots manually, use the **Add Gun** button above.",
             ephemeral=True,
         )
@@ -830,6 +830,72 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
             f"❌ Character **{char_name}** is no longer active.", ephemeral=True
         )
         return
+    parts = [p.strip() for p in text.split(",")]
+    name = parts[0] if parts else ""
+    if not name:
+        await interaction.followup.send("❌ Item name is required.", ephemeral=True)
+        return
+    item_type = parts[1].lower() if len(parts) > 1 and parts[1] else "misc"
+    qty = 1
+    if len(parts) > 2:
+        try:
+            qty = int(parts[2])
+        except ValueError:
+            qty = 1
+    price = None
+    if len(parts) > 3:
+        try:
+            price = int(parts[3])
+        except ValueError:
+            pass
+    if qty < 1:
+        qty = 1
+    added = 0
+    now = datetime.now(timezone.utc).isoformat()
+    for _ in range(qty):
+        item_id = str(uuid.uuid4())
+        ok = await pi_add_item({
+            "item_id": item_id,
+            "owner_id": str(player.id),
+            "character_name": char_name,
+            "character_id": character_id,
+            "item_type": item_type,
+            "name": name,
+            "restriction": "basic",
+            "description": "",
+            "price_paid": price,
+            "seller_id": str(interaction.user.id),
+            "seller_name": interaction.user.display_name,
+            "acquired_at": now,
+        })
+        if ok:
+            added += 1
+            await ih_record_event(
+                item_id, "admin_add",
+                actor_id=str(interaction.user.id),
+                target_id=str(player.id),
+                price=price,
+                metadata={"item_name": name, "character": char_name, "item_type": item_type},
+            )
+    log_ch = await _audit_channel(cog.bot)
+    if log_ch:
+        embed = discord.Embed(
+            title="🔧 Fixer: Item Added",
+            color=discord.Color.orange(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Fixer", value=f"{interaction.user.mention}", inline=False)
+        embed.add_field(name="Player", value=f"{player.mention} — {char_name}", inline=False)
+        embed.add_field(name="Item", value=name, inline=True)
+        embed.add_field(name="Qty", value=str(added), inline=True)
+        embed.add_field(name="Type", value=item_type, inline=True)
+        embed.set_footer(text="NightCityBot Audit Log")
+        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+    await interaction.followup.send(
+        f"Added **{name}** ×{added} to {player.display_name}'s inventory ({char_name}).",
+        ephemeral=True,
+    )
+
 
 class PlayerAddItemDetailsModal(SafeModal, title="Add Item — Details"):
     name_input = discord.ui.TextInput(label="Item Name")

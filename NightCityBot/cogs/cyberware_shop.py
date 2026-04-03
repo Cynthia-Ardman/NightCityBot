@@ -1,10 +1,12 @@
 """Cyberware shop cog — Ripperdoc buy/sell marketplace.
 
-The legacy prefix commands (!cw_setsheet, !cw_catalog, !cw_add, !cw_remove,
-!cw_give, !cw_take, !cw_buy, !cw_inventory, !cw_sell, !cw_install, !cw_tx,
-!cw_wh_list, !cw_wh_restock, !cw_wh_add, !cw_wh_remove, !cw_wh_settings)
-have been removed.  All cyberware actions are now handled through the
-Ripperdoc Hub (!ripperdoc) and Fixer Hub (!fixer).
+Most legacy prefix commands (!cw_setsheet, !cw_catalog, !cw_add, !cw_remove,
+!cw_give, !cw_take, !cw_tx, !cw_wh_list, !cw_wh_restock, !cw_wh_add,
+!cw_wh_remove, !cw_wh_settings) have been removed.  Primary cyberware actions
+are now handled through the Ripperdoc Hub (!ripperdoc) and Fixer Hub (!fixer).
+
+!cw_buy, !cw_sell, !cw_install, and !cw_inventory are retained as fallbacks
+for cases exceeding the 25-item Discord dropdown limit.
 
 This cog is still loaded so that hub code can access the helper methods
 (inventory loading, catalog management, wholesale operations) via

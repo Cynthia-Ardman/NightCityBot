@@ -63,7 +63,7 @@ class FakePool:
         self._conn = FakeConnection(tables_data or {})
         self._conn.transaction = lambda: FakeTransaction()
 
-    def acquire(self):
+    def acquire(self, **kwargs):
         return self._conn
 
 

@@ -76,7 +76,7 @@ class _FakePool:
         self._rows = rows or []
         self._conn = _FakeConn(insert_result)
 
-    def acquire(self):
+    def acquire(self, **kwargs):
         return self._conn
 
     async def fetch(self, sql, *args):
@@ -93,7 +93,7 @@ class _FakePoolRerun:
         self._rows = rows or []
         self._conn = _FakeConnRerun()
 
-    def acquire(self):
+    def acquire(self, **kwargs):
         return self._conn
 
     async def fetch(self, sql, *args):

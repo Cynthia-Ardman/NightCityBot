@@ -164,16 +164,12 @@ Inventory is now owned by characters, not directly by Discord users. A Discord u
 ## Player Inventory System (new in Task 11)
 
 Tables: `player_inventory`, `pending_transfers`
-Cog: `NightCityBot/cogs/player_inventory.py`
+Cog: `NightCityBot/cogs/player_inventory.py` — helper methods and `TradeConfirmView` only; all commands removed in favor of hub commands.
 
-- `!my_inventory [@player] [page]` — view item inventory with row numbers
-- `!inv_give @target <row> "sender_char" ["receiver_char"]` — transfer item (no payment)
-- `!trade @buyer <row> <price> buyer_character` — sell item with DM confirmation (Accept/Decline buttons, 60s timeout); controlled/restricted blocked; DB failure → pending_transfers + alert to #nightcitybot-logs
-- `!inv_add @player <type> "name" <restriction> "desc" [price]` — admin add item
-- `!inv_remove @player <row>` — admin delete item
-- `!inv_reassign @player <row> new_character` — admin character reassignment
-
-Guns sold via `!guns_wh_sell` also write to `player_inventory` automatically.
+All inventory operations are handled through the interactive hubs:
+- `!player` — View Inventory, Trade Item, Sell to Store, Give Item
+- `!fixer` → Player sub-menu — Add Item, Remove Item, Reassign
+- `!admin` — Admin panel for inventory management
 
 ## Unified Shop System (Task #14)
 
@@ -195,8 +191,8 @@ Table: `item_history` (keyed by item UUID, stores event_type, actor_id, target_i
 ### DM Confirmation Flow
 All sell/trade operations with another player now send a DM to the buyer/patient with Accept/Decline buttons (60s timeout). Self-trades (same user, different characters) bypass DM confirmation.
 
-### Deprecation Notices
-Old commands (`!cw_buy`, `!cw_sell`, `!guns_wh_buy`, `!guns_wh_sell`) remain functional but docstrings now hint at the new hub commands.
+### Legacy Fallback Commands
+`!cw_buy`, `!cw_sell`, `!cw_install`, and `!cw_inventory` are retained as fallbacks for cases exceeding the 25-item Discord dropdown limit. All gun wholesaler prefix commands have been fully removed.
 
 ### Test Coverage
 - `NightCityBot/tests/test_unified_shop.py` — 56 tests covering all three new cogs, View interaction checks, button callbacks, DM confirm views, member resolution, log channels, timeouts, deprecation notices, cog registration
@@ -254,7 +250,12 @@ All hub commands (`!player`, `!fixer`, `!ripperdoc`, `!gunstore`, `!admin`, `!op
 - `@commands.cooldown(1, 5, BucketType.user)` — 5-second per-user cooldown
 
 ### Error Isolation (`utils/interaction_safety.py`)
-`SafeView` and `SafeModal` base classes provide `on_error` handlers that log the error and send an ephemeral "something went wrong" message — preventing one user's error from crashing the UI for others. All View/Modal classes across all hub cogs inherit from these.
+`SafeView` and `SafeModal` base classes provide `on_error` handlers that log the error and send an ephemeral "something went wrong" message — preventing one user's error from crashing the UI for others. All View/Modal classes across all hub cogs and utility modules inherit from these.
+
+### Inline Helpers (`utils/inline_helpers.py`)
+`collect_text_input(bot, channel_id, author_id)` — waits for a user's text message reply, auto-deletes it, supports cancel. Used by hub flows that replaced modals with inline text collection.
+`QtySelectView` — dropdown for quantity selection (1-25, capped at Discord limit).
+`PriceSelectView` — dropdown with preset prices + custom amount option.
 
 ### UnbelievaBoat Rate Limiting (`services/unbelievaboat.py`)
 - Retry attempts increased from 3→5

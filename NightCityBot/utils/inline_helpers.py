@@ -3,6 +3,8 @@ from typing import Optional
 
 import discord
 
+from NightCityBot.utils.interaction_safety import SafeView
+
 
 async def collect_text_input(bot, channel_id: int, author_id: int, *, timeout: int = 60) -> Optional[str]:
     def check(m: discord.Message) -> bool:
@@ -22,7 +24,7 @@ async def collect_text_input(bot, channel_id: int, author_id: int, *, timeout: i
     return text
 
 
-class QtySelectView(discord.ui.View):
+class QtySelectView(SafeView):
     def __init__(self, author_id: int, max_qty: int = 10):
         super().__init__(timeout=60)
         self.author_id = author_id
@@ -44,7 +46,7 @@ class QtySelectView(discord.ui.View):
         self.stop()
 
 
-class PriceSelectView(discord.ui.View):
+class PriceSelectView(SafeView):
     def __init__(self, author_id: int, bot, channel_id: int, *, allow_zero: bool = True):
         super().__init__(timeout=60)
         self.author_id = author_id

@@ -168,7 +168,7 @@ def _build_inventory_embed(
         description="\n".join(page_lines) if page_lines else "No items.",
         color=discord.Color.blue(),
     )
-    hint = f"Use `!my_inventory 2` to see page 2." if total_pages > 1 else ""
+    hint = "Use the page buttons to see more." if total_pages > 1 else ""
     embed.set_footer(
         text=f"{len(filtered)} total item(s) | Row numbers are used for Trade and Give."
         + (f" | {hint}" if hint else "")
@@ -1166,7 +1166,7 @@ class GiveSetupView(SafeView):
         self.stop()
 
 
-class _SenderCharSelectView(discord.ui.View):
+class _SenderCharSelectView(SafeView):
     def __init__(self, author_id: int, characters: list):
         super().__init__(timeout=60)
         self.author_id = author_id
