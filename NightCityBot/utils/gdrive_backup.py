@@ -2,6 +2,7 @@
 
 Authenticates with Google Drive using a service account and provides
 upload, download, list, and cleanup operations for backup files.
+Supports both regular Drive folders and Shared Drives.
 """
 
 import io
@@ -13,7 +14,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 GDRIVE_FOLDER_ID = os.getenv("GDRIVE_BACKUP_FOLDER_ID", "")
 BACKUP_RETENTION_DAYS = int(os.getenv("BACKUP_RETENTION_DAYS", "30"))
@@ -62,7 +63,12 @@ def upload_file(
 
     result = (
         service.files()
-        .create(body=file_metadata, media_body=media, fields="id,name,size,webViewLink")
+        .create(
+            body=file_metadata,
+            media_body=media,
+            fields="id,name,size,webViewLink",
+            supportsAllDrives=True,
+        )
         .execute()
     )
     logger.info("Uploaded %s to Google Drive (id=%s)", name, result.get("id"))
@@ -91,7 +97,12 @@ def upload_bytes(
 
     result = (
         service.files()
-        .create(body=file_metadata, media_body=media, fields="id,name,size,webViewLink")
+        .create(
+            body=file_metadata,
+            media_body=media,
+            fields="id,name,size,webViewLink",
+            supportsAllDrives=True,
+        )
         .execute()
     )
     logger.info("Uploaded %s to Google Drive (id=%s)", filename, result.get("id"))
@@ -113,6 +124,8 @@ def list_backups(folder_id: str = "", limit: int = 50) -> list[dict]:
             fields="files(id,name,size,createdTime,webViewLink)",
             orderBy="createdTime desc",
             pageSize=limit,
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
         )
         .execute()
     )
@@ -123,7 +136,7 @@ def download_backup(file_id: str) -> bytes:
     from googleapiclient.http import MediaIoBaseDownload
 
     service = _build_service()
-    request = service.files().get_media(fileId=file_id)
+    request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
     buffer = io.BytesIO()
     downloader = MediaIoBaseDownload(buffer, request)
 
@@ -137,7 +150,7 @@ def download_backup(file_id: str) -> bytes:
 
 def delete_file(file_id: str) -> None:
     service = _build_service()
-    service.files().delete(fileId=file_id).execute()
+    service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
     logger.info("Deleted Google Drive file id=%s", file_id)
 
 

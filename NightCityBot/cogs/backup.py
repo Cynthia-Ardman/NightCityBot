@@ -82,9 +82,18 @@ class Backup(commands.Cog):
         import gzip
         bundle_compressed = gzip.compress(bundle_json)
 
-        result = upload_bytes(bundle_compressed, filename)
+        try:
+            result = upload_bytes(bundle_compressed, filename)
+        except Exception as upload_err:
+            raise RuntimeError(f"Google Drive upload failed: {upload_err}") from upload_err
 
-        rotate_old_backups()
+        if result is None:
+            raise RuntimeError("Google Drive upload returned no result — check quota and permissions.")
+
+        try:
+            rotate_old_backups()
+        except Exception:
+            logger.warning("Backup rotation failed (non-fatal)", exc_info=True)
 
         self._last_backup_time = datetime.now(timezone.utc)
         self._last_backup_file = filename
@@ -104,11 +113,23 @@ class Backup(commands.Cog):
             "drive_link": result.get("webViewLink", ""),
         }
 
+    async def _reply(self, ctx, msg, **kwargs):
+        if msg is not None:
+            try:
+                await msg.edit(**kwargs)
+                return
+            except Exception:
+                logger.warning("msg.edit failed, falling back to ctx.send", exc_info=True)
+        await ctx.send(**kwargs)
+
     @commands.command(name="backup_now")
     @is_fixer()
     async def backup_now(self, ctx: commands.Context) -> None:
         """Trigger an immediate full database backup to Google Drive."""
-        msg = await ctx.send("⏳ Starting backup…")
+        try:
+            msg = await ctx.send("⏳ Starting backup…")
+        except Exception:
+            msg = None
         try:
             info = await self._run_backup()
             size_kb = info["size"] / 1024
@@ -129,7 +150,7 @@ class Backup(commands.Cog):
                 embed.add_field(
                     name="Drive Link", value=info["drive_link"], inline=False
                 )
-            await msg.edit(content=None, embed=embed)
+            await self._reply(ctx, msg, content=None, embed=embed)
             await self._audit_log(
                 f"💾 **Backup completed** by {ctx.author.mention}: "
                 f"{info['filename']} ({size_kb:.1f} KB, {info['tables']} tables, "
@@ -137,7 +158,7 @@ class Backup(commands.Cog):
             )
         except Exception as e:
             tb = traceback.format_exc()
-            await msg.edit(content=f"❌ Backup failed: {e}")
+            await self._reply(ctx, msg, content=f"❌ Backup failed: {e}")
             await self._audit_log(f"🔴 **Backup failed** (manual by {ctx.author.mention}): {e}")
             logger.error("Backup failed:\n%s", tb)
 
@@ -245,7 +266,10 @@ class Backup(commands.Cog):
             await ctx.send("❌ Restore cancelled.")
             return
 
-        msg = await ctx.send("⏳ Downloading and restoring backup…")
+        try:
+            msg = await ctx.send("⏳ Downloading and restoring backup…")
+        except Exception:
+            msg = None
         try:
             data = download_backup(backup_id)
             export_data = decompress_export(data)
@@ -265,14 +289,14 @@ class Backup(commands.Cog):
             )
             embed.add_field(name="Tables", value=str(len(imported)), inline=True)
             embed.add_field(name="Total Rows", value=str(total_rows), inline=True)
-            await msg.edit(content=None, embed=embed)
+            await self._reply(ctx, msg, content=None, embed=embed)
             await self._audit_log(
                 f"🔄 **Database restored** by {ctx.author.mention} "
                 f"from backup `{backup_id}` ({len(imported)} tables, {total_rows} rows)"
             )
         except Exception as e:
             tb = traceback.format_exc()
-            await msg.edit(content=f"❌ Restore failed: {e}")
+            await self._reply(ctx, msg, content=f"❌ Restore failed: {e}")
             await self._audit_log(
                 f"🔴 **Restore failed** by {ctx.author.mention}: {e}"
             )
