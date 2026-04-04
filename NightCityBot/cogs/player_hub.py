@@ -1190,6 +1190,14 @@ async def _process_trade(cog, interaction, buyer, group, buyer_character, price,
         except Exception:
             pass
 
+        live_item = await pi_get_item(item_id)
+        if live_item is None or str(live_item.get("owner_id")) != str(interaction.user.id):
+            await interaction.followup.send(
+                f"❌ **{item_name}** is no longer in your inventory. Trade cancelled.",
+                ephemeral=True,
+            )
+            return
+
     b_cash_deduct = 0
     b_bank_deduct = 0
 
@@ -2105,6 +2113,14 @@ async def _process_sell_to_store(cog, interaction, store_owner, group, seller_ch
         await dm_msg.edit(view=None)
     except Exception:
         pass
+
+    live_item = await pi_get_item(item_id)
+    if live_item is None or str(live_item.get("owner_id")) != str(interaction.user.id):
+        await interaction.followup.send(
+            f"❌ **{item_name}** is no longer in your inventory. Sale cancelled.",
+            ephemeral=True,
+        )
+        return
 
     inv_cog = cog.bot.cogs.get("PlayerInventory")
     b_cash_deduct = 0

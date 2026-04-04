@@ -1593,7 +1593,7 @@ class Economy(commands.Cog):
         """
         if not dry_run and self.rent_lock.locked():
             await ctx.send("⚠️ A rent collection is already in progress. Please wait.")
-            return RentResult()
+            return RentRunResult(charged=0, skipped=0, errors=0)
         async with self.rent_lock:
             return await self._run_rent_collection_inner(
                 ctx,
@@ -1651,14 +1651,6 @@ class Economy(commands.Cog):
                         "⚠️ Rent already collected this month. Use -force to override."
                     )
                     return
-        if not target_user and not dry_run:
-            ok = await rent_run_record(str(ctx.author))
-            if not ok:
-                await warn_db_failure(
-                    self.bot, "rent_run_record",
-                    f"initiated by {ctx.author} — rent run timestamp not persisted",
-                )
-
         members_to_process: List[discord.Member] = []
         for m in ctx.guild.members:
             if target_user and m.id == target_user.id:
@@ -1938,6 +1930,13 @@ class Economy(commands.Cog):
                     )
                 except Exception:
                     logger.warning("Suppressed exception", exc_info=True)
+        if not target_user and not dry_run:
+            ok = await rent_run_record(str(ctx.author))
+            if not ok:
+                await warn_db_failure(
+                    self.bot, "rent_run_record",
+                    f"initiated by {ctx.author} — rent run timestamp not persisted",
+                )
         return RentRunResult(charged=_charged, skipped=_skipped, errors=_errors)
 
     @commands.command(aliases=["collectrent"])

@@ -78,11 +78,13 @@ class PriceSelectView(SafeView):
             )
             text = await collect_text_input(self.bot, self.channel_id, self.author_id)
             if text is None:
+                self.stop()
                 return
             try:
                 self.result = int(text.replace(",", "").replace("$", ""))
             except ValueError:
                 await interaction.followup.send("❌ Invalid price.", ephemeral=True)
+                self.stop()
                 return
         else:
             self.result = int(val)

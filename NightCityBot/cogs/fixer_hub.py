@@ -979,13 +979,13 @@ class PlayerAddItemPickerView(SafeView):
         if self.selected_character is None:
             await interaction.response.send_message("Please select a character.", ephemeral=True)
             return
+        await interaction.response.defer(ephemeral=True)
         if not await ensure_character_active(self.selected_character["character_id"]):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ Character **{self.selected_character['name']}** is no longer active.",
                 ephemeral=True,
             )
             return
-        await interaction.response.defer(ephemeral=True)
         await interaction.followup.send(
             "📝 **Enter item details** in this format:\n"
             "`item name, type, quantity, price`\n"

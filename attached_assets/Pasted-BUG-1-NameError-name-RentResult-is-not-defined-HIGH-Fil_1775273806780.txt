@@ -1,0 +1,299 @@
+BUG 1 — NameError: name 'RentResult' is not defined [HIGH]
+File: economy.py line 1596 Class defined: RentRunResult (line 39) Code references: RentResult (line 1596) — does not exist
+
+What it does: This is the concurrent rent collection guard. When a second rent run is attempted while one is already in progress, the code tries to return RentResult() to gracefully exit. Since RentResult is not defined anywhere in the file (only RentRunResult exists), this throws a NameError.
+
+How to trigger: Admin A runs !collect_rent on a large guild (takes minutes). Admin B runs !collect_rent while it's still going, or the auto-scheduler fires during a manual run.
+
+Impact: Instead of the intended "⚠️ A rent collection is already in progress. Please wait." message, the user gets a generic error from the error handler. The guard effectively doesn't work — the NameError is raised before the return, so the function crashes, the rent_lock is never acquired by the second caller, and the lock is not re-entered (the first caller still holds it). So concurrent runs are still prevented by the lock, but the feedback is broken and the crash logs noise.
+
+Fix: Change RentResult() to RentRunResult(charged=0, skipped=0, errors=0).
+
+BUG 2 — PriceSelectView hangs 60 seconds on cancel or invalid input [MEDIUM]
+File: inline_helpers.py lines 80 and 86
+
+What it does: When a user picks "Custom amount..." from the price dropdown, the view awaits collect_text_input. If the user types cancel (returns None, line 80) or a non-numeric value (raises ValueError, caught at line 84, followup sent at line 85), the callback returns without calling self.stop(). The only self.stop() is at line 92, which is only reached on the success path.
+
+How to trigger: Any sell/trade flow that uses PriceSelectView. User picks "Custom amount...", then either:
+
+Types cancel
+Types something non-numeric like "five thousand"
+Waits 60s for the text input to time out
+Impact: The caller's await price_view.wait() blocks for the full view timeout (60 seconds) even though the user has already abandoned the input. During this time, the entire sell/trade flow is frozen. The user and the other party see no feedback. After 60s, price_view.result is None and the caller continues, typically exiting since there's no price.
+
+Fix: Add self.stop() before both return statements:
+
+if text is None:
+    self.stop()  # <-- add
+    return
+try:
+    self.result = int(text.replace(",", "").replace("$", ""))
+except ValueError:
+    await interaction.followup.send("❌ Invalid price.", ephemeral=True)
+    self.stop()  # <-- add
+    return
+BUG 3 — _process_trade: no item re-verification after DM confirmation wait [MEDIUM]
+File: player_hub.py
+
+Timeline of the flow:
+
+Line 1080: pi_get_item(item_id) — verifies seller owns the item. Pass.
+Line 1104: DM sent to buyer with Accept/Decline buttons.
+Line 1121: await confirm_view.wait() — blocks up to 60 seconds while buyer decides.
+Line 1138-1171: Money moves — buyer debited, seller credited. No second pi_get_item between steps 3 and 4.
+Line 1211: pi_update_owner — transfers item ownership.
+How to trigger: Player A initiates a trade of "Katana" to Player B for 
+5
+,
+000.
+W
+h
+i
+l
+e
+P
+l
+a
+y
+e
+r
+B
+i
+s
+r
+e
+v
+i
+e
+w
+i
+n
+g
+t
+h
+e
+D
+M
+(
+u
+p
+t
+o
+60
+s
+)
+,
+P
+l
+a
+y
+e
+r
+A
+s
+i
+m
+u
+l
+t
+a
+n
+e
+o
+u
+s
+l
+y
+g
+i
+v
+e
+s
+t
+h
+e
+K
+a
+t
+a
+n
+a
+t
+o
+P
+l
+a
+y
+e
+r
+C
+v
+i
+a
+t
+h
+e
+G
+i
+v
+e
+f
+l
+o
+w
+(
+w
+h
+i
+c
+h
+n
+o
+w
+h
+a
+s
+a
+s
+e
+p
+a
+r
+a
+t
+e
+D
+M
+c
+o
+n
+f
+i
+r
+m
++
+r
+e
+−
+v
+e
+r
+i
+f
+y
+,
+s
+o
+i
+t
+c
+o
+m
+p
+l
+e
+t
+e
+s
+c
+l
+e
+a
+n
+l
+y
+)
+.
+P
+l
+a
+y
+e
+r
+B
+c
+l
+i
+c
+k
+s
+A
+c
+c
+e
+p
+t
+.
+M
+o
+n
+e
+y
+m
+o
+v
+e
+s
+:
+5,000.WhilePlayerBisreviewingtheDM(upto60s),PlayerAsimultaneouslygivestheKatanatoPlayerCviatheGiveflow(whichnowhasaseparateDMconfirm+re−verify,soitcompletescleanly).PlayerBclicksAccept.Moneymoves:5,000 debited from B, $5,000 credited to A. Then pi_update_owner at line 1211 fails because the item now belongs to Player C (the old_owner_id guard rejects it).
+
+Impact: The money has already moved. The failure path at line 1215 creates a pt_create pending transfer and attempts refunds. The buyer refund restores the exact cash/bank split. The seller clawback uses {"bank": -price} (the known asymmetry). Both refund calls could individually fail, though that's handled by the pending transfer record. Net result: unnecessary debit→refund churn, admin notification, and user confusion — but no permanent data loss.
+
+Fix: Add pi_get_item re-check between line 1137 and line 1138:
+
+    # Re-verify ownership after DM wait
+    live_item = await pi_get_item(item_id)
+    if live_item is None or str(live_item.get("owner_id")) != str(interaction.user.id):
+        await interaction.followup.send(
+            f"❌ **{item_name}** is no longer in your inventory. Trade cancelled.",
+            ephemeral=True,
+        )
+        return
+BUG 4 — _process_sell_to_store: no item re-verification after DM confirmation wait [MEDIUM]
+File: player_hub.py
+
+Timeline:
+
+Line 1996: pi_get_item(item_id) — verifies seller owns the item.
+Line 2018: DM sent to store owner with Accept/Decline.
+Line 2036: await confirm_view.wait() — blocks up to 60 seconds.
+Line 2057-2091: Money moves. No second pi_get_item between steps 3 and 4.
+Line 2126+: pi_delete_item or inventory routing.
+How to trigger: Same race as Bug 3 — seller sells the item through a different flow during the DM wait.
+
+Impact: Same as Bug 3 — unnecessary debit→refund cycle with pending transfer fallback. pi_delete_item at line 2126+ will fail due to expected_owner_id guard, triggering the refund path.
+
+Fix: Same pattern — add pi_get_item re-check after line 2051.
+
+BUG 5 — Fixer Add Item continue_btn: async DB call before interaction response [LOW-MEDIUM]
+File: fixer_hub.py line 971
+
+What happens: When a Fixer clicks "Continue →" on the Add Item picker, ensure_character_active() (an async DB query) runs at line 971 before the interaction is deferred at line 977. Discord requires a response within 3 seconds. If the DB query takes longer (pool contention, slow query, network latency), the interaction silently fails with "This interaction failed" shown to the user.
+
+How to trigger: Fixer clicks Continue while the DB pool is busy (e.g., during a rent collection run that's holding many connections). The ensure_character_active query waits for a pool connection, exceeding the 3s Discord deadline.
+
+Impact: The user sees "This interaction failed." No data is corrupted — the flow simply never starts. Annoying but not dangerous.
+
+Fix: Move await interaction.response.defer(ephemeral=True) to line 965 (before any validation), then change the error responses at lines 966, 969, 972 from interaction.response.send_message to interaction.followup.send.
+
+Note: The player_select callback (line 909-925) has the same pattern — _resolve_user_select (potentially async fetch_member) + get_active_characters before the first response. However, _resolve_user_select usually hits the member cache (fast path), so this is lower risk.
+
+BUG 6 — Rent run sentinel recorded before any member is processed [LOW]
+File: economy.py line 1655
+
+What happens: rent_run_record is called at line 1655, before the member processing loop starts at line 1662+. If the bot crashes immediately after writing the sentinel (OOM, network outage, hosting restart), subsequent !collect_rent calls (without -force) see "Rent already collected this month" even though zero members were charged.
+
+How to trigger: Admin runs !collect_rent. Sentinel writes successfully. Bot crashes before processing any members (e.g., Replit restarts the container).
+
+Impact: Admin must know to use !collect_rent -force to override. The auto-rent scheduler uses a separate sentinel and is not affected. Low real-world risk since the admin gets the "already collected" message and can force it.
+
+Fix: Move rent_run_record to after the processing loop completes (near line 1885). Or accept the current behavior since -force exists.
+
+Summary
+#	Bug	Severity	Type	Can Cause Data Loss?
+1	RentResult NameError	High	Crash	No (lock still prevents concurrent runs)
+2	PriceSelectView 60s hang	Medium	UX freeze	No
+3	Trade: no re-verify after DM	Medium	Race condition	No (refund path works, just causes churn)
+4	Sell-to-Store: no re-verify after DM	Medium	Race condition	No (refund path works, just causes churn)
+5	Fixer Add Item: slow DB before defer	Low-Medium	Interaction timeout	No
+6	Rent sentinel before processing	Low	Logic ordering	No (workaround: -force)
