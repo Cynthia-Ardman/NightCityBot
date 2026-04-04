@@ -30,6 +30,7 @@ from NightCityBot.cogs.gunstore_hub import (
     _EmployeePickerView,
     _is_character_approved,
     _remove_character_approval,
+    _UnapproveCharacterView,
 )
 from NightCityBot.cogs.admin_shop import (
     AdminShopCog,
@@ -937,6 +938,93 @@ class TestCharacterApprovalHelpers:
         approved = [{"character_id": "c1", "user_id": 100, "character_name": "V"}]
         assert _remove_character_approval(approved, "c99") is False
         assert len(approved) == 1
+
+
+class TestUnapproveCharacterView:
+    def test_builds_options_from_approved_list(self):
+        async def run():
+            approved = [
+                {"character_id": "c1", "user_id": 100, "character_name": "V"},
+                {"character_id": "c2", "user_id": 200, "character_name": "Jackie"},
+            ]
+            cog = _make_gunstore_cog()
+            ctx = _ctx()
+            view = _UnapproveCharacterView(cog, ctx, approved, "s1")
+            selects = [c for c in view.children if isinstance(c, discord.ui.Select)]
+            assert len(selects) == 1
+            assert len(selects[0].options) == 2
+            assert selects[0].options[0].label == "V"
+            assert selects[0].options[1].label == "Jackie"
+            assert selects[0].options[0].value == "c1"
+        _run(run())
+
+    def test_builds_legacy_options(self):
+        async def run():
+            approved = [999]
+            cog = _make_gunstore_cog()
+            ctx = _ctx()
+            view = _UnapproveCharacterView(cog, ctx, approved, "s1")
+            selects = [c for c in view.children if isinstance(c, discord.ui.Select)]
+            assert len(selects) == 1
+            assert "legacy" in selects[0].options[0].label.lower()
+            assert selects[0].options[0].value == "legacy:999"
+        _run(run())
+
+    def test_unapprove_removes_character(self):
+        async def run():
+            approved_data = [{"character_id": "c1", "user_id": 100, "character_name": "V"}]
+            store_data = {"controlled_buyers": list(approved_data)}
+            guns_cog = MagicMock()
+            guns_cog.lock = asyncio.Lock()
+            guns_cog._load_state = AsyncMock(return_value={"stores": {"s1": store_data}})
+            guns_cog._save_state = AsyncMock()
+            cog = _make_gunstore_cog()
+            cog.bot.cogs = {"GunsShopCog": guns_cog}
+            ctx = _ctx()
+            view = _UnapproveCharacterView(cog, ctx, approved_data, "s1")
+            inter = _make_interaction()
+            inter.data = {"values": ["c1"]}
+            selects = [c for c in view.children if isinstance(c, discord.ui.Select)]
+            await selects[0].callback(inter)
+            guns_cog._save_state.assert_called_once()
+            assert len(store_data["controlled_buyers"]) == 0
+
+        _run(run())
+
+
+class TestSafeViewTimeout:
+    def test_on_timeout_deletes_message(self):
+        async def run():
+            from NightCityBot.utils.interaction_safety import SafeView
+            view = SafeView(timeout=1)
+            msg = MagicMock()
+            msg.delete = AsyncMock()
+            view.message = msg
+            await view.on_timeout()
+            msg.delete.assert_called_once()
+
+        _run(run())
+
+    def test_on_timeout_edits_if_delete_fails(self):
+        async def run():
+            from NightCityBot.utils.interaction_safety import SafeView
+            view = SafeView(timeout=1)
+            msg = MagicMock()
+            msg.delete = AsyncMock(side_effect=discord.HTTPException(MagicMock(), "fail"))
+            msg.edit = AsyncMock()
+            view.message = msg
+            await view.on_timeout()
+            msg.edit.assert_called_once()
+
+        _run(run())
+
+    def test_on_timeout_no_message_is_noop(self):
+        async def run():
+            from NightCityBot.utils.interaction_safety import SafeView
+            view = SafeView(timeout=1)
+            await view.on_timeout()
+
+        _run(run())
 
 
 class TestGunSellUUIDContinuity:

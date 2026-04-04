@@ -1183,6 +1183,83 @@ class _ApproveBuyerView(SafeView):
         self.stop()
 
 
+class _UnapproveCharacterView(SafeView):
+    def __init__(self, cog: "GunstoreHub", ctx: commands.Context, approved: list, store_id: str):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.ctx = ctx
+        self.store_id = store_id
+        self.approved = approved
+
+        options = []
+        for entry in approved[:25]:
+            if isinstance(entry, dict):
+                cname = entry.get("character_name", "Unknown")
+                uid = entry.get("user_id", 0)
+                cid = entry.get("character_id", "")
+                options.append(discord.SelectOption(
+                    label=cname[:100],
+                    description=f"Player ID: {uid}",
+                    value=cid,
+                ))
+            else:
+                options.append(discord.SelectOption(
+                    label=f"Player {entry} (legacy)",
+                    value=f"legacy:{entry}",
+                ))
+        char_select = discord.ui.Select(
+            placeholder="Choose character to unapprove…",
+            options=options,
+            row=0,
+        )
+        char_select.callback = self._on_select
+        self.add_item(char_select)
+
+    async def _on_select(self, interaction: discord.Interaction):
+        value = interaction.data["values"][0]
+
+        guns_cog = self.cog._guns_cog()
+        if not guns_cog:
+            await interaction.response.send_message("Gun shop system unavailable.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        async with guns_cog.lock:
+            state = await guns_cog._load_state()
+            store = state.get("stores", {}).get(self.store_id)
+            if not store:
+                await interaction.followup.send("No store found.", ephemeral=True)
+                self.stop()
+                return
+            approved = store.setdefault("controlled_buyers", [])
+            if value.startswith("legacy:"):
+                uid = int(value.split(":", 1)[1])
+                if uid in approved:
+                    approved.remove(uid)
+                    label = f"Player <@{uid}>"
+                else:
+                    await interaction.followup.send("That entry is no longer on your list.", ephemeral=True)
+                    self.stop()
+                    return
+            else:
+                entry_name = None
+                for e in approved:
+                    if isinstance(e, dict) and e.get("character_id") == value:
+                        entry_name = e.get("character_name", "Unknown")
+                        break
+                if not _remove_character_approval(approved, value):
+                    await interaction.followup.send("That character is no longer on your list.", ephemeral=True)
+                    self.stop()
+                    return
+                label = f"**{entry_name}**"
+            await guns_cog._save_state(state)
+
+        await interaction.followup.send(
+            f"{label} removed from your controlled-buyer list.", ephemeral=True
+        )
+        self.stop()
+
+
 class _ManageEmployeesView(SafeView):
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context):
         super().__init__(timeout=60)
@@ -1444,16 +1521,34 @@ class _ManageBuyersView(SafeView):
         ctx = PanelContext(interaction)
         view = _ApproveBuyerView(cog, ctx, approve=True)
         await interaction.response.send_message(
-            "📝 **Select a buyer to approve:**", view=view, ephemeral=True
+            "📝 **Select a player to approve:**", view=view, ephemeral=True
         )
+        view.message = await interaction.original_response()
 
     @discord.ui.button(label="Unapprove Buyer", style=discord.ButtonStyle.danger, emoji="🚫", row=0)
     async def unapprove_buyer(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("GunstoreHub")
+        guns_cog = cog._guns_cog() if cog else None
+        if not guns_cog:
+            await interaction.response.send_message("Gun shop system unavailable.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        state = await guns_cog._load_state()
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        guild = interaction.guild
+        if member and _is_employee_member(member) and not _is_store_owner_member(member):
+            store_id, store = _find_employee_store(state, guild.id if guild else 0, member.id)
+        else:
+            store_id = guns_cog._store_id(guild.id if guild else 0, interaction.user.id)
+            store = state.get("stores", {}).get(store_id)
+        approved = store.get("controlled_buyers", []) if store else []
+        if not approved:
+            await interaction.followup.send("Your approved-buyer list is empty — nothing to remove.", ephemeral=True)
+            return
         ctx = PanelContext(interaction)
-        view = _ApproveBuyerView(cog, ctx, approve=False)
-        await interaction.response.send_message(
-            "📝 **Select a buyer to remove from your approved list:**", view=view, ephemeral=True
+        view = _UnapproveCharacterView(cog, ctx, approved, store_id)
+        view.message = await interaction.followup.send(
+            "🚫 **Select a character to remove from your approved list:**", view=view, ephemeral=True, wait=True
         )
 
     @discord.ui.button(label="Approved Buyers", style=discord.ButtonStyle.secondary, emoji="📋", row=0)

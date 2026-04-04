@@ -60,3 +60,17 @@ async def view_on_error(
 class SafeView(discord.ui.View):
     async def on_error(self, interaction, error, item):
         await view_on_error(self, interaction, error, item)
+
+    async def on_timeout(self) -> None:
+        msg = getattr(self, "message", None)
+        if msg is None:
+            return
+        try:
+            await msg.delete()
+        except discord.NotFound:
+            pass
+        except discord.HTTPException:
+            try:
+                await msg.edit(content="⏰ This interaction has timed out.", view=None)
+            except Exception:
+                pass
