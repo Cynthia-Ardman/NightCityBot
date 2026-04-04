@@ -229,6 +229,8 @@ class CyberwareShop(commands.Cog):
                 "lot_id": f"cwlot-{stamp}-{uuid.uuid4().hex[:6]}",
                 "item_name": item["name"],
                 "unit_cost": item["price"],
+                "cwp": item.get("cwp", ""),
+                "slot": item.get("slot", ""),
                 "qty_available": rng.randint(qty_min, qty_max),
                 "created_at": self._now_iso(),
             }

@@ -566,7 +566,7 @@ class TestPlayerPickerViews:
             await _process_fixer_add_item(
                 cog, inter, member,
                 {"character_id": "char-1", "name": "V"},
-                "Katana, gun, 2, 3000",
+                "Katana, gun, 2, 0, basic, high, power",
             )
             assert mock_add.call_count == 2
             assert "Katana" in inter.followup.send.call_args[0][0]
@@ -740,7 +740,7 @@ class TestStorePickerViews:
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
             inter = _make_interaction()
-            await _process_store_add_gun(cog, inter, owner, "TestGun, 5, 1000, basic")
+            await _process_store_add_gun(cog, inter, owner, "TestGun, 5, 0, basic")
             guns_cog._save_state.assert_called_once()
             assert "TestGun" in inter.followup.send.call_args[0][0]
         _run(_test())
@@ -756,7 +756,7 @@ class TestStorePickerViews:
             cw_cog._save_inventory = AsyncMock(return_value=True)
             cog.bot.cogs["CyberwareShop"] = cw_cog
             inter = _make_interaction()
-            await _process_store_add_cw(cog, inter, owner, "Kiroshi Optics, 3, 8000")
+            await _process_store_add_cw(cog, inter, owner, "Kiroshi Optics, 3, 0")
             cw_cog._save_inventory.assert_called_once()
             saved_inv = cw_cog._save_inventory.call_args[0][1]
             assert len(saved_inv) == 3

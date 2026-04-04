@@ -98,14 +98,19 @@ def parse_cyberware_sheet(xlsx_path: Path | str) -> list[dict[str, Any]]:
         ["description", "desc", "effect", "effects", "details", "notes", "ability", "abilities"],
         -1,
     )
+    slot_idx = _find_col(
+        ["slot", "body slot", "body location", "location"],
+        -1,
+    )
 
     logger.info(
-        "parse_cyberware_sheet: headers=%s | name_col=%d (%s) | price_col=%d (%s) | cwp_col=%d | desc_col=%d",
+        "parse_cyberware_sheet: headers=%s | name_col=%d (%s) | price_col=%d (%s) | cwp_col=%d | desc_col=%d | slot_col=%d",
         header,
         name_idx, header[name_idx] if name_idx < len(header) else "?",
         price_idx, header[price_idx] if price_idx < len(header) else "?",
         cwp_idx,
         desc_idx,
+        slot_idx,
     )
 
     items: list[dict[str, Any]] = []
@@ -133,7 +138,11 @@ def parse_cyberware_sheet(xlsx_path: Path | str) -> list[dict[str, Any]]:
         if desc_idx >= 0 and desc_idx < len(row) and row[desc_idx] is not None:
             description = str(row[desc_idx]).strip()
 
-        items.append({"name": item_name, "price": price, "cwp": cwp, "description": description})
+        slot = ""
+        if slot_idx >= 0 and slot_idx < len(row) and row[slot_idx] is not None:
+            slot = str(row[slot_idx]).strip()
+
+        items.append({"name": item_name, "price": price, "cwp": cwp, "description": description, "slot": slot})
 
     wb.close()
     return items

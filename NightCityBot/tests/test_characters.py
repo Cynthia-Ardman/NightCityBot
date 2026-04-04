@@ -466,7 +466,8 @@ class TestPiAddItemCharacterId:
                 })
             assert result is True
             call_args = mock_pool.execute.call_args
-            assert call_args[0][-1] == "char-1"
+            positional = call_args[0]
+            assert positional[12] == "char-1"
 
         _run(_test())
 
@@ -484,7 +485,8 @@ class TestPiAddItemCharacterId:
                 })
             assert result is True
             call_args = mock_pool.execute.call_args
-            assert call_args[0][-1] is None
+            positional = call_args[0]
+            assert positional[12] is None
 
         _run(_test())
 

@@ -1004,13 +1004,14 @@ class PlayerAddItemPickerView(SafeView):
             return
         await interaction.followup.send(
             "📝 **Enter item details** in this format:\n"
-            "`item name, type, quantity, price`\n"
-            "Example: `Militech Pistol, gun, 1, 5000`\n"
-            "Available types:\n"
-            "• **gun** — firearms and ranged weapons\n"
-            "• **cyberware** — implants and cybernetic augmentations\n"
-            "• **gear** — equipment, armor, and accessories\n"
-            "• **misc** — anything else (default)\n"
+            "`item name, type, quantity, cost, restriction`\n\n"
+            "**For guns:** `name, gun, qty, cost, restriction, power_level, type`\n"
+            "Example: `Militech Pistol, gun, 1, 5000, basic, high, power`\n"
+            "power_level: low/medium/high — type: power/smart/tech\n\n"
+            "**For cyberware:** `name, cyberware, qty, cost, restriction, cwp, slot`\n"
+            "Example: `Kerenzikov, cyberware, 1, 3000, basic, 14, Neural`\n\n"
+            "**For other items:** `name, type, qty, cost`\n"
+            "Available types: **gun**, **cyberware**, **gear**, **misc** (default)\n"
             "Type and price are optional (defaults: `misc`, no price). Type `cancel` to abort.",
             ephemeral=True,
         )
@@ -1022,6 +1023,52 @@ class PlayerAddItemPickerView(SafeView):
         await _process_fixer_add_item(
             self.cog, interaction, self.selected_player, self.selected_character, text
         )
+        self.stop()
+
+
+VALID_GUN_POWER_LEVELS = {"low", "medium", "high"}
+VALID_GUN_TYPES = {"power", "smart", "tech"}
+VALID_CW_SLOTS = {
+    "skeleton & torso musculature",
+    "arms & arm attachments",
+    "miscellaneous",
+    "integumentary system",
+    "neural",
+    "universal muscular (arms/legs/tail)",
+    "hands & feet",
+    "ocular system",
+    "legs & mobility",
+    "auditory system",
+    "circulatory & immune systems",
+}
+
+
+class _ConfirmItemView(SafeView):
+    def __init__(self, target_user_id: int):
+        super().__init__(timeout=300)
+        self.target_user_id = target_user_id
+        self.result: Optional[bool] = None
+
+    @discord.ui.button(label="Approve", style=discord.ButtonStyle.success, emoji="✅")
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.target_user_id:
+            await interaction.response.send_message("This isn't for you.", ephemeral=True)
+            return
+        self.result = True
+        self.stop()
+        await interaction.response.edit_message(content="✅ **Approved** — processing…", view=None)
+
+    @discord.ui.button(label="Deny", style=discord.ButtonStyle.danger, emoji="❌")
+    async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.target_user_id:
+            await interaction.response.send_message("This isn't for you.", ephemeral=True)
+            return
+        self.result = False
+        self.stop()
+        await interaction.response.edit_message(content="❌ **Denied** — transaction cancelled.", view=None)
+
+    async def on_timeout(self):
+        self.result = None
         self.stop()
 
 
@@ -1058,8 +1105,100 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
             price = int(parts[3])
         except ValueError:
             pass
+    restriction = "basic"
+    if len(parts) > 4 and parts[4]:
+        r = parts[4].strip().lower()
+        if r in ("basic", "controlled", "restricted"):
+            restriction = r
     if qty < 1:
         qty = 1
+
+    power_level = None
+    weapon_subtype = None
+    cwp_val = None
+    slot_val = None
+
+    if item_type == "gun":
+        if len(parts) < 7:
+            await interaction.followup.send(
+                "❌ Gun items require: `name, gun, quantity, cost, restriction, power_level, type`\n"
+                "power_level: low/medium/high — type: power/smart/tech",
+                ephemeral=True,
+            )
+            return
+        pl_raw = parts[5].strip().lower()
+        type_raw = parts[6].strip().lower()
+        if pl_raw not in VALID_GUN_POWER_LEVELS:
+            await interaction.followup.send(
+                f"❌ Invalid power_level `{pl_raw}`. Must be one of: low, medium, high.",
+                ephemeral=True,
+            )
+            return
+        if type_raw not in VALID_GUN_TYPES:
+            await interaction.followup.send(
+                f"❌ Invalid gun type `{type_raw}`. Must be one of: power, smart, tech.",
+                ephemeral=True,
+            )
+            return
+        power_level = pl_raw
+        weapon_subtype = type_raw
+
+    elif item_type == "cyberware":
+        if len(parts) < 7:
+            await interaction.followup.send(
+                "❌ Cyberware items require: `name, cyberware, quantity, cost, restriction, cwp, slot`\n"
+                "cwp: integer — slot: one of the valid body locations",
+                ephemeral=True,
+            )
+            return
+        try:
+            cwp_val = str(int(parts[5].strip()))
+        except ValueError:
+            await interaction.followup.send(
+                f"❌ Invalid CWP `{parts[5].strip()}`. Must be an integer.",
+                ephemeral=True,
+            )
+            return
+        slot_raw = parts[6].strip().lower()
+        if slot_raw not in VALID_CW_SLOTS:
+            await interaction.followup.send(
+                f"❌ Invalid slot `{parts[6].strip()}`. Valid slots:\n"
+                + "\n".join(f"• {s.title()}" for s in sorted(VALID_CW_SLOTS)),
+                ephemeral=True,
+            )
+            return
+        slot_val = parts[6].strip()
+
+    if price is not None and price > 0:
+        confirm_view = _ConfirmItemView(target_user_id=player.id)
+        confirm_msg = await interaction.followup.send(
+            f"💰 {player.mention}, a Fixer wants to add **{name}** ×{qty} to your inventory "
+            f"for **${price:,}**. Do you approve?",
+            view=confirm_view,
+            allowed_mentions=discord.AllowedMentions(users=[player]),
+        )
+        await confirm_view.wait()
+        if confirm_view.result is None:
+            try:
+                await confirm_msg.edit(content="⏰ Confirmation timed out — transaction cancelled.", view=None)
+            except Exception:
+                pass
+            await interaction.followup.send("⏰ Player did not respond in time. Item not added.", ephemeral=True)
+            return
+        if confirm_view.result is False:
+            await interaction.followup.send("❌ Player denied the transaction. Item not added.", ephemeral=True)
+            return
+        ub = getattr(cog.bot, "unbelievaboat", None)
+        if ub is None:
+            await interaction.followup.send("❌ Economy system unavailable.", ephemeral=True)
+            return
+        ok_deduct = await ub.update_balance(
+            player.id, {"cash": -price * qty}, reason=f"Fixer add-item: {name} x{qty}"
+        )
+        if not ok_deduct:
+            await interaction.followup.send("❌ Failed to deduct funds. Item not added.", ephemeral=True)
+            return
+
     added = 0
     now = datetime.now(timezone.utc).isoformat()
     for _ in range(qty):
@@ -1071,22 +1210,42 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
             "character_id": character_id,
             "item_type": item_type,
             "name": name,
-            "restriction": "basic",
+            "restriction": restriction,
             "description": "",
             "price_paid": price,
             "seller_id": str(interaction.user.id),
             "seller_name": interaction.user.display_name,
             "acquired_at": now,
+            "power_level": power_level,
+            "weapon_subtype": weapon_subtype,
+            "cwp": cwp_val,
+            "slot": slot_val,
         })
         if ok:
             added += 1
+            meta = {"item_name": name, "character": char_name, "item_type": item_type}
+            if power_level:
+                meta["power_level"] = power_level
+            if weapon_subtype:
+                meta["weapon_subtype"] = weapon_subtype
+            if cwp_val:
+                meta["cwp"] = cwp_val
+            if slot_val:
+                meta["slot"] = slot_val
             await ih_record_event(
                 item_id, "admin_add",
                 actor_id=str(interaction.user.id),
                 target_id=str(player.id),
                 price=price,
-                metadata={"item_name": name, "character": char_name, "item_type": item_type},
+                metadata=meta,
             )
+    if added < qty and price is not None and price > 0:
+        logger.error(
+            "CRITICAL: Deducted %d from user %s but only added %d/%d items '%s'. "
+            "Manual reconciliation may be needed.",
+            price * qty, player.id, added, qty, name,
+        )
+
     log_ch = await _audit_channel(cog.bot)
     if log_ch:
         embed = discord.Embed(
@@ -1099,12 +1258,35 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
         embed.add_field(name="Item", value=name, inline=True)
         embed.add_field(name="Qty", value=str(added), inline=True)
         embed.add_field(name="Type", value=item_type, inline=True)
+        if price is not None and price > 0:
+            embed.add_field(name="Cost", value=f"${price:,}", inline=True)
+        if power_level:
+            embed.add_field(name="Power Level", value=power_level.title(), inline=True)
+        if weapon_subtype:
+            embed.add_field(name="Gun Type", value=weapon_subtype.title(), inline=True)
+        if cwp_val:
+            embed.add_field(name="CWP", value=cwp_val, inline=True)
+        if slot_val:
+            embed.add_field(name="Slot", value=slot_val.title(), inline=True)
+        if added < qty and price is not None and price > 0:
+            embed.add_field(
+                name="⚠️ Partial Failure",
+                value=f"Only {added}/{qty} items added after payment. Manual review needed.",
+                inline=False,
+            )
         embed.set_footer(text="NightCityBot Audit Log")
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
-    await interaction.followup.send(
-        f"Added **{name}** ×{added} to {player.display_name}'s inventory ({char_name}).",
-        ephemeral=True,
-    )
+    if added < qty and price is not None and price > 0:
+        await interaction.followup.send(
+            f"⚠️ Added **{name}** ×{added}/{qty} to {player.display_name}'s inventory ({char_name}). "
+            f"Payment was deducted but not all items were saved. Contact an admin for reconciliation.",
+            ephemeral=True,
+        )
+    else:
+        await interaction.followup.send(
+            f"Added **{name}** ×{added} to {player.display_name}'s inventory ({char_name}).",
+            ephemeral=True,
+        )
 
 
 class PlayerRemoveItemView(SafeView):
@@ -1891,6 +2073,36 @@ async def _process_store_add_gun(cog, interaction, owner, text):
                 "❌ Invalid restriction. Must be `basic`, `controlled`, or `restricted`. Try again.",
                 ephemeral=True,
             )
+
+    if cost > 0:
+        confirm_view = _ConfirmItemView(target_user_id=owner.id)
+        confirm_msg = await interaction.followup.send(
+            f"💰 {owner.mention}, a Fixer wants to add **{gun_name}** ×{qty} at ${cost:,} to your store. Approve?",
+            view=confirm_view,
+            allowed_mentions=discord.AllowedMentions(users=[owner]),
+        )
+        await confirm_view.wait()
+        if confirm_view.result is None:
+            try:
+                await confirm_msg.edit(content="⏰ Confirmation timed out — cancelled.", view=None)
+            except Exception:
+                pass
+            await interaction.followup.send("⏰ Store owner did not respond. Item not added.", ephemeral=True)
+            return
+        if confirm_view.result is False:
+            await interaction.followup.send("❌ Store owner denied. Item not added.", ephemeral=True)
+            return
+        ub = getattr(cog.bot, "unbelievaboat", None)
+        if ub is None:
+            await interaction.followup.send("❌ Economy system unavailable.", ephemeral=True)
+            return
+        ok_deduct = await ub.update_balance(
+            owner.id, {"cash": -cost * qty}, reason=f"Fixer store-add gun: {gun_name} x{qty}"
+        )
+        if not ok_deduct:
+            await interaction.followup.send("❌ Failed to deduct funds. Item not added.", ephemeral=True)
+            return
+
     async with guns_cog.lock:
         state = await guns_cog._load_state()
         store_id = guns_cog._store_id(guild.id, owner.id)
@@ -1935,6 +2147,36 @@ async def _process_store_add_cw(cog, interaction, owner, text):
     if qty < 1 or cost < 0:
         await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
         return
+
+    if cost > 0:
+        confirm_view = _ConfirmItemView(target_user_id=owner.id)
+        confirm_msg = await interaction.followup.send(
+            f"💰 {owner.mention}, a Fixer wants to add **{item_name}** ×{qty} at ${cost:,} to your Ripperdoc store. Approve?",
+            view=confirm_view,
+            allowed_mentions=discord.AllowedMentions(users=[owner]),
+        )
+        await confirm_view.wait()
+        if confirm_view.result is None:
+            try:
+                await confirm_msg.edit(content="⏰ Confirmation timed out — cancelled.", view=None)
+            except Exception:
+                pass
+            await interaction.followup.send("⏰ Store owner did not respond. Item not added.", ephemeral=True)
+            return
+        if confirm_view.result is False:
+            await interaction.followup.send("❌ Store owner denied. Item not added.", ephemeral=True)
+            return
+        ub = getattr(cog.bot, "unbelievaboat", None)
+        if ub is None:
+            await interaction.followup.send("❌ Economy system unavailable.", ephemeral=True)
+            return
+        ok_deduct = await ub.update_balance(
+            owner.id, {"cash": -cost * qty}, reason=f"Fixer store-add cyberware: {item_name} x{qty}"
+        )
+        if not ok_deduct:
+            await interaction.followup.send("❌ Failed to deduct funds. Item not added.", ephemeral=True)
+            return
+
     async with cw_cog._locks.acquire(str(owner.id)):
         inventory = await cw_cog._load_inventory(owner.id)
         for _ in range(qty):

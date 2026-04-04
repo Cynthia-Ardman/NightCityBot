@@ -394,6 +394,10 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
             ADD COLUMN IF NOT EXISTS cwp         TEXT NOT NULL DEFAULT '',
             ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''
         """,
+        """
+        ALTER TABLE cyberware_catalog
+            ADD COLUMN IF NOT EXISTS slot TEXT NOT NULL DEFAULT ''
+        """,
         # ── Gun catalog (editable master gun list + wholesale qty) ─────────────
         """
         CREATE TABLE IF NOT EXISTS gun_catalog (
@@ -408,6 +412,10 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
             effectiveness_raw TEXT NOT NULL DEFAULT '',
             updated_at       TIMESTAMPTZ DEFAULT NOW()
         )
+        """,
+        """
+        ALTER TABLE gun_catalog
+            ADD COLUMN IF NOT EXISTS gun_category TEXT NOT NULL DEFAULT ''
         """,
         # ── Characters ─────────────────────────────────────────────────────────
         """
@@ -462,6 +470,13 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         """
         ALTER TABLE player_inventory
             ADD COLUMN IF NOT EXISTS character_id TEXT
+        """,
+        """
+        ALTER TABLE player_inventory
+            ADD COLUMN IF NOT EXISTS power_level TEXT,
+            ADD COLUMN IF NOT EXISTS weapon_subtype TEXT,
+            ADD COLUMN IF NOT EXISTS cwp TEXT,
+            ADD COLUMN IF NOT EXISTS slot TEXT
         """,
         """
         CREATE INDEX IF NOT EXISTS idx_player_inventory_owner
@@ -2544,7 +2559,7 @@ async def cw_catalog_get_all() -> list[dict]:
     try:
         pool = await get_pool()
         rows = await pool.fetch(
-            "SELECT name, price, cwp, description FROM cyberware_catalog ORDER BY name"
+            "SELECT name, price, cwp, description, slot FROM cyberware_catalog ORDER BY name"
         )
         return [
             {
@@ -2552,6 +2567,7 @@ async def cw_catalog_get_all() -> list[dict]:
                 "price": row["price"],
                 "cwp": row["cwp"] or "",
                 "description": row["description"] or "",
+                "slot": row["slot"] or "",
             }
             for row in rows
         ]
@@ -2581,19 +2597,21 @@ async def cw_catalog_upsert_many(items: list[dict]) -> bool:
                         price = int(item.get("price", 0))
                         cwp = str(item.get("cwp", "") or "").strip()
                         description = str(item.get("description", "") or "").strip()
+                        slot = str(item.get("slot", "") or "").strip()
                         if not name:
                             continue
                         await conn.execute(
                             """
-                            INSERT INTO cyberware_catalog (name, price, cwp, description, updated_at)
-                            VALUES ($1, $2, $3, $4, NOW())
+                            INSERT INTO cyberware_catalog (name, price, cwp, description, slot, updated_at)
+                            VALUES ($1, $2, $3, $4, $5, NOW())
                             ON CONFLICT (name) DO UPDATE
                                 SET price = EXCLUDED.price,
                                     cwp = EXCLUDED.cwp,
                                     description = EXCLUDED.description,
+                                    slot = EXCLUDED.slot,
                                     updated_at = NOW()
                             """,
-                            name, price, cwp, description,
+                            name, price, cwp, description, slot,
                         )
 
         await _with_retry(_do, label="cw_catalog_upsert_many")
@@ -2610,6 +2628,7 @@ async def cw_catalog_upsert_one(item: dict) -> bool:
         price = int(item.get("price", 0))
         cwp = str(item.get("cwp", "") or "").strip()
         description = str(item.get("description", "") or "").strip()
+        slot = str(item.get("slot", "") or "").strip()
         if not name:
             return False
         pool = await get_pool()
@@ -2618,15 +2637,16 @@ async def cw_catalog_upsert_one(item: dict) -> bool:
             async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                 await conn.execute(
                     """
-                    INSERT INTO cyberware_catalog (name, price, cwp, description, updated_at)
-                    VALUES ($1, $2, $3, $4, NOW())
+                    INSERT INTO cyberware_catalog (name, price, cwp, description, slot, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, NOW())
                     ON CONFLICT (name) DO UPDATE
                         SET price = EXCLUDED.price,
                             cwp = EXCLUDED.cwp,
                             description = EXCLUDED.description,
+                            slot = EXCLUDED.slot,
                             updated_at = NOW()
                     """,
-                    name, price, cwp, description,
+                    name, price, cwp, description, slot,
                 )
 
         await _with_retry(_do, label="cw_catalog_upsert_one")
@@ -2672,7 +2692,7 @@ async def gun_catalog_get_all() -> list[dict]:
         rows = await pool.fetch(
             """
             SELECT gun_name, gun_level, price, qty_available,
-                   restriction, status, weapon_type, effectiveness_raw
+                   restriction, status, weapon_type, effectiveness_raw, gun_category
             FROM gun_catalog
             ORDER BY gun_name
             """
@@ -2707,8 +2727,8 @@ async def gun_catalog_upsert_many(guns: list[dict]) -> bool:
                             INSERT INTO gun_catalog
                                 (gun_name, gun_level, price, qty_available,
                                  restriction, status, weapon_type, effectiveness_raw,
-                                 updated_at)
-                            VALUES ($1, $2, $3, 0, $4, $5, $6, $7, NOW())
+                                 gun_category, updated_at)
+                            VALUES ($1, $2, $3, 0, $4, $5, $6, $7, $8, NOW())
                             ON CONFLICT (gun_name) DO UPDATE
                                 SET gun_level        = EXCLUDED.gun_level,
                                     price            = EXCLUDED.price,
@@ -2716,6 +2736,7 @@ async def gun_catalog_upsert_many(guns: list[dict]) -> bool:
                                     status           = EXCLUDED.status,
                                     weapon_type      = EXCLUDED.weapon_type,
                                     effectiveness_raw = EXCLUDED.effectiveness_raw,
+                                    gun_category     = EXCLUDED.gun_category,
                                     updated_at       = NOW()
                             """,
                             name,
@@ -2725,6 +2746,7 @@ async def gun_catalog_upsert_many(guns: list[dict]) -> bool:
                             str(gun.get("status", "live")),
                             str(gun.get("weapon_type", "")),
                             str(gun.get("effectiveness_raw", "")),
+                            str(gun.get("gun_category", "") or ""),
                         )
 
         await _with_retry(_do, label="gun_catalog_upsert_many")
@@ -2820,15 +2842,19 @@ async def pi_add_item(item: dict) -> bool:
             except Exception:
                 acq = None
         char_id = item.get("character_id")
+        power_level = item.get("power_level")
+        weapon_subtype = item.get("weapon_subtype")
+        cwp = item.get("cwp")
+        slot = item.get("slot")
         status: str = await _with_retry(
             lambda: pool.execute(
                 """
                 INSERT INTO player_inventory
                     (item_id, owner_id, character_name, item_type, name, restriction,
                      description, price_paid, seller_id, seller_name, acquired_at, created_at,
-                     character_id)
+                     character_id, power_level, weapon_subtype, cwp, slot)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                        COALESCE($11, NOW()), NOW(), $12)
+                        COALESCE($11, NOW()), NOW(), $12, $13, $14, $15, $16)
                 ON CONFLICT (item_id) DO NOTHING
                 """,
                 str(item["item_id"]),
@@ -2843,6 +2869,10 @@ async def pi_add_item(item: dict) -> bool:
                 str(item.get("seller_name", "")),
                 acq,
                 str(char_id) if char_id else None,
+                str(power_level) if power_level else None,
+                str(weapon_subtype) if weapon_subtype else None,
+                str(cwp) if cwp else None,
+                str(slot) if slot else None,
             ),
             label="pi_add_item",
         )

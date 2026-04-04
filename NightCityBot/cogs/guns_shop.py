@@ -549,6 +549,9 @@ class GunsShopCog(commands.Cog):
         cyberware_idx = idx_for(["Cyberware Needed", "Cyberware"], 4)
         restriction_idx = idx_for(["Restriction", "Restrictions"], None)
         status_idx = idx_for(["Status", "Market Status"], None)
+        _raw_type_idx = idx_for(["Type"], None)
+        type_idx = _raw_type_idx if (_raw_type_idx is not None and _raw_type_idx != eff_idx) else None
+        power_level_idx = idx_for(["Power Level", "PowerLevel", "Power_Level"], None)
 
         section_header_map = {
             "pistols": "pistol",
@@ -606,6 +609,17 @@ class GunsShopCog(commands.Cog):
             if status_idx is not None and status_idx < len(row) and row[status_idx] is not None:
                 status = str(row[status_idx]).strip().lower()
 
+            direct_type = ""
+            if type_idx is not None and type_idx < len(row) and row[type_idx] is not None:
+                direct_type = str(row[type_idx]).strip().lower()
+            gun_category = direct_type.title() if direct_type in ("power", "smart", "tech") else GunsShopCog._derive_category(effectiveness_raw)
+
+            direct_pl = ""
+            if power_level_idx is not None and power_level_idx < len(row) and row[power_level_idx] is not None:
+                direct_pl = str(row[power_level_idx]).strip().lower()
+            pl_map = {"low": "L", "medium": "M", "high": "H", "l": "L", "m": "M", "h": "H"}
+            gun_level = pl_map.get(direct_pl, "") or GunsShopCog._derive_level(effectiveness_raw)
+
             parsed.append(
                 {
                     "gun_name": gun_name,
@@ -613,8 +627,8 @@ class GunsShopCog(commands.Cog):
                     "mag_size": mag_size,
                     "price_new": price_new,
                     "cyberware_needed": cyberware_needed,
-                    "gun_level": GunsShopCog._derive_level(effectiveness_raw),
-                    "gun_category": GunsShopCog._derive_category(effectiveness_raw),
+                    "gun_level": gun_level,
+                    "gun_category": gun_category,
                     "weapon_type": weapon_type,
                     "restriction": restriction,
                     "status": status,
@@ -876,6 +890,7 @@ class GunsShopCog(commands.Cog):
                                 "lot_id": f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
                                 "gun_name": gun["gun_name"],
                                 "gun_level": requested_level,
+                                "gun_category": gun.get("gun_category") or "",
                                 "weapon_type": gun.get("weapon_type") or "",
                                 "unit_cost": int(gun["price_new"]),
                                 "qty_available": qty,
@@ -903,6 +918,7 @@ class GunsShopCog(commands.Cog):
                             "lot_id": f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
                             "gun_name": gun["gun_name"],
                             "gun_level": actual_level,
+                            "gun_category": gun.get("gun_category") or "",
                             "weapon_type": gun.get("weapon_type") or "",
                             "unit_cost": int(gun["price_new"]),
                             "qty_available": qty,
@@ -917,7 +933,7 @@ class GunsShopCog(commands.Cog):
 
         merged: dict[str, dict[str, Any]] = {}
         for lot in lots:
-            key = f"{lot['gun_name']}|{lot['gun_level']}|{lot['unit_cost']}|{lot.get('weapon_type', '')}"
+            key = f"{lot['gun_name']}|{lot['gun_level']}|{lot['unit_cost']}|{lot.get('weapon_type', '')}|{lot.get('gun_category', '')}"
             if key in merged:
                 merged[key]["qty_available"] += lot["qty_available"]
             else:
