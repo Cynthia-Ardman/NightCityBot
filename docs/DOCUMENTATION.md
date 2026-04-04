@@ -100,9 +100,9 @@ Each hub is posted once by an admin using a hybrid command (e.g., `!player`). Th
 | Row | Button | What it does |
 |-----|--------|-------------|
 | 0 | **Buy from Wholesale** | Browse this week's gun rotation (or Black Market catalog if applicable), select a gun, pick quantity, pay from your balance. **Owner only** — employees cannot buy wholesale |
-| 0 | **Wholesale List** | View the current wholesale lots without buying |
+| 0 | **Wholesale List** | View the current wholesale lots without buying. Shows gun name, restriction, power level (L/M/H), weapon type, cost, and quantity |
 | 1 | **Sell to Customer** | Select a gun from your store stock -> select customer (user picker) -> select customer's character -> enter price -> customer gets DM to Accept/Decline -> payment processed -> item added to customer's inventory. Controlled/restricted items require per-character buyer approval |
-| 1 | **My Store Inventory** | View your store's current stock (employees see a store picker if they work at multiple stores) |
+| 1 | **My Store Inventory** | View your store's current stock with power level and weapon type displayed |
 | 2 | **Manage Store** | Create store, change name, transfer ownership, close store |
 | 2 | **Manage Employees** | Add employee, remove employee, view employees |
 | 2 | **Manage Buyers** | Approve buyer (per-character), unapprove buyer, view approved buyers |
@@ -116,7 +116,7 @@ Each hub is posted once by an admin using a hybrid command (e.g., `!player`). Th
 | Row | Button | What it does |
 |-----|--------|-------------|
 | 0 | **Buy from Wholesale** | Browse this week's cyberware rotation, select an item, pick quantity, pay from your balance. **Owner only** |
-| 0 | **Wholesale List** | View the current CW wholesale lots |
+| 0 | **Wholesale List** | View the current CW wholesale lots with CWP and slot displayed |
 | 1 | **Sell to Patient** | Select item from your stock -> select patient -> select patient's character -> enter price -> patient gets DM to Accept/Decline -> payment processed -> item added to patient's inventory, removed from your stock |
 | 1 | **Install on Patient** | Same as sell but can be free (price = 0). Used for comped installs or staff-directed operations |
 | 2 | **Manage Store** | Create clinic, change name, view stock, transfer ownership, close clinic |
@@ -134,14 +134,20 @@ Top-level buttons open sub-menus:
 | Button | Sub-menu |
 |--------|----------|
 | **Player** | View Inventory (pick a player), Add Item, Remove Item, Reassign Item, Start LOA (for a player), End LOA (for a player) |
-| **Store** | View Gun Store, View Ripperdoc Store, View Stock, Add Gun (to store), Add Cyberware (to clinic), Remove Gun, Remove Cyberware |
+| **Store** | View Gun Store, View Ripperdoc Store, View Stock, Add Gun (to wholesale), Add Cyberware (to wholesale), Remove Gun, Remove Cyberware |
 | **Wholesaler** | Remove Gun Lot, Remove CW Lot |
 
 **Add Item flow:** Select player (user picker) -> enter item name -> select item type (gun/cyberware/gear/misc) -> select restriction (basic/controlled/restricted) -> enter quantity -> select character -> enter custom cost (or 0 for free) -> player confirms total cost via button -> payment deducted (cash first, then bank) -> items created with unique UUIDs. Gun items additionally require Power Level (low/medium/high) and Type (power/smart/tech). Cyberware items additionally require CWP (integer) and Slot (body location). If payment fails or items cannot be saved, the player is automatically refunded
 
+**Add Gun to Wholesale flow:** Enter `gun name, quantity, unit cost, restriction, power level, type` (e.g. `Militech Mk.31, 10, 5000, basic, medium, power`). Missing fields are prompted interactively. The lot is saved with the mapped gun_level (L/M/H) and weapon_type
+
+**Add Cyberware to Wholesale flow:** Enter `cyberware name, quantity, unit cost, cwp, slot` (e.g. `Neural Link, 10, 5000, 14, neural`). Missing fields are prompted interactively. The lot is saved with CWP (integer) and slot (body location)
+
 **Add Gun to Store flow:** Select store owner -> select gun from wholesale catalog -> enter quantity -> enter custom cost -> store owner confirms total cost via DM -> payment deducted -> guns added to store stock. Refunded automatically if store save fails
 
 **Add Cyberware to Store flow:** Select Ripperdoc -> select cyberware from wholesale catalog -> enter quantity -> enter custom cost -> Ripperdoc confirms total cost via DM -> payment deducted -> items added to clinic stock. Refunded automatically if inventory save fails
+
+**View Stock:** Shows all gun and CW wholesale lots with full details — guns display restriction, power level (L/M/H), and weapon type; cyberware displays CWP and slot
 
 **Remove Item flow:** Select player -> see their inventory -> select item -> confirm removal
 

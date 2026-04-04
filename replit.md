@@ -49,6 +49,8 @@ Partial failure refund convention: if money is deducted but item insertion fails
 
 Inventory restore convention: when `pi_add_item` fails in a sell flow, the item must be restored to the store's stock (gun lot or ripperdoc inventory) before refunding money. `cyberware_shop.py` adds to player inventory first then removes from stock; hub sell flows (`gunstore_hub.py`, `ripperdoc_hub.py`) remove first and restore on failure.
 
+Item field propagation convention: gun attributes (`gun_level` L/M/H, `weapon_type` power/smart/tech) must be carried through the entire chain — Google Sheet → catalog → wholesale lots → store lots → player inventory (as `power_level` low/medium/high, `weapon_subtype`). Cyberware attributes (`cwp` integer, `slot` body location) must likewise propagate — Google Sheet → catalog → wholesale lots → ripperdoc inventory → player inventory. All display surfaces (wholesale list, store inventory, player inventory) show these attributes. All add flows (fixer wholesale add, fixer store add) collect these attributes interactively if not provided inline.
+
 `pi_update_character(item_id, new_character, expected_owner_id=None, *, new_character_id=None)` — when `new_character_id` is provided, also sets `character_id` in the UPDATE. All callers that know the target character (reassign, trade, give) should look up and pass the `character_id` to keep the column in sync.
 
 Ripperdoc inventory lock convention: all load-mutate-save of ripperdoc inventory must use `async with cw_cog._locks.acquire(str(owner_id))`. This applies in `cyberware_shop.py`, `ripperdoc_hub.py`, `fixer_hub.py`, and `player_hub.py` (give-to-ripperdoc path).

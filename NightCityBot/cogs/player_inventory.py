@@ -158,6 +158,23 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 display.append((None, "> `#` · **Name** · Details"))
             for g in groups:
                 count_str = f" ×{g['count']}" if g["count"] > 1 else ""
+                sample = g["items"][0] if g.get("items") else {}
+                attr_parts = []
+                if itype == "gun":
+                    ws = sample.get("weapon_subtype", "")
+                    pl = sample.get("power_level", "")
+                    if pl:
+                        attr_parts.append(pl.upper())
+                    if ws:
+                        attr_parts.append(ws)
+                elif itype == "cyberware":
+                    cwp = sample.get("cwp", "")
+                    slot = sample.get("slot", "")
+                    if cwp:
+                        attr_parts.append(f"CWP:{cwp}")
+                    if slot:
+                        attr_parts.append(slot)
+                attr_tag = f" ({', '.join(attr_parts)})" if attr_parts else ""
                 meta_parts = []
                 if g["price_paid"]:
                     meta_parts.append(f"💰 ${g['price_paid']:,}")
@@ -167,7 +184,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 if date_str:
                     meta_parts.append(f"📅 {date_str}")
                 meta_line = " **·** ".join(meta_parts)
-                line = f"`{row_num}.` **{g['name']}**{count_str}"
+                line = f"`{row_num}.` **{g['name']}**{attr_tag}{count_str}"
                 if meta_line:
                     line += f"\n> {meta_line}"
                 display.append((row_num, line))

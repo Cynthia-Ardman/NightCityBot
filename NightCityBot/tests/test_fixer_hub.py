@@ -740,8 +740,12 @@ class TestStorePickerViews:
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
             inter = _make_interaction()
-            await _process_store_add_gun(cog, inter, owner, "TestGun, 5, 0, basic")
+            await _process_store_add_gun(cog, inter, owner, "TestGun, 5, 0, basic, low, power")
             guns_cog._save_state.assert_called_once()
+            store_lots = state["stores"]["999:222"]["lots"]
+            assert len(store_lots) == 1
+            assert store_lots[0]["gun_level"] == "L"
+            assert store_lots[0]["weapon_type"] == "power"
             assert "TestGun" in inter.followup.send.call_args[0][0]
         _run(_test())
 
@@ -756,11 +760,13 @@ class TestStorePickerViews:
             cw_cog._save_inventory = AsyncMock(return_value=True)
             cog.bot.cogs["CyberwareShop"] = cw_cog
             inter = _make_interaction()
-            await _process_store_add_cw(cog, inter, owner, "Kiroshi Optics, 3, 0")
+            await _process_store_add_cw(cog, inter, owner, "Kiroshi Optics, 3, 0, 14, ocular system")
             cw_cog._save_inventory.assert_called_once()
             saved_inv = cw_cog._save_inventory.call_args[0][1]
             assert len(saved_inv) == 3
             assert all(i["name"] == "Kiroshi Optics" for i in saved_inv)
+            assert all(i["cwp"] == 14 for i in saved_inv)
+            assert all(i["slot"] == "ocular system" for i in saved_inv)
             assert "Kiroshi Optics" in inter.followup.send.call_args[0][0]
         _run(_test())
 
@@ -819,9 +825,12 @@ class TestWholesaleProcessFunctions:
             inter = _make_interaction()
             msg = MagicMock()
             msg.edit = AsyncMock()
-            await _process_wh_add_gun(cog, inter, "TestGun, 10, 5000, basic", msg)
+            await _process_wh_add_gun(cog, inter, "TestGun, 10, 5000, basic, medium, power", msg)
             guns_cog._save_state.assert_called_once()
             assert len(state["wholesale_lots"]) == 1
+            lot = state["wholesale_lots"][0]
+            assert lot["gun_level"] == "M"
+            assert lot["weapon_type"] == "power"
             assert "TestGun" in msg.edit.call_args[1].get("content", "")
         _run(_test())
 
@@ -839,9 +848,12 @@ class TestWholesaleProcessFunctions:
             inter = _make_interaction()
             msg = MagicMock()
             msg.edit = AsyncMock()
-            await _process_wh_add_cw(cog, inter, "Sandevistan, 5, 8000", msg)
+            await _process_wh_add_cw(cog, inter, "Sandevistan, 5, 8000, 14, neural", msg)
             cw_cog._save_state.assert_called_once()
             assert len(state["cw_wholesale_lots"]) == 1
+            lot = state["cw_wholesale_lots"][0]
+            assert lot["cwp"] == 14
+            assert lot["slot"] == "neural"
             assert "Sandevistan" in msg.edit.call_args[1].get("content", "")
         _run(_test())
 

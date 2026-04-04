@@ -85,8 +85,10 @@ async def _show_gun_inventory(interaction, store, store_id):
             continue
         restriction = lot.get("restriction", "basic")
         r_tag = f" [{restriction}]" if restriction != "basic" else ""
+        wt = lot.get("weapon_type", "")
+        wt_tag = f" {wt}" if wt else ""
         lines.append(
-            f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}] "
+            f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}]{wt_tag} "
             f"— ${int(lot.get('unit_cost', 0)):,} × {qty}"
         )
     if not lines:
@@ -192,8 +194,10 @@ class GunstoreMenuView(SafeView):
         for i, lot in enumerate(available[:30], 1):
             r = lot.get("restriction", "basic")
             r_tag = f" [{r}]" if r != "basic" else ""
+            wt = lot.get("weapon_type", "")
+            wt_tag = f" {wt}" if wt else ""
             lines.append(
-                f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}] "
+                f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}]{wt_tag} "
                 f"— ${int(lot['unit_cost']):,} × {lot['qty_available']}"
             )
         embed = discord.Embed(
@@ -855,7 +859,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
         await ctx.send("⚠️ Sale failed (save error). Payment has been refunded.")
         return
 
-    pi_ok = await pi_add_item({
+    pi_payload = {
         "item_id": item_id,
         "owner_id": str(customer.id),
         "character_name": character_name,
@@ -867,7 +871,15 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
         "price_paid": price,
         "seller_id": str(owner_id),
         "seller_name": ctx.author.display_name,
-    })
+    }
+    gl = lot.get("gun_level", "")
+    wt = lot.get("weapon_type", "")
+    level_map = {"L": "low", "M": "medium", "H": "high"}
+    if gl:
+        pi_payload["power_level"] = level_map.get(gl, gl.lower())
+    if wt:
+        pi_payload["weapon_subtype"] = wt
+    pi_ok = await pi_add_item(pi_payload)
     if not pi_ok:
         logger.error("gunstore sell: pi_add_item failed — attempting compensation")
         async with guns_cog.lock:

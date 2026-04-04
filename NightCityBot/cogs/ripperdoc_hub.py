@@ -81,7 +81,16 @@ async def _show_rd_stock(interaction, cw_cog, store, store_id, owner_id):
     lines = []
     for i, g in enumerate(groups, 1):
         qty_str = f" ×{g['count']}" if g["count"] > 1 else ""
-        lines.append(f"`{i}.` **{g['name']}**{qty_str}")
+        sample = g["items"][0] if g.get("items") else {}
+        cwp = sample.get("cwp", "")
+        slot = sample.get("slot", "")
+        detail_parts = []
+        if cwp:
+            detail_parts.append(f"CWP:{cwp}")
+        if slot:
+            detail_parts.append(slot)
+        detail_tag = f" ({', '.join(detail_parts)})" if detail_parts else ""
+        lines.append(f"`{i}.` **{g['name']}**{detail_tag}{qty_str}")
     store_name = store.get("store_name") or f"Store {store_id}"
     embed = discord.Embed(
         title=f"📦 {store_name}",
@@ -235,8 +244,16 @@ class RipperdocMenuView(SafeView):
         for i, lot in enumerate(cw_cog._sorted_lots(lots), 1):
             qty = int(lot["qty_available"])
             price = int(lot["unit_cost"])
+            cwp = lot.get("cwp", "")
+            slot = lot.get("slot", "")
+            detail_parts = []
+            if cwp:
+                detail_parts.append(f"CWP:{cwp}")
+            if slot:
+                detail_parts.append(slot)
+            detail_tag = f" ({', '.join(detail_parts)})" if detail_parts else ""
             if qty > 0:
-                lines.append(f"`{i}.` **{lot['item_name']}** — ${price:,} × {qty}")
+                lines.append(f"`{i}.` **{lot['item_name']}**{detail_tag} — ${price:,} × {qty}")
             else:
                 lines.append(f"~~`{i}.` {lot['item_name']}~~ — Sold out")
         embed = discord.Embed(
@@ -479,12 +496,17 @@ class WholesaleBuySelect(SafeView):
             inventory = await self.cw_cog._load_inventory(member.id)
             for _ in range(qty):
                 item_id = str(uuid.uuid4())
-                inventory.append({
+                inv_item = {
                     "item_id": item_id,
                     "name": lot["item_name"],
                     "price_paid": unit_cost,
                     "purchased_at": datetime.now(timezone.utc).isoformat(),
-                })
+                }
+                if lot.get("cwp"):
+                    inv_item["cwp"] = lot["cwp"]
+                if lot.get("slot"):
+                    inv_item["slot"] = lot["slot"]
+                inventory.append(inv_item)
                 await ih_record_event(
                     item_id, "cw_wholesale_buy",
                     actor_id=str(member.id),
@@ -835,7 +857,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
             await ctx.send("⚠️ Sale failed (save error). Payment has been refunded.")
             return
 
-    pi_ok = await pi_add_item({
+    pi_payload = {
         "item_id": item_id,
         "owner_id": str(patient.id),
         "character_name": character_name,
@@ -847,7 +869,12 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
         "price_paid": price,
         "seller_id": str(ctx.author.id),
         "seller_name": ctx.author.display_name,
-    })
+    }
+    if selected.get("cwp"):
+        pi_payload["cwp"] = selected["cwp"]
+    if selected.get("slot"):
+        pi_payload["slot"] = selected["slot"]
+    pi_ok = await pi_add_item(pi_payload)
     if not pi_ok:
         logger.error("ripperdoc sell: pi_add_item failed — attempting compensation")
         async with cw_cog._locks.acquire(str(owner_id)):

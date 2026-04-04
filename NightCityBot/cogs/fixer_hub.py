@@ -310,8 +310,10 @@ class WholesalerSubView(SafeView):
                 for i, lot in enumerate(available[:15], 1):
                     r = lot.get("restriction", "basic")
                     r_tag = f" [{r}]" if r != "basic" else ""
+                    wt = lot.get("weapon_type", "")
+                    wt_tag = f" {wt}" if wt else ""
                     lines.append(
-                        f"`{i}.` **{lot['gun_name']}**{r_tag} — ${int(lot['unit_cost']):,} × {lot['qty_available']}"
+                        f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}]{wt_tag} — ${int(lot['unit_cost']):,} × {lot['qty_available']}"
                     )
             else:
                 lines.append("**🔫 Gun Wholesale:** Empty")
@@ -322,8 +324,16 @@ class WholesalerSubView(SafeView):
             if available:
                 lines.append("\n**💉 Cyberware Wholesale:**")
                 for i, lot in enumerate(available[:15], 1):
+                    cwp = lot.get("cwp", "")
+                    slot = lot.get("slot", "")
+                    detail_parts = []
+                    if cwp:
+                        detail_parts.append(f"CWP:{cwp}")
+                    if slot:
+                        detail_parts.append(slot)
+                    detail_tag = f" ({', '.join(detail_parts)})" if detail_parts else ""
                     lines.append(
-                        f"`{i}.` **{lot['item_name']}** — ${int(lot['unit_cost']):,} × {lot['qty_available']}"
+                        f"`{i}.` **{lot['item_name']}**{detail_tag} — ${int(lot['unit_cost']):,} × {lot['qty_available']}"
                     )
             else:
                 lines.append("**💉 Cyberware Wholesale:** Empty")
@@ -342,11 +352,11 @@ class WholesalerSubView(SafeView):
         await interaction.response.defer(ephemeral=True)
         msg = await interaction.followup.send(
             "📝 **Enter gun wholesale details** in this format:\n"
-            "`gun name, quantity, unit cost, restriction`\n"
-            "Example: `Militech Mk.31, 10, 5000, basic`\n"
-            "• **Basic** — freely available, no restrictions\n"
-            "• **Controlled** — requires a license or special authorization to purchase\n"
-            "• **Restricted** — illegal or military-grade, requires admin approval for sale\n"
+            "`gun name, quantity, unit cost, restriction, power level, type`\n"
+            "Example: `Militech Mk.31, 10, 5000, basic, medium, power`\n"
+            "• **Restriction:** basic / controlled / restricted\n"
+            "• **Power Level:** low / medium / high\n"
+            "• **Type:** power / smart / tech\n"
             "Type `cancel` to abort.",
             ephemeral=True,
             wait=True,
@@ -362,8 +372,10 @@ class WholesalerSubView(SafeView):
         await interaction.response.defer(ephemeral=True)
         msg = await interaction.followup.send(
             "📝 **Enter cyberware wholesale details** in this format:\n"
-            "`cyberware name, quantity, unit cost`\n"
-            "Example: `Neural Link, 10, 5000`\n"
+            "`cyberware name, quantity, unit cost, cwp, slot`\n"
+            "Example: `Neural Link, 10, 5000, 14, neural`\n"
+            "• **CWP:** Cyberware Power (integer)\n"
+            "• **Slot:** " + ", ".join(sorted(VALID_CW_SLOTS)) + "\n"
             "Type `cancel` to abort.",
             ephemeral=True,
             wait=True,
@@ -670,6 +682,36 @@ async def _process_wh_add_gun(cog, interaction, text, msg=None):
             await _reply(
                 "❌ Invalid restriction. Must be `basic`, `controlled`, or `restricted`. Try again."
             )
+    pl_map = {"low": "L", "medium": "M", "high": "H"}
+    power_level = parts[4].strip().lower() if len(parts) > 4 else ""
+    while power_level not in VALID_GUN_POWER_LEVELS:
+        await _reply(
+            f"Got: **{gun_name}** ×{qty} at ${cost:,} [{restriction}] — now enter the **power level**:\n"
+            "`low`, `medium`, or `high`\n"
+            "Type `cancel` to abort."
+        )
+        pl_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+        if pl_text is None:
+            await _reply("⏰ Timed out or cancelled.")
+            return
+        power_level = pl_text.strip().lower()
+        if power_level not in VALID_GUN_POWER_LEVELS:
+            await _reply("❌ Invalid power level. Must be `low`, `medium`, or `high`. Try again.")
+    gun_level = pl_map[power_level]
+    weapon_type = parts[5].strip().lower() if len(parts) > 5 else ""
+    while weapon_type not in VALID_GUN_TYPES:
+        await _reply(
+            f"Got: **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}] — now enter the **weapon type**:\n"
+            "`power`, `smart`, or `tech`\n"
+            "Type `cancel` to abort."
+        )
+        wt_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+        if wt_text is None:
+            await _reply("⏰ Timed out or cancelled.")
+            return
+        weapon_type = wt_text.strip().lower()
+        if weapon_type not in VALID_GUN_TYPES:
+            await _reply("❌ Invalid weapon type. Must be `power`, `smart`, or `tech`. Try again.")
     async with guns_cog.lock:
         state = await guns_cog._load_state()
         lots = state.setdefault("wholesale_lots", [])
@@ -677,14 +719,14 @@ async def _process_wh_add_gun(cog, interaction, text, msg=None):
         lots.append({
             "lot_id": lot_id,
             "gun_name": gun_name,
-            "gun_level": "L",
-            "weapon_type": "",
+            "gun_level": gun_level,
+            "weapon_type": weapon_type,
             "unit_cost": cost,
             "qty_available": qty,
             "restriction": restriction,
         })
         await guns_cog._save_state(state)
-    await _reply(f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] to wholesale.")
+    await _reply(f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}/{weapon_type}] to wholesale.")
     log_ch = await _audit_channel(cog.bot)
     if log_ch:
         embed = discord.Embed(
@@ -725,6 +767,39 @@ async def _process_wh_add_cw(cog, interaction, text, msg=None):
     if qty < 1 or cost < 0:
         await _reply("Invalid quantity or cost.")
         return
+    cwp_raw = parts[3].strip() if len(parts) > 3 else ""
+    while True:
+        if cwp_raw == "":
+            await _reply(
+                f"Got: **{item_name}** ×{qty} at ${cost:,} — now enter the **CWP** (integer):\n"
+                "Type `cancel` to abort."
+            )
+            cwp_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+            if cwp_text is None:
+                await _reply("⏰ Timed out or cancelled.")
+                return
+            cwp_raw = cwp_text.strip()
+        try:
+            cwp = int(cwp_raw)
+            break
+        except ValueError:
+            await _reply("❌ CWP must be an integer. Try again.")
+            cwp_raw = ""
+    slot_raw = parts[4].strip().lower() if len(parts) > 4 else ""
+    while slot_raw not in VALID_CW_SLOTS:
+        slot_list = "\n".join(f"• {s}" for s in sorted(VALID_CW_SLOTS))
+        await _reply(
+            f"Got: **{item_name}** ×{qty} at ${cost:,}, CWP:{cwp} — now enter the **slot**:\n"
+            f"{slot_list}\n"
+            "Type `cancel` to abort."
+        )
+        slot_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+        if slot_text is None:
+            await _reply("⏰ Timed out or cancelled.")
+            return
+        slot_raw = slot_text.strip().lower()
+        if slot_raw not in VALID_CW_SLOTS:
+            await _reply("❌ Invalid slot. Try again.")
     async with cw_cog.lock:
         state = await cw_cog._load_state()
         lots = state.setdefault("cw_wholesale_lots", [])
@@ -733,10 +808,12 @@ async def _process_wh_add_cw(cog, interaction, text, msg=None):
             "lot_id": lot_id,
             "item_name": item_name,
             "unit_cost": cost,
+            "cwp": cwp,
+            "slot": slot_raw,
             "qty_available": qty,
         })
         await cw_cog._save_state(state)
-    await _reply(f"Added CW **{item_name}** ×{qty} at ${cost:,} to wholesale.")
+    await _reply(f"Added CW **{item_name}** ×{qty} at ${cost:,} (CWP:{cwp}, {slot_raw}) to wholesale.")
     log_ch = await _audit_channel(cog.bot)
     if log_ch:
         embed = discord.Embed(
@@ -1927,11 +2004,11 @@ class StoreActionView(SafeView):
         if self.store_type == "gun":
             await interaction.followup.send(
                 f"📝 **Add to {self.owner.display_name}'s Gun Store**\n"
-                "Enter: `gun name, quantity, unit cost, restriction`\n"
-                "Example: `Militech Mk.31, 5, 5000, basic`\n"
-                "• **Basic** — freely available, no restrictions\n"
-                "• **Controlled** — requires a license or special authorization to purchase\n"
-                "• **Restricted** — illegal or military-grade, requires admin approval for sale\n"
+                "Enter: `gun name, quantity, unit cost, restriction, power level, type`\n"
+                "Example: `Militech Mk.31, 5, 5000, basic, medium, power`\n"
+                "• **Restriction:** basic / controlled / restricted\n"
+                "• **Power Level:** low / medium / high\n"
+                "• **Type:** power / smart / tech\n"
                 "Type `cancel` to abort.",
                 ephemeral=True,
             )
@@ -1943,8 +2020,10 @@ class StoreActionView(SafeView):
         else:
             await interaction.followup.send(
                 f"📝 **Add to {self.owner.display_name}'s Ripperdoc Store**\n"
-                "Enter: `cyberware name, quantity, unit cost`\n"
-                "Example: `Kiroshi Optics, 3, 8000`\n"
+                "Enter: `cyberware name, quantity, unit cost, cwp, slot`\n"
+                "Example: `Kiroshi Optics, 3, 8000, 14, ocular system`\n"
+                "• **CWP:** Cyberware Power (integer)\n"
+                "• **Slot:** " + ", ".join(sorted(VALID_CW_SLOTS)) + "\n"
                 "Type `cancel` to abort.",
                 ephemeral=True,
             )
@@ -2097,8 +2176,42 @@ async def _process_store_add_gun(cog, interaction, owner, text):
                 "❌ Invalid restriction. Must be `basic`, `controlled`, or `restricted`. Try again.",
                 ephemeral=True,
             )
+    pl_map = {"low": "L", "medium": "M", "high": "H"}
+    power_level = parts[4].strip().lower() if len(parts) > 4 else ""
+    while power_level not in VALID_GUN_POWER_LEVELS:
+        await interaction.followup.send(
+            f"Got: **{gun_name}** ×{qty} at ${cost:,} [{restriction}] — now enter the **power level**:\n"
+            "`low`, `medium`, or `high`\n"
+            "Type `cancel` to abort.",
+            ephemeral=True,
+        )
+        pl_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+        if pl_text is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            return
+        power_level = pl_text.strip().lower()
+        if power_level not in VALID_GUN_POWER_LEVELS:
+            await interaction.followup.send("❌ Invalid power level. Must be `low`, `medium`, or `high`. Try again.", ephemeral=True)
+    gun_level = pl_map[power_level]
+    weapon_type = parts[5].strip().lower() if len(parts) > 5 else ""
+    while weapon_type not in VALID_GUN_TYPES:
+        await interaction.followup.send(
+            f"Got: **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}] — now enter the **weapon type**:\n"
+            "`power`, `smart`, or `tech`\n"
+            "Type `cancel` to abort.",
+            ephemeral=True,
+        )
+        wt_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+        if wt_text is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            return
+        weapon_type = wt_text.strip().lower()
+        if weapon_type not in VALID_GUN_TYPES:
+            await interaction.followup.send("❌ Invalid weapon type. Must be `power`, `smart`, or `tech`. Try again.", ephemeral=True)
 
     total_cost = cost * qty
+    cash_deducted = 0
+    bank_deducted = 0
     if cost > 0:
         confirm_view = _ConfirmItemView(target_user_id=owner.id)
         confirm_msg = await interaction.followup.send(
@@ -2150,8 +2263,8 @@ async def _process_store_add_gun(cog, interaction, owner, text):
         store["lots"].append({
             "lot_id": lot_id,
             "gun_name": gun_name,
-            "gun_level": "L",
-            "weapon_type": "",
+            "gun_level": gun_level,
+            "weapon_type": weapon_type,
             "unit_cost": cost,
             "qty_remaining": qty,
             "restriction": restriction,
@@ -2169,7 +2282,7 @@ async def _process_store_add_gun(cog, interaction, owner, text):
         )
         return
     await interaction.followup.send(
-        f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] to {owner.display_name}'s store.",
+        f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}/{weapon_type}] to {owner.display_name}'s store.",
         ephemeral=True,
     )
 
@@ -2197,6 +2310,41 @@ async def _process_store_add_cw(cog, interaction, owner, text):
     if qty < 1 or cost < 0:
         await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
         return
+    cwp_raw = parts[3].strip() if len(parts) > 3 else ""
+    while True:
+        if cwp_raw == "":
+            await interaction.followup.send(
+                f"Got: **{item_name}** ×{qty} at ${cost:,} — now enter the **CWP** (integer):\n"
+                "Type `cancel` to abort.",
+                ephemeral=True,
+            )
+            cwp_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+            if cwp_text is None:
+                await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+                return
+            cwp_raw = cwp_text.strip()
+        try:
+            cwp = int(cwp_raw)
+            break
+        except ValueError:
+            await interaction.followup.send("❌ CWP must be an integer. Try again.", ephemeral=True)
+            cwp_raw = ""
+    slot_raw = parts[4].strip().lower() if len(parts) > 4 else ""
+    while slot_raw not in VALID_CW_SLOTS:
+        slot_list = "\n".join(f"• {s}" for s in sorted(VALID_CW_SLOTS))
+        await interaction.followup.send(
+            f"Got: **{item_name}** ×{qty} at ${cost:,}, CWP:{cwp} — now enter the **slot**:\n"
+            f"{slot_list}\n"
+            "Type `cancel` to abort.",
+            ephemeral=True,
+        )
+        slot_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+        if slot_text is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            return
+        slot_raw = slot_text.strip().lower()
+        if slot_raw not in VALID_CW_SLOTS:
+            await interaction.followup.send("❌ Invalid slot. Try again.", ephemeral=True)
 
     total_cost = cost * qty
     cash_deducted = 0
@@ -2247,12 +2395,17 @@ async def _process_store_add_cw(cog, interaction, owner, text):
     async with cw_cog._locks.acquire(str(owner.id)):
         inventory = await cw_cog._load_inventory(owner.id)
         for _ in range(qty):
-            inventory.append({
+            inv_item = {
                 "item_id": str(uuid.uuid4()),
                 "name": item_name,
                 "price_paid": cost,
                 "purchased_at": datetime.now(timezone.utc).isoformat(),
-            })
+            }
+            if cwp:
+                inv_item["cwp"] = cwp
+            if slot_raw:
+                inv_item["slot"] = slot_raw
+            inventory.append(inv_item)
         saved = await cw_cog._save_inventory(owner.id, inventory)
     if not saved and cost > 0:
         ub = getattr(cog.bot, "unbelievaboat", None)
@@ -2266,7 +2419,7 @@ async def _process_store_add_cw(cog, interaction, owner, text):
         )
         return
     await interaction.followup.send(
-        f"Added **{item_name}** ×{qty} at ${cost:,} to {owner.display_name}'s Ripperdoc store.",
+        f"Added **{item_name}** ×{qty} at ${cost:,} (CWP:{cwp}, {slot_raw}) to {owner.display_name}'s Ripperdoc store.",
         ephemeral=True,
     )
 
