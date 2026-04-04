@@ -442,7 +442,15 @@ class WholesaleBuySelect(SafeView):
         async with self.cw_cog._locks.pin("state"):
             state = await self.cw_cog._load_state()
             lots = state.get("cw_wholesale_lots", [])
-            target_lot = self.cw_cog._lookup_lot(lots, lot["item_name"])
+            target_lot = None
+            lot_id = lot.get("lot_id")
+            if lot_id:
+                for l in lots:
+                    if l.get("lot_id") == lot_id:
+                        target_lot = l
+                        break
+            if target_lot is None:
+                target_lot = self.cw_cog._lookup_lot(lots, lot["item_name"])
             if not target_lot or int(target_lot.get("qty_available", 0)) < qty:
                 await self.cog.unbelievaboat.update_balance(
                     member.id,

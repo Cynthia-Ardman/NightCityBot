@@ -179,3 +179,79 @@ class TestEventLockExists:
                 eco = Economy(bot)
                 assert hasattr(eco, "_event_lock")
                 assert isinstance(eco._event_lock, asyncio.Lock)
+
+
+class TestCWWholesaleBuyDuplicateName:
+    def test_selects_correct_lot_by_lot_id(self):
+        async def run():
+            from NightCityBot.cogs.ripperdoc_hub import WholesaleBuySelect
+            from NightCityBot.utils.interaction_safety import SafeView
+
+            depleted_lot = {
+                "lot_id": "lot-depleted",
+                "item_name": "test",
+                "unit_cost": 100,
+                "qty_available": 0,
+            }
+            active_lot = {
+                "lot_id": "lot-active",
+                "item_name": "test",
+                "unit_cost": 1,
+                "qty_available": 100,
+            }
+
+            cw_cog = MagicMock()
+            cw_cog._locks = MagicMock()
+            lock = asyncio.Lock()
+            cw_cog._locks.pin = MagicMock(return_value=lock)
+            cw_cog._load_state = AsyncMock(return_value={
+                "cw_wholesale_lots": [depleted_lot, active_lot],
+            })
+            saved_states = []
+            async def fake_save(s):
+                saved_states.append(s)
+                return True
+            cw_cog._save_state = AsyncMock(side_effect=fake_save)
+            cw_cog._load_inventory = AsyncMock(return_value=[])
+            async def fake_save_inv(uid, inv):
+                return True
+            cw_cog._save_inventory = AsyncMock(side_effect=fake_save_inv)
+
+            cog = MagicMock()
+            cog.unbelievaboat = MagicMock()
+            cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 10000, "bank": 0})
+            cog.unbelievaboat.update_balance = AsyncMock(return_value=True)
+            cog._log_channel = AsyncMock(return_value=None)
+
+            ctx = MagicMock()
+            ctx.author = MagicMock()
+            ctx.author.id = 12345
+
+            view = WholesaleBuySelect(cog, ctx, [active_lot], cw_cog)
+
+            inter = MagicMock(spec=discord.Interaction)
+            inter.user = MagicMock()
+            inter.user.id = 12345
+            inter.response = MagicMock()
+            inter.response.send_message = AsyncMock()
+            inter.response.is_done = MagicMock(return_value=False)
+            inter.followup = MagicMock()
+            inter.followup.send = AsyncMock()
+
+            qty_mock = MagicMock()
+            qty_mock.result = 1
+            qty_mock.wait = AsyncMock()
+            with patch("NightCityBot.cogs.ripperdoc_hub.QtySelectView", return_value=qty_mock), \
+                 patch("NightCityBot.cogs.ripperdoc_hub.ih_record_event", new_callable=AsyncMock):
+                view.select._values = ["0"]
+                inter.data = {"values": ["0"]}
+                await view.on_select(inter)
+
+            assert len(saved_states) == 1
+            lots_after = saved_states[0]["cw_wholesale_lots"]
+            active_after = next(l for l in lots_after if l["lot_id"] == "lot-active")
+            depleted_after = next(l for l in lots_after if l["lot_id"] == "lot-depleted")
+            assert active_after["qty_available"] == 99
+            assert depleted_after["qty_available"] == 0
+
+        _run(run())
