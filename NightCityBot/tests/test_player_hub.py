@@ -224,7 +224,7 @@ def test_view_inv_system_disabled():
     _run(_test())
 
 
-def test_view_inv_shows_items():
+def test_view_inv_shows_char_picker():
     async def _test():
         cog = _make_cog()
         inv_cog = _make_inv_cog()
@@ -234,8 +234,9 @@ def test_view_inv_shows_items():
         with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=SAMPLE_ITEMS):
             await btn.callback(inter)
         call_kwargs = inter.followup.send.call_args.kwargs
-        assert "embed" in call_kwargs
-        assert "Katana" in call_kwargs["embed"].description
+        assert "view" in call_kwargs
+        assert isinstance(call_kwargs["view"], InventoryCharFilterView)
+        assert "Select a character" in inter.followup.send.call_args[0][0]
     _run(_test())
 
 
@@ -1750,13 +1751,27 @@ class TestInventoryCharFilter:
             assert isinstance(call_kwargs["view"], InventoryCharFilterView)
         _run(_test())
 
-    def test_view_inv_single_char_shows_embed(self):
+    def test_view_inv_single_char_shows_picker(self):
         async def _test():
             cog = _make_cog()
             inv_cog = _make_inv_cog()
             view = PlayerHubView()
             inter = _make_interaction(cog=cog, inv_cog=inv_cog)
             with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=SAMPLE_ITEMS):
+                btn = _find_button(view, "View Inventory")
+                await btn.callback(inter)
+            call_kwargs = inter.followup.send.call_args.kwargs
+            assert "view" in call_kwargs
+            assert isinstance(call_kwargs["view"], InventoryCharFilterView)
+        _run(_test())
+
+    def test_view_inv_no_char_shows_embed(self):
+        async def _test():
+            cog = _make_cog()
+            inv_cog = _make_inv_cog()
+            view = PlayerHubView()
+            inter = _make_interaction(cog=cog, inv_cog=inv_cog)
+            with patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=NO_CHAR_ITEMS):
                 btn = _find_button(view, "View Inventory")
                 await btn.callback(inter)
             call_kwargs = inter.followup.send.call_args.kwargs
@@ -1885,12 +1900,11 @@ class TestTradeGiveDropdownRegression:
 class TestInventoryDisplayFormat:
     """Regression: _build_display must produce readable two-line format."""
 
-    def test_display_has_type_tag(self):
+    def test_display_has_type_section_header(self):
         from NightCityBot.cogs.player_inventory import PlayerInventoryCog
         display, _ = PlayerInventoryCog._build_display(SAMPLE_ITEMS)
-        item_lines = [line for _, line in display if _ is not None]
-        assert len(item_lines) >= 1
-        assert "`gun`" in item_lines[0]
+        headers = [line for rn, line in display if rn is None]
+        assert any("Guns" in h for h in headers)
 
     def test_display_has_metadata_line(self):
         from NightCityBot.cogs.player_inventory import PlayerInventoryCog
@@ -1937,7 +1951,7 @@ class TestInventoryDisplayFormat:
         assert "×2" in item_lines[0]
         assert groups[0]["count"] == 2
 
-    def test_display_character_headers(self):
+    def test_display_type_section_headers(self):
         from NightCityBot.cogs.player_inventory import PlayerInventoryCog
         items = [
             {"item_id": "uuid-1", "owner_id": "100", "character_name": "V",
@@ -1951,8 +1965,8 @@ class TestInventoryDisplayFormat:
         ]
         display, _ = PlayerInventoryCog._build_display(items)
         headers = [line for num, line in display if num is None]
-        assert any("V" in h for h in headers)
-        assert any("Johnny" in h for h in headers)
+        assert any("Guns" in h for h in headers)
+        assert any("Other" in h for h in headers)
 
 
 class TestTradeSellerCharacterPrompt:

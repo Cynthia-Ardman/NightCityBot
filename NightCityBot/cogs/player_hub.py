@@ -144,7 +144,7 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
             description=(
                 f"Head to <#{config.PLAYER_HUB_CHANNEL_ID}> and use the **Player Hub** panel.\n\n"
                 "From the panel you can:\n"
-                "• **View Inventory** — see all your items grouped by character\n"
+                "• **View Inventory** — pick a character and see their items\n"
                 "• **Sell to Player** — sell an item to another player (with payment)\n"
                 "• **Give Item** — transfer an item for free\n"
                 "• **Sell to Store** — sell any gun to a gunstore owner\n"
@@ -167,30 +167,29 @@ def _build_inventory_embed(
     char_filter: str | None = None,
 ) -> discord.Embed:
     if char_filter:
-        cf_lower = char_filter.lower()
-        filtered = [i for i in items if (i.get("character_name") or "").lower() == cf_lower]
         label = f"{display_name}'s Inventory — {char_filter}"
     else:
-        filtered = items
         label = f"{display_name}'s Inventory"
-    if not filtered:
+    display_lines, all_groups = inv_cog._build_display(items, char_filter=char_filter)
+    if not all_groups:
         return discord.Embed(title=f"📦 {label}", description="No items.", color=discord.Color.blue())
-    display_lines, _ = inv_cog._build_display(filtered)
     item_lines = [(rn, ln) for rn, ln in display_lines if rn is not None]
     total_groups = len(item_lines)
     total_pages = max(1, (total_groups + GROUPS_PER_PAGE - 1) // GROUPS_PER_PAGE)
     page_rows = {rn for rn, _ in item_lines[:GROUPS_PER_PAGE]}
     page_lines: list[str] = []
-    pending_header = None
+    pending_headers: list[str] = []
     for rn, ln in display_lines:
         if rn is None:
-            pending_header = ln
+            pending_headers.append(ln)
         else:
             if rn in page_rows:
-                if pending_header is not None:
-                    page_lines.append(pending_header)
-                    pending_header = None
+                for hdr in pending_headers:
+                    page_lines.append(hdr)
+                pending_headers = []
                 page_lines.append(ln)
+            else:
+                pending_headers = []
     embed = discord.Embed(
         title=f"📦 {label} (1/{total_pages})",
         description="\n".join(page_lines) if page_lines else "No items.",
@@ -198,7 +197,7 @@ def _build_inventory_embed(
     )
     hint = "Use the page buttons to see more." if total_pages > 1 else ""
     embed.set_footer(
-        text=f"{len(filtered)} total item(s) | Row numbers are used for Trade and Give."
+        text=f"{total_groups} total item(s)"
         + (f" | {hint}" if hint else "")
     )
     return embed
@@ -256,10 +255,10 @@ class PlayerHubView(SafeView):
             return
         ctx = PanelContext(interaction)
         char_names = sorted({item.get("character_name", "") for item in items if item.get("character_name")})
-        if len(char_names) > 1:
+        if char_names:
             view = InventoryCharFilterView(cog, ctx, items, inv_cog, char_names)
             await interaction.followup.send(
-                "🔎 **Filter inventory by character** (or select **All Characters**):",
+                "🔎 **Select a character to view their inventory:**",
                 view=view,
                 ephemeral=True,
             )

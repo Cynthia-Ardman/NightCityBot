@@ -117,30 +117,47 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
     VALID_RESTRICTIONS = ("basic", "controlled", "restricted")
 
+    TYPE_ORDER = {"gun": 0, "cyberware": 1}
+    TYPE_LABELS = {"gun": "🔫 Guns", "cyberware": "🦾 Cyberware"}
+    DEFAULT_TYPE_LABEL = "📦 Other Items"
+
     @staticmethod
     def _build_display(items: list[dict], char_filter: Optional[str] = None):
-        char_order: list[str] = []
-        char_groups: dict[str, list[dict]] = {}
-        for item in items:
-            char = item.get("character_name") or ""
-            if char not in char_groups:
-                char_order.append(char)
-                char_groups[char] = []
-            char_groups[char].append(item)
-
         char_filter_lower = char_filter.lower() if char_filter else None
+
+        filtered_items = items
+        if char_filter_lower is not None:
+            filtered_items = [i for i in items if (i.get("character_name") or "").lower() == char_filter_lower]
+
+        type_buckets: dict[str, list[dict]] = {}
+        for item in filtered_items:
+            itype = item.get("item_type", "misc")
+            type_buckets.setdefault(itype, []).append(item)
+
+        sorted_types = sorted(
+            type_buckets.keys(),
+            key=lambda t: (PlayerInventoryCog.TYPE_ORDER.get(t, 99), t),
+        )
 
         display = []
         row_num = 1
         all_groups: list[dict] = []
-        for char in char_order:
-            visible = (char_filter_lower is None) or (char.lower() == char_filter_lower)
-            groups = PlayerInventoryCog._group_items(char_groups[char])
-            if visible:
-                display.append((None, f"\n**— {char or '(no character)'} —**"))
+        for itype in sorted_types:
+            type_label = PlayerInventoryCog.TYPE_LABELS.get(itype, PlayerInventoryCog.DEFAULT_TYPE_LABEL)
+            groups = PlayerInventoryCog._group_items(type_buckets[itype])
+            if not groups:
+                continue
+            if itype == "gun":
+                display.append((None, f"\n**{type_label}**"))
+                display.append((None, "> `#` · **Name** · Qty · Price · Seller · Date"))
+            elif itype == "cyberware":
+                display.append((None, f"\n**{type_label}**"))
+                display.append((None, "> `#` · **Name** · Price · Seller · Date"))
+            else:
+                display.append((None, f"\n**{type_label}**"))
+                display.append((None, "> `#` · **Name** · Details"))
             for g in groups:
                 count_str = f" ×{g['count']}" if g["count"] > 1 else ""
-                type_tag = g["item_type"]
                 meta_parts = []
                 if g["price_paid"]:
                     meta_parts.append(f"💰 ${g['price_paid']:,}")
@@ -150,12 +167,11 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 if date_str:
                     meta_parts.append(f"📅 {date_str}")
                 meta_line = " **·** ".join(meta_parts)
-                line = f"`{row_num}.` **{g['name']}**{count_str} — `{type_tag}`"
+                line = f"`{row_num}.` **{g['name']}**{count_str}"
                 if meta_line:
                     line += f"\n> {meta_line}"
-                if visible:
-                    display.append((row_num, line))
-                    all_groups.append(g)
+                display.append((row_num, line))
+                all_groups.append(g)
                 row_num += 1
         return display, all_groups
 
