@@ -289,4 +289,8 @@ Admin commands:
 - `!store_remove @owner <lot_id> [qty]` — remove a lot or reduce its quantity from a store
 
 Restrictions carry over from wholesaler to store when purchased via `!wh_buy`.
+
+### Black Market Store Type
+
+Stores owned by users in `config.BLACK_MARKET_OWNER_IDS` (currently Shyzuki, Discord ID 352598809357975572) are treated as Black Market stores. When a Black Market owner uses "Buy from Wholesale" in `!gunstore`, the system queries `gun_catalog` for all `status='live'` weapons with `restriction` of `controlled` or `restricted` (no basic weapons). The purchase price is `ceil(price * BLACK_MARKET_PRICE_MULTIPLIER)` (default 1.5×). Black Market buys do not deduct from wholesale lots. Selling to customers still enforces controlled buyer list checks and restricted sale fixer-approval flows. Store data includes `store_type: "black_market"` for Black Market stores (default/absent = `"standard"`).
 Controlled buyers list is persisted per-store in `inventory/stores/<store_id>.json`.

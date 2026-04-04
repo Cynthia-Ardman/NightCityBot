@@ -21,6 +21,7 @@ from NightCityBot.utils.db import (
     pi_add_item,
     ih_record_event,
     pt_create,
+    gun_catalog_get_all,
 )
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active
 from NightCityBot.utils.inline_helpers import collect_text_input, QtySelectView
@@ -39,6 +40,10 @@ def _is_store_owner_member(member: discord.Member) -> bool:
 
 def _is_employee_member(member: discord.Member) -> bool:
     return any(r.id == GUN_STORE_EMPLOYEE_ROLE_ID for r in member.roles)
+
+
+def _is_black_market_owner(user_id: int) -> bool:
+    return user_id in config.BLACK_MARKET_OWNER_IDS
 
 
 def _find_employee_store(state: dict, guild_id: int, user_id: int) -> tuple:
@@ -144,14 +149,30 @@ class GunstoreMenuView(SafeView):
         if not guns_cog:
             await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
             return
+
         state = await guns_cog._load_state()
-        lots = [l for l in state.get("wholesale_lots", []) if int(l.get("qty_available", 0)) > 0]
-        if not lots:
-            await interaction.followup.send("No wholesale stock available.", ephemeral=True)
-            return
-        ctx = PanelContext(interaction)
-        view = GunBuySelect(cog, ctx, lots, guns_cog)
-        await interaction.followup.send("Select a gun to buy:", view=view, ephemeral=True)
+        store_id = guns_cog._store_id(interaction.guild.id, interaction.user.id)
+        store = state.get("stores", {}).get(store_id, {})
+        is_bm = store.get("store_type") == "black_market" or _is_black_market_owner(interaction.user.id)
+
+        if is_bm:
+            catalog = await gun_catalog_get_all()
+            lots = _build_black_market_lots(catalog)
+            if not lots:
+                await interaction.followup.send("No Black Market stock available.", ephemeral=True)
+                return
+            ctx = PanelContext(interaction)
+            view = GunBuySelect(cog, ctx, lots, guns_cog, black_market=True)
+            await interaction.followup.send("🏴 **Black Market** — select a gun to buy:", view=view, ephemeral=True)
+        else:
+            state = await guns_cog._load_state()
+            lots = [l for l in state.get("wholesale_lots", []) if int(l.get("qty_available", 0)) > 0]
+            if not lots:
+                await interaction.followup.send("No wholesale stock available.", ephemeral=True)
+                return
+            ctx = PanelContext(interaction)
+            view = GunBuySelect(cog, ctx, lots, guns_cog)
+            await interaction.followup.send("Select a gun to buy:", view=view, ephemeral=True)
 
     @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=0, custom_id="gunstore:wholesale_list")
     async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -285,13 +306,37 @@ class GunstoreMenuView(SafeView):
         )
 
 
+def _build_black_market_lots(catalog: list[dict]) -> list[dict]:
+    multiplier = config.BLACK_MARKET_PRICE_MULTIPLIER
+    lots = []
+    for entry in catalog:
+        if entry.get("status") != "live":
+            continue
+        if entry.get("restriction") not in ("controlled", "restricted"):
+            continue
+        lots.append({
+            "lot_id": f"bm-{entry['gun_name']}",
+            "gun_name": entry["gun_name"],
+            "gun_level": entry.get("gun_level", "L"),
+            "weapon_type": entry.get("weapon_type", ""),
+            "unit_cost": math.ceil(int(entry.get("price", 0)) * multiplier),
+            "qty_available": 99,
+            "restriction": entry["restriction"],
+            "black_market": True,
+        })
+    lots.sort(key=lambda l: l["gun_name"])
+    return lots
+
+
 class GunBuySelect(SafeView):
-    def __init__(self, cog: "GunstoreHub", ctx: commands.Context, lots: list, guns_cog):
+    def __init__(self, cog: "GunstoreHub", ctx: commands.Context, lots: list, guns_cog,
+                 *, black_market: bool = False):
         super().__init__(timeout=60)
         self.cog = cog
         self.ctx = ctx
         self.lots = lots
         self.guns_cog = guns_cog
+        self.black_market = black_market
         options = []
         for i, lot in enumerate(lots[:25]):
             r = lot.get("restriction", "basic")
@@ -316,10 +361,11 @@ class GunBuySelect(SafeView):
         if qty_view.result is None:
             await interaction.followup.send("⏰ Timed out.", ephemeral=True)
             return
-        await _process_gun_buy(self.cog, interaction, self.ctx, lot, self.guns_cog, qty_view.result)
+        await _process_gun_buy(self.cog, interaction, self.ctx, lot, self.guns_cog, qty_view.result,
+                               black_market=self.black_market)
 
 
-async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty):
+async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty, *, black_market=False):
     if qty < 1:
         await interaction.followup.send("Quantity must be at least 1.", ephemeral=True)
         return
@@ -358,25 +404,34 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty):
 
     async with guns_cog.lock:
         state = await guns_cog._load_state()
-        lots_list = state.get("wholesale_lots", [])
-        target_lot = None
-        for l in lots_list:
-            if l.get("lot_id") == lot.get("lot_id"):
-                target_lot = l
-                break
-        if not target_lot or int(target_lot.get("qty_available", 0)) < qty:
-            await cog.unbelievaboat.update_balance(
-                member.id,
-                {"cash": cash_deduct, "bank": bank_deduct},
-                reason="Gun wholesale refund — stock depleted",
-            )
-            await interaction.followup.send("Stock depleted. Refunded.", ephemeral=True)
-            return
-        target_lot["qty_available"] = int(target_lot["qty_available"]) - qty
+
+        if not black_market:
+            lots_list = state.get("wholesale_lots", [])
+            target_lot = None
+            for l in lots_list:
+                if l.get("lot_id") == lot.get("lot_id"):
+                    target_lot = l
+                    break
+            if not target_lot or int(target_lot.get("qty_available", 0)) < qty:
+                await cog.unbelievaboat.update_balance(
+                    member.id,
+                    {"cash": cash_deduct, "bank": bank_deduct},
+                    reason="Gun wholesale refund — stock depleted",
+                )
+                await interaction.followup.send("Stock depleted. Refunded.", ephemeral=True)
+                return
+            target_lot["qty_available"] = int(target_lot["qty_available"]) - qty
+
         store_id = guns_cog._store_id(ctx.guild.id, member.id)
+        default_type = "black_market" if black_market else "standard"
         store = state.setdefault("stores", {}).setdefault(
-            store_id, {"owner_id": member.id, "lots": [], "controlled_buyers": []}
+            store_id, {"owner_id": member.id, "lots": [], "controlled_buyers": [],
+                       "store_type": default_type}
         )
+        if black_market and store.get("store_type") != "black_market":
+            store["store_type"] = "black_market"
+        elif "store_type" not in store:
+            store["store_type"] = "standard"
         store_lot_id = f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
         item_ids = [str(uuid.uuid4()) for _ in range(qty)]
         store["lots"].append({
@@ -391,9 +446,10 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty):
         })
         await guns_cog._save_state(state)
 
+    event_type = "black_market_buy" if black_market else "wholesale_buy"
     for item_id in item_ids:
         await ih_record_event(
-            item_id, "wholesale_buy",
+            item_id, event_type,
             actor_id=str(member.id),
             price=unit_cost,
             metadata={
@@ -410,9 +466,10 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty):
     )
     log_ch = await cog._log_channel()
     if log_ch:
+        bm_label = "🏴 Black Market Purchase" if black_market else "🛒 Gun Wholesale Purchase"
         embed = discord.Embed(
-            title="🛒 Gun Wholesale Purchase",
-            color=discord.Color.dark_gold(),
+            title=bm_label,
+            color=discord.Color.dark_purple() if black_market else discord.Color.dark_gold(),
             timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(name="Store Owner", value=f"{member.mention}", inline=False)
@@ -1419,8 +1476,10 @@ class _EmployeePickerView(SafeView):
                 state = await guns_cog._load_state()
                 store_id = guns_cog._store_id(guild.id, self.ctx.author.id)
                 store = state.setdefault("stores", {}).setdefault(
-                    store_id, {"owner_id": self.ctx.author.id, "lots": [], "controlled_buyers": []}
+                    store_id, {"owner_id": self.ctx.author.id, "lots": [], "controlled_buyers": [],
+                               "store_type": "standard"}
                 )
+                store.setdefault("store_type", "standard")
                 employees = store.setdefault("employees", [])
                 if user.id not in employees:
                     employees.append(user.id)
@@ -1440,8 +1499,10 @@ class _EmployeePickerView(SafeView):
                 state = await guns_cog._load_state()
                 store_id = guns_cog._store_id(guild.id, self.ctx.author.id)
                 store = state.setdefault("stores", {}).setdefault(
-                    store_id, {"owner_id": self.ctx.author.id, "lots": [], "controlled_buyers": []}
+                    store_id, {"owner_id": self.ctx.author.id, "lots": [], "controlled_buyers": [],
+                               "store_type": "standard"}
                 )
+                store.setdefault("store_type", "standard")
                 employees = store.setdefault("employees", [])
                 if user.id not in employees:
                     await interaction.followup.send(
@@ -1627,9 +1688,12 @@ class _ManageGunStoreView(SafeView):
             return
         async with guns_cog.lock:
             state = await guns_cog._load_state()
+            st = "black_market" if _is_black_market_owner(interaction.user.id) else "standard"
             store = state.setdefault("stores", {}).setdefault(
-                store_id, {"owner_id": interaction.user.id, "lots": [], "controlled_buyers": []}
+                store_id, {"owner_id": interaction.user.id, "lots": [], "controlled_buyers": [],
+                           "store_type": st}
             )
+            store.setdefault("store_type", st)
             store["store_name"] = name
             await guns_cog._save_state(state)
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
@@ -1673,8 +1737,10 @@ class _ManageGunStoreView(SafeView):
         async with guns_cog.lock:
             state = await guns_cog._load_state()
             store = state.setdefault("stores", {}).setdefault(
-                store_id, {"owner_id": interaction.user.id, "lots": [], "controlled_buyers": []}
+                store_id, {"owner_id": interaction.user.id, "lots": [], "controlled_buyers": [],
+                           "store_type": "standard"}
             )
+            store.setdefault("store_type", "standard")
             store["store_name"] = name
             await guns_cog._save_state(state)
         await interaction.followup.send(f"Store name changed to **{name}**.", ephemeral=True)
