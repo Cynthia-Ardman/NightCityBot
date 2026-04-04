@@ -359,11 +359,11 @@ class DMHandler(commands.Cog):
             if admin:
                 await admin.log_audit(ctx.author, f"✅ DM sent anonymously to {user.display_name}.")
 
-        except discord.Forbidden:
+        except (discord.Forbidden, discord.HTTPException) as exc:
             await ctx.send('❌ Cannot DM user (Privacy Settings).')
             admin = self.bot.get_cog('Admin')
             if admin:
-                await admin.log_audit(ctx.author, f"❌ Failed DM: Recipient: {user} (Privacy settings).")
+                await admin.log_audit(ctx.author, f"❌ Failed DM: Recipient: {user} ({exc}).")
         finally:
             try:
                 await ctx.message.delete()

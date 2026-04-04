@@ -612,7 +612,8 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
 
     state = await guns_cog._load_state()
     store_data = state.get("stores", {}).get(store_id, {})
-    owner_id = store_data.get("owner_id", ctx.author.id)
+    _fallback_owner = int(store_id.split(":")[-1]) if ":" in store_id else ctx.author.id
+    owner_id = store_data.get("owner_id", _fallback_owner)
     if isinstance(owner_id, str) and owner_id.isdigit():
         owner_id = int(owner_id)
 
@@ -1585,6 +1586,18 @@ class _GunTransferOwnerView(SafeView):
             state.setdefault("stores", {})[new_store_id] = store
             await guns_cog._save_state(state)
         store_name = store.get("store_name") or "Gun Store"
+        owner_role = guild.get_role(config.GUN_STORE_OWNER_ROLE_ID) if hasattr(config, "GUN_STORE_OWNER_ROLE_ID") else None
+        if owner_role:
+            old_owner_member = guild.get_member(self.ctx.author.id)
+            if old_owner_member:
+                try:
+                    await old_owner_member.remove_roles(owner_role, reason=f"Gun store transferred to {new_owner.display_name}")
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+            try:
+                await new_owner.add_roles(owner_role, reason=f"Gun store transferred from {self.ctx.author.display_name}")
+            except (discord.Forbidden, discord.HTTPException):
+                pass
         await interaction.followup.send(
             f"✅ **{store_name}** has been transferred to {new_owner.display_name}.",
             ephemeral=True,
@@ -1651,8 +1664,33 @@ class _GunCloseConfirmView(SafeView):
                     returned_lots.append(new_lot)
             await guns_cog._save_state(state)
 
+        employees = store.get("employees", [])
+        owner_role = guild.get_role(config.GUN_STORE_OWNER_ROLE_ID) if hasattr(config, "GUN_STORE_OWNER_ROLE_ID") else None
+        emp_role = guild.get_role(GUN_STORE_EMPLOYEE_ROLE_ID)
+        owner_member = guild.get_member(self.ctx.author.id)
+        if owner_role and owner_member:
+            try:
+                await owner_member.remove_roles(owner_role, reason=f"Gun store {store_name} closed")
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+        for emp_id in employees:
+            if emp_role:
+                emp_member = guild.get_member(emp_id)
+                if emp_member:
+                    try:
+                        await emp_member.remove_roles(emp_role, reason=f"Gun store {store_name} closed")
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
+        from NightCityBot.utils.db import cancel_pending_transfers_for_store
+        try:
+            cancelled = await cancel_pending_transfers_for_store(store_id)
+            if cancelled:
+                logger.info("Cancelled %d pending transfer(s) for closed store %s", cancelled, store_id)
+        except Exception:
+            logger.warning("Failed to cancel pending transfers for store %s", store_id, exc_info=True)
+
         summary = f"✅ **{store_name}** has been closed.\n"
-        summary += f"• {len(store.get('employees', []))} employee(s) disassociated\n"
+        summary += f"• {len(employees)} employee(s) disassociated\n"
         summary += f"• {len(lots)} lot(s) in store\n"
         if returned_lots:
             returned_names = [f"**{l['gun_name']}** ×{l['qty_available']} @ ${l['unit_cost']:,}" for l in returned_lots]

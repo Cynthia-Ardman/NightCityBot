@@ -18,8 +18,26 @@ async def _safe_respond(interaction: discord.Interaction, msg: str) -> None:
             await interaction.followup.send(msg, ephemeral=True)
         else:
             await interaction.response.send_message(msg, ephemeral=True)
+    except discord.NotFound:
+        logger.debug("Interaction token expired for user %s — cannot send response.", interaction.user.id)
     except Exception:
         pass
+
+
+async def safe_followup(interaction: discord.Interaction, content: str = "", **kwargs) -> bool:
+    """Send a followup, returning False if the interaction token has expired."""
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(content, **kwargs)
+        else:
+            await interaction.response.send_message(content, **kwargs)
+        return True
+    except discord.NotFound:
+        logger.debug("Interaction token expired for user %s — followup dropped.", interaction.user.id)
+        return False
+    except discord.HTTPException as e:
+        logger.warning("safe_followup HTTP error for user %s: %s", interaction.user.id, e)
+        return False
 
 
 async def view_on_error(

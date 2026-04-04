@@ -1054,7 +1054,7 @@ async def _process_trade(cog, interaction, buyer, group, buyer_character, price,
                 "Do you accept?",
                 view=confirm_view,
             )
-        except discord.Forbidden:
+        except (discord.Forbidden, discord.HTTPException):
             await interaction.followup.send(
                 f"❌ Cannot DM {buyer.display_name}. They may have DMs disabled.",
                 ephemeral=True,
@@ -1837,7 +1837,7 @@ async def _process_sell_to_store(cog, interaction, store_owner, group, seller_ch
             "Do you want to buy it for your store?",
             view=confirm_view,
         )
-    except discord.Forbidden:
+    except (discord.Forbidden, discord.HTTPException):
         await interaction.followup.send(
             f"❌ Cannot DM {store_owner.display_name}. They may have DMs disabled.",
             ephemeral=True,

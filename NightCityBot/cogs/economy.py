@@ -70,6 +70,7 @@ class Economy(commands.Cog):
         self._open_log_locks = ResourceLockManager()
         self._attend_locks = ResourceLockManager()
         self.rent_lock = asyncio.Lock()
+        self._event_lock = asyncio.Lock()
         self.event_expires_at: Optional[datetime] = None
         self.event_started_at: Optional[datetime] = None
         self._startup_catchup_done: bool = False
@@ -399,10 +400,11 @@ class Economy(commands.Cog):
         now = helpers.get_tz_now()
         self.event_started_at = now
         self.event_expires_at = now + timedelta(hours=4)
-        await db_save("fixer_event", {
-            "started_at": self.event_started_at.isoformat(),
-            "expires_at": self.event_expires_at.isoformat(),
-        })
+        async with self._event_lock:
+            await db_save("fixer_event", {
+                "started_at": self.event_started_at.isoformat(),
+                "expires_at": self.event_expires_at.isoformat(),
+            })
         expires = self.event_expires_at.strftime("%I:%M %p %Z")
         await ctx.send(
             f"🟢 Event started! Temporary attendance and shop opens allowed until {expires}."

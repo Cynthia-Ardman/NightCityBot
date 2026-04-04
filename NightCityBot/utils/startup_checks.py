@@ -1,3 +1,4 @@
+import os
 import discord
 from pathlib import Path
 from typing import Iterable
@@ -15,6 +16,7 @@ ROLE_ID_FIELDS: Iterable[str] = [
     "FIXER_ROLE_ID",
     "TRAUMA_TEAM_ROLE_ID",
     "VERIFIED_ROLE_ID",
+    "APPROVED_ROLE_ID",
     "NPC_ROLE_ID",
     "CYBER_CHECKUP_ROLE_ID",
     "CYBER_MEDIUM_ROLE_ID",
@@ -22,6 +24,10 @@ ROLE_ID_FIELDS: Iterable[str] = [
     "CYBER_EXTREME_ROLE_ID",
     "LOA_ROLE_ID",
     "RIPPERDOC_ROLE_ID",
+    "GUN_STORE_OWNER_ROLE_ID",
+    "GUN_STORE_EMPLOYEE_ROLE_ID",
+    "RIPPERDOC_OWNER_ROLE_ID",
+    "RIPPERDOC_EMPLOYEE_ROLE_ID",
 ]
 
 CHANNEL_ID_FIELDS: Iterable[str] = [
@@ -37,6 +43,10 @@ CHANNEL_ID_FIELDS: Iterable[str] = [
     "CYBERWARE_LOG_CHANNEL_ID",
     "GEAR_MISC_LOG_CHANNEL_ID",
     "RIPPERDOC_LOG_CHANNEL_ID",
+    "PLAYER_HUB_CHANNEL_ID",
+    "GUN_HUB_CHANNEL_ID",
+    "RIPPERDOC_HUB_CHANNEL_ID",
+    "GUN_APPROVALS_CHANNEL_ID",
 ]
 
 # Channels that must exist AND be Discord ForumChannels.
@@ -233,11 +243,27 @@ async def check_db_health(bot: discord.Client) -> None:
         logger.error("check_db_health raised unexpectedly", exc_info=True)
 
 
+def _check_gdrive_config() -> None:
+    folder_id = os.environ.get("GDRIVE_BACKUP_FOLDER_ID")
+    sa_json = os.environ.get("GDRIVE_SERVICE_ACCOUNT_JSON")
+    if not folder_id:
+        logger.warning("⚠️ GDRIVE_BACKUP_FOLDER_ID is not set — Google Drive backups will fail.")
+    if not sa_json:
+        logger.warning("⚠️ GDRIVE_SERVICE_ACCOUNT_JSON is not set — Google Drive backups will fail.")
+    else:
+        import json as _json
+        try:
+            _json.loads(sa_json)
+        except (ValueError, TypeError):
+            logger.warning("⚠️ GDRIVE_SERVICE_ACCOUNT_JSON is not valid JSON — backups will fail.")
+
+
 async def perform_startup_checks(bot: discord.Client) -> None:
     await bot.wait_until_ready()
     await verify_config(bot)
     await check_db_health(bot)
     await check_unbelievaboat(bot)
+    _check_gdrive_config()
     await cleanup_logs(bot)
     admin = bot.get_cog('Admin')
     if admin:

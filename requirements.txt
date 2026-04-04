@@ -8,6 +8,6 @@ python-dotenv==1.1.0
 rapidfuzz==3.13.0
 openpyxl==3.1.5
 asyncpg==0.31.0
-pytest-cov
-google-api-python-client
-google-auth
+pytest-cov==7.1.0
+google-api-python-client==2.193.0
+google-auth==2.49.1

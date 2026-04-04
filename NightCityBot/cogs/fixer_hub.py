@@ -1213,7 +1213,11 @@ class LOAPickerView(SafeView):
                     f"{member.display_name} is already on LOA.", ephemeral=True
                 )
                 return
-            await member.add_roles(loa_role, reason=f"LOA start by {interaction.user}")
+            try:
+                await member.add_roles(loa_role, reason=f"LOA start by {interaction.user}")
+            except (discord.Forbidden, discord.HTTPException) as e:
+                await interaction.followup.send(f"❌ Could not assign LOA role: {e}", ephemeral=True)
+                return
             await interaction.followup.send(
                 f"✅ {member.display_name} is now on LOA.", ephemeral=True
             )
@@ -1223,7 +1227,11 @@ class LOAPickerView(SafeView):
                     f"{member.display_name} is not currently on LOA.", ephemeral=True
                 )
                 return
-            await member.remove_roles(loa_role, reason=f"LOA end by {interaction.user}")
+            try:
+                await member.remove_roles(loa_role, reason=f"LOA end by {interaction.user}")
+            except (discord.Forbidden, discord.HTTPException) as e:
+                await interaction.followup.send(f"❌ Could not remove LOA role: {e}", ephemeral=True)
+                return
             await interaction.followup.send(
                 f"✅ {member.display_name}'s LOA has ended.", ephemeral=True
             )

@@ -68,7 +68,12 @@ class LOA(commands.Cog):
             await ctx.send(f"{target.display_name} is already on LOA.")
             return
 
-        await target.add_roles(loa_role, reason="LOA start")
+        try:
+            await target.add_roles(loa_role, reason="LOA start")
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.warning("Failed to add LOA role to %s: %s", target, e)
+            await ctx.send(f"❌ Could not assign LOA role: {e}")
+            return
         logger.debug("LOA role added to %s", target)
         if target == ctx.author:
             await ctx.send("✅ You are now on LOA.")
@@ -107,7 +112,12 @@ class LOA(commands.Cog):
             await ctx.send(f"{target.display_name} is not currently on LOA.")
             return
 
-        await target.remove_roles(loa_role, reason="LOA end")
+        try:
+            await target.remove_roles(loa_role, reason="LOA end")
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.warning("Failed to remove LOA role from %s: %s", target, e)
+            await ctx.send(f"❌ Could not remove LOA role: {e}")
+            return
         logger.debug("LOA role removed from %s", target)
         if target == ctx.author:
             await ctx.send("✅ Your LOA has ended.")

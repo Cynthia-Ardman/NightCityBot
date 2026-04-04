@@ -35,7 +35,7 @@ _TRANSIENT_ERRORS = (
 )
 
 
-async def _with_retry(coro_factory, *, label: str = "", retries: int = 2, delay: float = 0.5):
+async def _with_retry(coro_factory, *, label: str = "", retries: int = 2, delay: float = 0.5, timeout: float = POOL_ACQUIRE_TIMEOUT + 60):
     """Call coro_factory() up to retries+1 times on transient DB errors.
 
     Non-transient exceptions (constraint violations, etc.) propagate immediately.
@@ -45,7 +45,7 @@ async def _with_retry(coro_factory, *, label: str = "", retries: int = 2, delay:
     global _db_failures, _last_failure_at
     for attempt in range(retries + 1):
         try:
-            return await coro_factory()
+            return await asyncio.wait_for(coro_factory(), timeout=timeout)
         except _TRANSIENT_ERRORS as exc:
             if attempt < retries:
                 logger.warning(
@@ -3147,6 +3147,30 @@ async def pt_resolve(transfer_id: str, status: str = "resolved") -> bool:
     except Exception:
         logger.error("pt_resolve failed for transfer_id='%s'", transfer_id, exc_info=True)
         return False
+
+
+async def cancel_pending_transfers_for_store(store_id: str) -> int:
+    """Cancel all unresolved pending transfers associated with a store owner.
+
+    The store_id format is 'guild_id:owner_id' (gun) or 'rd:guild_id:owner_id' (ripperdoc).
+    Extracts the owner_id and resolves all their unresolved transfers.
+    """
+    parts = store_id.rsplit(":", 1)
+    owner_id = parts[-1] if parts else store_id
+    try:
+        pool = await get_pool()
+        result = await _with_retry(
+            lambda: pool.execute(
+                "UPDATE pending_transfers SET resolved = TRUE WHERE seller_id = $1 AND resolved = FALSE",
+                str(owner_id),
+            ),
+            label="cancel_pending_transfers_for_store",
+        )
+        count_str = result.split()[-1] if result else "0"
+        return int(count_str) if count_str.isdigit() else 0
+    except Exception:
+        logger.error("cancel_pending_transfers_for_store failed for store '%s'", store_id, exc_info=True)
+        return 0
 
 
 # ---------------------------------------------------------------------------

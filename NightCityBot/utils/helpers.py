@@ -80,3 +80,13 @@ def get_tz_now() -> datetime:
     """Return current time in the configured timezone."""
     tz = ZoneInfo(getattr(config, "TIMEZONE", "UTC"))
     return datetime.now(tz)
+
+
+MAX_SELECT_OPTIONS = 25
+
+
+def truncation_note(total: int, kind: str = "items") -> str:
+    """Return a note string if *total* exceeds the Discord 25-option limit."""
+    if total > MAX_SELECT_OPTIONS:
+        return f"\n⚠️ Showing first {MAX_SELECT_OPTIONS} of {total} {kind}."
+    return ""

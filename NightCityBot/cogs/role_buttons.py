@@ -59,7 +59,13 @@ class NPCButtonView(SafeView):
             )
             return
 
-        await member.add_roles(role, reason="NPC role button")
+        try:
+            await member.add_roles(role, reason="NPC role button")
+        except (discord.Forbidden, discord.HTTPException) as e:
+            await interaction.response.send_message(
+                f"❌ Could not assign NPC role: {e}", ephemeral=True
+            )
+            return
         admin = self.bot.get_cog("Admin")
         if admin:
             await admin.log_audit(

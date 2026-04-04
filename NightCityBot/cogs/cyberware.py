@@ -233,9 +233,12 @@ class CyberwareManager(commands.Cog):
             if not has_checkup:
                 if checkup_role:
                     if not dry_run:
-                        await member.add_roles(
-                            checkup_role, reason="Weekly cyberware check"
-                        )
+                        try:
+                            await member.add_roles(
+                                checkup_role, reason="Weekly cyberware check"
+                            )
+                        except (discord.Forbidden, discord.HTTPException):
+                            pass
                     if log is not None:
                         log.append(
                             f"{'Would give' if dry_run else 'Gave'} checkup role to <@{member.id}>"
@@ -414,7 +417,11 @@ class CyberwareManager(commands.Cog):
             await ctx.send(f"{member.display_name} does not have the checkup role.")
             return
 
-        await member.remove_roles(role, reason="Cyberware check-up completed")
+        try:
+            await member.remove_roles(role, reason="Cyberware check-up completed")
+        except (discord.Forbidden, discord.HTTPException) as e:
+            await ctx.send(f"❌ Could not remove checkup role: {e}")
+            return
         await ctx.send(f"✅ Removed checkup role from {member.display_name}.")
 
         log_channel = ctx.guild.get_channel(config.RIPPERDOC_LOG_CHANNEL_ID)
@@ -479,7 +486,10 @@ class CyberwareManager(commands.Cog):
             if not has_cyber:
                 continue
             if checkup_role not in m.roles:
-                await m.add_roles(checkup_role, reason="Checkup role assign")
+                try:
+                    await m.add_roles(checkup_role, reason="Checkup role assign")
+                except (discord.Forbidden, discord.HTTPException):
+                    continue
                 count += 1
 
         await ctx.send(f"✅ Gave the checkup role to {count} member(s).")

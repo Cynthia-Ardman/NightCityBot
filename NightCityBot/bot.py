@@ -61,7 +61,10 @@ class NightCityBot(commands.Bot):
         self.unbelievaboat: UnbelievaBoatAPI | None = None
 
     async def setup_hook(self):
-        self.unbelievaboat = UnbelievaBoatAPI(config.UNBELIEVABOAT_API_TOKEN)
+        ub_token = config.UNBELIEVABOAT_API_TOKEN
+        if not ub_token:
+            logger.error("UNBELIEVABOAT_API_TOKEN is not set — economy operations will fail.")
+        self.unbelievaboat = UnbelievaBoatAPI(ub_token or "")
         # Seed + load bot_config cache before cogs start so constants are ready
         try:
             await _cfg.seed_and_reload()
@@ -131,6 +134,11 @@ class NightCityBot(commands.Bot):
                     logger.exception("Failed to log shutdown audit")
         if self.unbelievaboat is not None:
             await self.unbelievaboat.close()
+        try:
+            from NightCityBot.utils.db import close_pool
+            await close_pool()
+        except Exception:
+            logger.exception("Failed to close DB pool")
         await super().close()
 
 
