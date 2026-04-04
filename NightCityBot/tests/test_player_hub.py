@@ -789,6 +789,7 @@ def test_give_process_success():
              patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}), \
              patch("NightCityBot.cogs.player_hub.ih_record_event", new_callable=AsyncMock), \
              patch("NightCityBot.cogs.player_hub._route_log_channel", new_callable=AsyncMock, return_value=None), \
+             patch("NightCityBot.cogs.player_hub.get_character_by_name", new_callable=AsyncMock, return_value={"character_id": "char-j1", "name": "Jackie", "status": "active"}), \
              patch("NightCityBot.cogs.player_hub.GiveConfirmView") as MockConfirm:
             confirm_inst = MagicMock()
             confirm_inst.accepted = True
@@ -811,6 +812,7 @@ def test_give_process_transfer_fails():
         inter = _make_interaction(user_id=100)
         with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=False), \
              patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}), \
+             patch("NightCityBot.cogs.player_hub.get_character_by_name", new_callable=AsyncMock, return_value={"character_id": "char-j1", "name": "Jackie", "status": "active"}), \
              patch("NightCityBot.cogs.player_hub.GiveConfirmView") as MockConfirm:
             confirm_inst = MagicMock()
             confirm_inst.accepted = True
@@ -2244,12 +2246,13 @@ class TestTradeSellerCharacterPrompt:
                 with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=True):
                     with patch("NightCityBot.cogs.player_hub._route_log_channel", new_callable=AsyncMock, return_value=None):
                         with patch("NightCityBot.cogs.player_hub.ih_record_event", new_callable=AsyncMock) as mock_record:
-                            with patch("NightCityBot.cogs.player_hub.TradeConfirmView") as MockConfirm:
-                                confirm_inst = MagicMock()
-                                confirm_inst.accepted = True
-                                confirm_inst.wait = AsyncMock()
-                                MockConfirm.return_value = confirm_inst
-                                await _process_trade(cog, inter, buyer, groups[0], "Johnny", 0, "V")
+                            with patch("NightCityBot.cogs.player_hub.get_character_by_name", new_callable=AsyncMock, return_value={"character_id": "char-b1", "name": "Johnny", "status": "active"}):
+                                with patch("NightCityBot.cogs.player_hub.TradeConfirmView") as MockConfirm:
+                                    confirm_inst = MagicMock()
+                                    confirm_inst.accepted = True
+                                    confirm_inst.wait = AsyncMock()
+                                    MockConfirm.return_value = confirm_inst
+                                    await _process_trade(cog, inter, buyer, groups[0], "Johnny", 0, "V")
                             meta = mock_record.call_args.kwargs["metadata"]
                             assert meta["seller_character"] == "V"
         _run(_test())
@@ -2266,12 +2269,13 @@ class TestTradeSellerCharacterPrompt:
                 with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=True):
                     with patch("NightCityBot.cogs.player_hub._route_log_channel", new_callable=AsyncMock, return_value=log_ch):
                         with patch("NightCityBot.cogs.player_hub.ih_record_event", new_callable=AsyncMock):
-                            with patch("NightCityBot.cogs.player_hub.TradeConfirmView") as MockConfirm:
-                                confirm_inst = MagicMock()
-                                confirm_inst.accepted = True
-                                confirm_inst.wait = AsyncMock()
-                                MockConfirm.return_value = confirm_inst
-                                await _process_trade(cog, inter, buyer, groups[0], "Johnny", 0, "SellerChar")
+                            with patch("NightCityBot.cogs.player_hub.get_character_by_name", new_callable=AsyncMock, return_value={"character_id": "char-b1", "name": "Johnny", "status": "active"}):
+                                with patch("NightCityBot.cogs.player_hub.TradeConfirmView") as MockConfirm:
+                                    confirm_inst = MagicMock()
+                                    confirm_inst.accepted = True
+                                    confirm_inst.wait = AsyncMock()
+                                    MockConfirm.return_value = confirm_inst
+                                    await _process_trade(cog, inter, buyer, groups[0], "Johnny", 0, "SellerChar")
                             embed = log_ch.send.call_args.kwargs["embed"]
                             seller_field = embed.fields[0]
                             assert "SellerChar" in seller_field.value
@@ -2288,12 +2292,13 @@ class TestTradeSellerCharacterPrompt:
                 with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=True):
                     with patch("NightCityBot.cogs.player_hub._route_log_channel", new_callable=AsyncMock, return_value=None):
                         with patch("NightCityBot.cogs.player_hub.ih_record_event", new_callable=AsyncMock) as mock_record:
-                            with patch("NightCityBot.cogs.player_hub.TradeConfirmView") as MockConfirm:
-                                confirm_inst = MagicMock()
-                                confirm_inst.accepted = True
-                                confirm_inst.wait = AsyncMock()
-                                MockConfirm.return_value = confirm_inst
-                                await _process_trade(cog, inter, buyer, groups[0], "Johnny", 0)
+                            with patch("NightCityBot.cogs.player_hub.get_character_by_name", new_callable=AsyncMock, return_value={"character_id": "char-b1", "name": "Johnny", "status": "active"}):
+                                with patch("NightCityBot.cogs.player_hub.TradeConfirmView") as MockConfirm:
+                                    confirm_inst = MagicMock()
+                                    confirm_inst.accepted = True
+                                    confirm_inst.wait = AsyncMock()
+                                    MockConfirm.return_value = confirm_inst
+                                    await _process_trade(cog, inter, buyer, groups[0], "Johnny", 0)
                             meta = mock_record.call_args.kwargs["metadata"]
                             assert meta["seller_character"] == "V"
         _run(_test())

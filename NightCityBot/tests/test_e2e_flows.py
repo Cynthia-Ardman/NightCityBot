@@ -253,7 +253,8 @@ class TestFlowC_TradeFullFlow:
     @patch("NightCityBot.cogs.player_hub.collect_text_input", new_callable=AsyncMock)
     @patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock)
     @patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock)
-    def test_trade_accept_flow(self, mock_inv, mock_chars, mock_text, mock_get_item,
+    @patch("NightCityBot.cogs.player_hub.get_character_by_name", new_callable=AsyncMock)
+    def test_trade_accept_flow(self, mock_get_char, mock_inv, mock_chars, mock_text, mock_get_item,
                                mock_transfer, mock_pt, mock_history):
         mock_inv.return_value = SAMPLE_ITEMS
         mock_chars.return_value = MOCK_CHARS_BUYER
@@ -265,6 +266,7 @@ class TestFlowC_TradeFullFlow:
             "item_type": "melee",
             "restriction": "basic",
         }
+        mock_get_char.return_value = {"character_id": "char-b1", "name": "Johnny", "status": "active"}
 
         async def _test():
             bot = _make_bot()

@@ -53,6 +53,10 @@ Inventory restore convention: when `pi_add_item` fails in a sell flow, the item 
 
 Ripperdoc inventory lock convention: all load-mutate-save of ripperdoc inventory must use `async with cw_cog._locks.acquire(str(owner_id))`. This applies in `cyberware_shop.py`, `ripperdoc_hub.py`, `fixer_hub.py`, and `player_hub.py` (give-to-ripperdoc path).
 
+Save-result checking convention: every call to `_save_state()` or `_save_inventory()` after a payment has been taken must check the boolean return value. If `False`, the flow must refund the buyer (and reverse seller credit if applicable), send the user an error message, and `return`. This is enforced in: `gunstore_hub.py` (wholesale buy + sell), `ripperdoc_hub.py` (wholesale buy + sell + install), `fixer_hub.py` (add-to-store flows).
+
+Active-character guard: `get_character_by_name(discord_user_id, name, *, active_only=False)` accepts an `active_only` kwarg. When `True`, the query adds `AND status = 'active'`. Trade and give flows in `player_hub.py` pass `active_only=True` before transferring items, preventing delivery to deactivated characters between confirmation and transfer.
+
 ### DB Resilience (Task #3)
 
 All write-path helpers in `db.py` are wrapped with `_with_retry()` — 2 automatic retries with exponential backoff on transient errors (`PostgresConnectionError`, `InterfaceError`, `TooManyConnectionsError`). Non-transient errors (constraint violations, etc.) propagate immediately.
