@@ -832,11 +832,15 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
     owner_note = ""
     if owner_id != ctx.author.id:
         owner_note = f" (payment to store owner <@{owner_id}>)"
-    await ctx.send(
-        f"Sold **{gun_name}** to **{character_name}** ({customer.display_name}) for **${price:,}**."
+    await interaction.followup.send(
+        f"Sold **{gun_name}** to **{character_name}** ({customer.display_name}) for **${price:,}**.",
+        ephemeral=True,
     )
     log_ch = await cog._log_channel()
     if log_ch:
+        confirm_text = (
+            f"Sold **{gun_name}** to **{character_name}** ({customer.display_name}) for **${price:,}**."
+        )
         embed = discord.Embed(
             title="🔫 Gun Sold",
             color=discord.Color.dark_gold(),
@@ -850,7 +854,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
         if restriction != "basic":
             embed.add_field(name="Restriction", value=restriction.title(), inline=True)
         embed.set_footer(text="NightCityBot Audit Log")
-        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        await log_ch.send(content=confirm_text, embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
 async def _request_fixer_approval(cog, interaction, ctx, customer, gun_name, lot, price, character_name):

@@ -746,12 +746,17 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
         metadata={"item_name": item_name, "character": character_name},
     )
 
-    await ctx.send(
+    await interaction.followup.send(
         f"Sold **{item_name}** to **{character_name}** ({patient.display_name}) "
-        f"for **${price:,}**."
+        f"for **${price:,}**.",
+        ephemeral=True,
     )
     log_ch = await cog._log_channel()
     if log_ch:
+        confirm_text = (
+            f"Sold **{item_name}** to **{character_name}** ({patient.display_name}) "
+            f"for **${price:,}**."
+        )
         embed = discord.Embed(
             title="💉 Cyberware Sold",
             color=discord.Color.dark_teal(),
@@ -766,7 +771,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
         embed.add_field(name="Item", value=item_name, inline=True)
         embed.add_field(name="Price", value=f"${price:,}", inline=True)
         embed.set_footer(text="NightCityBot Audit Log")
-        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        await log_ch.send(content=confirm_text, embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
 async def _process_cw_install(cog, interaction, ctx, patient, group, character, price,
@@ -905,12 +910,12 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
         f"Installed **{item_name}** on **{character_name}** ({patient.display_name}).",
         ephemeral=True,
     )
-    await ctx.send(
-        f"💉 **{item_name}** installed on **{character_name}** ({patient.display_name}) "
-        f"by {ctx.author.display_name}."
-    )
     log_ch = await cog._log_channel()
     if log_ch:
+        confirm_text = (
+            f"💉 **{item_name}** installed on **{character_name}** ({patient.display_name}) "
+            f"by {ctx.author.display_name}."
+        )
         embed = discord.Embed(
             title="💉 Cyberware Installed",
             color=discord.Color.teal(),
@@ -923,7 +928,7 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
         embed.add_field(name="Patient", value=f"{patient.mention} — {character_name}", inline=False)
         embed.add_field(name="Item", value=item_name, inline=True)
         embed.set_footer(text="NightCityBot Audit Log")
-        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        await log_ch.send(content=confirm_text, embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
 class _RDStorePickerForAction(SafeView):
