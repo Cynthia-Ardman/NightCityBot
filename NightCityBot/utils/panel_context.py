@@ -9,3 +9,7 @@ class PanelContext:
         self.guild = interaction.guild
         self.bot = interaction.client
         self.channel = interaction.channel
+
+    async def send(self, *args, **kwargs):
+        kwargs.pop("ephemeral", None)
+        return await self.channel.send(*args, **kwargs)
