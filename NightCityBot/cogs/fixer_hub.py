@@ -1169,11 +1169,14 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
             return
         slot_val = parts[6].strip()
 
+    total_cost = (price or 0) * qty
+    cash_deducted = 0
+    bank_deducted = 0
     if price is not None and price > 0:
         confirm_view = _ConfirmItemView(target_user_id=player.id)
         confirm_msg = await interaction.followup.send(
             f"💰 {player.mention}, a Fixer wants to add **{name}** ×{qty} to your inventory "
-            f"for **${price:,}**. Do you approve?",
+            f"for **${total_cost:,}** total. Do you approve?",
             view=confirm_view,
             allowed_mentions=discord.AllowedMentions(users=[player]),
         )
@@ -1192,8 +1195,22 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
         if ub is None:
             await interaction.followup.send("❌ Economy system unavailable.", ephemeral=True)
             return
+        balance = await ub.get_balance(player.id)
+        if balance is None:
+            await interaction.followup.send("❌ Could not fetch player balance.", ephemeral=True)
+            return
+        cash = int(balance.get("cash", 0))
+        bank = int(balance.get("bank", 0))
+        if cash + bank < total_cost:
+            await interaction.followup.send(
+                f"❌ Player cannot afford ${total_cost:,} (has ${cash + bank:,}).", ephemeral=True
+            )
+            return
+        cash_deducted = min(max(cash, 0), total_cost)
+        bank_deducted = max(0, total_cost - cash_deducted)
         ok_deduct = await ub.update_balance(
-            player.id, {"cash": -price * qty}, reason=f"Fixer add-item: {name} x{qty}"
+            player.id, {"cash": -cash_deducted, "bank": -bank_deducted},
+            reason=f"Fixer add-item: {name} x{qty}"
         )
         if not ok_deduct:
             await interaction.followup.send("❌ Failed to deduct funds. Item not added.", ephemeral=True)
@@ -1240,10 +1257,21 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
                 metadata=meta,
             )
     if added < qty and price is not None and price > 0:
+        failed_qty = qty - added
+        refund_amount = price * failed_qty
+        ub = getattr(cog.bot, "unbelievaboat", None)
+        refunded = False
+        if ub and refund_amount > 0:
+            refund_cash = min(cash_deducted, refund_amount)
+            refund_bank = min(bank_deducted, refund_amount - refund_cash)
+            refunded = await ub.update_balance(
+                player.id, {"cash": refund_cash, "bank": refund_bank},
+                reason=f"Fixer add-item partial refund: {failed_qty}x {name} failed to save"
+            )
         logger.error(
             "CRITICAL: Deducted %d from user %s but only added %d/%d items '%s'. "
-            "Manual reconciliation may be needed.",
-            price * qty, player.id, added, qty, name,
+            "Refund attempted: %s (amount: %d).",
+            total_cost, player.id, added, qty, name, refunded, refund_amount,
         )
 
     log_ch = await _audit_channel(cog.bot)
@@ -2074,10 +2102,11 @@ async def _process_store_add_gun(cog, interaction, owner, text):
                 ephemeral=True,
             )
 
+    total_cost = cost * qty
     if cost > 0:
         confirm_view = _ConfirmItemView(target_user_id=owner.id)
         confirm_msg = await interaction.followup.send(
-            f"💰 {owner.mention}, a Fixer wants to add **{gun_name}** ×{qty} at ${cost:,} to your store. Approve?",
+            f"💰 {owner.mention}, a Fixer wants to add **{gun_name}** ×{qty} at **${total_cost:,}** total to your store. Approve?",
             view=confirm_view,
             allowed_mentions=discord.AllowedMentions(users=[owner]),
         )
@@ -2096,8 +2125,22 @@ async def _process_store_add_gun(cog, interaction, owner, text):
         if ub is None:
             await interaction.followup.send("❌ Economy system unavailable.", ephemeral=True)
             return
+        balance = await ub.get_balance(owner.id)
+        if balance is None:
+            await interaction.followup.send("❌ Could not fetch store owner's balance.", ephemeral=True)
+            return
+        cash = int(balance.get("cash", 0))
+        bank = int(balance.get("bank", 0))
+        if cash + bank < total_cost:
+            await interaction.followup.send(
+                f"❌ Store owner cannot afford ${total_cost:,} (has ${cash + bank:,}).", ephemeral=True
+            )
+            return
+        cash_deducted = min(max(cash, 0), total_cost)
+        bank_deducted = max(0, total_cost - cash_deducted)
         ok_deduct = await ub.update_balance(
-            owner.id, {"cash": -cost * qty}, reason=f"Fixer store-add gun: {gun_name} x{qty}"
+            owner.id, {"cash": -cash_deducted, "bank": -bank_deducted},
+            reason=f"Fixer store-add gun: {gun_name} x{qty}"
         )
         if not ok_deduct:
             await interaction.followup.send("❌ Failed to deduct funds. Item not added.", ephemeral=True)
@@ -2117,7 +2160,18 @@ async def _process_store_add_gun(cog, interaction, owner, text):
             "qty_remaining": qty,
             "restriction": restriction,
         })
-        await guns_cog._save_state(state)
+        saved = await guns_cog._save_state(state)
+    if not saved and cost > 0:
+        ub = getattr(cog.bot, "unbelievaboat", None)
+        if ub:
+            await ub.update_balance(
+                owner.id, {"cash": cash_deducted, "bank": bank_deducted},
+                reason=f"Fixer store-add gun refund: save failed for {gun_name} x{qty}"
+            )
+        await interaction.followup.send(
+            f"❌ Failed to save store inventory. Funds have been refunded.", ephemeral=True
+        )
+        return
     await interaction.followup.send(
         f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] to {owner.display_name}'s store.",
         ephemeral=True,
@@ -2148,10 +2202,13 @@ async def _process_store_add_cw(cog, interaction, owner, text):
         await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
         return
 
+    total_cost = cost * qty
+    cash_deducted = 0
+    bank_deducted = 0
     if cost > 0:
         confirm_view = _ConfirmItemView(target_user_id=owner.id)
         confirm_msg = await interaction.followup.send(
-            f"💰 {owner.mention}, a Fixer wants to add **{item_name}** ×{qty} at ${cost:,} to your Ripperdoc store. Approve?",
+            f"💰 {owner.mention}, a Fixer wants to add **{item_name}** ×{qty} at **${total_cost:,}** total to your Ripperdoc store. Approve?",
             view=confirm_view,
             allowed_mentions=discord.AllowedMentions(users=[owner]),
         )
@@ -2170,8 +2227,22 @@ async def _process_store_add_cw(cog, interaction, owner, text):
         if ub is None:
             await interaction.followup.send("❌ Economy system unavailable.", ephemeral=True)
             return
+        balance = await ub.get_balance(owner.id)
+        if balance is None:
+            await interaction.followup.send("❌ Could not fetch store owner's balance.", ephemeral=True)
+            return
+        cash = int(balance.get("cash", 0))
+        bank = int(balance.get("bank", 0))
+        if cash + bank < total_cost:
+            await interaction.followup.send(
+                f"❌ Store owner cannot afford ${total_cost:,} (has ${cash + bank:,}).", ephemeral=True
+            )
+            return
+        cash_deducted = min(max(cash, 0), total_cost)
+        bank_deducted = max(0, total_cost - cash_deducted)
         ok_deduct = await ub.update_balance(
-            owner.id, {"cash": -cost * qty}, reason=f"Fixer store-add cyberware: {item_name} x{qty}"
+            owner.id, {"cash": -cash_deducted, "bank": -bank_deducted},
+            reason=f"Fixer store-add cyberware: {item_name} x{qty}"
         )
         if not ok_deduct:
             await interaction.followup.send("❌ Failed to deduct funds. Item not added.", ephemeral=True)
@@ -2186,7 +2257,18 @@ async def _process_store_add_cw(cog, interaction, owner, text):
                 "price_paid": cost,
                 "purchased_at": datetime.now(timezone.utc).isoformat(),
             })
-        await cw_cog._save_inventory(owner.id, inventory)
+        saved = await cw_cog._save_inventory(owner.id, inventory)
+    if not saved and cost > 0:
+        ub = getattr(cog.bot, "unbelievaboat", None)
+        if ub:
+            await ub.update_balance(
+                owner.id, {"cash": cash_deducted, "bank": bank_deducted},
+                reason=f"Fixer store-add CW refund: save failed for {item_name} x{qty}"
+            )
+        await interaction.followup.send(
+            f"❌ Failed to save clinic inventory. Funds have been refunded.", ephemeral=True
+        )
+        return
     await interaction.followup.send(
         f"Added **{item_name}** ×{qty} at ${cost:,} to {owner.display_name}'s Ripperdoc store.",
         ephemeral=True,

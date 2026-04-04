@@ -2903,7 +2903,7 @@ async def pi_get_by_owner(owner_id: str, *, character_id: str | None = None) -> 
                 """
                 SELECT item_id, owner_id, character_name, item_type, name, restriction,
                        description, price_paid, seller_id, seller_name, acquired_at, created_at,
-                       character_id
+                       character_id, power_level, weapon_subtype, cwp, slot
                 FROM player_inventory
                 WHERE owner_id = $1 AND character_id = $2
                 ORDER BY character_name, item_type, name, acquired_at
@@ -2916,7 +2916,7 @@ async def pi_get_by_owner(owner_id: str, *, character_id: str | None = None) -> 
                 """
                 SELECT item_id, owner_id, character_name, item_type, name, restriction,
                        description, price_paid, seller_id, seller_name, acquired_at, created_at,
-                       character_id
+                       character_id, power_level, weapon_subtype, cwp, slot
                 FROM player_inventory
                 WHERE owner_id = $1
                 ORDER BY character_name, item_type, name, acquired_at
@@ -2944,7 +2944,7 @@ async def pi_get_item(item_id: str) -> Optional[dict]:
             """
             SELECT item_id, owner_id, character_name, item_type, name, restriction,
                    description, price_paid, seller_id, seller_name, acquired_at, created_at,
-                   character_id
+                   character_id, power_level, weapon_subtype, cwp, slot
             FROM player_inventory WHERE item_id = $1
             """,
             str(item_id),

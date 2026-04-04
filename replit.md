@@ -43,6 +43,10 @@ DB helpers: `NightCityBot/utils/db.py` — `get_pool()`, `db_load(key, default, 
 
 Seller refund convention: all rollback/refund paths that claw back money from the seller must use `{"bank": -price}`, never `{"cash": -price}`, to avoid pushing the seller's cash balance negative.
 
+Balance deduction convention: all payment flows must use the cash+bank split pattern — fetch the balance with `get_balance()`, check total affordability, then `min(max(cash, 0), total)` for the cash portion and `max(0, total - cash_deducted)` for the bank portion. Never deduct from cash-only as this fails for users with funds in bank. All three Fixer add-item flows (player, gun store, cyberware store) follow this pattern.
+
+Partial failure refund convention: if money is deducted but item insertion fails (partial or total), refund the failed portion proportionally — `price * failed_qty` — using the same cash/bank split that was originally deducted. The store add flows refund fully and abort if `_save_state` or `_save_inventory` returns False.
+
 Inventory restore convention: when `pi_add_item` fails in a sell flow, the item must be restored to the store's stock (gun lot or ripperdoc inventory) before refunding money. `cyberware_shop.py` adds to player inventory first then removes from stock; hub sell flows (`gunstore_hub.py`, `ripperdoc_hub.py`) remove first and restore on failure.
 
 `pi_update_character(item_id, new_character, expected_owner_id=None, *, new_character_id=None)` — when `new_character_id` is provided, also sets `character_id` in the UPDATE. All callers that know the target character (reassign, trade, give) should look up and pass the `character_id` to keep the column in sync.
