@@ -588,6 +588,10 @@ async def _inline_restock_wholesale(cog, interaction, text, catalog):
     if max_qty < 1:
         await interaction.edit_original_response(content="Max qty must be at least 1.")
         return
+    catalog = [g for g in catalog if str(g.get("status", "live")).strip().lower() == "live"]
+    if not catalog:
+        await interaction.edit_original_response(content="No live guns in catalog.")
+        return
     total_items = min(total_items, len(catalog))
     guns_cog = cog.bot.cogs.get("GunsShopCog")
     if not guns_cog:

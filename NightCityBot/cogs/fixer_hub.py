@@ -329,7 +329,11 @@ class WholesalerSubView(SafeView):
             "📝 **Enter gun wholesale details** in this format:\n"
             "`gun name, quantity, unit cost, restriction`\n"
             "Example: `Militech Mk.31, 10, 5000, basic`\n"
-            "Restriction is optional (defaults to `basic`). Type `cancel` to abort.",
+            "Restriction is optional (defaults to `basic`).\n"
+            "• **Basic** — freely available, no restrictions\n"
+            "• **Controlled** — requires a license or special authorization to purchase\n"
+            "• **Restricted** — illegal or military-grade, requires admin approval for sale\n"
+            "Type `cancel` to abort.",
             ephemeral=True,
             wait=True,
         )
@@ -725,7 +729,7 @@ async def _process_wh_add_cw(cog, interaction, text, msg=None):
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-async def _process_wh_remove_lot(cog, interaction, lot_id):
+async def _process_wh_remove_lot(cog, interaction, lot_id, remove_qty=None):
     lot_id = lot_id.strip()
 
     guns_cog = cog.bot.cogs.get("GunsShopCog")
@@ -747,6 +751,53 @@ async def _process_wh_remove_lot(cog, interaction, lot_id):
         await interaction.followup.send(content=f"Lot `{lot_id}` not found in either wholesale.", ephemeral=True)
         return
 
+    current_qty = int(lot.get("qty_available", 0))
+    if current_qty > 1 and remove_qty is None:
+        item_name = lot.get("gun_name") or lot.get("item_name") or "?"
+        if current_qty <= 24:
+            options = []
+            for i in range(1, current_qty + 1):
+                lbl = f"All ({i})" if i == current_qty else str(i)
+                options.append(discord.SelectOption(label=lbl, value=f"{lot_id}:{i}"))
+            view = WHRemoveQtyPickerView(cog, interaction.user.id, options)
+            await interaction.followup.send(
+                f"**{item_name}** has **{current_qty}** in stock. How many to remove?",
+                view=view,
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                f"**{item_name}** has **{current_qty}** in stock.\n"
+                f"Enter the quantity to remove (1–{current_qty}), or `all` to remove everything.\n"
+                "Type `cancel` to abort.",
+                ephemeral=True,
+            )
+            text = await collect_text_input(
+                interaction.client, interaction.channel_id, interaction.user.id
+            )
+            if text is None:
+                await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+                return
+            text = text.strip().lower()
+            if text == "all":
+                remove_qty = current_qty
+            else:
+                try:
+                    remove_qty = int(text)
+                except ValueError:
+                    await interaction.followup.send("❌ Invalid number.", ephemeral=True)
+                    return
+                if remove_qty < 1 or remove_qty > current_qty:
+                    await interaction.followup.send(
+                        f"❌ Must be between 1 and {current_qty}.", ephemeral=True
+                    )
+                    return
+            await _process_wh_remove_lot(cog, interaction, lot_id, remove_qty=remove_qty)
+        return
+
+    if remove_qty is None:
+        remove_qty = current_qty
+
     if found_in == "gun":
         async with guns_cog.lock:
             state = await guns_cog._load_state()
@@ -756,8 +807,12 @@ async def _process_wh_remove_lot(cog, interaction, lot_id):
                 await interaction.followup.send(content="Lot disappeared.", ephemeral=True)
                 return
             item_name = lot.get("gun_name", "?")
-            removed = int(lot.get("qty_available", 0))
-            lots.remove(lot)
+            available = int(lot.get("qty_available", 0))
+            removed = min(remove_qty, available)
+            if removed >= available:
+                lots.remove(lot)
+            else:
+                lot["qty_available"] = available - removed
             await guns_cog._save_state(state)
     else:
         async with cw_cog.lock:
@@ -768,8 +823,12 @@ async def _process_wh_remove_lot(cog, interaction, lot_id):
                 await interaction.followup.send(content="Lot disappeared.", ephemeral=True)
                 return
             item_name = lot.get("item_name", "?")
-            removed = int(lot.get("qty_available", 0))
-            lots.remove(lot)
+            available = int(lot.get("qty_available", 0))
+            removed = min(remove_qty, available)
+            if removed >= available:
+                lots.remove(lot)
+            else:
+                lot["qty_available"] = available - removed
             await cw_cog._save_state(state)
 
     label = "Gun" if found_in == "gun" else "CW"
@@ -920,6 +979,11 @@ class PlayerAddItemPickerView(SafeView):
             "📝 **Enter item details** in this format:\n"
             "`item name, type, quantity, price`\n"
             "Example: `Militech Pistol, gun, 1, 5000`\n"
+            "Available types:\n"
+            "• **gun** — firearms and ranged weapons\n"
+            "• **cyberware** — implants and cybernetic augmentations\n"
+            "• **gear** — equipment, armor, and accessories\n"
+            "• **misc** — anything else (default)\n"
             "Type and price are optional (defaults: `misc`, no price). Type `cancel` to abort.",
             ephemeral=True,
         )
@@ -1288,6 +1352,33 @@ class WHRemoveCWPickerView(SafeView):
         await _process_wh_remove_lot(self.cog, interaction, lot_id)
 
 
+class WHRemoveQtyPickerView(SafeView):
+    def __init__(self, cog, user_id: int, options: list):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.user_id = user_id
+        select = discord.ui.Select(
+            placeholder="How many to remove?",
+            options=options,
+            row=0,
+        )
+        select.callback = self._on_select
+        self.add_item(select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    async def _on_select(self, interaction: discord.Interaction):
+        value = interaction.data["values"][0]
+        lot_id, qty_str = value.rsplit(":", 1)
+        remove_qty = int(qty_str)
+        await interaction.response.defer(ephemeral=True)
+        await _process_wh_remove_lot(self.cog, interaction, lot_id, remove_qty=remove_qty)
+
+
 class FixerItemHistorySourceView(SafeView):
     def __init__(self, cog, ctx):
         super().__init__(timeout=60)
@@ -1548,12 +1639,16 @@ class StoreOwnerPickerView(SafeView):
                 return
             state = await cw_cog._load_state()
             rd_stores = state.get("ripperdoc_stores", {})
-            store_title = f"{owner.display_name}'s Ripperdoc Stock"
+            store_name = None
             guild_prefix = f"rd:{guild.id}:"
             for sid, s in rd_stores.items():
                 if sid.startswith(guild_prefix) and s.get("owner_id") == owner.id and s.get("store_name"):
-                    store_title = s["store_name"]
+                    store_name = s["store_name"]
                     break
+            if store_name:
+                store_title = f"{store_name} (Owner: {owner.display_name})"
+            else:
+                store_title = f"{owner.display_name}'s Ripperdoc Stock"
             inventory = await cw_cog._load_inventory(owner.id)
             if inventory:
                 groups = cw_cog._grouped_inventory(inventory)
@@ -1601,7 +1696,11 @@ class StoreActionView(SafeView):
                 f"📝 **Add to {self.owner.display_name}'s Gun Store**\n"
                 "Enter: `gun name, quantity, unit cost, restriction`\n"
                 "Example: `Militech Mk.31, 5, 5000, basic`\n"
-                "Restriction is optional (defaults to `basic`). Type `cancel` to abort.",
+                "Restriction is optional (defaults to `basic`).\n"
+                "• **Basic** — freely available, no restrictions\n"
+                "• **Controlled** — requires a license or special authorization to purchase\n"
+                "• **Restricted** — illegal or military-grade, requires admin approval for sale\n"
+                "Type `cancel` to abort.",
                 ephemeral=True,
             )
             text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)

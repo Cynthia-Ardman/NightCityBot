@@ -835,6 +835,7 @@ class GunsShopCog(commands.Cog):
         cfg: dict[str, int],
         rng: random.Random,
     ) -> tuple[list[dict[str, Any]], dict[str, int]]:
+        guns = [g for g in guns if str(g.get("status", "live")).strip().lower() == "live"]
         by_level = {
             "L": [g for g in guns if g["gun_level"] == "L"],
             "M": [g for g in guns if g["gun_level"] == "M"],
@@ -1336,6 +1337,7 @@ class GunsShopCog(commands.Cog):
             logger.exception("Auto wholesaler refresh failed during sheet read")
             return False
 
+        guns = [g for g in guns if str(g.get("status", "live")).strip().lower() == "live"]
         if not guns:
             return False
 

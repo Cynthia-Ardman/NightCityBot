@@ -840,9 +840,48 @@ class TestWholesaleProcessFunctions:
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
             inter = _make_interaction()
-            await _process_wh_remove_lot(cog, inter, "lot-g1")
+            await _process_wh_remove_lot(cog, inter, "lot-g1", remove_qty=5)
             assert len(state["wholesale_lots"]) == 0
             assert "Removed" in inter.followup.send.call_args.kwargs.get("content", "")
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
+    def test_remove_gun_lot_partial(self, mock_audit):
+        async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_wh_remove_lot
+            cog = _make_cog()
+            guns_cog = MagicMock()
+            state = {"wholesale_lots": [
+                {"lot_id": "lot-g2", "gun_name": "Rifle", "qty_available": 5},
+            ]}
+            guns_cog._load_state = AsyncMock(return_value=state)
+            guns_cog._save_state = AsyncMock(return_value=True)
+            guns_cog.lock = asyncio.Lock()
+            cog.bot.cogs["GunsShopCog"] = guns_cog
+            inter = _make_interaction()
+            await _process_wh_remove_lot(cog, inter, "lot-g2", remove_qty=2)
+            assert len(state["wholesale_lots"]) == 1
+            assert state["wholesale_lots"][0]["qty_available"] == 3
+            assert "Removed" in inter.followup.send.call_args.kwargs.get("content", "")
+        _run(_test())
+
+    @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
+    def test_remove_gun_lot_qty_prompt(self, mock_audit):
+        async def _test():
+            from NightCityBot.cogs.fixer_hub import _process_wh_remove_lot
+            cog = _make_cog()
+            guns_cog = MagicMock()
+            state = {"wholesale_lots": [
+                {"lot_id": "lot-g3", "gun_name": "SMG", "qty_available": 3},
+            ]}
+            guns_cog._load_state = AsyncMock(return_value=state)
+            cog.bot.cogs["GunsShopCog"] = guns_cog
+            inter = _make_interaction()
+            await _process_wh_remove_lot(cog, inter, "lot-g3")
+            assert len(state["wholesale_lots"]) == 1
+            call_args = inter.followup.send.call_args
+            content = call_args.kwargs.get("content", "") or (call_args.args[0] if call_args.args else "")
+            assert "How many to remove" in content
         _run(_test())
 
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
@@ -859,7 +898,7 @@ class TestWholesaleProcessFunctions:
             cw_cog.lock = asyncio.Lock()
             cog.bot.cogs["CyberwareShop"] = cw_cog
             inter = _make_interaction()
-            await _process_wh_remove_lot(cog, inter, "lot-cw1")
+            await _process_wh_remove_lot(cog, inter, "lot-cw1", remove_qty=3)
             assert len(state["cw_wholesale_lots"]) == 0
             assert "Kiroshi" in inter.followup.send.call_args.kwargs.get("content", "")
         _run(_test())
