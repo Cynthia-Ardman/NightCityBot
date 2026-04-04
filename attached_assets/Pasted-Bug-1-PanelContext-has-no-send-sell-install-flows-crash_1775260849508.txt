@@ -1,0 +1,73 @@
+Bug 1: PanelContext has no send() — sell/install flows crash mid-transaction
+The Root Cause
+PanelContext (line 4-11 of utils/panel_context.py) is a lightweight shim that wraps a discord.Interaction to look like a commands.Context. It only has 4 attributes:
+
+
+panel_context.py
+Lines 1-12
+import discord
+class PanelContext:
+    __slots__ = ("author", "guild", "bot", "channel")
+    def __init__(self, interaction: discord.Interaction):
+        self.author = interaction.user
+        self.guild = interaction.guild
+        self.bot = interaction.client
+        self.channel = interaction.channel
+It has no send() method, no message attribute, no reply(). It works fine for reading ctx.author, ctx.guild, ctx.bot — but crashes the moment anything calls await ctx.send(...).
+
+How It's Called
+When a user clicks "Sell to Customer" on the persistent gun store panel, the callback creates a PanelContext and passes it through:
+
+
+gunstore_hub.py
+Lines 107-108
+    ctx = PanelContext(interaction)
+    view = GunSellSetupView(cog, ctx, available, store_id)
+The user fills out the setup view (select customer, select gun, select character), clicks Continue, enters a price. Then GunSellSetupView.continue_btn calls:
+
+
+gunstore_hub.py
+Lines 586-590
+        await _process_gun_sell(
+            self.cog, interaction, self.ctx, self.selected_customer,
+            lot, self.store_id, self.selected_character or {}, price,
+        )
+self.ctx is the PanelContext. It's passed as ctx to _process_gun_sell.
+
+The Crash Timeline
+Inside _process_gun_sell, the flow goes:
+
+Lines 593-611 — Validate character, check cog availability. Uses interaction.followup.send(). Works fine.
+
+Lines 646-662 — Send DM to customer with Accept/Decline buttons, wait for response. Works fine.
+
+Line 670 — If customer declines: await ctx.send(...). CRASH. AttributeError: 'PanelContext' object has no attribute 'send'. The seller never learns the customer declined. Harmless financially but broken UX.
+
+Lines 683-703 — If customer accepts and price > 0: fetch balance, debit customer. If balance fetch fails: line 686 await ctx.send(...). CRASH — but before any money moved, so no financial damage.
+
+Line 703 — If debit fails: await ctx.send(...). CRASH — again before money moved.
+
+Lines 705-724 — Debit succeeds. Credit the seller. If credit fails: line 721 await ctx.send(...). CRASH. At this point the customer has been debited but the seller was not credited. The pt_create call on line 714 may or may not have completed before the crash — if the await ctx.send() on line 721 is reached, pt_create already ran successfully (it's on line 714-720). So the pending transfer record is created, but the user never sees the warning message.
+
+Lines 726-754 — Under lock, check store and stock. If store missing or out of stock, refund the customer, clawback the seller, then line 738/754 await ctx.send(...). CRASH. The financial rollback (lines 731-737 / 747-753) completes before the crash, so money is restored. But the user gets no feedback.
+
+Lines 766-793 — pi_add_item. If it fails, refund + clawback, then line 789 await ctx.send(...). CRASH. Again, financial rollback completes but no user feedback.
+
+Line 810 — Happy path. Sale completes successfully. await ctx.send(...). CRASH. Everything worked — money moved correctly, item transferred, audit logged — but the seller never sees the success confirmation.
+
+The Worst Case
+The worst financial scenario is on line 721: the customer is debited, the seller credit fails, pt_create saves a record, but the ctx.send crash means the seller sees nothing. They might retry the sale, potentially double-charging the customer. The pt_create record exists for admin resolution, but the seller has no idea it happened.
+
+Total ctx.send call sites that crash via PanelContext
+gunstore_hub.py — 13 calls in _process_gun_sell + _request_fixer_approval:
+
+Lines 670, 686, 691, 703, 721, 738, 754, 789, 810 (sell flow)
+Lines 894, 904, 913 (fixer approval flow)
+ripperdoc_hub.py — 16 calls in _process_cw_sell + _process_cw_install:
+
+Lines 619, 635, 640, 652, 670, 687, 714, 728 (CW sell)
+Lines 803, 819, 824, 836, 854, 871, 887 (CW install)
+Not affected: Lines 1730, 1734 (gunstore) and 1612, 1616, 1630, 1635, 1661 (ripperdoc) — these are in the hybrid command handlers that use a real commands.Context, not PanelContext.
+
+Why It Wasn't Caught
+The e2e tests mock ctx as a MagicMock(), which auto-creates any attribute on access — mock.send() always "works." The real PanelContext with __slots__ will hard-fail.
