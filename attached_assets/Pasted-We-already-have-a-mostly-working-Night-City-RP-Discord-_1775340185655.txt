@@ -1,0 +1,191 @@
+We already have a mostly working Night City RP Discord bot. This is not a rewrite request. This is a planning / architecture prompt for future expansions we may want to build later. Please read this as “here are the future ideas we’re considering, here are the issues we see, and here are the questions we want answered.”
+
+Current state of the bot:
+
+* Players can create characters in the bot.
+* Characters have inventories.
+* Items are currently simple/flexible records like item name, quantity, price, and related transaction metadata.
+* Stores exist and have inventories.
+* Stores can buy from wholesalers.
+* Stores can sell to players.
+* Players can sell to stores.
+* Players can trade / give items to other players.
+* Money transfers are already automated through Unbelievaboat.
+* Wholesaler stock refreshes automatically.
+* Stores can have employees, and employees can act on behalf of the store.
+* Ripperdocs can install items: they select a player and character, the player confirms, the install is logged, and the item is deleted from inventory because installed items are not treated as regular inventory.
+* Characters can already be marked active/inactive.
+
+What I want from you:
+For each future idea below, give me:
+
+1. a practical recommendation
+2. the likely implementation approach
+3. risks / pain points
+4. whether it should stay manual, become bot-supported, or be deferred
+5. any schema/data-model changes needed
+
+Do not suggest rewriting the entire bot unless absolutely necessary. Extend what already exists.
+
+Future plan / thought 1: Persistent installed cyberware tracking on characters
+
+What I want:
+Right now, when a ripperdoc installs cyberware, the item is removed from inventory and the install is logged, but there is not yet a clean persistent “this character currently has these installed cyberware items” view that players can easily look up in the bot.
+
+I want players to be able to look up their characters and see installed cyberware directly in the bot.
+
+Why:
+
+* Right now cyberware is also tracked outside the bot in a spreadsheet.
+* The spreadsheet is too exposed; people can see other people’s cyberware too easily.
+* The spreadsheet is manual and disconnected from the install flow.
+* The bot should ideally become the source of truth for installed cyberware on characters.
+
+Issues:
+
+* Character creation and approval currently happen through Ticketty tickets and human review.
+* Character sheets are inconsistently formatted.
+* Cyberware is easy for humans to read in those sheets, but not safe to parse automatically.
+* I do not want to rely on automatic extraction from messy ticket text.
+
+Questions:
+
+* What is the best data model for installed cyberware on a character?
+* Should installed cyberware just be a simple list, or should it have richer metadata like category, notes, install date, installer, etc.?
+* How should staff manually correct or edit installed cyberware when needed?
+* What is the cleanest way to connect the existing install flow to a persistent installed-cyberware record?
+
+Future plan / thought 2: Better character information access through the bot
+
+What I want:
+Right now, after a character is approved, I manually create a Discord forum thread named after the character and paste in:
+
+* the character sheet
+* character pictures
+* VRChat avatar stats screenshots
+* anything else relevant
+
+Then I close the original ticket and leave that archive thread open. This means I now have a Discord forum with hundreds of threads.
+
+I would like a cleaner way for people to access approved character information, potentially through the bot, such as:
+
+* Manage Characters
+* Select Character
+* View Character Sheet
+* View Cyberware
+* View Reference Info
+
+Issues:
+
+* Character sheets are often too long for a single Discord message.
+* Character data is not always structured consistently.
+* There are attachments/images/screenshots involved.
+* Admins still need a discussion/review process for changes.
+* I do not think Discord bot UI is a good place for giant freeform document editing.
+
+Questions:
+
+* Should the bot store full character sheets, or should it only store references/links/summaries?
+* Should the bot just act as a viewer for approved data rather than an editor?
+* What is the cleanest way to preserve admin review/update workflows while still making approved info easier to access?
+* Should images and screenshots stay in Discord threads and simply be linked from the bot?
+
+Future plan / thought 3: Special/custom orders for stores and ripperdocs
+
+What I want:
+Right now, wholesaler inventory refreshes weekly with a subset of items. Stores and ripperdocs buy from what is available. If they want something specific that is not currently stocked, the current workaround is manual staff handling through tickets.
+
+I want to think through whether special/custom orders should become a formal bot-supported workflow.
+
+Example desired flow:
+
+* Store or ripperdoc submits a custom order request
+* Request includes item name, quantity, and who/store it is for
+* Staff/fixers review it
+* Staff approve or deny it
+* If approved, it does not arrive instantly
+* It is fulfilled later, then inventory is added and money is deducted
+* All of this is logged
+
+Issues:
+
+* I do not want custom orders to be instant.
+* I want logging for who requested it, what they requested, who approved it, what price was set, and when it was fulfilled.
+* I want this to fit into the existing wholesaler/store/inventory model without becoming a mess.
+* I do not want fixers manually editing lots of inventory forever if the bot can handle it better.
+
+Questions:
+
+* Should special orders be a request queue with statuses like pending / approved / denied / fulfilled / canceled?
+* Should approval and fulfillment be separate actions?
+* When should money be deducted: at approval time or fulfillment time?
+* What is the cleanest way to integrate this with current inventory and logging systems?
+
+Future plan / thought 4: Legacy inventory / gear migration into the bot
+
+What I want:
+A lot of characters already have weapons, gear, misc items, and other possessions right now, but not all of that exists cleanly in the bot.
+
+We can manually add items into inventories as fixers/admins, but I have around 200 characters, so this is a major migration problem.
+
+Current likely idea:
+Run a one-time survey where players submit what their character currently has, then staff review the responses and manually import or approve them into the bot.
+
+Issues:
+
+* This will be annoying and time-consuming.
+* Player responses will be inconsistent.
+* Some players will forget items or describe them badly.
+* Some items are custom or have special rules.
+* I do not have one clean source of truth for all currently owned gear.
+* I do have cyberware written down more reliably than general gear.
+
+Questions:
+
+* Is a one-time player survey + staff review the least bad migration path?
+* Should legacy migration be split into simple items first and custom items later?
+* What proof/fields should be required from players during migration?
+* Should we declare a cutoff date after which the bot becomes the source of truth?
+
+Future plan / thought 5: Richer metadata for complex/custom items
+
+What I want:
+Right now the item model is intentionally simple: item name, quantity, price, etc.
+
+That works well for standard inventory, but some items are more complex and have:
+
+* custom rules
+* descriptions
+* special functions
+* edge-case notes
+
+I need to think about whether the item schema needs to expand.
+
+Issues:
+
+* If the item model stays too simple, complex items lose important meaning.
+* If we overcomplicate the item model, we may make the whole bot harder to maintain.
+* I do not want to redesign the whole inventory system just for a few weird items.
+
+Questions:
+
+* Should item records support optional notes/details/rules text/custom flags?
+* Should this be attached to the inventory item instance, the master item definition, or both?
+* What is the minimum schema expansion that would support unusual items without overengineering?
+
+What I want back from you overall:
+
+* A practical architecture recommendation for all five future ideas
+* What should stay manual vs what should become bot-supported
+* A staged implementation order
+* Minimal schema changes needed
+* Major risks / maintenance concerns
+* Anything here that sounds like a trap or bad idea
+
+Important boundaries:
+
+* Do not propose rewriting the entire bot.
+* Do not propose replacing Unbelievaboat.
+* Do not assume Ticketty character sheets can be parsed reliably without human review.
+* Do not assume Discord bot UI should become a full document editor unless there is a very strong reason.
+* Focus on extending what already works.
