@@ -355,6 +355,223 @@ class PlayerHubView(SafeView):
             return
         await interaction.followup.send("✅ Your LOA has ended.", ephemeral=True)
 
+    @discord.ui.button(label="Attend", style=discord.ButtonStyle.success, emoji="📋", row=3, custom_id="player_hub:attend")
+    async def attend(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        if not guild:
+            await interaction.followup.send("Must be used in a server.", ephemeral=True)
+            return
+        econ_cog = interaction.client.get_cog("Economy")
+        if not econ_cog:
+            await interaction.followup.send("⚠️ Economy system unavailable.", ephemeral=True)
+            return
+        control = interaction.client.get_cog("SystemControl")
+        if control and not control.is_enabled("attend"):
+            await interaction.followup.send("⚠️ The attend system is currently disabled.", ephemeral=True)
+            return
+        member = interaction.user
+        if not any(r.id == config.VERIFIED_ROLE_ID for r in member.roles):
+            await interaction.followup.send("❌ You must be verified to use this.", ephemeral=True)
+            return
+
+        from NightCityBot.utils import helpers
+        from zoneinfo import ZoneInfo
+        from datetime import timedelta
+        from NightCityBot.utils.db import attendance_get_user, attendance_append, warn_db_failure
+
+        now = helpers.get_tz_now()
+        if econ_cog.event_active():
+            event_start = econ_cog.event_started_at or now
+        else:
+            if now.weekday() != 6:
+                await interaction.followup.send(
+                    "❌ Attendance is only allowed during Sunday events (2pm to 7pm Pacific).",
+                    ephemeral=True,
+                )
+                return
+            tz = ZoneInfo(getattr(config, "TIMEZONE", "UTC"))
+            local_now = now.astimezone(tz)
+            start = econ_cog._sunday_event_start(now)
+            end = start + timedelta(hours=5)
+            if not (start <= local_now <= end):
+                await interaction.followup.send(
+                    "❌ Attendance is only allowed during Sunday events (2pm to 7pm Pacific).",
+                    ephemeral=True,
+                )
+                return
+            event_start = start
+
+        user_id = str(interaction.user.id)
+        now_str = now.isoformat()
+
+        async with econ_cog._attend_locks.acquire(user_id):
+            all_logs = await attendance_get_user(user_id)
+            parsed = [datetime.fromisoformat(ts) for ts in all_logs]
+            if any(ts >= event_start for ts in parsed):
+                await interaction.followup.send("❌ You've already logged attendance for this event.", ephemeral=True)
+                return
+            ok = await attendance_append(user_id, now_str)
+            if not ok:
+                await warn_db_failure(
+                    interaction.client, "attendance_append",
+                    f"user {user_id} — attendance not recorded",
+                )
+
+        from NightCityBot.utils import config_loader as _cfg
+        reward = _cfg.get_attend_reward()
+        ub = getattr(econ_cog, "unbelievaboat", None)
+        if ub:
+            ok = await ub.update_balance(
+                interaction.user.id, {"cash": reward}, reason="Attendance reward"
+            )
+            if not ok:
+                await warn_db_failure(
+                    interaction.client, "update_balance",
+                    f"user {user_id} — attendance reward ${reward} not credited",
+                )
+                await interaction.followup.send(
+                    "✅ Attendance logged! "
+                    f"⚠️ Balance update failed — please contact an admin if your ${reward} reward is missing.",
+                    ephemeral=True,
+                )
+                return
+        await interaction.followup.send(f"✅ Attendance logged! You received ${reward}.", ephemeral=True)
+
+    @discord.ui.button(label="Open Shop", style=discord.ButtonStyle.success, emoji="🏪", row=3, custom_id="player_hub:open_shop")
+    async def open_shop(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        if not guild:
+            await interaction.followup.send("Must be used in a server.", ephemeral=True)
+            return
+        econ_cog = interaction.client.get_cog("Economy")
+        if not econ_cog:
+            await interaction.followup.send("⚠️ Economy system unavailable.", ephemeral=True)
+            return
+        control = interaction.client.get_cog("SystemControl")
+        if control and not control.is_enabled("open_shop"):
+            await interaction.followup.send("⚠️ The open_shop system is currently disabled.", ephemeral=True)
+            return
+        member = interaction.user
+        if not any(r.name.startswith("Business") for r in member.roles):
+            await interaction.followup.send("❌ You must have a business role to use this.", ephemeral=True)
+            return
+
+        from NightCityBot.utils import helpers
+        from NightCityBot.utils.db import open_log_exists_today, open_log_count_month, open_log_add, warn_db_failure
+        from NightCityBot.utils import config_loader as _cfg
+
+        now = helpers.get_tz_now()
+        if now.weekday() != 6 and not econ_cog.event_active():
+            await interaction.followup.send("❌ Business openings can only be logged on Sundays.", ephemeral=True)
+            return
+
+        user_id = str(interaction.user.id)
+        duplicate = False
+        open_count_before = 0
+        open_count_after = 0
+        open_count_total = 0
+        async with econ_cog._open_log_locks.acquire(user_id):
+            if await open_log_exists_today(user_id):
+                duplicate = True
+            else:
+                open_count_before = min(await open_log_count_month(user_id, now.year, now.month), 4)
+                ok = await open_log_add(user_id, now)
+                if not ok:
+                    await warn_db_failure(
+                        interaction.client, "open_log_add",
+                        f"user {user_id} — opening not recorded",
+                    )
+                open_count_total = open_count_before + 1
+                open_count_after = min(open_count_total, 4)
+
+        if duplicate:
+            await interaction.followup.send("❌ You've already logged a business opening today.", ephemeral=True)
+            return
+
+        reward = 0
+        role_names = [r.name for r in member.roles]
+        t0_scale = _cfg.get_tier0_income_scale()
+        biz_costs = _cfg.get_role_costs_business()
+        open_pct = _cfg.get_open_percent()
+        for role in role_names:
+            if "Business Tier" in role:
+                if role == "Business Tier 0":
+                    total_after = t0_scale.get(open_count_after, 0)
+                    total_before = t0_scale.get(open_count_before, 0)
+                else:
+                    base = biz_costs.get(role, 500)
+                    total_after = int(base * open_pct.get(open_count_after, 0))
+                    total_before = int(base * open_pct.get(open_count_before, 0))
+                reward += total_after - total_before
+
+        if reward > 0:
+            ub = getattr(econ_cog, "unbelievaboat", None)
+            if ub:
+                ok = await ub.update_balance(
+                    interaction.user.id, {"cash": reward}, reason="Business activity reward"
+                )
+                if not ok:
+                    await warn_db_failure(
+                        interaction.client, "update_balance",
+                        f"user {user_id} — business reward ${reward} not credited",
+                    )
+                    await interaction.followup.send(
+                        f"✅ Business opening logged! ({open_count_total} this month) "
+                        "⚠️ Balance update failed — please contact an admin if your reward is missing.",
+                        ephemeral=True,
+                    )
+                    return
+            await interaction.followup.send(
+                f"✅ Business opening logged! You earned ${reward}. ({open_count_total} this month)",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                f"✅ Business opening logged! ({open_count_total} this month)",
+                ephemeral=True,
+            )
+
+    @discord.ui.button(label="View Due", style=discord.ButtonStyle.secondary, emoji="💸", row=3, custom_id="player_hub:due")
+    async def view_due(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        if not guild:
+            await interaction.followup.send("Must be used in a server.", ephemeral=True)
+            return
+        econ_cog = interaction.client.get_cog("Economy")
+        if not econ_cog:
+            await interaction.followup.send("⚠️ Economy system unavailable.", ephemeral=True)
+            return
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await interaction.followup.send("Must be used in a server.", ephemeral=True)
+            return
+        total, details = econ_cog.calculate_due(member)
+        header = f"💸 **Estimated Due:** ${total}"
+        lines = [header] + [f"• {d}" for d in details]
+
+        from NightCityBot.utils.db import last_payment_get_with_ts
+        from zoneinfo import ZoneInfo
+        from NightCityBot.utils import helpers
+
+        _, paid_at = await last_payment_get_with_ts(str(member.id))
+        if paid_at is not None:
+            tz = ZoneInfo(getattr(config, "TIMEZONE", "UTC"))
+            now_local = helpers.get_tz_now()
+            if paid_at.tzinfo is None:
+                paid_at = paid_at.replace(tzinfo=ZoneInfo("UTC"))
+            paid_local = paid_at.astimezone(tz)
+            if paid_local.year == now_local.year and paid_local.month == now_local.month:
+                paid_str = paid_local.strftime("%b %d")
+                lines.append(
+                    f"✅ **Housing & baseline already paid this month** (recorded {paid_str})."
+                    " Cyberware meds are collected separately by staff."
+                )
+
+        await interaction.followup.send("\n".join(lines), ephemeral=True)
+
 
 class ManageInventoryView(SafeView):
     def __init__(self, user_id: int):

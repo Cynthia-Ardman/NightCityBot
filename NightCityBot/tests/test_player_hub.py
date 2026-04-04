@@ -2679,3 +2679,149 @@ class TestManageInventoryViewInteractionCheck:
             result = await view.interaction_check(inter)
             assert result is True
         _run(_test())
+
+
+class TestPlayerHubAttendButton:
+    def test_attend_no_verified_role(self):
+        async def _test():
+            view = PlayerHubView()
+            inter = _make_interaction()
+            inter.user.roles = []
+            econ = MagicMock()
+            orig = inter.client.get_cog
+
+            def _cog(n):
+                if n == "Economy":
+                    return econ
+                if n == "SystemControl":
+                    return None
+                return orig(n)
+            inter.client.get_cog = MagicMock(side_effect=_cog)
+            btn = _find_button(view, "Attend")
+            await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "verified" in msg.lower()
+        _run(_test())
+
+    @patch("NightCityBot.cogs.player_hub.config")
+    def test_attend_not_sunday(self, mock_cfg):
+        async def _test():
+            mock_cfg.VERIFIED_ROLE_ID = 42
+            role = MagicMock()
+            role.id = 42
+            view = PlayerHubView()
+            inter = _make_interaction()
+            inter.user.roles = [role]
+            econ = MagicMock()
+            econ.event_active = MagicMock(return_value=False)
+            orig = inter.client.get_cog
+
+            def _cog(n):
+                if n == "Economy":
+                    return econ
+                if n == "SystemControl":
+                    return None
+                return orig(n)
+            inter.client.get_cog = MagicMock(side_effect=_cog)
+
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            with patch("NightCityBot.utils.helpers.get_tz_now",
+                       return_value=datetime(2026, 4, 6, 12, 0, tzinfo=ZoneInfo("UTC"))):
+                btn = _find_button(view, "Attend")
+                await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "sunday" in msg.lower()
+        _run(_test())
+
+
+class TestPlayerHubOpenShopButton:
+    def test_open_shop_no_business_role(self):
+        async def _test():
+            view = PlayerHubView()
+            inter = _make_interaction()
+            inter.user.roles = []
+            econ = MagicMock()
+            orig = inter.client.get_cog
+
+            def _cog(n):
+                if n == "Economy":
+                    return econ
+                if n == "SystemControl":
+                    return None
+                return orig(n)
+            inter.client.get_cog = MagicMock(side_effect=_cog)
+            btn = _find_button(view, "Open Shop")
+            await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "business role" in msg.lower()
+        _run(_test())
+
+    def test_open_shop_not_sunday(self):
+        async def _test():
+            view = PlayerHubView()
+            inter = _make_interaction()
+            biz_role = MagicMock()
+            biz_role.name = "Business Tier 1"
+            inter.user.roles = [biz_role]
+            econ = MagicMock()
+            econ.event_active = MagicMock(return_value=False)
+            orig = inter.client.get_cog
+
+            def _cog(n):
+                if n == "Economy":
+                    return econ
+                if n == "SystemControl":
+                    return None
+                return orig(n)
+            inter.client.get_cog = MagicMock(side_effect=_cog)
+
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            with patch("NightCityBot.utils.helpers.get_tz_now",
+                       return_value=datetime(2026, 4, 6, 12, 0, tzinfo=ZoneInfo("UTC"))):
+                btn = _find_button(view, "Open Shop")
+                await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "sunday" in msg.lower()
+        _run(_test())
+
+
+class TestPlayerHubDueButton:
+    def test_due_shows_estimate(self):
+        async def _test():
+            view = PlayerHubView()
+            inter = _make_interaction()
+            inter.user = MagicMock(spec=discord.Member)
+            inter.user.id = 100
+            inter.user.display_name = "TestPlayer"
+            econ = MagicMock()
+            econ.calculate_due = MagicMock(return_value=(2500, ["Baseline living cost: $500", "Housing Tier 1: $2000"]))
+            orig = inter.client.get_cog
+
+            def _cog(n):
+                if n == "Economy":
+                    return econ
+                if n == "SystemControl":
+                    return None
+                return orig(n)
+            inter.client.get_cog = MagicMock(side_effect=_cog)
+
+            with patch("NightCityBot.utils.db.last_payment_get_with_ts", new=AsyncMock(return_value=(None, None))):
+                btn = _find_button(view, "View Due")
+                await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "$2,500" in msg or "$2500" in msg
+            assert "Baseline" in msg
+        _run(_test())
+
+    def test_due_no_economy_cog(self):
+        async def _test():
+            view = PlayerHubView()
+            inter = _make_interaction()
+            inter.client.get_cog = MagicMock(return_value=None)
+            btn = _find_button(view, "View Due")
+            await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "economy" in msg.lower() or "unavailable" in msg.lower()
+        _run(_test())

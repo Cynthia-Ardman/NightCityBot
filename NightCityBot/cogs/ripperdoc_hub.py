@@ -286,6 +286,90 @@ class RipperdocMenuView(SafeView):
             "👥 **Manage Employees** — choose an action:", view=view, ephemeral=True
         )
 
+    @discord.ui.button(label="Checkup", style=discord.ButtonStyle.primary, emoji="🩺", row=3, custom_id="ripperdoc:checkup")
+    async def checkup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        control = interaction.client.get_cog("SystemControl")
+        if control and not control.is_enabled("cyberware"):
+            await interaction.followup.send("⚠️ The cyberware system is currently disabled.", ephemeral=True)
+            return
+        guild = interaction.guild
+        if not guild:
+            await interaction.followup.send("Must be used in a server.", ephemeral=True)
+            return
+        role = guild.get_role(config.CYBER_CHECKUP_ROLE_ID)
+        if role is None:
+            await interaction.followup.send("⚠️ Checkup role is not configured.", ephemeral=True)
+            return
+        view = _CheckupPatientSelectView(interaction.user.id)
+        await interaction.followup.send(
+            "🩺 **Checkup** — Select the patient to check up on:", view=view, ephemeral=True
+        )
+
+
+class _CheckupPatientSelectView(SafeView):
+    def __init__(self, ripperdoc_id: int):
+        super().__init__(timeout=60)
+        self._ripperdoc_id = ripperdoc_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self._ripperdoc_id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a patient…", row=0)
+    async def patient_select(self, interaction: discord.Interaction,
+                             select: discord.ui.UserSelect):
+        await interaction.response.defer(ephemeral=True)
+        patient = select.values[0]
+        guild = interaction.guild
+        if not guild:
+            await interaction.followup.send("Must be used in a server.", ephemeral=True)
+            return
+        member = guild.get_member(patient.id)
+        if not member:
+            try:
+                member = await guild.fetch_member(patient.id)
+            except Exception:
+                await interaction.followup.send("❌ Could not find that member.", ephemeral=True)
+                return
+
+        role = guild.get_role(config.CYBER_CHECKUP_ROLE_ID)
+        if role is None:
+            await interaction.followup.send("⚠️ Checkup role is not configured.", ephemeral=True)
+            return
+        if role not in member.roles:
+            await interaction.followup.send(
+                f"{member.display_name} does not have the checkup role.", ephemeral=True
+            )
+            return
+
+        try:
+            await member.remove_roles(role, reason="Cyberware check-up completed via Ripperdoc Hub")
+        except (discord.Forbidden, discord.HTTPException) as e:
+            await interaction.followup.send(f"❌ Could not remove checkup role: {e}", ephemeral=True)
+            return
+        await interaction.followup.send(
+            f"✅ Removed checkup role from {member.display_name}.", ephemeral=True
+        )
+
+        log_channel = guild.get_channel(config.RIPPERDOC_LOG_CHANNEL_ID)
+        if log_channel:
+            try:
+                await log_channel.send(
+                    f"Ripperdoc {interaction.user.display_name} did a checkup on {member.display_name}"
+                )
+            except Exception:
+                pass
+
+        cw_cog = interaction.client.get_cog("CyberwareShop")
+        if cw_cog and hasattr(cw_cog, "data"):
+            cw_cog.data[str(member.id)] = {"weeks": 0, "last": None}
+        from NightCityBot.utils.db import cyberware_status_upsert
+        await cyberware_status_upsert(str(member.id), 0, None)
+        self.stop()
+
 
 class WholesaleBuySelect(SafeView):
     def __init__(self, cog: "RipperdocHub", ctx: commands.Context, lots: list, cw_cog):
