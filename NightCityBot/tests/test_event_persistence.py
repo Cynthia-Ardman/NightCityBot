@@ -98,6 +98,25 @@ class TestEventStartSavesToDB:
         })
 
 
+class TestEventStartDuplicateGuard:
+    def test_event_start_rejects_when_already_active(self):
+        import config
+        econ = _make_economy()
+        ctx = MagicMock()
+        ctx.guild = MagicMock()
+        ctx.channel.id = config.ATTENDANCE_CHANNEL_ID
+        ctx.send = AsyncMock()
+        now = datetime.now(ZoneInfo("US/Eastern"))
+        econ.event_started_at = now - timedelta(hours=1)
+        econ.event_expires_at = now + timedelta(hours=3)
+
+        with patch("NightCityBot.cogs.economy.helpers.get_tz_now", return_value=now):
+            asyncio.run(econ.event_start.callback(econ, ctx))
+
+        msg = ctx.send.call_args[0][0]
+        assert "already running" in msg.lower()
+
+
 class TestCWStateDBPersistence:
 
     def _make_cw_cog(self, tmp_path):

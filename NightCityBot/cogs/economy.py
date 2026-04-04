@@ -397,6 +397,14 @@ class Economy(commands.Cog):
             mention = ch.mention if ch else "#attendance"
             await ctx.send(f"❌ Please use {mention} for this command.")
             return
+        if self.event_active():
+            remaining = self.event_expires_at - helpers.get_tz_now()
+            mins = max(int(remaining.total_seconds() // 60), 0)
+            await ctx.send(
+                f"⚠️ An event is already running ({mins} min remaining). "
+                "It will expire automatically."
+            )
+            return
         now = helpers.get_tz_now()
         self.event_started_at = now
         self.event_expires_at = now + timedelta(hours=4)

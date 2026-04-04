@@ -577,7 +577,13 @@ class PlayerHubView(SafeView):
         if not isinstance(member, discord.Member):
             await interaction.followup.send("Must be used in a server.", ephemeral=True)
             return
-        total, details = econ_cog.calculate_due(member)
+        try:
+            total, details = econ_cog.calculate_due(member)
+        except Exception as e:
+            await interaction.followup.send(
+                f"⚠️ Could not calculate dues: {e}", ephemeral=True
+            )
+            return
         header = f"💸 **Estimated Due:** ${total}"
         lines = [header] + [f"• {d}" for d in details]
 

@@ -363,11 +363,18 @@ class _CheckupPatientSelectView(SafeView):
             except Exception:
                 pass
 
+        from NightCityBot.utils.db import cyberware_status_upsert
+        try:
+            await cyberware_status_upsert(str(member.id), 0, None)
+        except Exception as e:
+            await interaction.followup.send(
+                f"⚠️ Role removed but DB update failed: {e}", ephemeral=True
+            )
+            self.stop()
+            return
         cw_cog = interaction.client.get_cog("CyberwareShop")
         if cw_cog and hasattr(cw_cog, "data"):
             cw_cog.data[str(member.id)] = {"weeks": 0, "last": None}
-        from NightCityBot.utils.db import cyberware_status_upsert
-        await cyberware_status_upsert(str(member.id), 0, None)
         self.stop()
 
 
