@@ -78,9 +78,9 @@ Each hub is posted once by an admin using a hybrid command (e.g., `!player`). Th
 
 | Button | Flow |
 |--------|------|
-| **Sell to Player** | Select item -> select buyer (user picker) -> select buyer's character -> enter price -> buyer gets DM to Accept/Decline -> payment processed -> item transferred |
-| **Give Item** | Select item -> select recipient -> select recipient's character -> enter your character name -> item transferred (no payment). If item is cyberware and recipient is a Ripperdoc, item goes to their clinic stock instead |
-| **Sell to Store** | Select gun -> select store owner -> select your selling character -> enter price -> store owner gets DM to Accept/Decline -> payment processed -> item moves to store inventory |
+| **Sell to Player** | Select item -> select buyer (user picker) -> select buyer's character -> enter price -> buyer gets DM to Accept/Decline -> buyer's balance checked for affordability -> payment processed (cash first, then bank) -> item transferred. If the buyer's character was deactivated between confirmation and transfer, the trade is cancelled and payments are refunded |
+| **Give Item** | Select item -> select recipient -> select recipient's character -> enter your character name -> item transferred (no payment). If item is cyberware and recipient is a Ripperdoc, item goes to their clinic stock instead. If the recipient's character was deactivated between confirmation and transfer, the give is cancelled |
+| **Sell to Store** | Select gun -> select store owner -> select your selling character -> enter price -> store owner gets DM to Accept/Decline -> payment processed -> item moves to store inventory. If the store save fails, payments are refunded |
 
 **Manage Characters sub-menu:**
 
@@ -137,7 +137,11 @@ Top-level buttons open sub-menus:
 | **Store** | View Gun Store, View Ripperdoc Store, View Stock, Add Gun (to store), Add Cyberware (to clinic), Remove Gun, Remove Cyberware |
 | **Wholesaler** | Remove Gun Lot, Remove CW Lot |
 
-**Add Item flow:** Select player (user picker) -> enter item name -> select item type (gun/cyberware/gear/misc) -> select restriction (basic/controlled/restricted) -> enter quantity -> select character -> items created with unique UUIDs
+**Add Item flow:** Select player (user picker) -> enter item name -> select item type (gun/cyberware/gear/misc) -> select restriction (basic/controlled/restricted) -> enter quantity -> select character -> enter custom cost (or 0 for free) -> player confirms total cost via button -> payment deducted (cash first, then bank) -> items created with unique UUIDs. Gun items additionally require Power Level (low/medium/high) and Type (power/smart/tech). Cyberware items additionally require CWP (integer) and Slot (body location). If payment fails or items cannot be saved, the player is automatically refunded
+
+**Add Gun to Store flow:** Select store owner -> select gun from wholesale catalog -> enter quantity -> enter custom cost -> store owner confirms total cost via DM -> payment deducted -> guns added to store stock. Refunded automatically if store save fails
+
+**Add Cyberware to Store flow:** Select Ripperdoc -> select cyberware from wholesale catalog -> enter quantity -> enter custom cost -> Ripperdoc confirms total cost via DM -> payment deducted -> items added to clinic stock. Refunded automatically if inventory save fails
 
 **Remove Item flow:** Select player -> see their inventory -> select item -> confirm removal
 
@@ -174,6 +178,7 @@ Every item in the game is tracked as a row in the `player_inventory` database ta
 - `item_id` — unique UUID
 - `owner_id` — Discord user ID of the owner
 - `character_name` — which character owns this item
+- `character_id` — UUID linking to the `characters` table
 - `item_type` — `gun`, `cyberware`, `gear`, or `misc`
 - `name` — item display name
 - `restriction` — `basic`, `controlled`, or `restricted`
@@ -182,6 +187,10 @@ Every item in the game is tracked as a row in the `player_inventory` database ta
 - `seller_id` — who sold it
 - `seller_name` — seller's display name at time of sale
 - `acquired_at` — when the item was obtained
+- `power_level` — (guns only) `low`, `medium`, or `high`
+- `weapon_subtype` — (guns only) `power`, `smart`, or `tech`
+- `cwp` — (cyberware only) integer Cyberware Points value
+- `slot` — (cyberware only) body location, one of: Skeleton & Torso Musculature, Arms & Arm Attachments, Miscellaneous, Integumentary System, Neural, Universal Muscular (Arms/Legs/Tail), Hands & Feet, Ocular System, Legs & Mobility, Auditory System, Circulatory & Immune Systems
 
 **Key behaviors:**
 - Items are grouped by character in the inventory display
@@ -208,6 +217,8 @@ Characters live in the `characters` database table.
 3. **Deactivate** — character is retired; items are preserved but the character won't appear in selection dropdowns for new transactions
 4. **Reactivate** — character returns to active status
 
+**Active character guard:** When an item is traded or given, the bot re-verifies that the receiving character is still active immediately before transferring ownership. If the character was deactivated between the initial selection and the final transfer (e.g., during the DM confirmation wait), the operation is cancelled and any payments are refunded. This prevents items from being assigned to retired characters.
+
 ---
 
 ## Gun Store System
@@ -215,6 +226,8 @@ Characters live in the `characters` database table.
 ### Standard Stores
 
 **Supply chain:** Google Sheet (master gun list) -> Gun catalog DB table -> Weekly wholesale rotation -> Store owners buy from wholesale -> Store owners sell to players
+
+**Gun properties:** Each gun in the catalog includes a Power Level (low/medium/high) and Type (power/smart/tech). These fields are read directly from the spreadsheet and carried through wholesale lots into player inventory.
 
 **Weekly rotation:** Every Monday (triggered by the cyberware weekly process), a fresh set of guns is randomly selected from the catalog. Configurable settings control lot counts and quantity ranges per tier (L/M/H).
 
@@ -228,7 +241,8 @@ Characters live in the `characters` database table.
 5. Enters the price
 6. If the gun is controlled/restricted, the system checks if the customer's character is on the approved buyer list. If not, an inline approval flow is presented to the store owner
 7. Customer receives a DM with Accept/Decline buttons
-8. On accept: customer is debited, store owner is credited, gun is removed from store stock, item is added to customer's inventory, receipt posted to audit channel
+8. On accept: customer's balance is checked for affordability (cash + bank), then debited (cash first, remainder from bank). Store owner is credited. Gun is removed from store stock and added to customer's inventory. Receipt posted to audit channel
+9. If the store save fails after payment, the customer is automatically refunded and the seller credit is reversed. If the inventory write fails, the gun is restored to store stock and payments are refunded
 
 ### Black Market
 
@@ -265,6 +279,8 @@ Designated operators (listed in `config.BLACK_MARKET_OWNER_IDS`) or stores with 
 
 **Supply chain:** Google Sheet (cyberware catalog) -> CW catalog DB table -> Weekly wholesale rotation -> Ripperdocs buy from wholesale -> Ripperdocs sell/install to patients
 
+**Cyberware properties:** Each cyberware item in the catalog includes CWP (Cyberware Points, integer) and Slot (body location). The 11 valid slots are: Skeleton & Torso Musculature, Arms & Arm Attachments, Miscellaneous, Integumentary System, Neural, Universal Muscular (Arms/Legs/Tail), Hands & Feet, Ocular System, Legs & Mobility, Auditory System, Circulatory & Immune Systems. These fields are read from the spreadsheet and carried through to player inventory.
+
 **Store structure:** Each clinic is identified by `rd:{guild_id}:{owner_id}`. Clinics have: owner, employees, stock (JSON file per Ripperdoc), and optional nickname.
 
 **Sell flow:**
@@ -274,9 +290,10 @@ Designated operators (listed in `config.BLACK_MARKET_OWNER_IDS`) or stores with 
 4. Selects the patient's character
 5. Enters the price
 6. Patient receives a DM with Accept/Decline
-7. On accept: patient debited, Ripperdoc credited, item removed from Ripperdoc stock, added to patient's inventory
+7. On accept: patient's balance is checked for affordability (cash + bank), then debited (cash first, remainder from bank). Ripperdoc is credited. Item removed from Ripperdoc stock, added to patient's inventory
+8. If the inventory save fails after payment, the patient is automatically refunded, seller credit is reversed, and the item is restored to stock
 
-**Install flow:** Same as sell, but price can be 0 (free install).
+**Install flow:** Same as sell, but price can be 0 (free install). Same refund protections apply.
 
 **Checkup flow:**
 1. Ripperdoc clicks Checkup
@@ -308,7 +325,7 @@ Designated operators (listed in `config.BLACK_MARKET_OWNER_IDS`) or stores with 
 3. Business rent (by tier) — always charged
 4. Trauma Team subscription — skipped if on LOA
 
-**Deduction order:** Cash first, then bank for the remainder.
+**Deduction order:** Cash first, then bank for the remainder. This applies to all payment flows across the bot — rent, trades, store purchases, wholesale buying, and Fixer add-item. The bot always checks total affordability (cash + bank) before attempting any deduction.
 
 **Double-charge protection:** Uses calendar-month boundaries via the `payment_labels` table. If any collection label (`collect_rent_after`, `collect_housing_after`, `collect_business_after`, `collect_trauma_after`) was recorded this calendar month, the member is skipped.
 
@@ -728,7 +745,7 @@ All IDs, paths, and feature settings. Key groups:
 | `cyberware_catalog` | CW master item list |
 | `gun_catalog` | Gun master item list |
 | `characters` | Player character roster |
-| `player_inventory` | All player-owned items |
+| `player_inventory` | All player-owned items (includes `power_level`, `weapon_subtype` for guns; `cwp`, `slot` for cyberware) |
 | `pending_transfers` | Failed trade/sale recovery records |
 | `item_history` | Full item audit trail |
 
@@ -744,7 +761,7 @@ All IDs, paths, and feature settings. Key groups:
 
 **Backups:** Automated daily Google Drive backups bundling database exports, balance snapshots, character sheet backups, and rent audit files. Compressed as gzipped JSON. Configurable retention with automatic rotation of old backups. Full in-Discord restore flow with confirmation safeguards.
 
-**Testing:** 950+ tests across 105+ files, 66% coverage floor
+**Testing:** 951 tests across 105+ files, 66% coverage floor
 
 **Instance locking:** File lock (`fcntl`) prevents duplicate bot instances
 
