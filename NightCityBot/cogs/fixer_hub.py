@@ -659,7 +659,7 @@ async def _process_wh_add_gun(cog, interaction, text, msg=None):
         await _reply("Invalid quantity or cost.")
         return
     restriction = parts[3].strip().lower() if len(parts) > 3 else ""
-    if restriction not in ("basic", "controlled", "restricted"):
+    while restriction not in ("basic", "controlled", "restricted"):
         await _reply(
             f"Got: **{gun_name}** ×{qty} at ${cost:,} — now enter the restriction level:\n"
             "`basic`, `controlled`, or `restricted`\n"
@@ -672,9 +672,8 @@ async def _process_wh_add_gun(cog, interaction, text, msg=None):
         restriction = r_text.strip().lower()
         if restriction not in ("basic", "controlled", "restricted"):
             await _reply(
-                "❌ Invalid restriction. Must be `basic`, `controlled`, or `restricted`."
+                "❌ Invalid restriction. Must be `basic`, `controlled`, or `restricted`. Try again."
             )
-            return
     async with guns_cog.lock:
         state = await guns_cog._load_state()
         lots = state.setdefault("wholesale_lots", [])
@@ -1875,7 +1874,7 @@ async def _process_store_add_gun(cog, interaction, owner, text):
         await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
         return
     restriction = parts[3].strip().lower() if len(parts) > 3 else ""
-    if restriction not in ("basic", "controlled", "restricted"):
+    while restriction not in ("basic", "controlled", "restricted"):
         await interaction.followup.send(
             f"Got: **{gun_name}** ×{qty} at ${cost:,} — now enter the restriction level:\n"
             "`basic`, `controlled`, or `restricted`\n"
@@ -1889,10 +1888,9 @@ async def _process_store_add_gun(cog, interaction, owner, text):
         restriction = r_text.strip().lower()
         if restriction not in ("basic", "controlled", "restricted"):
             await interaction.followup.send(
-                "❌ Invalid restriction. Must be `basic`, `controlled`, or `restricted`.",
+                "❌ Invalid restriction. Must be `basic`, `controlled`, or `restricted`. Try again.",
                 ephemeral=True,
             )
-            return
     async with guns_cog.lock:
         state = await guns_cog._load_state()
         store_id = guns_cog._store_id(guild.id, owner.id)
