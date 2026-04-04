@@ -319,8 +319,18 @@ class TestStoreSubViewButtons:
             role = MagicMock()
             role.members = [member1]
             ctx.guild.get_role = MagicMock(side_effect=lambda rid: role if rid == RIPPERDOC_ROLE_ID else None)
+            ctx.guild.id = 111
+            cw_cog = MagicMock()
+            cw_cog._load_state = AsyncMock(return_value={
+                "ripperdoc_stores": {
+                    "rd:111:300": {"owner_id": 300, "employees": [], "store_name": "Doc's Chrome"}
+                }
+            })
+            cog.bot.cogs["CyberwareShop"] = cw_cog
+            cog.bot.get_cog = MagicMock(side_effect=lambda n: cog.bot.cogs.get(n))
             view = StoreSubView(cog, ctx)
             inter = _make_interaction()
+            inter.client = cog.bot
             btn = _find_button(view, "View Ripperdoc Store")
             await btn.callback(inter)
             kwargs = inter.followup.send.call_args.kwargs

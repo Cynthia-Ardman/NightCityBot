@@ -147,8 +147,9 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
                 "• **View Inventory** — pick a character and see their items\n"
                 "• **Sell to Player** — sell an item to another player (with payment)\n"
                 "• **Give Item** — transfer an item for free\n"
-                "• **Sell to Store** — sell any gun to a gunstore owner\n"
-                "• **Create Character / View Characters / Deactivate Character** — create, view, deactivate, or reactivate characters"
+                "• **Sell to Store** — sell guns to gun stores or cyberware to ripperdoc stores\n"
+                "• **Create Character / View Characters / Deactivate Character** — create, view, deactivate, or reactivate characters\n"
+                "• **Start LOA / End LOA** — start or end your Leave of Absence"
             ),
             color=discord.Color.blue(),
         )
@@ -299,6 +300,60 @@ class PlayerHubView(SafeView):
             view=view,
             ephemeral=True,
         )
+
+    @discord.ui.button(label="Start LOA", style=discord.ButtonStyle.secondary, emoji="🏖️", row=2, custom_id="player_hub:start_loa")
+    async def start_loa(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        if not guild:
+            await interaction.followup.send("Must be used in a server.", ephemeral=True)
+            return
+        control = interaction.client.get_cog("SystemControl")
+        if control and not control.is_enabled("loa"):
+            await interaction.followup.send("⚠️ The LOA system is currently disabled.", ephemeral=True)
+            return
+        from NightCityBot.cogs.loa import get_loa_role
+        loa_role = get_loa_role(guild)
+        if loa_role is None:
+            await interaction.followup.send("⚠️ LOA role is not configured.", ephemeral=True)
+            return
+        member = interaction.user
+        if any(r.id == loa_role.id for r in member.roles):
+            await interaction.followup.send("You are already on LOA.", ephemeral=True)
+            return
+        try:
+            await member.add_roles(loa_role, reason="LOA start via Player Hub")
+        except (discord.Forbidden, discord.HTTPException) as e:
+            await interaction.followup.send(f"❌ Could not assign LOA role: {e}", ephemeral=True)
+            return
+        await interaction.followup.send("✅ You are now on LOA.", ephemeral=True)
+
+    @discord.ui.button(label="End LOA", style=discord.ButtonStyle.secondary, emoji="🔙", row=2, custom_id="player_hub:end_loa")
+    async def end_loa(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        if not guild:
+            await interaction.followup.send("Must be used in a server.", ephemeral=True)
+            return
+        control = interaction.client.get_cog("SystemControl")
+        if control and not control.is_enabled("loa"):
+            await interaction.followup.send("⚠️ The LOA system is currently disabled.", ephemeral=True)
+            return
+        from NightCityBot.cogs.loa import get_loa_role
+        loa_role = get_loa_role(guild)
+        if loa_role is None:
+            await interaction.followup.send("⚠️ LOA role is not configured.", ephemeral=True)
+            return
+        member = interaction.user
+        if not any(r.id == loa_role.id for r in member.roles):
+            await interaction.followup.send("You are not currently on LOA.", ephemeral=True)
+            return
+        try:
+            await member.remove_roles(loa_role, reason="LOA end via Player Hub")
+        except (discord.Forbidden, discord.HTTPException) as e:
+            await interaction.followup.send(f"❌ Could not remove LOA role: {e}", ephemeral=True)
+            return
+        await interaction.followup.send("✅ Your LOA has ended.", ephemeral=True)
 
 
 class ManageInventoryView(SafeView):
@@ -1855,7 +1910,8 @@ class SellToStoreSetupView(SafeView):
         self.selected_store_value = val
         entry = next((e for e in self.store_entries if e["value"] == val), None)
         store_label = entry["label"] if entry else val
-        await interaction.response.send_message(
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send(
             f"Store: **{store_label}** ✓", ephemeral=True
         )
 

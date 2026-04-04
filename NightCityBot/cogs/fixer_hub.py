@@ -258,9 +258,13 @@ class StoreSubView(SafeView):
                 if sid.startswith(guild_prefix) and s.get("owner_id") == m.id and s.get("store_name"):
                     store_name = s["store_name"]
                     break
-            label = store_name or m.display_name
-            options.append(discord.SelectOption(label=label[:100], value=str(m.id),
-                                               description=m.display_name[:100] if store_name else None))
+            if not store_name:
+                continue
+            options.append(discord.SelectOption(label=store_name[:100], value=str(m.id),
+                                               description=m.display_name[:100]))
+        if not options:
+            await interaction.followup.send("No Ripperdoc stores found. Ripperdocs must set up a store first.", ephemeral=True)
+            return
         view = StoreOwnerPickerView(self.cog, self.ctx, options, store_type="cw")
         await interaction.followup.send(
             "💉 **Ripperdoc Store** — Select a Ripperdoc:", view=view, ephemeral=True
@@ -644,9 +648,16 @@ async def _process_wh_add_gun(cog, interaction, text, msg=None):
     if qty < 1 or cost < 0:
         await _reply("Invalid quantity or cost.")
         return
-    restriction = parts[3].strip().lower() if len(parts) > 3 else "basic"
+    restriction = parts[3].strip().lower() if len(parts) > 3 else ""
     if restriction not in ("basic", "controlled", "restricted"):
-        restriction = "basic"
+        await _reply(
+            "❌ Invalid or missing restriction. Must be one of:\n"
+            "• **Basic** — freely available, no restrictions\n"
+            "• **Controlled** — requires a license or special authorization\n"
+            "• **Restricted** — illegal or military-grade, requires admin approval for sale\n\n"
+            "Please re-enter the gun with a valid restriction as the 4th field."
+        )
+        return
     async with guns_cog.lock:
         state = await guns_cog._load_state()
         lots = state.setdefault("wholesale_lots", [])
@@ -1847,9 +1858,17 @@ async def _process_store_add_gun(cog, interaction, owner, text):
     if qty < 1 or cost < 0:
         await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
         return
-    restriction = parts[3].strip().lower() if len(parts) > 3 else "basic"
+    restriction = parts[3].strip().lower() if len(parts) > 3 else ""
     if restriction not in ("basic", "controlled", "restricted"):
-        restriction = "basic"
+        await interaction.followup.send(
+            "❌ Invalid or missing restriction. Must be one of:\n"
+            "• **Basic** — freely available, no restrictions\n"
+            "• **Controlled** — requires a license or special authorization\n"
+            "• **Restricted** — illegal or military-grade, requires admin approval for sale\n\n"
+            "Please re-enter the gun with a valid restriction as the 4th field.",
+            ephemeral=True,
+        )
+        return
     async with guns_cog.lock:
         state = await guns_cog._load_state()
         store_id = guns_cog._store_id(guild.id, owner.id)

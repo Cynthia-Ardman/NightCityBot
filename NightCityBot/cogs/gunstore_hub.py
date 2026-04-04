@@ -294,7 +294,9 @@ class GunBuySelect(SafeView):
         self.guns_cog = guns_cog
         options = []
         for i, lot in enumerate(lots[:25]):
-            label = f"{lot['gun_name']} — ${int(lot['unit_cost']):,} (×{lot['qty_available']})"
+            r = lot.get("restriction", "basic")
+            r_tag = f" [{r.title()}]" if r != "basic" else ""
+            label = f"{lot['gun_name']}{r_tag} — ${int(lot['unit_cost']):,} (×{lot['qty_available']})"
             options.append(discord.SelectOption(label=label[:100], value=str(i)))
         self.select = discord.ui.Select(placeholder="Choose a gun...", options=options)
         self.select.callback = self.on_select
@@ -857,6 +859,44 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
         await log_ch.send(content=confirm_text, embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
+class _FixerApprovalView(SafeView):
+    def __init__(self, fixer_role_id: int):
+        super().__init__(timeout=300)
+        self.fixer_role_id = fixer_role_id
+        self.approved: Optional[bool] = None
+        self.approver: Optional[discord.Member] = None
+
+    async def _check_approver(self, interaction: discord.Interaction) -> bool:
+        user = interaction.user
+        if not isinstance(user, discord.Member):
+            await interaction.response.send_message("Must be used in a server.", ephemeral=True)
+            return False
+        if user.guild_permissions.administrator:
+            return True
+        if self.fixer_role_id and any(r.id == self.fixer_role_id for r in user.roles):
+            return True
+        await interaction.response.send_message("❌ Only Fixers or Admins can approve restricted sales.", ephemeral=True)
+        return False
+
+    @discord.ui.button(label="Approve", style=discord.ButtonStyle.success, emoji="✅")
+    async def approve_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._check_approver(interaction):
+            return
+        self.approved = True
+        self.approver = interaction.user
+        await interaction.response.edit_message(view=None)
+        self.stop()
+
+    @discord.ui.button(label="Deny", style=discord.ButtonStyle.danger, emoji="❌")
+    async def deny_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._check_approver(interaction):
+            return
+        self.approved = False
+        self.approver = interaction.user
+        await interaction.response.edit_message(view=None)
+        self.stop()
+
+
 async def _request_fixer_approval(cog, interaction, ctx, customer, gun_name, lot, price, character_name):
     channel = cog.bot.get_channel(GUN_APPROVALS_CHANNEL_ID)
     if channel is None:
@@ -869,6 +909,7 @@ async def _request_fixer_approval(cog, interaction, ctx, customer, gun_name, lot
             return False
 
     fixer_role_id = getattr(config, "FIXER_ROLE_ID", 0)
+    fixer_role_id_int = int(fixer_role_id) if fixer_role_id else 0
     fixer_ping = f"<@&{fixer_role_id}>" if fixer_role_id else "**Fixers**"
 
     embed = discord.Embed(
@@ -880,16 +921,17 @@ async def _request_fixer_approval(cog, interaction, ctx, customer, gun_name, lot
     embed.add_field(name="Buyer", value=f"{customer.mention} (character: {character_name})", inline=True)
     embed.add_field(name="Gun", value=f"{gun_name} (Tier {lot.get('gun_level', '?')})", inline=True)
     embed.add_field(name="Price", value=f"${price:,}", inline=True)
-    embed.set_footer(text="React ✅ to approve or ❌ to deny. Expires in 5 minutes.")
+    embed.set_footer(text="Click Approve or Deny. Expires in 5 minutes.")
+
+    approval_view = _FixerApprovalView(fixer_role_id_int)
 
     try:
         msg = await channel.send(
             f"{fixer_ping} — restricted sale requires approval.",
             embed=embed,
+            view=approval_view,
             allowed_mentions=discord.AllowedMentions(roles=True),
         )
-        await msg.add_reaction("✅")
-        await msg.add_reaction("❌")
     except Exception:
         logger.exception("Failed to post restricted sale approval request")
         await interaction.followup.send(
@@ -901,49 +943,42 @@ async def _request_fixer_approval(cog, interaction, ctx, customer, gun_name, lot
         "⏳ Restricted sale pending Fixer approval. Waiting up to 5 minutes...", ephemeral=True
     )
 
-    fixer_role_id_int = int(fixer_role_id) if fixer_role_id else 0
+    await approval_view.wait()
 
-    def check(reaction, user):
-        if reaction.message.id != msg.id:
-            return False
-        if str(reaction.emoji) not in ("✅", "❌"):
-            return False
-        if user.bot:
-            return False
-        if isinstance(user, discord.Member):
-            if user.guild_permissions.administrator:
-                return True
-            if fixer_role_id_int and any(r.id == fixer_role_id_int for r in user.roles):
-                return True
-        return False
-
-    try:
-        reaction, approver = await cog.bot.wait_for("reaction_add", timeout=300.0, check=check)
-    except asyncio.TimeoutError:
-        await ctx.send(
-            f"{ctx.author.mention} — restricted sale of **{gun_name}** timed out. No Fixer responded within 5 minutes."
-        )
+    if approval_view.approved is None:
+        log_ch = await cog._log_channel()
+        if log_ch:
+            await log_ch.send(
+                f"{ctx.author.mention} — restricted sale of **{gun_name}** timed out. No Fixer responded within 5 minutes."
+            )
         try:
-            await msg.edit(embed=embed.set_footer(text="EXPIRED — no response."))
+            embed.set_footer(text="EXPIRED — no response.")
+            await msg.edit(embed=embed, view=None)
         except Exception:
             pass
         return False
 
-    if str(reaction.emoji) == "✅":
-        await ctx.send(
-            f"✅ Restricted sale of **{gun_name}** approved by {approver.mention}. Processing..."
-        )
+    if approval_view.approved:
+        log_ch = await cog._log_channel()
+        if log_ch:
+            await log_ch.send(
+                f"✅ Restricted sale of **{gun_name}** approved by {approval_view.approver.mention}. Processing..."
+            )
         try:
-            await msg.edit(embed=embed.set_footer(text=f"APPROVED by {approver.display_name}"))
+            embed.set_footer(text=f"APPROVED by {approval_view.approver.display_name}")
+            await msg.edit(embed=embed, view=None)
         except Exception:
             pass
         return True
     else:
-        await ctx.send(
-            f"❌ Restricted sale of **{gun_name}** denied by {approver.mention}."
-        )
+        log_ch = await cog._log_channel()
+        if log_ch:
+            await log_ch.send(
+                f"❌ Restricted sale of **{gun_name}** denied by {approval_view.approver.mention}."
+            )
         try:
-            await msg.edit(embed=embed.set_footer(text=f"DENIED by {approver.display_name}"))
+            embed.set_footer(text=f"DENIED by {approval_view.approver.display_name}")
+            await msg.edit(embed=embed, view=None)
         except Exception:
             pass
         return False

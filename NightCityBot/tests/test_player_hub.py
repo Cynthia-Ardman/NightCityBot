@@ -994,7 +994,8 @@ class TestSellToStoreSetupView:
             store_sel = _find_select(view, "store")
             await store_sel.callback(inter)
             assert view.selected_store_value == "gun:200"
-            assert "✓" in inter.response.send_message.call_args[0][0]
+            inter.response.edit_message.assert_called_once()
+            assert "✓" in inter.followup.send.call_args[0][0]
         _run(_test())
 
     def test_item_select(self):
