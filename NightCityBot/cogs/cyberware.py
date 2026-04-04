@@ -130,18 +130,19 @@ class CyberwareManager(commands.Cog):
         if wholesaler and hasattr(wholesaler, "auto_refresh_weekly_after_cyberware"):
             try:
                 refreshed = await wholesaler.auto_refresh_weekly_after_cyberware()
-                if notify_user:
-                    await notify_user.send(
-                        "📦 Weekly wholesaler refresh complete."
-                        if refreshed
-                        else "⚠️ Weekly wholesaler refresh skipped/failed."
-                    )
             except Exception:
-                if notify_user:
-                    try:
+                refreshed = None
+                logger.exception("auto_refresh_weekly_after_cyberware errored during weekly process")
+            if notify_user:
+                try:
+                    if refreshed is None:
                         await notify_user.send("❌ Weekly wholesaler refresh errored.")
-                    except Exception:
-                        logger.warning("Suppressed exception", exc_info=True)
+                    elif refreshed:
+                        await notify_user.send("📦 Weekly wholesaler refresh complete.")
+                    else:
+                        await notify_user.send("⚠️ Weekly wholesaler refresh skipped/failed.")
+                except Exception:
+                    logger.warning("Suppressed exception", exc_info=True)
 
         cw_shop = self.bot.get_cog("CyberwareShop")
         if cw_shop and hasattr(cw_shop, "auto_cw_restock_if_due"):

@@ -42,6 +42,7 @@ ALL_TABLES = [
     "player_inventory",
     "pending_transfers",
     "item_history",
+    "characters",
 ]
 
 
