@@ -290,6 +290,24 @@
       "lots": [],
       "employees": [],
       "store_name": "Testing"
+    },
+    "1348601552083882108:286338318076084226": {
+      "owner_id": "286338318076084226",
+      "lots": [
+        {
+          "lot_id": "lot-20260404-bd5d66",
+          "gun_name": "Nue",
+          "item_ids": [
+            "ccc21fda-272c-4569-a57f-874cd264cc2e"
+          ],
+          "gun_level": "",
+          "unit_cost": 0,
+          "restriction": "basic",
+          "weapon_type": "",
+          "qty_remaining": 1
+        }
+      ],
+      "store_name": "Shit my pants"
     }
   },
   "shop_registry": {

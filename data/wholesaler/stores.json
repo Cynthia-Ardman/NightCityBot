@@ -10,7 +10,11 @@
     "1348601552083882108:172847414791766016": {
       "owner_id": "172847414791766016",
       "inventory_file": "/home/runner/workspace/data/wholesaler/inventory/stores/1348601552083882108-172847414791766016.json"
+    },
+    "1348601552083882108:286338318076084226": {
+      "owner_id": "286338318076084226",
+      "inventory_file": "/home/runner/workspace/data/wholesaler/inventory/stores/1348601552083882108-286338318076084226.json"
     }
   },
-  "updated_at": "2026-04-04T01:56:44.767640+00:00"
+  "updated_at": "2026-04-04T02:04:26.629124+00:00"
 }
