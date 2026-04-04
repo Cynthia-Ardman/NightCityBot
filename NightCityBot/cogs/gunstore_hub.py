@@ -623,12 +623,13 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
         state = await guns_cog._load_state()
         store = state.get("stores", {}).get(store_id)
         approved = store.get("controlled_buyers", []) if store else []
-        if customer.id not in approved:
+        if not _is_character_approved(approved, character_id, customer.id):
             approve_view = InlineApproveView(
-                cog, ctx, guns_cog, store_id, customer
+                cog, ctx, guns_cog, store_id, customer,
+                character_id=character_id, character_name=character_name,
             )
             approve_msg = await interaction.followup.send(
-                f"**{gun_name}** is **{restriction}**. {customer.display_name} is not on your approved list.\n"
+                f"**{gun_name}** is **{restriction}**. **{character_name}** ({customer.display_name}) is not on your approved list.\n"
                 "Would you like to approve them and proceed?",
                 view=approve_view,
                 ephemeral=True,
@@ -985,13 +986,15 @@ async def _request_fixer_approval(cog, interaction, ctx, customer, gun_name, lot
 
 
 class InlineApproveView(SafeView):
-    def __init__(self, cog, ctx, guns_cog, store_id, customer):
+    def __init__(self, cog, ctx, guns_cog, store_id, customer, character_id=None, character_name=None):
         super().__init__(timeout=30)
         self.cog = cog
         self.ctx = ctx
         self.guns_cog = guns_cog
         self.store_id = store_id
         self.customer = customer
+        self.character_id = character_id
+        self.character_name = character_name
         self.approved = False
         self.message: Optional[discord.Message] = None
 
@@ -1012,12 +1015,19 @@ class InlineApproveView(SafeView):
             store = state.get("stores", {}).get(self.store_id)
             if store:
                 approved_list = store.setdefault("controlled_buyers", [])
-                if self.customer.id not in approved_list:
+                if self.character_id and not _is_character_approved(approved_list, self.character_id, self.customer.id):
+                    approved_list.append({
+                        "user_id": self.customer.id,
+                        "character_id": self.character_id,
+                        "character_name": self.character_name or "",
+                    })
+                elif not self.character_id and self.customer.id not in approved_list:
                     approved_list.append(self.customer.id)
                 await self.guns_cog._save_state(state)
         self.approved = True
+        label = self.character_name or self.customer.display_name
         await interaction.response.edit_message(
-            content=f"✅ {self.customer.display_name} approved. Proceeding with sale...",
+            content=f"✅ {label} approved. Proceeding with sale...",
             view=None,
         )
         self.stop()
@@ -1029,14 +1039,35 @@ class InlineApproveView(SafeView):
         self.stop()
 
 
+def _is_character_approved(approved_list: list, character_id: str | None, user_id: int) -> bool:
+    for entry in approved_list:
+        if isinstance(entry, dict):
+            if character_id and entry.get("character_id") == character_id:
+                return True
+        elif isinstance(entry, int) and entry == user_id:
+            return True
+    return False
+
+
+def _remove_character_approval(approved_list: list, character_id: str) -> bool:
+    for i, entry in enumerate(approved_list):
+        if isinstance(entry, dict) and entry.get("character_id") == character_id:
+            approved_list.pop(i)
+            return True
+    return False
+
+
 class _ApproveBuyerView(SafeView):
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context, approve: bool = True):
-        super().__init__(timeout=60)
+        super().__init__(timeout=120)
         self.cog = cog
         self.ctx = ctx
         self.approve = approve
+        self._selected_user: Optional[discord.Member] = None
+        self._characters: list[dict] = []
+        self._character_select: Optional[discord.ui.Select] = None
 
-    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Select a buyer…", row=0)
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Select a player…", row=0)
     async def buyer_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         raw_user = select.values[0] if select.values else None
         if raw_user is None:
@@ -1059,6 +1090,49 @@ class _ApproveBuyerView(SafeView):
                     await interaction.response.send_message("Could not find that member.", ephemeral=True)
                     return
 
+        characters = await get_active_characters(str(user.id))
+        if not characters:
+            await interaction.response.send_message(
+                f"❌ {user.display_name} has no active characters.", ephemeral=True
+            )
+            return
+
+        self._selected_user = user
+        self._characters = characters
+
+        if self._character_select is not None:
+            self.remove_item(self._character_select)
+
+        char_options = [
+            discord.SelectOption(label=ch["name"][:100], value=ch["character_id"])
+            for ch in characters[:25]
+        ]
+        char_select = discord.ui.Select(
+            placeholder="Choose character…",
+            options=char_options,
+            row=1,
+        )
+        char_select.callback = self._on_character_select
+        self._character_select = char_select
+        self.add_item(char_select)
+
+        action_word = "approve" if self.approve else "unapprove"
+        await interaction.response.edit_message(
+            content=f"Player: **{user.display_name}** ✓ — Now select the character to {action_word}.",
+            view=self,
+        )
+
+    async def _on_character_select(self, interaction: discord.Interaction):
+        char_id = interaction.data["values"][0]
+        selected_char = None
+        for ch in self._characters:
+            if ch["character_id"] == char_id:
+                selected_char = ch
+                break
+        if not selected_char or not self._selected_user:
+            await interaction.response.send_message("Selection error.", ephemeral=True)
+            return
+
         guns_cog = self.cog._guns_cog()
         if not guns_cog:
             await interaction.response.send_message("Gun shop system unavailable.", ephemeral=True)
@@ -1068,6 +1142,7 @@ class _ApproveBuyerView(SafeView):
         async with guns_cog.lock:
             state = await guns_cog._load_state()
             actor = self.ctx.author
+            guild = self.ctx.guild
             if isinstance(actor, discord.Member) and _is_employee_member(actor) and not _is_store_owner_member(actor):
                 store_id, store = _find_employee_store(state, guild.id, actor.id)
             else:
@@ -1078,27 +1153,32 @@ class _ApproveBuyerView(SafeView):
                 self.stop()
                 return
             approved = store.setdefault("controlled_buyers", [])
+            char_name = selected_char["name"]
             if self.approve:
-                if user.id in approved:
+                if _is_character_approved(approved, char_id, self._selected_user.id):
                     await interaction.followup.send(
-                        f"{user.display_name} is already approved.", ephemeral=True
+                        f"{char_name} is already approved.", ephemeral=True
                     )
                     self.stop()
                     return
-                approved.append(user.id)
+                approved.append({
+                    "user_id": self._selected_user.id,
+                    "character_id": char_id,
+                    "character_name": char_name,
+                })
             else:
-                if user.id not in approved:
+                if not _remove_character_approval(approved, char_id):
                     await interaction.followup.send(
-                        f"{user.display_name} is not on your list.", ephemeral=True
+                        f"{char_name} is not on your approved list.", ephemeral=True
                     )
                     self.stop()
                     return
-                approved.remove(user.id)
             await guns_cog._save_state(state)
 
         action = "added to" if self.approve else "removed from"
         await interaction.followup.send(
-            f"{user.display_name} {action} your controlled-buyer list.", ephemeral=True
+            f"**{char_name}** ({self._selected_user.display_name}) {action} your controlled-buyer list.",
+            ephemeral=True,
         )
         self.stop()
 
@@ -1395,7 +1475,14 @@ class _ManageBuyersView(SafeView):
         if not approved:
             await interaction.followup.send("Controlled-buyer list is empty.", ephemeral=True)
             return
-        lines = [f"<@{uid}>" for uid in approved[:25]]
+        lines = []
+        for entry in approved[:25]:
+            if isinstance(entry, dict):
+                uid = entry.get("user_id", 0)
+                cname = entry.get("character_name", "Unknown")
+                lines.append(f"• **{cname}** (<@{uid}>)")
+            else:
+                lines.append(f"• <@{entry}> (legacy — player-level)")
         await interaction.followup.send(
             "**Approved Controlled Buyers:**\n" + "\n".join(lines),
             ephemeral=True,

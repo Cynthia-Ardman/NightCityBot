@@ -28,6 +28,8 @@ from NightCityBot.cogs.gunstore_hub import (
     _ManageGunStoreView,
     _ManageBuyersView,
     _EmployeePickerView,
+    _is_character_approved,
+    _remove_character_approval,
 )
 from NightCityBot.cogs.admin_shop import (
     AdminShopCog,
@@ -863,6 +865,34 @@ class TestInlineApproveView:
 
         _run(run())
 
+    def test_approve_and_sell_stores_character_info(self):
+        async def run():
+            guns_cog = MagicMock()
+            guns_cog.lock = asyncio.Lock()
+            store_data = {"controlled_buyers": []}
+            guns_cog._load_state = AsyncMock(return_value={
+                "stores": {"s1": store_data}
+            })
+            guns_cog._save_state = AsyncMock()
+            customer = _make_member(222, "Customer")
+            cog = _make_gunstore_cog()
+            ctx = _ctx()
+            view = InlineApproveView(
+                cog, ctx, guns_cog, "s1", customer,
+                character_id="char-abc", character_name="V",
+            )
+            inter = _make_interaction()
+            btn = _find_button(view, "Approve & Sell")
+            await btn.callback(inter)
+            assert view.approved is True
+            saved = store_data["controlled_buyers"]
+            assert len(saved) == 1
+            assert saved[0]["character_id"] == "char-abc"
+            assert saved[0]["character_name"] == "V"
+            assert saved[0]["user_id"] == 222
+
+        _run(run())
+
     def test_cancel_sets_flag_false(self):
         async def run():
             guns_cog = MagicMock()
@@ -876,6 +906,37 @@ class TestInlineApproveView:
             assert view.approved is False
 
         _run(run())
+
+
+class TestCharacterApprovalHelpers:
+    def test_character_approved_by_dict(self):
+        approved = [{"character_id": "c1", "user_id": 100, "character_name": "V"}]
+        assert _is_character_approved(approved, "c1", 100) is True
+        assert _is_character_approved(approved, "c2", 100) is False
+
+    def test_legacy_int_approved(self):
+        approved = [100]
+        assert _is_character_approved(approved, None, 100) is True
+        assert _is_character_approved(approved, None, 200) is False
+
+    def test_mixed_format(self):
+        approved = [
+            200,
+            {"character_id": "c1", "user_id": 100, "character_name": "V"},
+        ]
+        assert _is_character_approved(approved, "c1", 100) is True
+        assert _is_character_approved(approved, None, 200) is True
+        assert _is_character_approved(approved, "c99", 300) is False
+
+    def test_remove_character_approval(self):
+        approved = [{"character_id": "c1", "user_id": 100, "character_name": "V"}]
+        assert _remove_character_approval(approved, "c1") is True
+        assert len(approved) == 0
+
+    def test_remove_character_approval_not_found(self):
+        approved = [{"character_id": "c1", "user_id": 100, "character_name": "V"}]
+        assert _remove_character_approval(approved, "c99") is False
+        assert len(approved) == 1
 
 
 class TestGunSellUUIDContinuity:
