@@ -444,7 +444,19 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty, *, black_m
             "restriction": lot.get("restriction", "basic"),
             "item_ids": item_ids,
         })
-        await guns_cog._save_state(state)
+        save_ok = await guns_cog._save_state(state)
+        if not save_ok:
+            logger.error("gun wholesale buy: _save_state failed after payment — refunding buyer=%s", member.id)
+            await cog.unbelievaboat.update_balance(
+                member.id,
+                {"cash": cash_deduct, "bank": bank_deduct},
+                reason="Gun wholesale refund — save failed",
+            )
+            await interaction.followup.send(
+                "⚠️ Purchase failed (save error). Payment has been refunded. Please try again.",
+                ephemeral=True,
+            )
+            return
 
     event_type = "black_market_buy" if black_market else "wholesale_buy"
     for item_id in item_ids:
@@ -823,7 +835,25 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
             item_id = str(uuid.uuid4())
         if target_lot["qty_remaining"] <= 0:
             store["lots"].remove(target_lot)
-        await guns_cog._save_state(state)
+        save_ok = await guns_cog._save_state(state)
+        if not save_ok:
+            target_lot["qty_remaining"] = int(target_lot.get("qty_remaining", 0)) + 1
+            if target_lot not in store.get("lots", []):
+                store.setdefault("lots", []).append(target_lot)
+            target_lot.setdefault("item_ids", []).insert(0, item_id)
+
+    if not save_ok:
+        logger.error("gun sell: _save_state failed after payment — refunding customer=%s", customer.id)
+        if price > 0:
+            await cog.unbelievaboat.update_balance(
+                customer.id, {"cash": cash_ded, "bank": bank_ded}, reason="Gun sale refund — save failed"
+            )
+            if seller_credited:
+                await cog.unbelievaboat.update_balance(
+                    owner_id, {"bank": -price}, reason="Gun sale refund — save failed"
+                )
+        await ctx.send("⚠️ Sale failed (save error). Payment has been refunded.")
+        return
 
     pi_ok = await pi_add_item({
         "item_id": item_id,

@@ -460,7 +460,20 @@ class WholesaleBuySelect(SafeView):
                 await interaction.followup.send("Stock depleted. Refunded.", ephemeral=True)
                 return
             target_lot["qty_available"] = int(target_lot["qty_available"]) - qty
-            await self.cw_cog._save_state(state)
+            save_ok = await self.cw_cog._save_state(state)
+            if not save_ok:
+                target_lot["qty_available"] = int(target_lot["qty_available"]) + qty
+                logger.error("cw wholesale buy: _save_state failed — refunding buyer=%s", member.id)
+                await self.cog.unbelievaboat.update_balance(
+                    member.id,
+                    {"cash": cash_deduct, "bank": bank_deduct},
+                    reason="CW wholesale refund — save failed",
+                )
+                await interaction.followup.send(
+                    "⚠️ Purchase failed (save error). Payment has been refunded. Please try again.",
+                    ephemeral=True,
+                )
+                return
 
         async with self.cw_cog._locks.acquire(str(member.id)):
             inventory = await self.cw_cog._load_inventory(member.id)
@@ -478,7 +491,19 @@ class WholesaleBuySelect(SafeView):
                     price=unit_cost,
                     metadata={"item_name": lot["item_name"], "lot_id": lot.get("lot_id")},
                 )
-            await self.cw_cog._save_inventory(member.id, inventory)
+            inv_ok = await self.cw_cog._save_inventory(member.id, inventory)
+            if not inv_ok:
+                logger.error("cw wholesale buy: _save_inventory failed — refunding buyer=%s", member.id)
+                await self.cog.unbelievaboat.update_balance(
+                    member.id,
+                    {"cash": cash_deduct, "bank": bank_deduct},
+                    reason="CW wholesale refund — inventory save failed",
+                )
+                await interaction.followup.send(
+                    "⚠️ Purchase failed (inventory save error). Payment has been refunded. Please try again.",
+                    ephemeral=True,
+                )
+                return
 
         await interaction.followup.send(
             f"Purchased **{lot['item_name']}** ×{qty} for **${total:,}**.",
@@ -796,7 +821,19 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
                     )
             await ctx.send("Item no longer in stock. Refunded.")
             return
-        await cw_cog._save_inventory(owner_id, inv_updated)
+        inv_save_ok = await cw_cog._save_inventory(owner_id, inv_updated)
+        if not inv_save_ok:
+            logger.error("ripperdoc sell: _save_inventory failed — refunding patient=%s", patient.id)
+            if price > 0:
+                await cog.unbelievaboat.update_balance(
+                    patient.id, {"cash": cash_ded, "bank": bank_ded}, reason="CW sale refund — save failed"
+                )
+                if seller_credited:
+                    await cog.unbelievaboat.update_balance(
+                        owner_id, {"bank": -price}, reason="CW sale refund — save failed"
+                    )
+            await ctx.send("⚠️ Sale failed (save error). Payment has been refunded.")
+            return
 
     pi_ok = await pi_add_item({
         "item_id": item_id,
@@ -995,7 +1032,19 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
                     )
             await ctx.send("Item no longer in stock. Refunded.")
             return
-        await cw_cog._save_inventory(owner_id, inv_updated)
+        inv_save_ok = await cw_cog._save_inventory(owner_id, inv_updated)
+        if not inv_save_ok:
+            logger.error("cw install: _save_inventory failed — refunding patient=%s", patient.id)
+            if price > 0:
+                await cog.unbelievaboat.update_balance(
+                    patient.id, {"cash": cash_ded, "bank": bank_ded}, reason="CW install refund — save failed"
+                )
+                if seller_credited:
+                    await cog.unbelievaboat.update_balance(
+                        owner_id, {"bank": -price}, reason="CW install refund — save failed"
+                    )
+            await ctx.send("⚠️ Install failed (save error). Payment has been refunded.")
+            return
 
     await ih_record_event(
         item_id, "cw_installed",

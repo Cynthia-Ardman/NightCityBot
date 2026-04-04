@@ -1521,8 +1521,27 @@ async def _process_trade(cog, interaction, buyer, group, buyer_character, price,
             )
             return
 
-    buyer_char_record = await get_character_by_name(str(buyer.id), buyer_character)
-    buyer_char_id = buyer_char_record["character_id"] if buyer_char_record else None
+    buyer_char_record = await get_character_by_name(str(buyer.id), buyer_character, active_only=True)
+    if not buyer_char_record:
+        if price > 0 and buyer.id != interaction.user.id:
+            ub = getattr(inv_cog, "unbelievaboat", None) if inv_cog else None
+            if ub:
+                await ub.update_balance(
+                    buyer.id,
+                    {"cash": b_cash_deduct, "bank": b_bank_deduct},
+                    reason=f"Trade refund (inactive character): {item_name}",
+                )
+                await ub.update_balance(
+                    interaction.user.id,
+                    {"bank": -price},
+                    reason=f"Trade refund (inactive character): {item_name}",
+                )
+        await interaction.followup.send(
+            f"❌ **{buyer_character}** is no longer an active character for {buyer.display_name}. Trade cancelled and refunds attempted.",
+            ephemeral=True,
+        )
+        return
+    buyer_char_id = buyer_char_record["character_id"]
     ok_transfer = await pi_update_owner(
         item_id, str(buyer.id), buyer_character, str(interaction.user.id),
         new_character_id=buyer_char_id,
@@ -1993,8 +2012,14 @@ async def _process_give(cog, interaction, target, group, receiver_character, sen
             pass
         return
 
-    recv_char_record = await get_character_by_name(str(target.id), receiver_char)
-    recv_char_id = recv_char_record["character_id"] if recv_char_record else None
+    recv_char_record = await get_character_by_name(str(target.id), receiver_char, active_only=True)
+    if not recv_char_record:
+        await interaction.followup.send(
+            f"❌ **{receiver_char}** is no longer an active character for {target.display_name}. Give cancelled.",
+            ephemeral=True,
+        )
+        return
+    recv_char_id = recv_char_record["character_id"]
     ok = await pi_update_owner(
         item_id, str(target.id), receiver_char, str(interaction.user.id),
         new_character_id=recv_char_id,
@@ -2577,6 +2602,7 @@ async def _process_sell_to_store(cog, interaction, store_owner, group, seller_ch
         "item_ids": [item_id],
     }
 
+    store_save_failed = False
     try:
         async with guns_cog.lock:
             state = await guns_cog._load_state()
@@ -2584,8 +2610,13 @@ async def _process_sell_to_store(cog, interaction, store_owner, group, seller_ch
                 store_id, {"owner_id": store_owner.id, "lots": []}
             )
             store["lots"].append(store_lot)
-            await guns_cog._save_state(state)
+            save_ok = await guns_cog._save_state(state)
+            if not save_ok:
+                store_save_failed = True
     except Exception:
+        store_save_failed = True
+
+    if store_save_failed:
         logger.error(
             "sell_to_store: store lot save failed — seller=%s owner=%s item=%s",
             interaction.user.id, store_owner.id, item_id,

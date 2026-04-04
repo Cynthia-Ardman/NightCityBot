@@ -269,17 +269,29 @@ async def get_character(character_id: str) -> dict | None:
         return None
 
 
-async def get_character_by_name(discord_user_id: str, name: str) -> Optional[dict]:
+async def get_character_by_name(
+    discord_user_id: str, name: str, *, active_only: bool = False
+) -> Optional[dict]:
     try:
         pool = await get_pool()
-        row = await _with_retry(
-            lambda: pool.fetchrow(
-                f"""
+        if active_only:
+            query = f"""
                 SELECT {_ALL_COLS}
                 FROM characters
                 WHERE discord_user_id = $1
                   AND normalized_character_name = $2
-                """,
+                  AND status = 'active'
+                """
+        else:
+            query = f"""
+                SELECT {_ALL_COLS}
+                FROM characters
+                WHERE discord_user_id = $1
+                  AND normalized_character_name = $2
+                """
+        row = await _with_retry(
+            lambda: pool.fetchrow(
+                query,
                 str(discord_user_id),
                 normalize_name(name),
             ),

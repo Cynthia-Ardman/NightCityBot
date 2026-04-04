@@ -544,10 +544,6 @@ class ReassignDestPickerView(SafeView):
                 f"{member.display_name} has no active characters.", ephemeral=True
             )
             return
-        options = []
-        for c in chars[:25]:
-            cname = c.get("name", "?")
-            options.append(discord.SelectOption(label=cname[:100], value=cname))
         view = ReassignCharPickerView(
             self.cog, self.ctx, self.source_owner, self.item, member, chars[:25]
         )
