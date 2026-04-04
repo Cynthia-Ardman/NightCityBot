@@ -278,14 +278,21 @@ class TestPlayerSubViewButtons:
         _run(_test())
 
 class TestStoreSubViewButtons:
-    def test_view_gun_store_with_role_members(self):
+    def test_view_gun_store_with_db_stores(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
+            ctx.guild.id = 999
             member1 = _make_member(200, "GunGuy")
-            role = MagicMock()
-            role.members = [member1]
-            ctx.guild.get_role = MagicMock(side_effect=lambda rid: role if rid == GUN_STORE_OWNER_ROLE_ID else None)
+            ctx.guild.get_member = MagicMock(return_value=member1)
+            guns_cog = MagicMock()
+            guns_cog._load_state = AsyncMock(return_value={
+                "stores": {
+                    "999:200": {"owner_id": "200", "store_name": "GunGuy's Armory"},
+                }
+            })
+            cog.bot.cogs["GunsShopCog"] = guns_cog
+            cog.bot.get_cog = MagicMock(side_effect=lambda n: cog.bot.cogs.get(n))
             view = StoreSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "View Gun Store")
@@ -296,19 +303,21 @@ class TestStoreSubViewButtons:
             assert picker.store_type == "gun"
         _run(_test())
 
-    def test_view_gun_store_no_owners(self):
+    def test_view_gun_store_no_stores(self):
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
-            role = MagicMock()
-            role.members = []
-            ctx.guild.get_role = MagicMock(return_value=role)
+            ctx.guild.id = 999
+            guns_cog = MagicMock()
+            guns_cog._load_state = AsyncMock(return_value={"stores": {}})
+            cog.bot.cogs["GunsShopCog"] = guns_cog
+            cog.bot.get_cog = MagicMock(side_effect=lambda n: cog.bot.cogs.get(n))
             view = StoreSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "View Gun Store")
             await btn.callback(inter)
             msg = inter.followup.send.call_args[0][0]
-            assert "no gun store owners" in msg.lower()
+            assert "no gun stores" in msg.lower()
         _run(_test())
 
     def test_view_ripperdoc_store_with_role_members(self):
@@ -1424,16 +1433,15 @@ class TestStoreNicknameInFixerHub:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
+            ctx.guild.id = 999
             member1 = _make_member(200, "GunGuy")
-            role = MagicMock()
-            role.members = [member1]
-            ctx.guild.get_role = MagicMock(side_effect=lambda rid: role if rid == GUN_STORE_OWNER_ROLE_ID else None)
+            ctx.guild.get_member = MagicMock(return_value=member1)
             guns_cog = MagicMock()
-            guns_cog._store_id = MagicMock(return_value="999:200")
             guns_cog._load_state = AsyncMock(return_value={
-                "stores": {"999:200": {"owner_id": 200, "store_name": "Hellfire Arms", "lots": []}}
+                "stores": {"999:200": {"owner_id": "200", "store_name": "Hellfire Arms", "lots": []}}
             })
             cog.bot.cogs["GunsShopCog"] = guns_cog
+            cog.bot.get_cog = MagicMock(side_effect=lambda n: cog.bot.cogs.get(n))
             view = StoreSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "View Gun Store")
@@ -1449,14 +1457,15 @@ class TestStoreNicknameInFixerHub:
         async def _test():
             cog = _make_cog()
             ctx = _ctx()
+            ctx.guild.id = 999
             member1 = _make_member(200, "GunGuy")
-            role = MagicMock()
-            role.members = [member1]
-            ctx.guild.get_role = MagicMock(side_effect=lambda rid: role if rid == GUN_STORE_OWNER_ROLE_ID else None)
+            ctx.guild.get_member = MagicMock(return_value=member1)
             guns_cog = MagicMock()
-            guns_cog._store_id = MagicMock(return_value="999:200")
-            guns_cog._load_state = AsyncMock(return_value={"stores": {}})
+            guns_cog._load_state = AsyncMock(return_value={
+                "stores": {"999:200": {"owner_id": "200"}}
+            })
             cog.bot.cogs["GunsShopCog"] = guns_cog
+            cog.bot.get_cog = MagicMock(side_effect=lambda n: cog.bot.cogs.get(n))
             view = StoreSubView(cog, ctx)
             inter = _make_interaction()
             btn = _find_button(view, "View Gun Store")

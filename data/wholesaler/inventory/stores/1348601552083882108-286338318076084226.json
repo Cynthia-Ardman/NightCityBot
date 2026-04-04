@@ -13,22 +13,10 @@
       "restriction": "basic",
       "weapon_type": "",
       "qty_remaining": 1
-    },
-    {
-      "lot_id": "lot-20260404-2922a0",
-      "gun_name": "test",
-      "item_ids": [
-        "aff09185-8790-48fe-9172-d3953feb6f58"
-      ],
-      "gun_level": "L",
-      "unit_cost": 100,
-      "restriction": "restricted",
-      "weapon_type": "",
-      "qty_remaining": 1
     }
   ],
   "controlled_buyers": [
     172847414791766016
   ],
-  "updated_at": "2026-04-04T03:39:30.426004+00:00"
+  "updated_at": "2026-04-04T03:57:29.272959+00:00"
 }

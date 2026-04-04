@@ -212,23 +212,34 @@ class StoreSubView(SafeView):
         if not guild:
             await interaction.followup.send("Must be used in a server.", ephemeral=True)
             return
-        role = guild.get_role(GUN_STORE_OWNER_ROLE_ID)
-        if not role or not role.members:
-            await interaction.followup.send("No Gun Store Owners found.", ephemeral=True)
-            return
         guns_cog = self.cog.bot.cogs.get("GunsShopCog")
         state = await guns_cog._load_state() if guns_cog else {}
         stores = state.get("stores", {})
+        guild_prefix = f"{guild.id}:"
         options = []
-        for m in role.members[:25]:
-            store_id = guns_cog._store_id(guild.id, m.id) if guns_cog else ""
-            store_data = stores.get(store_id, {})
+        for store_id, store_data in stores.items():
+            if not store_id.startswith(guild_prefix):
+                continue
+            owner_id_str = str(store_data.get("owner_id", ""))
+            if not owner_id_str:
+                continue
+            m = guild.get_member(int(owner_id_str))
+            if not m:
+                try:
+                    m = await guild.fetch_member(int(owner_id_str))
+                except Exception:
+                    continue
             store_name = store_data.get("store_name")
             label = store_name or f"{m.display_name}'s Gun Store"
             options.append(discord.SelectOption(
                 label=label[:100], value=str(m.id),
                 description=m.display_name[:100] if store_name else None,
             ))
+            if len(options) >= 25:
+                break
+        if not options:
+            await interaction.followup.send("No gun stores found.", ephemeral=True)
+            return
         view = StoreOwnerPickerView(self.cog, self.ctx, options, store_type="gun")
         await interaction.followup.send(
             "🔫 **Gun Store** — Select a store:", view=view, ephemeral=True
