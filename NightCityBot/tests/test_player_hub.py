@@ -2704,14 +2704,18 @@ class TestPlayerHubAttendButton:
         _run(_test())
 
     @patch("NightCityBot.cogs.player_hub.config")
-    def test_attend_not_sunday(self, mock_cfg):
+    def test_attend_not_sunday_logs_to_channel(self, mock_cfg):
         async def _test():
             mock_cfg.VERIFIED_ROLE_ID = 42
+            mock_cfg.NIGHTCITYBOT_LOG_CHANNEL_ID = 9999
             role = MagicMock()
             role.id = 42
             view = PlayerHubView()
             inter = _make_interaction()
             inter.user.roles = [role]
+            log_ch = MagicMock()
+            log_ch.send = AsyncMock()
+            inter.guild.get_channel = MagicMock(return_value=log_ch)
             econ = MagicMock()
             econ.event_active = MagicMock(return_value=False)
             orig = inter.client.get_cog
@@ -2732,6 +2736,9 @@ class TestPlayerHubAttendButton:
                 await btn.callback(inter)
             msg = inter.followup.send.call_args[0][0]
             assert "sunday" in msg.lower()
+            log_ch.send.assert_called_once()
+            log_msg = log_ch.send.call_args[0][0]
+            assert "Attend" in log_msg
         _run(_test())
 
 
@@ -2757,13 +2764,16 @@ class TestPlayerHubOpenShopButton:
             assert "business role" in msg.lower()
         _run(_test())
 
-    def test_open_shop_not_sunday(self):
+    def test_open_shop_not_sunday_logs_to_channel(self):
         async def _test():
             view = PlayerHubView()
             inter = _make_interaction()
             biz_role = MagicMock()
             biz_role.name = "Business Tier 1"
             inter.user.roles = [biz_role]
+            log_ch = MagicMock()
+            log_ch.send = AsyncMock()
+            inter.guild.get_channel = MagicMock(return_value=log_ch)
             econ = MagicMock()
             econ.event_active = MagicMock(return_value=False)
             orig = inter.client.get_cog
@@ -2784,6 +2794,9 @@ class TestPlayerHubOpenShopButton:
                 await btn.callback(inter)
             msg = inter.followup.send.call_args[0][0]
             assert "sunday" in msg.lower()
+            log_ch.send.assert_called_once()
+            log_msg = log_ch.send.call_args[0][0]
+            assert "Open Shop" in log_msg
         _run(_test())
 
 

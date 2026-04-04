@@ -389,6 +389,15 @@ class PlayerHubView(SafeView):
                     "❌ Attendance is only allowed during Sunday events (2pm to 7pm Pacific).",
                     ephemeral=True,
                 )
+                log_ch = interaction.guild.get_channel(config.NIGHTCITYBOT_LOG_CHANNEL_ID)
+                if log_ch:
+                    try:
+                        await log_ch.send(
+                            f"⚠️ {interaction.user.display_name} ({interaction.user.id}) "
+                            "attempted to use **Attend** outside of Sunday event hours."
+                        )
+                    except Exception:
+                        pass
                 return
             tz = ZoneInfo(getattr(config, "TIMEZONE", "UTC"))
             local_now = now.astimezone(tz)
@@ -399,6 +408,15 @@ class PlayerHubView(SafeView):
                     "❌ Attendance is only allowed during Sunday events (2pm to 7pm Pacific).",
                     ephemeral=True,
                 )
+                log_ch = interaction.guild.get_channel(config.NIGHTCITYBOT_LOG_CHANNEL_ID)
+                if log_ch:
+                    try:
+                        await log_ch.send(
+                            f"⚠️ {interaction.user.display_name} ({interaction.user.id}) "
+                            "attempted to use **Attend** outside of Sunday event hours."
+                        )
+                    except Exception:
+                        pass
                 return
             event_start = start
 
@@ -465,6 +483,15 @@ class PlayerHubView(SafeView):
         now = helpers.get_tz_now()
         if now.weekday() != 6 and not econ_cog.event_active():
             await interaction.followup.send("❌ Business openings can only be logged on Sundays.", ephemeral=True)
+            log_ch = interaction.guild.get_channel(config.NIGHTCITYBOT_LOG_CHANNEL_ID)
+            if log_ch:
+                try:
+                    await log_ch.send(
+                        f"⚠️ {interaction.user.display_name} ({interaction.user.id}) "
+                        "attempted to use **Open Shop** outside of Sunday."
+                    )
+                except Exception:
+                    pass
             return
 
         user_id = str(interaction.user.id)
