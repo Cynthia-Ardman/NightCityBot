@@ -16,6 +16,7 @@ from NightCityBot.cogs.player_hub import (
     TradeSetupView,
     TradeConfirmView,
     GiveSetupView,
+    GiveConfirmView,
     SellToStoreSetupView,
     StoreBuyConfirmView,
     ManageCharactersView,
@@ -781,13 +782,21 @@ def test_give_process_success():
         cog.bot.get_cog = MagicMock(return_value=None)
         recipient = _make_buyer()
         recipient.roles = []
+        recipient.send = AsyncMock(return_value=MagicMock(edit=AsyncMock()))
         groups = _build_groups(SAMPLE_ITEMS)
         inter = _make_interaction(user_id=100)
-        with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=True):
-            with patch("NightCityBot.cogs.player_hub.ih_record_event", new_callable=AsyncMock):
-                with patch("NightCityBot.cogs.player_hub._route_log_channel", new_callable=AsyncMock, return_value=None):
-                    await _process_give(cog, inter, recipient, groups[0], "Jackie", "V")
-        assert "transferred" in inter.followup.send.call_args[0][0].lower() or "✅" in inter.followup.send.call_args[0][0]
+        with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=True), \
+             patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}), \
+             patch("NightCityBot.cogs.player_hub.ih_record_event", new_callable=AsyncMock), \
+             patch("NightCityBot.cogs.player_hub._route_log_channel", new_callable=AsyncMock, return_value=None), \
+             patch("NightCityBot.cogs.player_hub.GiveConfirmView") as MockConfirm:
+            confirm_inst = MagicMock()
+            confirm_inst.accepted = True
+            confirm_inst.wait = AsyncMock()
+            MockConfirm.return_value = confirm_inst
+            await _process_give(cog, inter, recipient, groups[0], "Jackie", "V")
+        last_msg = inter.followup.send.call_args[0][0]
+        assert "transferred" in last_msg.lower() or "✅" in last_msg
     _run(_test())
 
 
@@ -797,9 +806,16 @@ def test_give_process_transfer_fails():
         cog.bot.get_cog = MagicMock(return_value=None)
         recipient = _make_buyer()
         recipient.roles = []
+        recipient.send = AsyncMock(return_value=MagicMock(edit=AsyncMock()))
         groups = _build_groups(SAMPLE_ITEMS)
         inter = _make_interaction(user_id=100)
-        with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=False):
+        with patch("NightCityBot.cogs.player_hub.pi_update_owner", new_callable=AsyncMock, return_value=False), \
+             patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}), \
+             patch("NightCityBot.cogs.player_hub.GiveConfirmView") as MockConfirm:
+            confirm_inst = MagicMock()
+            confirm_inst.accepted = True
+            confirm_inst.wait = AsyncMock()
+            MockConfirm.return_value = confirm_inst
             await _process_give(cog, inter, recipient, groups[0], "Jackie", "V")
         assert "failed" in inter.followup.send.call_args[0][0].lower()
     _run(_test())
@@ -901,37 +917,46 @@ class TestSellToStoreButton:
             assert "empty" in inter.followup.send.call_args[0][0].lower()
         _run(_test())
 
-    def test_sell_to_store_button_no_guns(self):
+    def test_sell_to_store_button_no_sellable_items(self):
         async def _test():
             cog = _make_cog()
             inv_cog = _make_inv_cog()
             view = ManageInventoryView(user_id=100)
             inter = _make_interaction(cog=cog, inv_cog=inv_cog)
-            non_gun_items = [{
+            non_sellable_items = [{
                 "item_id": "uuid-1", "owner_id": "100", "character_name": "V",
                 "name": "Medkit", "item_type": "misc", "restriction": "basic",
                 "price_paid": 50, "seller_name": "", "acquired_at": "2025-01-01",
                 "created_at": "2025-01-01",
             }]
             with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_SELLER_CHARS), \
-                 patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=non_gun_items):
+                 patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=non_sellable_items):
                 btn = _find_button(view, "Sell to Store")
                 await btn.callback(inter)
-            assert "no guns" in inter.followup.send.call_args[0][0].lower()
+            assert "no guns or cyberware" in inter.followup.send.call_args[0][0].lower()
         _run(_test())
 
     def test_sell_to_store_button_opens_setup(self):
         async def _test():
             cog = _make_cog()
             inv_cog = _make_inv_cog()
+            guns_cog = MagicMock()
+            guns_cog._load_state = AsyncMock(return_value={
+                "stores": {"999:200": {"owner_id": 200, "store_name": "TestGunShop", "lots": []}}
+            })
             view = ManageInventoryView(user_id=100)
             inter = _make_interaction(cog=cog, inv_cog=inv_cog)
+            inter.client.get_cog = MagicMock(side_effect=lambda n: {
+                "PlayerHub": cog, "PlayerInventory": inv_cog,
+                "GunsShopCog": guns_cog, "CyberwareShop": None,
+            }.get(n))
             with patch("NightCityBot.cogs.player_hub.get_active_characters", new_callable=AsyncMock, return_value=MOCK_SELLER_CHARS), \
-                 patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=SAMPLE_ITEMS):
+                 patch("NightCityBot.cogs.player_hub.pi_get_by_owner", new_callable=AsyncMock, return_value=SAMPLE_ITEMS), \
+                 patch("NightCityBot.cogs.player_hub._resolve_member_name", new_callable=AsyncMock, return_value="StoreOwner"):
                 btn = _find_button(view, "Sell to Store")
                 await btn.callback(inter)
             msg = inter.followup.send.call_args[0][0]
-            assert "store owner" in msg.lower()
+            assert "store" in msg.lower()
         _run(_test())
 
     def test_sell_to_store_system_disabled(self):
@@ -946,35 +971,30 @@ class TestSellToStoreButton:
         _run(_test())
 
 
-class TestSellToStoreSetupView:
-    def test_owner_select_valid_store_owner(self):
-        async def _test():
-            cog = _make_cog()
-            ctx = _make_ctx()
-            groups = _build_groups(SAMPLE_ITEMS)
-            view = SellToStoreSetupView(cog, ctx, groups)
-            inter = _make_interaction()
-            owner = _make_store_owner()
-            select = _find_any_select(view, discord.ui.UserSelect)
-            select._values = [owner]
-            await select.callback(inter)
-            assert view.selected_store_owner == owner
-            assert "✓" in inter.response.send_message.call_args[0][0]
-        _run(_test())
+MOCK_STORE_ENTRIES = [
+    {"label": "🔫 TestGunShop", "description": "Owner: StoreOwner", "value": "gun:200", "store_type": "gun", "owner_id": 200},
+]
 
-    def test_owner_select_not_store_owner(self):
+MOCK_RD_STORE_ENTRIES = [
+    {"label": "💉 TestRipperDoc", "description": "Owner: DocOwner", "value": "rd:300", "store_type": "ripperdoc", "owner_id": 300},
+]
+
+MOCK_ALL_STORE_ENTRIES = MOCK_STORE_ENTRIES + MOCK_RD_STORE_ENTRIES
+
+
+class TestSellToStoreSetupView:
+    def test_store_select(self):
         async def _test():
             cog = _make_cog()
             ctx = _make_ctx()
             groups = _build_groups(SAMPLE_ITEMS)
-            view = SellToStoreSetupView(cog, ctx, groups)
+            view = SellToStoreSetupView(cog, ctx, groups, store_entries=MOCK_STORE_ENTRIES)
             inter = _make_interaction()
-            non_owner = _make_non_owner()
-            select = _find_any_select(view, discord.ui.UserSelect)
-            select._values = [non_owner]
-            await select.callback(inter)
-            assert view.selected_store_owner is None
-            assert "not a gunstore owner" in inter.response.send_message.call_args[0][0]
+            inter.data = {"values": ["gun:200"]}
+            store_sel = _find_select(view, "store")
+            await store_sel.callback(inter)
+            assert view.selected_store_value == "gun:200"
+            assert "✓" in inter.response.send_message.call_args[0][0]
         _run(_test())
 
     def test_item_select(self):
@@ -982,24 +1002,24 @@ class TestSellToStoreSetupView:
             cog = _make_cog()
             ctx = _make_ctx()
             groups = _build_groups(SAMPLE_ITEMS)
-            view = SellToStoreSetupView(cog, ctx, groups)
+            view = SellToStoreSetupView(cog, ctx, groups, store_entries=MOCK_STORE_ENTRIES)
             inter = _make_interaction()
             inter.data = {"values": ["0"]}
-            item_sel = _find_select(view, "gun")
+            item_sel = _find_select(view, "item")
             await item_sel.callback(inter)
             assert view.selected_group_idx == 0
         _run(_test())
 
-    def test_continue_no_owner(self):
+    def test_continue_no_store(self):
         async def _test():
             cog = _make_cog()
             ctx = _make_ctx()
             groups = _build_groups(SAMPLE_ITEMS)
-            view = SellToStoreSetupView(cog, ctx, groups)
+            view = SellToStoreSetupView(cog, ctx, groups, store_entries=MOCK_STORE_ENTRIES)
             inter = _make_interaction()
             btn = _find_button(view, "Continue →")
             await btn.callback(inter)
-            assert "store owner" in inter.response.send_message.call_args[0][0].lower()
+            assert "store" in inter.response.send_message.call_args[0][0].lower()
         _run(_test())
 
     def test_continue_no_item(self):
@@ -1007,26 +1027,12 @@ class TestSellToStoreSetupView:
             cog = _make_cog()
             ctx = _make_ctx()
             groups = _build_groups(SAMPLE_ITEMS)
-            view = SellToStoreSetupView(cog, ctx, groups)
-            view.selected_store_owner = _make_store_owner()
+            view = SellToStoreSetupView(cog, ctx, groups, store_entries=MOCK_STORE_ENTRIES)
+            view.selected_store_value = "gun:200"
             inter = _make_interaction()
             btn = _find_button(view, "Continue →")
             await btn.callback(inter)
-            assert "gun" in inter.response.send_message.call_args[0][0].lower()
-        _run(_test())
-
-    def test_continue_self_sell_blocked(self):
-        async def _test():
-            cog = _make_cog()
-            ctx = _make_ctx()
-            groups = _build_groups(SAMPLE_ITEMS)
-            view = SellToStoreSetupView(cog, ctx, groups)
-            view.selected_store_owner = _make_store_owner(uid=100)
-            view.selected_group_idx = 0
-            inter = _make_interaction(user_id=100)
-            btn = _find_button(view, "Continue →")
-            await btn.callback(inter)
-            assert "yourself" in inter.response.send_message.call_args[0][0].lower()
+            assert "item" in inter.response.send_message.call_args[0][0].lower()
         _run(_test())
 
     def test_continue_requires_seller_char(self):
@@ -1034,8 +1040,8 @@ class TestSellToStoreSetupView:
             cog = _make_cog()
             ctx = _make_ctx()
             groups = _build_groups(SAMPLE_ITEMS)
-            view = SellToStoreSetupView(cog, ctx, groups, seller_chars=MOCK_SELLER_CHARS)
-            view.selected_store_owner = _make_store_owner()
+            view = SellToStoreSetupView(cog, ctx, groups, seller_chars=MOCK_SELLER_CHARS, store_entries=MOCK_STORE_ENTRIES)
+            view.selected_store_value = "gun:200"
             view.selected_group_idx = 0
             inter = _make_interaction()
             btn = _find_button(view, "Continue →")
@@ -1049,11 +1055,13 @@ class TestSellToStoreSetupView:
             cog = _make_cog()
             ctx = _make_ctx()
             groups = _build_groups(SAMPLE_ITEMS)
-            view = SellToStoreSetupView(cog, ctx, groups)
-            view.selected_store_owner = _make_store_owner()
+            view = SellToStoreSetupView(cog, ctx, groups, store_entries=MOCK_STORE_ENTRIES)
+            view.selected_store_value = "gun:200"
             view.selected_group_idx = 0
             inter = _make_interaction()
             inter.channel_id = 123
+            owner_member = _make_store_owner()
+            inter.guild.get_member = MagicMock(return_value=owner_member)
             btn = _find_button(view, "Continue →")
             await btn.callback(inter)
             inter.response.defer.assert_called_once()
@@ -1065,12 +1073,14 @@ class TestSellToStoreSetupView:
             cog = _make_cog()
             ctx = _make_ctx()
             groups = _build_groups(SAMPLE_ITEMS)
-            view = SellToStoreSetupView(cog, ctx, groups, seller_chars=MOCK_SELLER_CHARS)
-            view.selected_store_owner = _make_store_owner()
+            view = SellToStoreSetupView(cog, ctx, groups, seller_chars=MOCK_SELLER_CHARS, store_entries=MOCK_STORE_ENTRIES)
+            view.selected_store_value = "gun:200"
             view.selected_group_idx = 0
             view.selected_seller_char_name = "V"
             inter = _make_interaction()
             inter.channel_id = 123
+            owner_member = _make_store_owner()
+            inter.guild.get_member = MagicMock(return_value=owner_member)
             btn = _find_button(view, "Continue →")
             await btn.callback(inter)
             inter.response.defer.assert_called_once()
@@ -1081,7 +1091,7 @@ class TestSellToStoreSetupView:
             cog = _make_cog()
             ctx = _make_ctx(author_id=100)
             groups = _build_groups(SAMPLE_ITEMS)
-            view = SellToStoreSetupView(cog, ctx, groups)
+            view = SellToStoreSetupView(cog, ctx, groups, store_entries=MOCK_STORE_ENTRIES)
             inter_ok = _make_interaction(user_id=100)
             inter_bad = _make_interaction(user_id=999)
             assert await view.interaction_check(inter_ok) is True
@@ -1362,26 +1372,278 @@ class TestSellToStoreEdgeCases:
             assert "failed" in last_msg.lower()
         _run(_test())
 
-    def test_owner_select_role_not_configured(self):
+    def test_store_select_none_value(self):
         async def _test():
             cog = _make_cog()
             ctx = _make_ctx()
             groups = _build_groups(SAMPLE_ITEMS)
-            view = SellToStoreSetupView(cog, ctx, groups)
+            view = SellToStoreSetupView(cog, ctx, groups, store_entries=[])
             inter = _make_interaction()
-            owner = _make_store_owner()
-            select = _find_any_select(view, discord.ui.UserSelect)
-            select._values = [owner]
-            with patch.object(type(cog), '__module__', 'NightCityBot.cogs.player_hub'):
-                import config as cfg
-                original = getattr(cfg, "WHOLESALER_STORE_ROLE_IDS", None)
-                try:
-                    cfg.WHOLESALER_STORE_ROLE_IDS = None
-                    await select.callback(inter)
-                finally:
-                    if original is not None:
-                        cfg.WHOLESALER_STORE_ROLE_IDS = original
-            assert "not configured" in inter.response.send_message.call_args[0][0].lower()
+            inter.data = {"values": ["__none__"]}
+            store_sel = _find_select(view, "store")
+            await store_sel.callback(inter)
+            assert view.selected_store_value is None
+        _run(_test())
+
+
+class TestGiveConfirmView:
+    def test_accept(self):
+        async def _test():
+            view = GiveConfirmView(recipient_id=100)
+            inter = _make_interaction()
+            btn = _find_button(view, "Accept")
+            await btn.callback(inter)
+            assert view.accepted is True
+        _run(_test())
+
+    def test_decline(self):
+        async def _test():
+            view = GiveConfirmView(recipient_id=100)
+            inter = _make_interaction()
+            btn = _find_button(view, "Decline")
+            await btn.callback(inter)
+            assert view.accepted is False
+        _run(_test())
+
+
+class TestGiveConfirmationFlow:
+    def test_give_dm_blocked(self):
+        async def _test():
+            cog = _make_cog()
+            recipient = _make_buyer()
+            recipient.roles = []
+            recipient.send = AsyncMock(side_effect=discord.Forbidden(MagicMock(), ""))
+            groups = _build_groups(SAMPLE_ITEMS)
+            inter = _make_interaction(user_id=100)
+            await _process_give(cog, inter, recipient, groups[0], "Jackie", "V")
+            assert "dm" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_give_declined(self):
+        async def _test():
+            cog = _make_cog()
+            recipient = _make_buyer()
+            recipient.roles = []
+            recipient.send = AsyncMock(return_value=MagicMock(edit=AsyncMock()))
+            groups = _build_groups(SAMPLE_ITEMS)
+            inter = _make_interaction(user_id=100)
+            with patch("NightCityBot.cogs.player_hub.GiveConfirmView") as MockConfirm:
+                confirm_inst = MagicMock()
+                confirm_inst.accepted = False
+                confirm_inst.wait = AsyncMock()
+                MockConfirm.return_value = confirm_inst
+                await _process_give(cog, inter, recipient, groups[0], "Jackie", "V")
+            assert "declined" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_give_item_no_longer_owned_after_accept(self):
+        async def _test():
+            cog = _make_cog()
+            recipient = _make_buyer()
+            recipient.roles = []
+            recipient.send = AsyncMock(return_value=MagicMock(edit=AsyncMock()))
+            groups = _build_groups(SAMPLE_ITEMS)
+            inter = _make_interaction(user_id=100)
+            with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value=None), \
+                 patch("NightCityBot.cogs.player_hub.GiveConfirmView") as MockConfirm:
+                confirm_inst = MagicMock()
+                confirm_inst.accepted = True
+                confirm_inst.wait = AsyncMock()
+                MockConfirm.return_value = confirm_inst
+                await _process_give(cog, inter, recipient, groups[0], "Jackie", "V")
+            assert "no longer" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_give_ripperdoc_requires_dm_confirmation(self):
+        async def _test():
+            cw_items = [{
+                "item_id": "uuid-cw", "owner_id": "100", "character_name": "V",
+                "name": "Sandevistan", "item_type": "cyberware", "restriction": "basic",
+                "price_paid": 2000, "seller_name": "", "acquired_at": "2025-01-01",
+                "created_at": "2025-01-01",
+            }]
+            groups = _build_groups(cw_items)
+            cog = _make_cog()
+            recipient = _make_buyer(uid=300, name="DocRipper")
+            rd_role = MagicMock()
+            rd_role.id = config.RIPPERDOC_ROLE_ID
+            recipient.roles = [rd_role]
+            recipient.send = AsyncMock(return_value=MagicMock(edit=AsyncMock()))
+            inter = _make_interaction(user_id=100)
+            cw_cog = MagicMock()
+            cw_cog._locks = MagicMock()
+            cw_cog._locks.acquire = MagicMock(return_value=MagicMock(__aenter__=AsyncMock(), __aexit__=AsyncMock()))
+            cw_cog._load_inventory = AsyncMock(return_value=[])
+            cw_cog._save_inventory = AsyncMock(return_value=True)
+            cog.bot.cogs = {"CyberwareShop": cw_cog}
+            live_item = {"item_id": "uuid-cw", "owner_id": "100"}
+            with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value=live_item), \
+                 patch("NightCityBot.cogs.player_hub.pi_delete_item", new_callable=AsyncMock, return_value=True), \
+                 patch("NightCityBot.cogs.player_hub.ih_record_event", new_callable=AsyncMock), \
+                 patch("NightCityBot.cogs.player_hub._log_channel", new_callable=AsyncMock, return_value=None), \
+                 patch("NightCityBot.cogs.player_hub.GiveConfirmView") as MockConfirm:
+                confirm_inst = MagicMock()
+                confirm_inst.accepted = True
+                confirm_inst.wait = AsyncMock()
+                MockConfirm.return_value = confirm_inst
+                await _process_give(cog, inter, recipient, groups[0], None, "V")
+            assert recipient.send.call_count == 2
+            dm_text = recipient.send.call_args_list[0][0][0]
+            assert "ripperdoc stock" in dm_text.lower()
+            assert "ripperdoc stock" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_give_ripperdoc_declined(self):
+        async def _test():
+            cw_items = [{
+                "item_id": "uuid-cw", "owner_id": "100", "character_name": "V",
+                "name": "Sandevistan", "item_type": "cyberware", "restriction": "basic",
+                "price_paid": 2000, "seller_name": "", "acquired_at": "2025-01-01",
+                "created_at": "2025-01-01",
+            }]
+            groups = _build_groups(cw_items)
+            cog = _make_cog()
+            recipient = _make_buyer(uid=300, name="DocRipper")
+            rd_role = MagicMock()
+            rd_role.id = config.RIPPERDOC_ROLE_ID
+            recipient.roles = [rd_role]
+            recipient.send = AsyncMock(return_value=MagicMock(edit=AsyncMock()))
+            inter = _make_interaction(user_id=100)
+            with patch("NightCityBot.cogs.player_hub.GiveConfirmView") as MockConfirm:
+                confirm_inst = MagicMock()
+                confirm_inst.accepted = False
+                confirm_inst.wait = AsyncMock()
+                MockConfirm.return_value = confirm_inst
+                await _process_give(cog, inter, recipient, groups[0], None, "V")
+            assert "declined" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+    def test_give_ripperdoc_dm_blocked(self):
+        async def _test():
+            cw_items = [{
+                "item_id": "uuid-cw", "owner_id": "100", "character_name": "V",
+                "name": "Sandevistan", "item_type": "cyberware", "restriction": "basic",
+                "price_paid": 2000, "seller_name": "", "acquired_at": "2025-01-01",
+                "created_at": "2025-01-01",
+            }]
+            groups = _build_groups(cw_items)
+            cog = _make_cog()
+            recipient = _make_buyer(uid=300, name="DocRipper")
+            rd_role = MagicMock()
+            rd_role.id = config.RIPPERDOC_ROLE_ID
+            recipient.roles = [rd_role]
+            recipient.send = AsyncMock(side_effect=discord.Forbidden(MagicMock(), ""))
+            inter = _make_interaction(user_id=100)
+            await _process_give(cog, inter, recipient, groups[0], None, "V")
+            assert "dm" in inter.followup.send.call_args[0][0].lower()
+        _run(_test())
+
+
+class TestStoreFilterBehavior:
+    def test_cyberware_item_shows_only_ripperdoc_stores(self):
+        async def _test():
+            cw_items = [{
+                "item_id": "uuid-cw", "owner_id": "100", "character_name": "V",
+                "name": "Sandevistan", "item_type": "cyberware", "restriction": "basic",
+                "price_paid": 2000, "seller_name": "", "acquired_at": "2025-01-01",
+                "created_at": "2025-01-01",
+            }]
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(cw_items)
+            view = SellToStoreSetupView(cog, ctx, groups, store_entries=MOCK_ALL_STORE_ENTRIES)
+            inter = _make_interaction()
+            inter.data = {"values": ["0"]}
+            item_sel = _find_select(view, "item")
+            await item_sel.callback(inter)
+            store_sel = _find_select(view, "store")
+            store_values = [o.value for o in store_sel.options]
+            assert "rd:300" in store_values
+            assert "gun:200" not in store_values
+        _run(_test())
+
+    def test_gun_item_shows_only_gun_stores(self):
+        async def _test():
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(SAMPLE_ITEMS)
+            view = SellToStoreSetupView(cog, ctx, groups, store_entries=MOCK_ALL_STORE_ENTRIES)
+            inter = _make_interaction()
+            inter.data = {"values": ["0"]}
+            item_sel = _find_select(view, "item")
+            await item_sel.callback(inter)
+            store_sel = _find_select(view, "store")
+            store_values = [o.value for o in store_sel.options]
+            assert "gun:200" in store_values
+            assert "rd:300" not in store_values
+        _run(_test())
+
+    def test_no_compatible_stores_shows_placeholder(self):
+        async def _test():
+            cw_items = [{
+                "item_id": "uuid-cw", "owner_id": "100", "character_name": "V",
+                "name": "Sandevistan", "item_type": "cyberware", "restriction": "basic",
+                "price_paid": 2000, "seller_name": "", "acquired_at": "2025-01-01",
+                "created_at": "2025-01-01",
+            }]
+            cog = _make_cog()
+            ctx = _make_ctx()
+            groups = _build_groups(cw_items)
+            view = SellToStoreSetupView(cog, ctx, groups, store_entries=MOCK_STORE_ENTRIES)
+            inter = _make_interaction()
+            inter.data = {"values": ["0"]}
+            item_sel = _find_select(view, "item")
+            await item_sel.callback(inter)
+            store_sel = _find_select(view, "store")
+            store_values = [o.value for o in store_sel.options]
+            assert "__none__" in store_values
+            assert len(store_values) == 1
+        _run(_test())
+
+
+class TestSellToStoreCyberware:
+    def test_sell_cyberware_to_ripperdoc(self):
+        async def _test():
+            cw_items = [{
+                "item_id": "uuid-cw", "owner_id": "100", "character_name": "V",
+                "name": "Sandevistan", "item_type": "cyberware", "restriction": "basic",
+                "price_paid": 2000, "seller_name": "", "acquired_at": "2025-01-01",
+                "created_at": "2025-01-01",
+            }]
+            cog = _make_cog()
+            owner = _make_store_owner(uid=300, name="DocOwner")
+            dm_msg = MagicMock()
+            dm_msg.edit = AsyncMock()
+            owner.send = AsyncMock(return_value=dm_msg)
+            groups = _build_groups(cw_items)
+
+            inv_cog = _make_inv_cog()
+            inv_cog.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 5000, "bank": 0})
+            inv_cog.unbelievaboat.update_balance = AsyncMock(return_value=True)
+
+            cw_cog = MagicMock()
+            cw_cog._locks = MagicMock()
+            cw_cog._locks.acquire = MagicMock(return_value=MagicMock(__aenter__=AsyncMock(), __aexit__=AsyncMock()))
+            cw_cog._load_inventory = AsyncMock(return_value=[])
+            cw_cog._save_inventory = AsyncMock(return_value=True)
+            cog.bot.cogs = {"PlayerInventory": inv_cog, "CyberwareShop": cw_cog}
+
+            inter = _make_interaction()
+            with patch("NightCityBot.cogs.player_hub.pi_get_item", new_callable=AsyncMock, return_value={"owner_id": "100"}), \
+                 patch("NightCityBot.cogs.player_hub.pi_delete_item", new_callable=AsyncMock, return_value=True), \
+                 patch("NightCityBot.cogs.player_hub.StoreBuyConfirmView") as MockConfirm, \
+                 patch("NightCityBot.cogs.player_hub._route_log_channel", new_callable=AsyncMock, return_value=None), \
+                 patch("NightCityBot.cogs.player_hub.ih_record_event", new_callable=AsyncMock):
+                confirm_inst = MagicMock()
+                confirm_inst.accepted = True
+                confirm_inst.wait = AsyncMock()
+                MockConfirm.return_value = confirm_inst
+                await _process_sell_to_store(cog, inter, owner, groups[0], "V", 1000, store_type="ripperdoc")
+
+            last_msg = inter.followup.send.call_args[0][0]
+            assert "✅" in last_msg
+            assert "ripperdoc" in last_msg.lower()
+            cw_cog._save_inventory.assert_called_once()
         _run(_test())
 
 
@@ -1708,7 +1970,7 @@ class TestGiveCharacterSelection:
             inter = _make_interaction()
             recipient = _make_buyer(uid=222, name="DocRipper")
             rd_role = MagicMock()
-            rd_role.id = 1356028868103897156
+            rd_role.id = config.RIPPERDOC_ROLE_ID
             recipient.roles = [rd_role]
             select = _find_any_select(view, discord.ui.UserSelect)
             select._values = [recipient]

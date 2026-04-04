@@ -126,6 +126,17 @@ class RipperdocMenuView(SafeView):
             await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
             return
         state = await cw_cog._load_state()
+        guild = interaction.guild
+        if guild:
+            store_id = _rd_store_id(guild.id, interaction.user.id)
+            rd_store = state.get("ripperdoc_stores", {}).get(store_id)
+            if not rd_store:
+                await interaction.followup.send(
+                    "❌ You don't have an initialized ripperdoc store. "
+                    "Please set up your store first before buying from wholesale.",
+                    ephemeral=True,
+                )
+                return
         lots = state.get("cw_wholesale_lots", [])
         available = [l for l in lots if int(l.get("qty_available", 0)) > 0]
         if not available:

@@ -229,6 +229,22 @@ class TestRipperdocMenuView:
         msg = _run(run())
         assert "unavailable" in msg.lower()
 
+    def test_buy_wholesale_no_store(self, monkeypatch):
+        monkeypatch.setattr("config.CYBERWARE_LOG_CHANNEL_ID", 0)
+
+        async def run():
+            cw_cog = MagicMock()
+            cw_cog._load_state = AsyncMock(return_value={"ripperdoc_stores": {}})
+            view = RipperdocMenuView()
+            inter = _make_interaction()
+            inter.client.get_cog = MagicMock(return_value=cw_cog)
+            btn = _find_button(view, "Buy from Wholesale")
+            await btn.callback(inter)
+            return inter.followup.send.call_args[0][0]
+
+        msg = _run(run())
+        assert "don't have an initialized" in msg.lower()
+
     def test_sell_opens_setup_view(self, monkeypatch):
         monkeypatch.setattr("config.CYBERWARE_LOG_CHANNEL_ID", 0)
 
