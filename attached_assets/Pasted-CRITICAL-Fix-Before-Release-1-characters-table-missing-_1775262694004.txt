@@ -1,0 +1,66 @@
+CRITICAL — Fix Before Release
+1. characters table missing from backup
+File: utils/db_backup.py line 20-45 The ALL_TABLES list has 24 tables but is missing characters. A backup/restore cycle would lose all character data and orphan every character_id reference in player_inventory. One-line fix: add "characters" to the list.
+
+2. .env not in .gitignore
+File: .gitignore config.py loads secrets from .env via load_dotenv(), but .env is not gitignored. A git add . would commit TOKEN, DATABASE_URL, UNBELIEVABOAT_API_TOKEN, and GDRIVE_SERVICE_ACCOUNT_JSON to the repo.
+
+3. Duplicate channel IDs in config.py
+File: config.py lines 23, 25, 73 GROUP_AUDIT_LOG_CHANNEL_ID, DM_INBOX_CHANNEL_ID, and RP_LOG_FORUM_CHANNEL_ID all share the same value 1379222007513874523. RP_LOG_FORUM_CHANNEL_ID is validated as a ForumChannel at startup but the other two are TextChannels — this will either fail validation or route three different systems to the same channel.
+
+HIGH — Significant Production Risk
+4. Database pool never closed on shutdown
+File: bot.py lines 123-134 close_pool() exists in db.py but is never called during shutdown. On SIGTERM, all asyncpg connections are abandoned. Pending writes may be interrupted mid-transaction.
+
+5. Store close/transfer don't update Discord roles
+Files: gunstore_hub.py lines 1620-1678, ripperdoc_hub.py lines 1463-1533 When a store is closed, employee and owner roles are not removed. When a store is transferred, the old owner keeps the role and the new owner doesn't get it. Both gun store and ripperdoc have this gap.
+
+6. No global UnbelievaBoat API rate limiter
+File: services/unbelievaboat.py Each API call retries independently. During rent collection (~200-400 API calls for 100 members), there's no semaphore or queue to prevent a 429 retry storm. Calls retry with server-provided delay but no escalation — the attempt parameter in _parse_retry_after is accepted but never used.
+
+7. UnbelievaBoatAPI initialized with None token
+File: bot.py line 64 If UNBELIEVABOAT_API_TOKEN env var is missing, the API client is constructed with Authorization: None. Every economy operation will silently fail with HTTP 401. The startup check warns about this after the client is already created.
+
+8. Nine channel IDs and six role IDs not validated at startup
+File: utils/startup_checks.py The hub channels (PLAYER_HUB_CHANNEL_ID, GUN_HUB_CHANNEL_ID, etc.), GUN_APPROVALS_CHANNEL_ID, ATTENDANCE_CHANNEL_ID, and role IDs for store owners/employees/approvers are never checked. Wrong IDs will crash at first use with NoneType has no attribute 'send'.
+
+9. Three unpinned production dependencies
+File: requirements.txt lines 11-13 google-api-python-client, google-auth, and pytest-cov are unpinned. A major version bump in the Google libraries could break the backup system.
+
+MEDIUM — Should Fix, Not Blocking
+10. DM error handling inconsistency
+Files: player_hub.py lines 875, 1658; gunstore_hub.py line 1199; ripperdoc_hub.py line 1102 Some DM sends catch only discord.Forbidden but not discord.HTTPException. Rate limit or network errors would propagate unhandled. The gunstore/ripperdoc sell flows already catch both — this is just the employee hire and player hub trade/sell-to-store DMs.
+
+11. Restricted gun sell flow can exceed 15-minute interaction token
+File: gunstore_hub.py lines 185-590 The flow from button click through Fixer approval (5-min timeout) + DM confirm (60s) + selection time can exceed Discord's 15-minute token lifetime. All subsequent followup.send() calls would fail with Unknown interaction.
+
+12. ~60 DB read operations bypass pool acquire timeout
+File: utils/db.py (various) Direct pool.fetch*() calls don't go through explicit pool.acquire(timeout=...). Under load, these queue indefinitely for a free connection. All write operations correctly use timeouts.
+
+13. Role operations (add_roles/remove_roles) lack Forbidden handling in several cogs
+Files: fixer_hub.py lines 1216/1226, loa.py lines 71/110, role_buttons.py line 62, cyberware.py lines 235/416/481 If the bot's role is below the target member's highest role, these throw unhandled exceptions. The gunstore/ripperdoc employee flows handle this correctly.
+
+14. Gun sale owner_id fallback credits employee
+File: gunstore_hub.py lines 613-617 If store_data is empty (race with close/transfer), owner_id falls back to ctx.author.id. When an employee is selling, the employee gets credited instead of the store owner.
+
+15. json_store read-modify-write race in economy.py
+File: economy.py (fixer_event and other json_store operations) db_load/db_save without a lock. Two concurrent writes to the same key can cause last-writer-wins data loss.
+
+16. Silent dropdown truncation at 25 items
+Files: player_hub.py lines 646, 1085, 1453; fixer_hub.py lines 447, 471 Several item/character/lot selects truncate at 25 options with no user warning. GunSellSetupView does this correctly (shows a truncation notice).
+
+LOW — Cleanup / Hardening
+17. Stale cw_setsheet reference in log (cyberware_shop.py line 107)
+18. Passive income and balance restore operations lack persistent audit logs
+19. REPORT_USER_ID defaults to a dev user ID if env var is missing
+20. No startup validation of Google Drive backup config (errors only surface at 4 AM)
+21. Pending transfers not resolved on store close
+22. aiohttp pinned version may conflict with discord.py dependency
+Test Coverage Gaps (Critical Flows with Zero Tests)
+Flow	Risk
+Store close (gun + ripperdoc)	Destructive — inventory disposal, untested
+Store transfer (gun + ripperdoc)	Ownership swap + DM confirm, untested
+Wholesale buy (gun + CW)	Payment + stock decrement, only error path tested
+Fixer reassign (4-step picker chain)	Data integrity, untested
+PanelContext code paths	All tests use commands.Context mocks; PanelContext.send() never exercised
+cogs/backup.py commands	Only utils/db_backup.py is tested, not the cog

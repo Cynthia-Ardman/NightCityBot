@@ -61,6 +61,23 @@ async def _resolve_member(guild: discord.Guild, raw: str) -> Optional[discord.Me
     return member
 
 
+async def _resolve_member_name(guild: discord.Guild, owner_id) -> str:
+    if not owner_id:
+        return "Unknown"
+    try:
+        oid = int(owner_id)
+    except (TypeError, ValueError):
+        return "Unknown"
+    member = guild.get_member(oid)
+    if member:
+        return member.display_name
+    try:
+        member = await guild.fetch_member(oid)
+        return member.display_name
+    except Exception:
+        return f"User#{oid}"
+
+
 async def _log_channel(bot: commands.Bot, attr: str) -> Optional[discord.TextChannel]:
     ch_id = getattr(config, attr, 0)
     if not ch_id:
@@ -250,7 +267,53 @@ class PlayerHubView(SafeView):
             embed = _build_inventory_embed(interaction.user.display_name, items, inv_cog)
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Sell to Player", style=discord.ButtonStyle.success, emoji="💱", row=0, custom_id="player_hub:trade_item")
+    @discord.ui.button(label="Manage Inventory", style=discord.ButtonStyle.success, emoji="💼", row=0, custom_id="player_hub:manage_inv")
+    async def manage_inv(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("PlayerHub")
+        if not cog or not cog._inv_system_enabled():
+            await interaction.followup.send("⚠️ The player inventory system is currently offline.", ephemeral=True)
+            return
+        view = ManageInventoryView(interaction.user.id)
+        await interaction.followup.send(
+            "💼 **Manage Inventory** — Choose an action:",
+            view=view,
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Manage Characters", style=discord.ButtonStyle.primary, emoji="🧑", row=1, custom_id="player_hub:manage_chars_menu")
+    async def manage_chars_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        view = ManageCharactersMenuView(interaction.user.id)
+        await interaction.followup.send(
+            "🧑 **Manage Characters** — Choose an action:",
+            view=view,
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Manage Businesses", style=discord.ButtonStyle.secondary, emoji="🏢", row=1, custom_id="player_hub:manage_biz")
+    async def manage_biz(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        view = ManageBusinessesView(interaction.user.id)
+        await interaction.followup.send(
+            "🏢 **Manage Businesses** — Choose an action:",
+            view=view,
+            ephemeral=True,
+        )
+
+
+class ManageInventoryView(SafeView):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=120)
+        self._user_id = user_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self._user_id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Sell to Player", style=discord.ButtonStyle.success, emoji="💱", row=0)
     async def trade_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("PlayerHub")
@@ -277,7 +340,7 @@ class PlayerHubView(SafeView):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Sell to Store", style=discord.ButtonStyle.primary, emoji="🏪", row=1, custom_id="player_hub:sell_to_store")
+    @discord.ui.button(label="Sell to Store", style=discord.ButtonStyle.primary, emoji="🏪", row=0)
     async def sell_to_store(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("PlayerHub")
@@ -315,7 +378,7 @@ class PlayerHubView(SafeView):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Give Item", style=discord.ButtonStyle.secondary, emoji="🎁", row=1, custom_id="player_hub:give_item")
+    @discord.ui.button(label="Give Item", style=discord.ButtonStyle.secondary, emoji="🎁", row=0)
     async def give_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("PlayerHub")
@@ -342,7 +405,19 @@ class PlayerHubView(SafeView):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Create Character", style=discord.ButtonStyle.success, emoji="🧑", row=2, custom_id="player_hub:create_char")
+
+class ManageCharactersMenuView(SafeView):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=120)
+        self._user_id = user_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self._user_id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Create Character", style=discord.ButtonStyle.success, emoji="🧑", row=0)
     async def create_char(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         bot = interaction.client
@@ -406,7 +481,7 @@ class PlayerHubView(SafeView):
             f"✅ Character **{char_name}** created successfully!", ephemeral=True
         )
 
-    @discord.ui.button(label="View Characters", style=discord.ButtonStyle.primary, emoji="🪪", row=2, custom_id="player_hub:view_chars")
+    @discord.ui.button(label="View Characters", style=discord.ButtonStyle.primary, emoji="🪪", row=0)
     async def view_characters(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         characters = await get_all_characters(str(interaction.user.id))
@@ -430,8 +505,8 @@ class PlayerHubView(SafeView):
         embed.set_footer(text=f"{len(characters)} character(s) total — {active} active")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Deactivate Character", style=discord.ButtonStyle.secondary, emoji="📋", row=2, custom_id="player_hub:manage_chars")
-    async def manage_chars(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Deactivate Character", style=discord.ButtonStyle.danger, emoji="⏸️", row=0)
+    async def deactivate_char(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("PlayerHub")
         ctx = PanelContext(interaction)
@@ -441,6 +516,113 @@ class PlayerHubView(SafeView):
             view=view,
             ephemeral=True,
         )
+
+
+class ManageBusinessesView(SafeView):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=120)
+        self._user_id = user_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self._user_id:
+            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="My Businesses", style=discord.ButtonStyle.primary, emoji="👑", row=0)
+    async def owned_biz(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        if not guild:
+            await interaction.followup.send("Must be used in a server.", ephemeral=True)
+            return
+        user_id = interaction.user.id
+        lines = []
+
+        guns_cog = interaction.client.get_cog("GunsShopCog")
+        if guns_cog:
+            try:
+                state = await guns_cog._load_state()
+            except Exception:
+                state = {}
+            store_id = f"{guild.id}:{user_id}"
+            store = state.get("stores", {}).get(store_id)
+            if store:
+                name = store.get("store_name") or "Gun Store"
+                lot_count = len(store.get("lots", []))
+                emp_count = len(store.get("employees", []))
+                lines.append(f"🔫 **{name}** — {lot_count} lot(s), {emp_count} employee(s)")
+
+        cw_cog = interaction.client.get_cog("CyberwareShop")
+        if cw_cog:
+            try:
+                cw_state = await cw_cog._load_state()
+            except Exception:
+                cw_state = {}
+            rd_id = f"rd:{guild.id}:{user_id}"
+            rd_store = cw_state.get("ripperdoc_stores", {}).get(rd_id)
+            if rd_store:
+                name = rd_store.get("store_name") or "Ripperdoc Clinic"
+                emp_count = len(rd_store.get("employees", []))
+                lines.append(f"💉 **{name}** — {emp_count} employee(s)")
+
+        if not lines:
+            await interaction.followup.send("👑 You don't own any businesses.", ephemeral=True)
+            return
+        embed = discord.Embed(
+            title=f"👑 {interaction.user.display_name}'s Businesses",
+            description="\n".join(lines),
+            color=discord.Color.gold(),
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="My Employment", style=discord.ButtonStyle.secondary, emoji="💼", row=0)
+    async def employed_biz(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        if not guild:
+            await interaction.followup.send("Must be used in a server.", ephemeral=True)
+            return
+        user_id = interaction.user.id
+        prefix_gun = f"{guild.id}:"
+        prefix_rd = f"rd:{guild.id}:"
+        lines = []
+
+        guns_cog = interaction.client.get_cog("GunsShopCog")
+        if guns_cog:
+            try:
+                state = await guns_cog._load_state()
+            except Exception:
+                state = {}
+            for sid, store in state.get("stores", {}).items():
+                if sid.startswith(prefix_gun) and user_id in store.get("employees", []):
+                    name = store.get("store_name") or "Gun Store"
+                    owner_id = store.get("owner_id") or sid.split(":", 1)[-1]
+                    owner_name = await _resolve_member_name(guild, owner_id)
+                    lines.append(f"🔫 **{name}** — Owner: {owner_name}")
+
+        cw_cog = interaction.client.get_cog("CyberwareShop")
+        if cw_cog:
+            try:
+                cw_state = await cw_cog._load_state()
+            except Exception:
+                cw_state = {}
+            for sid, store in cw_state.get("ripperdoc_stores", {}).items():
+                if sid.startswith(prefix_rd) and user_id in store.get("employees", []):
+                    name = store.get("store_name") or "Ripperdoc Clinic"
+                    owner_id = store.get("owner_id") or sid.rsplit(":", 1)[-1]
+                    owner_name = await _resolve_member_name(guild, owner_id)
+                    lines.append(f"💉 **{name}** — Owner: {owner_name}")
+
+        if not lines:
+            await interaction.followup.send("💼 You're not employed at any businesses.", ephemeral=True)
+            return
+        embed = discord.Embed(
+            title=f"💼 {interaction.user.display_name}'s Employment",
+            description="\n".join(lines),
+            color=discord.Color.blue(),
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 class ManageCharactersView(SafeView):
