@@ -237,6 +237,7 @@ class Admin(commands.Cog):
             description=(
                 "Basic commands for RP, rent, and daily life in Night City.\n\n"
                 "**Other help commands:**\n"
+                "`!helpplayer` — player hub panel guide\n"
                 "`!helpguns` — gun store guide\n"
                 "`!helpcyberware` — ripperdoc guide\n"
                 "`!helpfixer` — fixer & admin tools\n"
@@ -263,7 +264,8 @@ class Admin(commands.Cog):
                 "`!attend` — Sundays only. Verified players earn $250.\n"
                 "`!due` — See what you'll owe on the 1st.\n"
                 "`!paydue` — Pay your monthly obligations early.\n"
-                "`!last_payment` — View your last automated payment."
+                "`!last_payment` — View your last automated payment.\n\n"
+                f"These are also available as buttons on the **Player Hub** panel in <#{config.PLAYER_HUB_CHANNEL_ID}>."
             ),
             inline=False,
         )
@@ -272,7 +274,8 @@ class Admin(commands.Cog):
             name="🏖️ Leave of Absence",
             value=(
                 "`!start_loa` – pause your fees while away.\n"
-                "`!end_loa` – resume costs when you return."
+                "`!end_loa` – resume costs when you return.\n\n"
+                "Also available from the Player Hub panel."
             ),
             inline=False,
         )
@@ -289,14 +292,15 @@ class Admin(commands.Cog):
         embed.add_field(
             name="📦 Inventories & Trading",
             value=(
-                f"Head to <#{config.PLAYER_HUB_CHANNEL_ID}> for the **Player Hub** — view your inventory, sell to players, give items.\n\n"
+                f"Head to <#{config.PLAYER_HUB_CHANNEL_ID}> for the **Player Hub** — "
+                "view inventory, sell to players, give items, manage characters & businesses.\n\n"
                 f"**🔫 Gun store** — own a shop? Use the panel in <#{config.GUN_HUB_CHANNEL_ID}>.\n"
                 f"**💉 Ripperdoc** — licensed doc? Use the panel in <#{config.RIPPERDOC_HUB_CHANNEL_ID}>."
             ),
             inline=False,
         )
 
-        embed.set_footer(text="Use !roll, pay your rent, stay alive. | !helpguns • !helpcyberware • !helpfixer • !helpadmin")
+        embed.set_footer(text="Use !roll, pay your rent, stay alive. | !helpplayer • !helpguns • !helpcyberware • !helpfixer")
         await ctx.send(embed=embed)
 
     @commands.command(name="helpfixer")
@@ -308,7 +312,7 @@ class Admin(commands.Cog):
                 "🏪 Interactive Hubs",
                 "\n".join([
                     f"<#{config.FIXER_HUB_CHANNEL_ID}> – **Fixer panel**: player inventory, items, LOA, store & wholesale management.",
-                    f"<#{config.RIPPERDOC_HUB_CHANNEL_ID}> – ripperdoc hub: buy, sell, install, view stock.",
+                    f"<#{config.RIPPERDOC_HUB_CHANNEL_ID}> – ripperdoc hub: buy, sell, install, view stock, checkup patients.",
                 ]),
             ),
             (
@@ -324,6 +328,9 @@ class Admin(commands.Cog):
                     "`!start_rp @users...` – create a locked RP channel.",
                     "`!end_rp` – archive the current RP channel.",
                     "`!search_characters <keyword>` – search character sheets.",
+                    "`!retire` / `!unretire <thread_id>` – retire or unretire a character.",
+                    "`!move_npcs` – move NPC sheets to the NPC category.",
+                    "`!backup_sheets` – back up all character sheets.",
                 ]),
             ),
             (
@@ -332,14 +339,19 @@ class Admin(commands.Cog):
                     "`!event_start` – allow `!attend` / `!open_shop` outside Sunday.",
                     "`!due [@user]` – breakdown of what a user owes.",
                     "`!collect_rent [@user] [-v] [-force]` – run the rent cycle.",
+                    "`!simulate_rent [@user] [-v]` – dry-run the rent cycle without charging.",
                 ]),
             ),
             (
                 "💉 Cyberware",
                 "\n".join([
-                    "`!checkup @user` – remove the checkup role after an exam.",
+                    "`!checkup @user` – remove the checkup role after an exam (also on ripperdoc panel).",
+                    "`!weeks_without_checkup @user` – weeks since last checkup.",
+                    "`!give_checkup_role` – assign the checkup role to all CW users.",
                     "`!checkup_report` – list checkup/meds status for all CW users.",
                     "`!cyberware_status` – current week status for all CW users.",
+                    "`!collect_cyberware` – collect cyberware medication fees.",
+                    "`!manual_cyberware_log` – manually log a cyberware transaction.",
                 ]),
             ),
         ]
@@ -382,7 +394,7 @@ class Admin(commands.Cog):
                 "\n".join([
                     f"<#{config.ADMIN_HUB_CHANNEL_ID}> – admin panel: add/remove items, reassign, history lookup, wholesale management.",
                     f"<#{config.GUN_HUB_CHANNEL_ID}> – gun store hub: buy, sell, view stock, manage approved buyers.",
-                    f"<#{config.RIPPERDOC_HUB_CHANNEL_ID}> – ripperdoc hub: buy, sell, install, view stock.",
+                    f"<#{config.RIPPERDOC_HUB_CHANNEL_ID}> – ripperdoc hub: buy, sell, install, view stock, checkup patients.",
                 ]),
             ),
             (
@@ -399,17 +411,30 @@ class Admin(commands.Cog):
                 "💵 Rent & Payment",
                 "\n".join([
                     "`!collect_rent [@user] [-v] [-force]` – run the monthly rent cycle.",
+                    "`!collect_housing @user` / `!collect_business @user` / `!collect_trauma @user` – collect individual fee types.",
+                    "`!simulate_rent [@user] [-v]` / `!simulate_all` – dry-run rent without charging.",
                     "`!trigger_auto_rent` – run full rent cycle immediately, bypassing the monthly guard.",
                     "`!mark_paid @user [note]` – manually mark a member as paid.",
                     "`!list_deficits` – list members who can't cover upcoming charges.",
-                    "`!backup_balances` / `!restore_balances <file>` – snapshot and restore balances.",
+                    "`!backup_balances` / `!restore_balances <file>` – snapshot and restore all balances.",
+                    "`!backup_balance @user` / `!restore_balance @user [file]` – snapshot and restore a single balance.",
                 ]),
             ),
             (
                 "🔫 Gun Shop / 💉 Cyberware",
                 "\n".join([
-                    "Gun shop and cyberware admin actions are now handled through",
+                    "Gun shop and cyberware admin actions are handled through",
                     "the interactive hubs: `!gunstore`, `!ripperdoc`, `!fixer`, and `!admin`.",
+                    "`!item_history <item_id>` – full ownership/transaction history of an item.",
+                ]),
+            ),
+            (
+                "💾 Backups",
+                "\n".join([
+                    "`!backup_now` – trigger an immediate database backup.",
+                    "`!backup_status` – show last backup time and status.",
+                    "`!restore_db <file>` – restore the database from a backup file.",
+                    "`!backup_sheets` – back up all character sheets.",
                 ]),
             ),
             (
@@ -418,6 +443,7 @@ class Admin(commands.Cog):
                     "`!backfill_logs [limit]` – rebuild attendance/business logs from message history.",
                     "`!reindex_tickets [limit]` – rebuild the ticket search index.",
                     "`!search_tickets <query>` – search tickets by name, user, ID, or text.",
+                    "`!export_threads [category]` – export threads to a file.",
                 ]),
             ),
         ]

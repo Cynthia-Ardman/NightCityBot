@@ -145,11 +145,13 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
                 f"Head to <#{config.PLAYER_HUB_CHANNEL_ID}> and use the **Player Hub** panel.\n\n"
                 "From the panel you can:\n"
                 "• **View Inventory** — pick a character and see their items\n"
-                "• **Sell to Player** — sell an item to another player (with payment)\n"
-                "• **Give Item** — transfer an item for free\n"
-                "• **Sell to Store** — sell guns to gun stores or cyberware to ripperdoc stores\n"
-                "• **Create Character / View Characters / Deactivate Character** — create, view, deactivate, or reactivate characters\n"
-                "• **Start LOA / End LOA** — start or end your Leave of Absence"
+                "• **Manage Inventory** — sell to players, give items, or sell to stores\n"
+                "• **Manage Characters** — create, view, deactivate, or reactivate characters\n"
+                "• **Manage Businesses** — view your businesses and employment\n"
+                "• **Start LOA / End LOA** — start or end your Leave of Absence\n"
+                "• **Attend** — log event attendance (Sundays / active events)\n"
+                "• **Open Shop** — log a business opening for a cash payout (Sundays / active events)\n"
+                "• **View Due** — see your estimated monthly costs breakdown"
             ),
             color=discord.Color.blue(),
         )
