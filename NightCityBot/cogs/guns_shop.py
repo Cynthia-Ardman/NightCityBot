@@ -356,7 +356,6 @@ class GunsShopCog(commands.Cog):
             self.tx_file.exists(),
         )
         await wh_tx_get_all()
-        await self.emit_inventory_snapshot_audit("BOT_READY")
 
         # Populate gun_catalog on startup if the table is empty.
         # This handles the case where the bot restarts after the table was first
