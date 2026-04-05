@@ -100,9 +100,9 @@ Each hub is posted once by an admin using a hybrid command (e.g., `!player`). Th
 | Row | Button | What it does |
 |-----|--------|-------------|
 | 0 | **Buy from Wholesale** | Browse this week's gun rotation (or Black Market catalog if applicable), select a gun, pick quantity, pay from your balance. **Owner only** — employees cannot buy wholesale |
-| 0 | **Wholesale List** | View the current wholesale lots without buying. Shows gun name, restriction, power level (L/M/H), weapon type, cost, and quantity |
+| 0 | **Wholesale List** | View the current wholesale lots without buying. Shows gun name, restriction, power level (L/M/H), damage type (Power/Smart/Tech), cost, and quantity |
 | 1 | **Sell to Customer** | Select a gun from your store stock -> select customer (user picker) -> select customer's character -> enter price -> customer gets DM to Accept/Decline -> payment processed -> item added to customer's inventory. Controlled/restricted items require per-character buyer approval |
-| 1 | **My Store Inventory** | View your store's current stock with power level and weapon type displayed |
+| 1 | **My Store Inventory** | View your store's current stock with power level and damage type displayed |
 | 2 | **Manage Store** | Create store, change name, transfer ownership, close store |
 | 2 | **Manage Employees** | Add employee, remove employee, view employees |
 | 2 | **Manage Buyers** | Approve buyer (per-character), unapprove buyer, view approved buyers |
@@ -134,20 +134,20 @@ Top-level buttons open sub-menus:
 | Button | Sub-menu |
 |--------|----------|
 | **Player** | View Inventory (pick a player), Add Item, Remove Item, Reassign Item, Start LOA (for a player), End LOA (for a player) |
-| **Store** | View Gun Store, View Ripperdoc Store, View Stock, Add Gun (to wholesale), Add Cyberware (to wholesale), Remove Gun, Remove Cyberware |
-| **Wholesaler** | Remove Gun Lot, Remove CW Lot |
+| **Store** | View Gun Store, View Ripperdoc Store (each opens a store picker, then a store action view with Add Item and Remove Item for that store) |
+| **Wholesaler** | View Stock, Add Gun, Add Cyberware, Remove Gun Lot, Remove CW Lot |
 
 **Add Item flow:** Select player (user picker) -> enter item name -> select item type (gun/cyberware/gear/misc) -> select restriction (basic/controlled/restricted) -> enter quantity -> select character -> enter custom cost (or 0 for free) -> player confirms total cost via button -> payment deducted (cash first, then bank) -> items created with unique UUIDs. Gun items additionally require Power Level (low/medium/high) and Type (power/smart/tech). Cyberware items additionally require CWP (integer) and Slot (body location). If payment fails or items cannot be saved, the player is automatically refunded
 
-**Add Gun to Wholesale flow:** Enter `gun name, quantity, unit cost, restriction, power level, type` (e.g. `Militech Mk.31, 10, 5000, basic, medium, power`). Missing fields are prompted interactively. The lot is saved with the mapped gun_level (L/M/H) and weapon_type
+**Add Gun to Wholesale flow:** Enter `gun name, quantity, unit cost, restriction, power level, type` (e.g. `Militech Mk.31, 10, 5000, basic, medium, power`). Missing fields are prompted interactively. The lot is saved with the mapped gun_level (L/M/H) and gun_category (Power/Smart/Tech)
 
 **Add Cyberware to Wholesale flow:** Enter `cyberware name, quantity, unit cost, cwp, slot` (e.g. `Neural Link, 10, 5000, 14, neural`). Missing fields are prompted interactively. The lot is saved with CWP (integer) and slot (body location)
 
-**Add Gun to Store flow:** Select store owner -> select gun from wholesale catalog -> enter quantity -> enter custom cost -> store owner confirms total cost via DM -> payment deducted -> guns added to store stock. Refunded automatically if store save fails
+**Add Gun to Store flow:** (via Store sub-menu → select store → Add Item) Enter gun details inline → store owner confirms total cost via button → payment deducted (cash first, then bank) → guns added to store stock with gun_level and gun_category. Refunded automatically if store save fails
 
-**Add Cyberware to Store flow:** Select Ripperdoc -> select cyberware from wholesale catalog -> enter quantity -> enter custom cost -> Ripperdoc confirms total cost via DM -> payment deducted -> items added to clinic stock. Refunded automatically if inventory save fails
+**Add Cyberware to Store flow:** (via Store sub-menu → select store → Add Item) Enter cyberware details inline → Ripperdoc confirms total cost via button → payment deducted → items added to clinic stock with CWP and slot. Refunded automatically if inventory save fails
 
-**View Stock:** Shows all gun and CW wholesale lots with full details — guns display restriction, power level (L/M/H), and weapon type; cyberware displays CWP and slot
+**View Stock:** (via Wholesaler sub-menu) Shows all gun and CW wholesale lots with full details — guns display restriction, power level (L/M/H), and damage type (Power/Smart/Tech); cyberware displays CWP and slot
 
 **Remove Item flow:** Select player -> see their inventory -> select item -> confirm removal
 
@@ -233,7 +233,7 @@ Characters live in the `characters` database table.
 
 **Supply chain:** Google Sheet (master gun list) -> Gun catalog DB table -> Weekly wholesale rotation -> Store owners buy from wholesale -> Store owners sell to players
 
-**Gun properties:** Each gun in the catalog includes a Power Level (low/medium/high) and Type (power/smart/tech). These fields are read directly from the spreadsheet and carried through wholesale lots into player inventory.
+**Gun properties:** Each gun in the catalog includes a Power Level (low/medium/high, stored as `gun_level` L/M/H) and a damage type (Power/Smart/Tech, stored as `gun_category`). The spreadsheet also provides a gun class (pistol/revolver/shotgun etc., stored as `weapon_type`) used for restock bucketing. The damage type and power level are carried through the entire chain — catalog → wholesale lots → store lots → player inventory (as `power_level` and `weapon_subtype`). All display surfaces show the damage type and power level.
 
 **Weekly rotation:** Every Monday (triggered by the cyberware weekly process), a fresh set of guns is randomly selected from the catalog. Configurable settings control lot counts and quantity ranges per tier (L/M/H).
 

@@ -1466,7 +1466,7 @@ class TestAdminPanelNoAddRemoveButtons:
         desc = embed.description
         assert "Add Item" not in desc
         assert "Remove Item" not in desc
-        assert "Reassign" in desc
+        assert "Reassign" not in desc
 
 
 class TestHelperFunctions:

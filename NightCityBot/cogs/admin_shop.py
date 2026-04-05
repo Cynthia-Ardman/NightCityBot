@@ -800,7 +800,6 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
             title="🔧 Admin Shop Panel",
             description=(
                 "Choose an admin action below.\n\n"
-                "**Reassign** — Transfer/reassign an item\n"
                 "**Item History** — Browse a player/store item's audit trail\n"
                 "**Player Inventory** — Browse a player's items\n"
                 "**Wholesale Stock** — View gun + CW wholesale inventory\n"
