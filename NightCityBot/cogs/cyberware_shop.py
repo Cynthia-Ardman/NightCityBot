@@ -498,16 +498,33 @@ class CyberwareShop(commands.Cog):
             await ctx.send(f"📦 {name_str} cyberware inventory is empty.")
             return
 
+        from NightCityBot.utils.constants import CW_SLOT_ORDER, CW_SLOT_DISPLAY_NAMES
         groups = self._grouped_inventory(inventory)
+        slot_buckets: dict[str, list] = {}
+        for g in groups:
+            sample = g["items"][0] if g.get("items") else {}
+            slot_raw = (sample.get("slot") or "").strip().lower()
+            if slot_raw not in CW_SLOT_DISPLAY_NAMES:
+                slot_raw = "other"
+            slot_buckets.setdefault(slot_raw, []).append((g, sample))
+        ordered_keys = [k for k in CW_SLOT_ORDER if k in slot_buckets]
+        if "other" in slot_buckets:
+            ordered_keys.append("other")
         lines = []
-        for i, g in enumerate(groups, 1):
-            name = g["name"]
-            price = g["price_paid"]
-            count = g["count"]
-            date_str = g["date"] or "—"
-            price_str = f"${price:,}" if price else "—"
-            suffix = f" × {count}" if count > 1 else ""
-            lines.append(f"`{i}.` **{name}**{suffix} — paid {price_str} ea. ({date_str})")
+        row = 1
+        for key in ordered_keys:
+            header = CW_SLOT_DISPLAY_NAMES.get(key, "Other")
+            lines.append(f"\n▬▬ {header} ▬▬")
+            for g, sample in slot_buckets[key]:
+                cwp = sample.get("cwp", "")
+                cwp_tag = f" — [CWP: {cwp}]" if cwp else ""
+                price = g["price_paid"]
+                count = g["count"]
+                date_str = g["date"] or "—"
+                price_str = f"${price:,}" if price else "—"
+                suffix = f" × {count}" if count > 1 else ""
+                lines.append(f"`{row}.` **{g['name']}**{cwp_tag}{suffix} — paid {price_str} ea. ({date_str})")
+                row += 1
 
         title = (
             "Your Cyberware Inventory"
@@ -1034,10 +1051,8 @@ class CyberwareShop(commands.Cog):
             f"✅ Cyberware wholesale restocked — **{len(lots)}** items, "
             f"**{total_units}** units total."
         )
-        item_lines = [
-            f"  `{lot['item_name']}` × {lot['qty_available']} @ ${lot['unit_cost']:,}"
-            for lot in sorted(lots, key=lambda l: l["item_name"])
-        ]
+        from NightCityBot.utils.helpers import format_cw_lines_grouped
+        item_lines = format_cw_lines_grouped(lots, max_items=50)
         full = summary + "\n" + "\n".join(item_lines)
         if len(full) <= 1900:
             await ctx.send(full)

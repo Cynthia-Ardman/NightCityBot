@@ -154,3 +154,31 @@ GUN_CLASS_ORDER = [
 
 POWER_LEVEL_WORDS = {"L": "Low", "M": "Medium", "H": "High"}
 
+CW_SLOT_ORDER = [
+    "neural",
+    "ocular system",
+    "auditory system",
+    "integumentary system",
+    "hands & feet",
+    "arms & arm attachments",
+    "legs & mobility",
+    "skeleton & torso musculature",
+    "universal muscular (arms/legs/tail)",
+    "circulatory & immune systems",
+    "miscellaneous",
+]
+
+CW_SLOT_DISPLAY_NAMES = {
+    "neural": "Neural",
+    "ocular system": "Ocular System",
+    "auditory system": "Auditory System",
+    "integumentary system": "Integumentary System",
+    "hands & feet": "Hands & Feet",
+    "arms & arm attachments": "Arms & Arm Attachments",
+    "legs & mobility": "Legs & Mobility",
+    "skeleton & torso musculature": "Skeleton & Torso Musculature",
+    "universal muscular (arms/legs/tail)": "Universal Muscular (Arms/Legs/Tail)",
+    "circulatory & immune systems": "Circulatory & Immune Systems",
+    "miscellaneous": "Miscellaneous",
+}
+

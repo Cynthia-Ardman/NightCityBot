@@ -116,7 +116,7 @@ Each hub is posted once by an admin using a hybrid command (e.g., `!player`). Th
 | Row | Button | What it does |
 |-----|--------|-------------|
 | 0 | **Buy from Wholesale** | Browse this week's cyberware rotation, select an item, pick quantity, pay from your balance. **Owner only** |
-| 0 | **Wholesale List** | View the current CW wholesale lots with CWP and slot displayed |
+| 0 | **Wholesale List** | View the current CW wholesale lots grouped by slot with section headers (▬▬ Neural ▬▬ etc.). Format: `Name — [CWP: X] — $Price × Qty`. Sold-out items shown with strikethrough |
 | 1 | **Sell to Patient** | Select item from your stock -> select patient -> select patient's character -> enter price -> patient gets DM to Accept/Decline -> payment processed -> item added to patient's inventory, removed from your stock |
 | 1 | **Install on Patient** | Same as sell but can be free (price = 0). Used for comped installs or staff-directed operations |
 | 2 | **Manage Store** | Create clinic, change name, view stock, transfer ownership, close clinic |
@@ -147,7 +147,7 @@ Top-level buttons open sub-menus:
 
 **Add Cyberware to Store flow:** (via Store sub-menu → select store → Add Item) Enter cyberware details inline → Ripperdoc receives a DM with Accept/Decline buttons (5-minute timeout) → payment deducted → items added to clinic stock with CWP and slot. Refunded automatically if inventory save fails
 
-**View Stock:** (via Wholesaler sub-menu) Shows all gun and CW wholesale lots — guns grouped by gun class with section headers, using format `Name — [Restriction] · [Level] · [DamageType] — $Price × Qty`; cyberware displays CWP and slot
+**View Stock:** (via Wholesaler sub-menu) Shows all gun and CW wholesale lots — guns grouped by gun class with section headers, using format `Name — [Restriction] · [Level] · [DamageType] — $Price × Qty`; cyberware grouped by slot with section headers (▬▬ Neural ▬▬ etc.), using format `Name — [CWP: X] — $Price × Qty`
 
 **Remove Item flow:** Select player -> see their inventory -> select item -> confirm removal
 
@@ -285,7 +285,7 @@ Designated operators (listed in `config.BLACK_MARKET_OWNER_IDS`) or stores with 
 
 **Supply chain:** Google Sheet (cyberware catalog) -> CW catalog DB table -> Weekly wholesale rotation -> Ripperdocs buy from wholesale -> Ripperdocs sell/install to patients
 
-**Cyberware properties:** Each cyberware item in the catalog includes CWP (Cyberware Points, integer) and Slot (body location). The 11 valid slots are: Skeleton & Torso Musculature, Arms & Arm Attachments, Miscellaneous, Integumentary System, Neural, Universal Muscular (Arms/Legs/Tail), Hands & Feet, Ocular System, Legs & Mobility, Auditory System, Circulatory & Immune Systems. These fields are read from the spreadsheet and carried through to player inventory.
+**Cyberware properties:** Each cyberware item in the catalog includes CWP (Cyberware Points, integer) and Slot (body location). The 11 valid slots are (in display order): Neural, Ocular System, Auditory System, Integumentary System, Hands & Feet, Arms & Arm Attachments, Legs & Mobility, Skeleton & Torso Musculature, Universal Muscular (Arms/Legs/Tail), Circulatory & Immune Systems, Miscellaneous. These fields are read from the spreadsheet and carried through to player inventory. All display surfaces group cyberware by slot with section headers and use the format: `Name — [CWP: X] — $Price × Qty` (no restriction tag). Player inventory uses: `Name — [CWP: X] · [Slot Name]`. Shared constants: `CW_SLOT_ORDER`, `CW_SLOT_DISPLAY_NAMES` in `constants.py`. Shared formatter: `format_cw_lines_grouped()` in `helpers.py`.
 
 **Store structure:** Each clinic is identified by `rd:{guild_id}:{owner_id}`. Clinics have: owner, employees, stock (JSON file per Ripperdoc), and optional nickname.
 

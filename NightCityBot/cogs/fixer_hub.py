@@ -311,19 +311,9 @@ class WholesalerSubView(SafeView):
             cw_lots = state.get("cw_wholesale_lots", [])
             available = [l for l in cw_lots if int(l.get("qty_available", 0)) > 0]
             if available:
+                from NightCityBot.utils.helpers import format_cw_lines_grouped
                 lines.append("\n**💉 Cyberware Wholesale:**")
-                for i, lot in enumerate(available[:15], 1):
-                    cwp = lot.get("cwp", "")
-                    slot = lot.get("slot", "")
-                    detail_parts = []
-                    if cwp:
-                        detail_parts.append(f"CWP:{cwp}")
-                    if slot:
-                        detail_parts.append(slot)
-                    detail_tag = f" ({', '.join(detail_parts)})" if detail_parts else ""
-                    lines.append(
-                        f"`{i}.` **{lot['item_name']}**{detail_tag} — ${int(lot['unit_cost']):,} × {lot['qty_available']}"
-                    )
+                lines.extend(format_cw_lines_grouped(available, max_items=15))
             else:
                 lines.append("**💉 Cyberware Wholesale:** Empty")
         if not lines:

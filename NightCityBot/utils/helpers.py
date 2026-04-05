@@ -134,3 +134,52 @@ def format_gun_lines_grouped(lots, *, qty_key="qty_available", max_items=30):
             row += 1
 
     return lines
+
+
+def format_cw_lines_grouped(lots, *, qty_key="qty_available", name_key="item_name",
+                             cost_key="unit_cost", max_items=30, show_sold_out=False):
+    from NightCityBot.utils.constants import CW_SLOT_ORDER, CW_SLOT_DISPLAY_NAMES
+
+    groups: dict[str, list] = {}
+    sold_out: list[dict] = []
+    for lot in lots:
+        qty = int(lot.get(qty_key, 0))
+        if qty <= 0:
+            if show_sold_out:
+                sold_out.append(lot)
+            continue
+        slot = (lot.get("slot") or "").strip().lower()
+        if slot not in CW_SLOT_DISPLAY_NAMES:
+            slot = "other"
+        groups.setdefault(slot, []).append(lot)
+
+    ordered_keys = [k for k in CW_SLOT_ORDER if k in groups]
+    if "other" in groups:
+        ordered_keys.append("other")
+
+    lines: list[str] = []
+    row = 1
+    for key in ordered_keys:
+        if row > max_items:
+            break
+        header = CW_SLOT_DISPLAY_NAMES.get(key, "Other")
+        lines.append(f"\n▬▬ {header} ▬▬")
+        for lot in groups[key]:
+            if row > max_items:
+                break
+            qty = int(lot.get(qty_key, 0))
+            cwp = lot.get("cwp", "")
+            name = lot.get(name_key, "?")
+            cost = int(lot.get(cost_key, 0))
+            cwp_tag = f" — [CWP: {cwp}]" if cwp else ""
+            cost_tag = f" — ${cost:,} × {qty}" if cost else f" × {qty}"
+            lines.append(f"`{row}.` **{name}**{cwp_tag}{cost_tag}")
+            row += 1
+
+    for lot in sold_out:
+        if row > max_items:
+            break
+        lines.append(f"~~`{row}.` {lot.get(name_key, '?')}~~ — Sold out")
+        row += 1
+
+    return lines

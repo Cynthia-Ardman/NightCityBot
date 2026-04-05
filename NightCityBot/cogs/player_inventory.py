@@ -169,14 +169,18 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                         attr_parts.append(full_word)
                     if ws:
                         attr_parts.append(ws)
+                    attr_tag = f" ({', '.join(attr_parts)})" if attr_parts else ""
                 elif itype == "cyberware":
                     cwp = sample.get("cwp", "")
                     slot = sample.get("slot", "")
                     if cwp:
-                        attr_parts.append(f"CWP:{cwp}")
+                        attr_parts.append(f"[CWP: {cwp}]")
                     if slot:
-                        attr_parts.append(slot)
-                attr_tag = f" ({', '.join(attr_parts)})" if attr_parts else ""
+                        from NightCityBot.utils.constants import CW_SLOT_DISPLAY_NAMES
+                        attr_parts.append(f"[{CW_SLOT_DISPLAY_NAMES.get(slot.lower(), slot.title())}]")
+                    attr_tag = (" — " + " · ".join(attr_parts)) if attr_parts else ""
+                else:
+                    attr_tag = ""
                 meta_parts = []
                 if g["price_paid"]:
                     meta_parts.append(f"💰 ${g['price_paid']:,}")

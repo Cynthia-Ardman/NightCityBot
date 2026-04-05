@@ -77,24 +77,23 @@ async def _show_rd_stock(interaction, cw_cog, store, store_id, owner_id):
     if not inventory:
         await send_ephemeral(interaction, "Store cyberware stock is empty.")
         return
+    from NightCityBot.utils.helpers import format_cw_lines_grouped
+    store_lots = []
     groups = cw_cog._grouped_inventory(inventory)
-    lines = []
-    for i, g in enumerate(groups, 1):
-        qty_str = f" ×{g['count']}" if g["count"] > 1 else ""
+    for g in groups:
         sample = g["items"][0] if g.get("items") else {}
-        cwp = sample.get("cwp", "")
-        slot = sample.get("slot", "")
-        detail_parts = []
-        if cwp:
-            detail_parts.append(f"CWP:{cwp}")
-        if slot:
-            detail_parts.append(slot)
-        detail_tag = f" ({', '.join(detail_parts)})" if detail_parts else ""
-        lines.append(f"`{i}.` **{g['name']}**{detail_tag}{qty_str}")
+        store_lots.append({
+            "item_name": g["name"],
+            "cwp": sample.get("cwp", ""),
+            "slot": sample.get("slot", ""),
+            "unit_cost": 0,
+            "qty_available": g["count"],
+        })
+    lines = format_cw_lines_grouped(store_lots, max_items=30)
     store_name = store.get("store_name") or f"Store {store_id}"
     embed = discord.Embed(
         title=f"📦 {store_name}",
-        description="\n".join(lines[:30]),
+        description="\n".join(lines) if lines else "Empty",
         color=discord.Color.teal(),
     )
     embed.set_footer(text=f"{len(inventory)} item(s) total")
@@ -235,25 +234,11 @@ class RipperdocMenuView(SafeView):
         if not lots:
             await send_ephemeral(interaction, "No wholesale stock this week.")
             return
-        lines = []
-        for i, lot in enumerate(cw_cog._sorted_lots(lots), 1):
-            qty = int(lot["qty_available"])
-            price = int(lot["unit_cost"])
-            cwp = lot.get("cwp", "")
-            slot = lot.get("slot", "")
-            detail_parts = []
-            if cwp:
-                detail_parts.append(f"CWP:{cwp}")
-            if slot:
-                detail_parts.append(slot)
-            detail_tag = f" ({', '.join(detail_parts)})" if detail_parts else ""
-            if qty > 0:
-                lines.append(f"`{i}.` **{lot['item_name']}**{detail_tag} — ${price:,} × {qty}")
-            else:
-                lines.append(f"~~`{i}.` {lot['item_name']}~~ — Sold out")
+        from NightCityBot.utils.helpers import format_cw_lines_grouped
+        lines = format_cw_lines_grouped(lots, max_items=30, show_sold_out=True)
         embed = discord.Embed(
             title="🔩 Cyberware Wholesale",
-            description="\n".join(lines[:30]),
+            description="\n".join(lines) if lines else "Empty",
             color=discord.Color.teal(),
         )
         await send_ephemeral(interaction, embed=embed)
