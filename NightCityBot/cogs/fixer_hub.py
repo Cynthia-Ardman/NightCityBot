@@ -1124,23 +1124,20 @@ class _ConfirmItemView(SafeView):
         self.target_user_id = target_user_id
         self.result: Optional[bool] = None
 
-    @discord.ui.button(label="Approve", style=discord.ButtonStyle.success, emoji="✅")
-    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.target_user_id:
-            await interaction.response.send_message("This isn't for you.", ephemeral=True)
-            return
-        self.result = True
-        self.stop()
-        await interaction.response.edit_message(content="✅ **Approved** — processing…", view=None)
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.target_user_id
 
-    @discord.ui.button(label="Deny", style=discord.ButtonStyle.danger, emoji="❌")
-    async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.target_user_id:
-            await interaction.response.send_message("This isn't for you.", ephemeral=True)
-            return
-        self.result = False
+    @discord.ui.button(label="Accept", style=discord.ButtonStyle.success, emoji="✅")
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.result = True
+        await interaction.response.edit_message(content="✅ **Accepted** — processing…", view=None)
         self.stop()
-        await interaction.response.edit_message(content="❌ **Denied** — transaction cancelled.", view=None)
+
+    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, emoji="❌")
+    async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.result = False
+        await interaction.response.edit_message(content="❌ **Declined** — transaction cancelled.", view=None)
+        self.stop()
 
     async def on_timeout(self):
         self.result = None
@@ -1249,23 +1246,35 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
     bank_deducted = 0
     if price is not None and price > 0:
         confirm_view = _ConfirmItemView(target_user_id=player.id)
-        confirm_msg = await interaction.followup.send(
-            f"💰 {player.mention}, a Fixer wants to add **{name}** ×{qty} to your inventory "
-            f"for **${total_cost:,}** total. Do you approve?",
-            view=confirm_view,
-            allowed_mentions=discord.AllowedMentions(users=[player]),
+        try:
+            dm_msg = await player.send(
+                f"💰 A Fixer wants to add **{name}** ×{qty} to your inventory "
+                f"for **${total_cost:,}** total. Do you accept?",
+                view=confirm_view,
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            await interaction.followup.send(
+                f"Cannot DM {player.display_name}. They may have DMs disabled.", ephemeral=True
+            )
+            return
+        await interaction.followup.send(
+            f"Confirmation sent to {player.display_name} via DM. Waiting…", ephemeral=True
         )
         await confirm_view.wait()
         if confirm_view.result is None:
             try:
-                await confirm_msg.edit(content="⏰ Confirmation timed out — transaction cancelled.", view=None)
+                await dm_msg.edit(content="⏰ Confirmation timed out — transaction cancelled.", view=None)
             except Exception:
                 pass
             await interaction.followup.send("⏰ Player did not respond in time. Item not added.", ephemeral=True)
             return
         if confirm_view.result is False:
-            await interaction.followup.send("❌ Player denied the transaction. Item not added.", ephemeral=True)
+            await interaction.followup.send("❌ Player declined the transaction. Item not added.", ephemeral=True)
             return
+        try:
+            await dm_msg.edit(view=None)
+        except Exception:
+            pass
         ub = getattr(cog.bot, "unbelievaboat", None)
         if ub is None:
             await interaction.followup.send("❌ Economy system unavailable.", ephemeral=True)
@@ -2222,22 +2231,34 @@ async def _process_store_add_gun(cog, interaction, owner, text):
     bank_deducted = 0
     if cost > 0:
         confirm_view = _ConfirmItemView(target_user_id=owner.id)
-        confirm_msg = await interaction.followup.send(
-            f"💰 {owner.mention}, a Fixer wants to add **{gun_name}** ×{qty} at **${total_cost:,}** total to your store. Approve?",
-            view=confirm_view,
-            allowed_mentions=discord.AllowedMentions(users=[owner]),
+        try:
+            dm_msg = await owner.send(
+                f"💰 A Fixer wants to add **{gun_name}** ×{qty} at **${total_cost:,}** total to your store. Do you accept?",
+                view=confirm_view,
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            await interaction.followup.send(
+                f"Cannot DM {owner.display_name}. They may have DMs disabled.", ephemeral=True
+            )
+            return
+        await interaction.followup.send(
+            f"Confirmation sent to {owner.display_name} via DM. Waiting…", ephemeral=True
         )
         await confirm_view.wait()
         if confirm_view.result is None:
             try:
-                await confirm_msg.edit(content="⏰ Confirmation timed out — cancelled.", view=None)
+                await dm_msg.edit(content="⏰ Confirmation timed out — cancelled.", view=None)
             except Exception:
                 pass
             await interaction.followup.send("⏰ Store owner did not respond. Item not added.", ephemeral=True)
             return
         if confirm_view.result is False:
-            await interaction.followup.send("❌ Store owner denied. Item not added.", ephemeral=True)
+            await interaction.followup.send("❌ Store owner declined. Item not added.", ephemeral=True)
             return
+        try:
+            await dm_msg.edit(view=None)
+        except Exception:
+            pass
         ub = getattr(cog.bot, "unbelievaboat", None)
         if ub is None:
             await interaction.followup.send("❌ Economy system unavailable.", ephemeral=True)
@@ -2360,22 +2381,34 @@ async def _process_store_add_cw(cog, interaction, owner, text):
     bank_deducted = 0
     if cost > 0:
         confirm_view = _ConfirmItemView(target_user_id=owner.id)
-        confirm_msg = await interaction.followup.send(
-            f"💰 {owner.mention}, a Fixer wants to add **{item_name}** ×{qty} at **${total_cost:,}** total to your Ripperdoc store. Approve?",
-            view=confirm_view,
-            allowed_mentions=discord.AllowedMentions(users=[owner]),
+        try:
+            dm_msg = await owner.send(
+                f"💰 A Fixer wants to add **{item_name}** ×{qty} at **${total_cost:,}** total to your Ripperdoc store. Do you accept?",
+                view=confirm_view,
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            await interaction.followup.send(
+                f"Cannot DM {owner.display_name}. They may have DMs disabled.", ephemeral=True
+            )
+            return
+        await interaction.followup.send(
+            f"Confirmation sent to {owner.display_name} via DM. Waiting…", ephemeral=True
         )
         await confirm_view.wait()
         if confirm_view.result is None:
             try:
-                await confirm_msg.edit(content="⏰ Confirmation timed out — cancelled.", view=None)
+                await dm_msg.edit(content="⏰ Confirmation timed out — cancelled.", view=None)
             except Exception:
                 pass
             await interaction.followup.send("⏰ Store owner did not respond. Item not added.", ephemeral=True)
             return
         if confirm_view.result is False:
-            await interaction.followup.send("❌ Store owner denied. Item not added.", ephemeral=True)
+            await interaction.followup.send("❌ Store owner declined. Item not added.", ephemeral=True)
             return
+        try:
+            await dm_msg.edit(view=None)
+        except Exception:
+            pass
         ub = getattr(cog.bot, "unbelievaboat", None)
         if ub is None:
             await interaction.followup.send("❌ Economy system unavailable.", ephemeral=True)

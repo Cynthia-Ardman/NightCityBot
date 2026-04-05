@@ -137,15 +137,15 @@ Top-level buttons open sub-menus:
 | **Store** | View Gun Store, View Ripperdoc Store (each opens a store picker, then a store action view with Add Item and Remove Item for that store) |
 | **Wholesaler** | View Stock, Add Gun, Add Cyberware, Remove Gun Lot, Remove CW Lot |
 
-**Add Item flow:** Select player (user picker) -> enter item name -> select item type (gun/cyberware/gear/misc) -> select restriction (basic/controlled/restricted) -> enter quantity -> select character -> enter custom cost (or 0 for free) -> player confirms total cost via button -> payment deducted (cash first, then bank) -> items created with unique UUIDs. Gun items additionally require Power Level (low/medium/high) and Type (power/smart/tech). Cyberware items additionally require CWP (integer) and Slot (body location). If payment fails or items cannot be saved, the player is automatically refunded
+**Add Item flow:** Select player (user picker) -> enter item name -> select item type (gun/cyberware/gear/misc) -> select restriction (basic/controlled/restricted) -> enter quantity -> select character -> enter custom cost (or 0 for free) -> player receives a DM with Accept/Decline buttons (5-minute timeout) -> payment deducted (cash first, then bank) -> items created with unique UUIDs. Gun items additionally require Power Level (low/medium/high) and Type (power/smart/tech). Cyberware items additionally require CWP (integer) and Slot (body location). If payment fails or items cannot be saved, the player is automatically refunded
 
 **Add Gun to Wholesale flow:** Enter `gun name, quantity, unit cost, restriction, power level, type` (e.g. `Militech Mk.31, 10, 5000, basic, medium, power`). Missing fields are prompted interactively. The lot is saved with the mapped gun_level (L/M/H) and gun_category (Power/Smart/Tech)
 
 **Add Cyberware to Wholesale flow:** Enter `cyberware name, quantity, unit cost, cwp, slot` (e.g. `Neural Link, 10, 5000, 14, neural`). Missing fields are prompted interactively. The lot is saved with CWP (integer) and slot (body location)
 
-**Add Gun to Store flow:** (via Store sub-menu → select store → Add Item) Enter gun details inline → store owner confirms total cost via button → payment deducted (cash first, then bank) → guns added to store stock with gun_level and gun_category. Refunded automatically if store save fails
+**Add Gun to Store flow:** (via Store sub-menu → select store → Add Item) Enter gun details inline → store owner receives a DM with Accept/Decline buttons (5-minute timeout) → payment deducted (cash first, then bank) → guns added to store stock with gun_level and gun_category. Refunded automatically if store save fails
 
-**Add Cyberware to Store flow:** (via Store sub-menu → select store → Add Item) Enter cyberware details inline → Ripperdoc confirms total cost via button → payment deducted → items added to clinic stock with CWP and slot. Refunded automatically if inventory save fails
+**Add Cyberware to Store flow:** (via Store sub-menu → select store → Add Item) Enter cyberware details inline → Ripperdoc receives a DM with Accept/Decline buttons (5-minute timeout) → payment deducted → items added to clinic stock with CWP and slot. Refunded automatically if inventory save fails
 
 **View Stock:** (via Wholesaler sub-menu) Shows all gun and CW wholesale lots with full details — guns display restriction, power level (L/M/H), and damage type (Power/Smart/Tech); cyberware displays CWP and slot
 
