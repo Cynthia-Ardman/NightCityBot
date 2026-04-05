@@ -572,7 +572,7 @@ class CyberwareShop(commands.Cog):
                 color=discord.Color.purple(),
             )
             embed.set_footer(
-                text=f"{len(inventory)} item(s) in {len(groups)} slot(s) | Use !cw_sell <row> or !cw_install <row>"
+                text=f"{len(inventory)} item(s) in {len(ordered_groups)} group(s) | Use !cw_sell <row> or !cw_install <row>"
             )
             await ctx.send(embed=embed)
 

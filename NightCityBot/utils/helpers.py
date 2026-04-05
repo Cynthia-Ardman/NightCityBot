@@ -153,6 +153,8 @@ def format_cw_lines_grouped(lots, *, qty_key="qty_available", name_key="item_nam
     ordered_keys = [k for k in CW_SLOT_ORDER if k in groups]
     if "other" in groups:
         ordered_keys.append("other")
+    for key in groups:
+        groups[key].sort(key=lambda l: l.get(name_key, ""))
 
     lines: list[str] = []
     row = 1

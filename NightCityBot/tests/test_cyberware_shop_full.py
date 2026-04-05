@@ -374,3 +374,28 @@ class TestCwWhListGrouped:
         _run(cog.cw_wh_list.callback(cog, ctx))
         msg = ctx.send.call_args[0][0]
         assert "No cyberware wholesale stock" in msg
+
+    def test_cw_wh_list_and_buy_row_consistency(self, tmp_path, monkeypatch):
+        """Row N in !cw_wh_list must map to same item in !cw_buy N."""
+        cog = _make_cog(tmp_path, monkeypatch)
+        lots = [
+            {"item_name": "Zetatech Link", "qty_available": 2, "unit_cost": 9000, "lot_id": "z", "cwp": 14, "slot": "neural"},
+            {"item_name": "Kiroshi Mk.I",  "qty_available": 3, "unit_cost": 2000, "lot_id": "k", "cwp": 7, "slot": "ocular system"},
+            {"item_name": "Arm Blade",     "qty_available": 1, "unit_cost": 4000, "lot_id": "a", "cwp": 5, "slot": "arms & arm attachments"},
+        ]
+        state = {"cw_wholesale_lots": lots, "settings": {"last_cw_restock_sunday": "2026-04-05"}}
+        cog._load_state = AsyncMock(return_value=state)
+        ctx = MagicMock()
+        ctx.guild = MagicMock()
+        ctx.send = AsyncMock()
+        _run(cog.cw_wh_list.callback(cog, ctx))
+        embed = ctx.send.call_args[1]["embed"]
+        desc = embed.description
+        displayed = []
+        for line in desc.split("\n"):
+            if line.startswith("`") and "**" in line:
+                name = line.split("**")[1]
+                displayed.append(name)
+        buy_ordered = cog._slot_ordered_lots(lots)
+        buy_names = [l["item_name"] for l in buy_ordered]
+        assert displayed == buy_names
