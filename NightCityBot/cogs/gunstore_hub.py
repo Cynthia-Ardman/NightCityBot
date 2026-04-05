@@ -708,8 +708,8 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
             await dm_msg.edit(content="Sale declined or timed out.", view=None)
         except Exception:
             pass
-        await ctx.send(
-            f"{ctx.author.mention} — {customer.display_name} declined or didn't respond to the purchase of **{gun_name}**."
+        await send_ephemeral(interaction,
+            f"{customer.display_name} declined or didn't respond to the purchase of **{gun_name}**."
         )
         return
 
@@ -724,12 +724,12 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
     if price > 0:
         balance = await cog.unbelievaboat.get_balance(customer.id)
         if balance is None:
-            await ctx.send(f"Could not fetch {customer.display_name}'s balance. Sale cancelled.")
+            await send_ephemeral(interaction, f"Could not fetch {customer.display_name}'s balance. Sale cancelled.")
             return
         c_cash = int(balance.get("cash", 0))
         c_bank = int(balance.get("bank", 0))
         if c_cash + c_bank < price:
-            await ctx.send(
+            await send_ephemeral(interaction,
                 f"{customer.display_name} cannot afford ${price:,}. Sale cancelled."
             )
             return
@@ -741,7 +741,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
             reason=f"Gun purchase: {gun_name} from {ctx.author.display_name}",
         )
         if not ok_debit:
-            await ctx.send(f"Payment failed for {customer.display_name}. Sale cancelled.")
+            await send_ephemeral(interaction, f"Payment failed for {customer.display_name}. Sale cancelled.")
             return
         ok_credit = await cog.unbelievaboat.update_balance(
             owner_id,
@@ -759,7 +759,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                 "amount": price,
                 "reason": f"Gun sell credit failed: {gun_name}",
             })
-            await ctx.send(
+            await send_ephemeral(interaction,
                 f"⚠️ Payment from {customer.display_name} succeeded but store owner payout failed. "
                 "A pending transfer has been created — an admin will resolve it."
             )
@@ -776,7 +776,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                     await cog.unbelievaboat.update_balance(
                         owner_id, {"bank": -price}, reason="Gun sale refund"
                     )
-            await ctx.send("Store not found. Refunded.")
+            await send_ephemeral(interaction, "Store not found. Refunded.")
             return
         lot_id = lot.get("lot_id")
         target_lot = None
@@ -793,7 +793,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                     await cog.unbelievaboat.update_balance(
                         owner_id, {"bank": -price}, reason="Gun sale refund — out of stock"
                     )
-            await ctx.send("Item out of stock. Refunded.")
+            await send_ephemeral(interaction, "Item out of stock. Refunded.")
             return
         target_lot["qty_remaining"] = int(target_lot["qty_remaining"]) - 1
         lot_item_ids = target_lot.get("item_ids", [])
@@ -820,7 +820,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                 await cog.unbelievaboat.update_balance(
                     owner_id, {"bank": -price}, reason="Gun sale refund — save failed"
                 )
-        await ctx.send("⚠️ Sale failed (save error). Payment has been refunded.")
+        await send_ephemeral(interaction, "⚠️ Sale failed (save error). Payment has been refunded.")
         return
 
     pi_payload = {
@@ -881,7 +881,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                 await cog.unbelievaboat.update_balance(
                     owner_id, {"bank": -price}, reason="Gun sale refund — item grant failed"
                 )
-        await ctx.send(
+        await send_ephemeral(interaction,
             f"⚠️ Failed to add **{gun_name}** to {customer.display_name}'s inventory. "
             "Payment has been refunded. Please contact an admin."
         )

@@ -1274,7 +1274,7 @@ class TestPiAddItemFailureCompensation:
                             ]
                             assert len(refund_calls) >= 1
                             found_send = False
-                            for c in ctx.send.call_args_list:
+                            for c in inter.followup.send.call_args_list:
                                 if "failed" in str(c).lower() and "refund" in str(c).lower():
                                     found_send = True
                             assert found_send

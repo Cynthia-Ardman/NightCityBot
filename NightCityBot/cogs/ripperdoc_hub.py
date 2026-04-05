@@ -735,8 +735,8 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
             await dm_msg.edit(content="Trade declined or timed out.", view=None)
         except Exception:
             pass
-        await ctx.send(
-            f"{ctx.author.mention} — {patient.display_name} declined or didn't respond to the sale of **{item_name}**."
+        await send_ephemeral(interaction,
+            f"{patient.display_name} declined or didn't respond to the sale of **{item_name}**."
         )
         return
 
@@ -751,12 +751,12 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
     if price > 0:
         balance = await cog.unbelievaboat.get_balance(patient.id)
         if balance is None:
-            await ctx.send(f"Could not fetch {patient.display_name}'s balance. Sale cancelled.")
+            await send_ephemeral(interaction, f"Could not fetch {patient.display_name}'s balance. Sale cancelled.")
             return
         p_cash = int(balance.get("cash", 0))
         p_bank = int(balance.get("bank", 0))
         if p_cash + p_bank < price:
-            await ctx.send(
+            await send_ephemeral(interaction,
                 f"{patient.display_name} cannot afford ${price:,} (has ${p_cash + p_bank:,}). Sale cancelled."
             )
             return
@@ -768,7 +768,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
             reason=f"CW purchase: {item_name} from {ctx.author.display_name}",
         )
         if not ok_debit:
-            await ctx.send(f"Payment failed for {patient.display_name}. Sale cancelled.")
+            await send_ephemeral(interaction, f"Payment failed for {patient.display_name}. Sale cancelled.")
             return
         ok_credit = await cog.unbelievaboat.update_balance(
             owner_id,
@@ -786,7 +786,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
                 "amount": price,
                 "reason": f"CW sale credit failed: {item_name}",
             })
-            await ctx.send(
+            await send_ephemeral(interaction,
                 f"⚠️ Payment from {patient.display_name} succeeded but seller payout failed. "
                 "A pending transfer has been created — an admin will resolve it."
             )
@@ -803,7 +803,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
                     await cog.unbelievaboat.update_balance(
                         owner_id, {"bank": -price}, reason="CW sale refund — item missing"
                     )
-            await ctx.send("Item no longer in stock. Refunded.")
+            await send_ephemeral(interaction, "Item no longer in stock. Refunded.")
             return
         inv_save_ok = await cw_cog._save_inventory(owner_id, inv_updated)
         if not inv_save_ok:
@@ -816,7 +816,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
                     await cog.unbelievaboat.update_balance(
                         owner_id, {"bank": -price}, reason="CW sale refund — save failed"
                     )
-            await ctx.send("⚠️ Sale failed (save error). Payment has been refunded.")
+            await send_ephemeral(interaction, "⚠️ Sale failed (save error). Payment has been refunded.")
             return
 
     pi_payload = {
@@ -857,7 +857,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
                 await cog.unbelievaboat.update_balance(
                     owner_id, {"bank": -price}, reason="CW sale refund — item grant failed"
                 )
-        await ctx.send(
+        await send_ephemeral(interaction,
             f"⚠️ Failed to add **{item_name}** to {patient.display_name}'s inventory. "
             "Payment has been refunded and item has been restored to stock. Please contact an admin."
         )
@@ -946,8 +946,8 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
             await dm_msg.edit(content="Installation declined or timed out.", view=None)
         except Exception:
             pass
-        await ctx.send(
-            f"{ctx.author.mention} — {patient.display_name} declined or didn't respond to the install of **{item_name}**."
+        await send_ephemeral(interaction,
+            f"{patient.display_name} declined or didn't respond to the install of **{item_name}**."
         )
         return
 
@@ -962,12 +962,12 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
     if price > 0:
         balance = await cog.unbelievaboat.get_balance(patient.id)
         if balance is None:
-            await ctx.send(f"Could not fetch {patient.display_name}'s balance. Install cancelled.")
+            await send_ephemeral(interaction, f"Could not fetch {patient.display_name}'s balance. Install cancelled.")
             return
         p_cash = int(balance.get("cash", 0))
         p_bank = int(balance.get("bank", 0))
         if p_cash + p_bank < price:
-            await ctx.send(
+            await send_ephemeral(interaction,
                 f"{patient.display_name} cannot afford ${price:,} (has ${p_cash + p_bank:,}). Install cancelled."
             )
             return
@@ -979,7 +979,7 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
             reason=f"CW install: {item_name} by {ctx.author.display_name}",
         )
         if not ok_debit:
-            await ctx.send(f"Payment failed for {patient.display_name}. Install cancelled.")
+            await send_ephemeral(interaction, f"Payment failed for {patient.display_name}. Install cancelled.")
             return
         ok_credit = await cog.unbelievaboat.update_balance(
             owner_id,
@@ -997,7 +997,7 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
                 "amount": price,
                 "reason": f"CW install credit failed: {item_name}",
             })
-            await ctx.send(
+            await send_ephemeral(interaction,
                 f"⚠️ Payment from {patient.display_name} succeeded but ripperdoc payout failed. "
                 "A pending transfer has been created — an admin will resolve it."
             )
@@ -1014,7 +1014,7 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
                     await cog.unbelievaboat.update_balance(
                         owner_id, {"bank": -price}, reason="CW install refund — item missing"
                     )
-            await ctx.send("Item no longer in stock. Refunded.")
+            await send_ephemeral(interaction, "Item no longer in stock. Refunded.")
             return
         inv_save_ok = await cw_cog._save_inventory(owner_id, inv_updated)
         if not inv_save_ok:
@@ -1027,7 +1027,7 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
                     await cog.unbelievaboat.update_balance(
                         owner_id, {"bank": -price}, reason="CW install refund — save failed"
                     )
-            await ctx.send("⚠️ Install failed (save error). Payment has been refunded.")
+            await send_ephemeral(interaction, "⚠️ Install failed (save error). Payment has been refunded.")
             return
 
     await ih_record_event(
