@@ -726,8 +726,6 @@ class ManageInventoryView(SafeView):
                 if sid.startswith(prefix):
                     owner_id = store.get("owner_id") or int(sid.split(":", 1)[-1])
                     owner_id = int(owner_id)
-                    if owner_id == interaction.user.id:
-                        continue
                     store_name = store.get("store_name") or "Gun Store"
                     owner_name = await _resolve_member_name(guild, owner_id)
                     store_entries.append({
@@ -748,8 +746,6 @@ class ManageInventoryView(SafeView):
                 if sid.startswith(rd_prefix):
                     owner_id = store.get("owner_id") or int(sid.rsplit(":", 1)[-1])
                     owner_id = int(owner_id)
-                    if owner_id == interaction.user.id:
-                        continue
                     store_name = store.get("store_name") or "Ripperdoc Clinic"
                     owner_name = await _resolve_member_name(guild, owner_id)
                     store_entries.append({
