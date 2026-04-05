@@ -577,6 +577,8 @@ class GunSellSetupView(SafeView):
         if not self.selected_character:
             await respond_ephemeral(interaction, "Character not found.")
             return
+        for opt in self._character_select.options:
+            opt.default = (opt.value == char_id)
         await interaction.response.edit_message(
             content=self._status_content(),
             view=self,
@@ -584,6 +586,9 @@ class GunSellSetupView(SafeView):
 
     async def _on_stock_select(self, interaction: discord.Interaction):
         self.selected_lot_idx = int(interaction.data["values"][0])
+        selected_val = interaction.data["values"][0]
+        for opt in self._stock_select.options:
+            opt.default = (opt.value == selected_val)
         await interaction.response.edit_message(
             content=self._status_content(),
             view=self,
