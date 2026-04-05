@@ -141,12 +141,9 @@ def format_cw_lines_grouped(lots, *, qty_key="qty_available", name_key="item_nam
     from NightCityBot.utils.constants import CW_SLOT_ORDER, CW_SLOT_DISPLAY_NAMES
 
     groups: dict[str, list] = {}
-    sold_out: list[dict] = []
     for lot in lots:
         qty = int(lot.get(qty_key, 0))
-        if qty <= 0:
-            if show_sold_out:
-                sold_out.append(lot)
+        if qty <= 0 and not show_sold_out:
             continue
         slot = (lot.get("slot") or "").strip().lower()
         if slot not in CW_SLOT_DISPLAY_NAMES:
@@ -172,14 +169,11 @@ def format_cw_lines_grouped(lots, *, qty_key="qty_available", name_key="item_nam
             name = lot.get(name_key, "?")
             cost = int(lot.get(cost_key, 0))
             cwp_tag = f" — [CWP: {cwp}]" if cwp else ""
-            cost_tag = f" — ${cost:,} × {qty}" if cost else f" × {qty}"
-            lines.append(f"`{row}.` **{name}**{cwp_tag}{cost_tag}")
+            cost_tag = f" — ${cost:,} × {qty}"
+            if qty <= 0:
+                lines.append(f"~~`{row}.` {name}{cwp_tag}~~ — Sold out")
+            else:
+                lines.append(f"`{row}.` **{name}**{cwp_tag}{cost_tag}")
             row += 1
-
-    for lot in sold_out:
-        if row > max_items:
-            break
-        lines.append(f"~~`{row}.` {lot.get(name_key, '?')}~~ — Sold out")
-        row += 1
 
     return lines
