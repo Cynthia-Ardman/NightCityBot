@@ -339,3 +339,38 @@ class TestGroupedInventory:
         ]
         ordered = cog._sorted_lots(lots)
         assert [l["item_name"] for l in ordered] == ["Berserk", "Kiroshi", "Sandevistan"]
+
+
+class TestCwWhListGrouped:
+    """!cw_wh_list should use format_cw_lines_grouped with slot headers."""
+
+    def test_cw_wh_list_grouped_by_slot(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        lots = [
+            {"item_name": "Kiroshi Mk.I", "qty_available": 3, "unit_cost": 2000, "lot_id": "a", "cwp": 7, "slot": "ocular system"},
+            {"item_name": "Neural Link",  "qty_available": 5, "unit_cost": 5000, "lot_id": "b", "cwp": 14, "slot": "neural"},
+            {"item_name": "Subdermal",    "qty_available": 0, "unit_cost": 1000, "lot_id": "c", "cwp": 2, "slot": "integumentary system"},
+        ]
+        state = {"cw_wholesale_lots": lots, "settings": {"last_cw_restock_sunday": "2026-04-05"}}
+        cog._load_state = AsyncMock(return_value=state)
+        ctx = MagicMock()
+        ctx.guild = MagicMock()
+        ctx.send = AsyncMock()
+        _run(cog.cw_wh_list.callback(cog, ctx))
+        assert ctx.send.call_count == 1
+        embed = ctx.send.call_args[1]["embed"]
+        desc = embed.description
+        assert "▬▬" in desc
+        assert "[CWP:" in desc
+        assert "Neural Link" in desc
+        assert "Kiroshi Mk.I" in desc
+
+    def test_cw_wh_list_empty(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        cog._load_state = AsyncMock(return_value={"cw_wholesale_lots": []})
+        ctx = MagicMock()
+        ctx.guild = MagicMock()
+        ctx.send = AsyncMock()
+        _run(cog.cw_wh_list.callback(cog, ctx))
+        msg = ctx.send.call_args[0][0]
+        assert "No cyberware wholesale stock" in msg

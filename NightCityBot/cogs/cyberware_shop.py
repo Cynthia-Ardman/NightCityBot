@@ -989,19 +989,13 @@ class CyberwareShop(commands.Cog):
             )
             return
 
+        from NightCityBot.utils.helpers import format_cw_lines_grouped
+
         settings = state.get("settings", {})
         sunday_key = str(settings.get("last_cw_restock_sunday", "unknown"))
-        all_ordered = self._sorted_lots(lots)
         available_count = sum(1 for l in lots if int(l.get("qty_available", 0)) > 0)
 
-        lines = []
-        for i, lot in enumerate(all_ordered, 1):
-            qty = int(lot["qty_available"])
-            price = int(lot["unit_cost"])
-            if qty > 0:
-                lines.append(f"**{i}.** `{lot['item_name']}` — ${price:,} × {qty}")
-            else:
-                lines.append(f"~~**{i}.** `{lot['item_name']}`~~ — Sold out")
+        lines = format_cw_lines_grouped(lots, show_sold_out=True)
 
         page_size = 20
         pages = [lines[i: i + page_size] for i in range(0, len(lines), page_size)]
