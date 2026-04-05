@@ -801,6 +801,53 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
             color=discord.Color.orange(),
         )
 
+    @staticmethod
+    def _guide_embed() -> discord.Embed:
+        embed = discord.Embed(
+            title="📘 Admin Panel — How It Works",
+            description=(
+                "This panel gives admins full control over the shop systems, wholesale markets, and item tracking. "
+                "All responses are private and **auto-delete after 5 minutes**."
+            ),
+            color=discord.Color.orange(),
+        )
+        embed.add_field(
+            name="📜 Item History",
+            value="Look up the full audit trail for any item — see every purchase, transfer, and sale it's been through.",
+            inline=False,
+        )
+        embed.add_field(
+            name="📦 Player Inventory",
+            value="Browse any player's current inventory by selecting their name.",
+            inline=False,
+        )
+        embed.add_field(
+            name="🏭 Wholesale Stock",
+            value="View all current gun and cyberware lots available in wholesale.",
+            inline=False,
+        )
+        embed.add_field(
+            name="📥 Restock Gun / 💉 Restock CW Wholesale",
+            value="Randomly populate the wholesale market with new lots pulled from the master catalogs (Google Sheets).",
+            inline=False,
+        )
+        embed.add_field(
+            name="🗑️ Clear Gun / 🧹 Clear CW Wholesale",
+            value="Wipe all current wholesale lots. Useful before a fresh restock.",
+            inline=False,
+        )
+        embed.add_field(
+            name="🔫 Set Gun Sheet / 💉 Set CW Sheet",
+            value="Update the Google Sheets URL that the bot reads gun or cyberware catalogs from.",
+            inline=False,
+        )
+        embed.add_field(
+            name="🔄 Reload Sheets",
+            value="Re-download and refresh both the gun and cyberware catalogs from Google Sheets.",
+            inline=False,
+        )
+        return embed
+
     @commands.hybrid_command(name="admin", aliases=["admin_shop"])
     @commands.has_permissions(administrator=True)
     @commands.cooldown(1, 5, commands.BucketType.user)
@@ -810,6 +857,7 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
         if channel is None:
             await ctx.send("❌ Admin hub channel not found.", ephemeral=True)
             return
+        await channel.send(embed=self._guide_embed())
         view = AdminShopMenuView()
         await channel.send(embed=self._panel_embed(), view=view)
         await ctx.send("✅ Admin Shop panel posted.", ephemeral=True)

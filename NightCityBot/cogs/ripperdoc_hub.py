@@ -1774,6 +1774,54 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
             color=discord.Color.teal(),
         )
 
+    @staticmethod
+    def _guide_embed() -> discord.Embed:
+        embed = discord.Embed(
+            title="📘 Ripperdoc Shop — How It Works",
+            description=(
+                "This panel is for ripperdoc owners and employees. "
+                "Use the buttons below to stock cyberware, sell or install on patients, and manage your clinic. "
+                "All responses are private and **auto-delete after 5 minutes**."
+            ),
+            color=discord.Color.teal(),
+        )
+        embed.add_field(
+            name="🛒 Buy from Wholesale",
+            value="Purchase cyberware lots from this week's wholesale catalog to add to your clinic stock. *(Owners only)*",
+            inline=False,
+        )
+        embed.add_field(
+            name="📋 Wholesale List",
+            value="Browse what's currently available in wholesale — no purchase required.",
+            inline=False,
+        )
+        embed.add_field(
+            name="💉 Sell to Patient",
+            value="Sell cyberware from your stock to a patient. They'll get a DM to confirm the purchase.",
+            inline=False,
+        )
+        embed.add_field(
+            name="🔧 Install on Patient",
+            value="Install a piece of cyberware directly on a patient. This consumes the item from your stock and applies it to their character.",
+            inline=False,
+        )
+        embed.add_field(
+            name="⚙️ Manage Store",
+            value="Create your clinic, change its name, view stock, transfer ownership, or close it. *(Owners only)*",
+            inline=False,
+        )
+        embed.add_field(
+            name="👥 Manage Employees",
+            value="Add or remove employees who can sell and install on your behalf. *(Owners only)*",
+            inline=False,
+        )
+        embed.add_field(
+            name="🩺 Checkup",
+            value="Perform a cyberware checkup on a patient — removes the Checkup Required role and resets their timer.",
+            inline=False,
+        )
+        return embed
+
     @commands.hybrid_command(name="ripperdoc")
     @commands.has_permissions(administrator=True)
     @commands.cooldown(1, 5, commands.BucketType.user)
@@ -1783,6 +1831,7 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
         if channel is None:
             await ctx.send("❌ Ripperdoc hub channel not found.", ephemeral=True)
             return
+        await channel.send(embed=self._guide_embed())
         view = RipperdocMenuView()
         await channel.send(embed=self._panel_embed(), view=view)
         await ctx.send("✅ Ripperdoc panel posted.", ephemeral=True)

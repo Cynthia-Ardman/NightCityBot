@@ -2020,6 +2020,54 @@ class GunstoreHub(commands.Cog, name="GunstoreHub"):
             color=discord.Color.dark_gold(),
         )
 
+    @staticmethod
+    def _guide_embed() -> discord.Embed:
+        embed = discord.Embed(
+            title="📘 Gun Store — How It Works",
+            description=(
+                "This panel is for gun store owners and employees. "
+                "Use the buttons below to stock your store, sell to customers, and manage your team. "
+                "All responses are private and **auto-delete after 5 minutes**."
+            ),
+            color=discord.Color.dark_gold(),
+        )
+        embed.add_field(
+            name="🛒 Buy from Wholesale",
+            value="Purchase gun lots from the wholesale market to add to your store's stock. *(Owners only)*",
+            inline=False,
+        )
+        embed.add_field(
+            name="📋 Wholesale List",
+            value="Browse what's currently available to buy from wholesale — no purchase required.",
+            inline=False,
+        )
+        embed.add_field(
+            name="🔫 Sell to Customer",
+            value="Sell a gun from your store stock to a player. The customer will get a DM to confirm the purchase.",
+            inline=False,
+        )
+        embed.add_field(
+            name="📦 My Store Inventory",
+            value="View your store's current stock and quantities.",
+            inline=False,
+        )
+        embed.add_field(
+            name="⚙️ Manage Store",
+            value="Create your store, change its name, transfer ownership, or close it down. *(Owners only)*",
+            inline=False,
+        )
+        embed.add_field(
+            name="👥 Manage Employees",
+            value="Add or remove employees who can sell on your behalf. *(Owners only)*",
+            inline=False,
+        )
+        embed.add_field(
+            name="📝 Manage Buyers",
+            value="Approve or remove players from your controlled-buyer list for restricted weapons.",
+            inline=False,
+        )
+        return embed
+
     @commands.hybrid_command(name="gunstore")
     @commands.has_permissions(administrator=True)
     @commands.cooldown(1, 5, commands.BucketType.user)
@@ -2029,6 +2077,7 @@ class GunstoreHub(commands.Cog, name="GunstoreHub"):
         if channel is None:
             await ctx.send("❌ Gun store hub channel not found.", ephemeral=True)
             return
+        await channel.send(embed=self._guide_embed())
         view = GunstoreMenuView()
         await channel.send(embed=self._panel_embed(), view=view)
         await ctx.send("✅ Gun Store panel posted.", ephemeral=True)

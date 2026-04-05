@@ -119,6 +119,64 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
             color=discord.Color.blue(),
         )
 
+    @staticmethod
+    def _guide_embed() -> discord.Embed:
+        embed = discord.Embed(
+            title="📘 Player Hub — How It Works",
+            description=(
+                "This is your one-stop panel for managing everything about your character. "
+                "Press any button below and the bot will respond privately — only you can see the replies.\n\n"
+                "**All responses auto-delete after 5 minutes** to keep the channel clean."
+            ),
+            color=discord.Color.blue(),
+        )
+        embed.add_field(
+            name="📦 View Inventory",
+            value="See all items your characters are carrying. If you have multiple characters you'll pick which one to view.",
+            inline=False,
+        )
+        embed.add_field(
+            name="💼 Manage Inventory",
+            value=(
+                "Opens a sub-menu where you can:\n"
+                "• **Sell to Player** — sell an item to another player for a price\n"
+                "• **Give Item** — transfer an item to another player for free\n"
+                "• **Sell to Store** — sell a gun back to a gun store"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🧑 Manage Characters",
+            value="Create a new character, view your existing ones, or deactivate/reactivate characters.",
+            inline=False,
+        )
+        embed.add_field(
+            name="🏢 Manage Businesses",
+            value="View the businesses you own and where you're employed.",
+            inline=False,
+        )
+        embed.add_field(
+            name="🏖️ Start LOA / 🔙 End LOA",
+            value="Toggle your Leave of Absence status. While on LOA your weekly dues are paused.",
+            inline=False,
+        )
+        embed.add_field(
+            name="📋 Attend",
+            value="Log your attendance during Sunday events (2–7 PM Pacific) or active special events to earn a cash reward.",
+            inline=False,
+        )
+        embed.add_field(
+            name="🏪 Open Shop",
+            value="If you own a business, log a shop opening during events to earn a payout based on your business tier.",
+            inline=False,
+        )
+        embed.add_field(
+            name="💸 View Due",
+            value="See a breakdown of your estimated monthly costs (cyberware maintenance, business fees, etc.).",
+            inline=False,
+        )
+        return embed
+
     @commands.hybrid_command(name="player")
     @commands.has_permissions(administrator=True)
     @commands.cooldown(1, 5, commands.BucketType.user)
@@ -128,6 +186,7 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
         if channel is None:
             await ctx.send("❌ Player hub channel not found.", ephemeral=True)
             return
+        await channel.send(embed=self._guide_embed())
         view = PlayerHubView()
         await channel.send(embed=self._panel_embed(), view=view)
         await ctx.send("✅ Player Hub panel posted.", ephemeral=True)

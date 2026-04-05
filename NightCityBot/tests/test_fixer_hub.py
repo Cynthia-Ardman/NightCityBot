@@ -138,9 +138,9 @@ class TestFixerCommand:
         ctx.message = MagicMock()
         ctx.message.delete = AsyncMock()
         _run(cog.fixer.callback(cog, ctx))
-        channel.send.assert_called_once()
-        kwargs = channel.send.call_args.kwargs
-        assert isinstance(kwargs["view"], FixerTopView)
+        assert channel.send.call_count == 2
+        panel_call = channel.send.call_args_list[1]
+        assert isinstance(panel_call.kwargs["view"], FixerTopView)
 
 
 class TestTopViewNavigation:

@@ -2455,6 +2455,49 @@ class FixerHubCog(commands.Cog, name="FixerHub"):
             color=discord.Color.dark_gold(),
         )
 
+    @staticmethod
+    def _guide_embed() -> discord.Embed:
+        embed = discord.Embed(
+            title="📘 Fixer Panel — How It Works",
+            description=(
+                "This panel is for Fixers to manage players, stores, and the wholesale market. "
+                "Pick a category below to open its sub-menu. "
+                "All responses are private and **auto-delete after 5 minutes**."
+            ),
+            color=discord.Color.dark_gold(),
+        )
+        embed.add_field(
+            name="👤 Player",
+            value=(
+                "Manage any player's inventory and status:\n"
+                "• **View Inventory** — look up a player's items\n"
+                "• **Add / Remove Item** — grant or delete items\n"
+                "• **Reassign Item** — transfer an item to a different owner or character\n"
+                "• **Start / End LOA** — toggle a player's Leave of Absence"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🏪 Store",
+            value=(
+                "Inspect player-owned stores:\n"
+                "• **View Gun Store** — browse a gun store's current stock\n"
+                "• **View Ripperdoc Store** — browse a ripperdoc's current stock"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🏭 Wholesaler",
+            value=(
+                "Control the wholesale supply that stores buy from:\n"
+                "• **View Stock** — see all gun and cyberware wholesale lots\n"
+                "• **Add / Remove Gun** — manage gun wholesale lots\n"
+                "• **Add / Remove Cyberware** — manage cyberware wholesale lots"
+            ),
+            inline=False,
+        )
+        return embed
+
     @commands.hybrid_command(name="fixer")
     @commands.has_permissions(administrator=True)
     @commands.cooldown(1, 5, commands.BucketType.user)
@@ -2464,6 +2507,7 @@ class FixerHubCog(commands.Cog, name="FixerHub"):
         if channel is None:
             await ctx.send("❌ Fixer hub channel not found.", ephemeral=True)
             return
+        await channel.send(embed=self._guide_embed())
         view = FixerTopView()
         await channel.send(embed=self._panel_embed(), view=view)
         await ctx.send("✅ Fixer panel posted.", ephemeral=True)
