@@ -287,6 +287,23 @@ class CyberwareShop(commands.Cog):
         return sorted(lots, key=lambda l: l["item_name"])
 
     @staticmethod
+    def _slot_ordered_lots(lots: list[dict]) -> list[dict]:
+        from NightCityBot.utils.constants import CW_SLOT_ORDER, CW_SLOT_DISPLAY_NAMES
+        buckets: dict[str, list[dict]] = {}
+        for lot in lots:
+            slot = (lot.get("slot") or "").strip().lower()
+            if slot not in CW_SLOT_DISPLAY_NAMES:
+                slot = "other"
+            buckets.setdefault(slot, []).append(lot)
+        ordered: list[dict] = []
+        for key in CW_SLOT_ORDER:
+            if key in buckets:
+                ordered.extend(sorted(buckets[key], key=lambda l: l["item_name"]))
+        if "other" in buckets:
+            ordered.extend(sorted(buckets["other"], key=lambda l: l["item_name"]))
+        return ordered
+
+    @staticmethod
     def _grouped_inventory(inventory: list[dict]) -> list[dict]:
         groups: dict[tuple, dict] = {}
         for item in inventory:
@@ -313,6 +330,25 @@ class CyberwareShop(commands.Cog):
             key=lambda g: (g["name"], str(g["price_paid"] or ""), g["date"]),
         )
 
+    @staticmethod
+    def _slot_ordered_groups(inventory: list[dict]) -> list[dict]:
+        from NightCityBot.utils.constants import CW_SLOT_ORDER, CW_SLOT_DISPLAY_NAMES
+        groups = CyberwareShop._grouped_inventory(inventory)
+        slot_buckets: dict[str, list[dict]] = {}
+        for g in groups:
+            sample = g["items"][0] if g.get("items") else {}
+            slot_raw = (sample.get("slot") or "").strip().lower()
+            if slot_raw not in CW_SLOT_DISPLAY_NAMES:
+                slot_raw = "other"
+            slot_buckets.setdefault(slot_raw, []).append(g)
+        ordered: list[dict] = []
+        for key in CW_SLOT_ORDER:
+            if key in slot_buckets:
+                ordered.extend(slot_buckets[key])
+        if "other" in slot_buckets:
+            ordered.extend(slot_buckets["other"])
+        return ordered
+
     @commands.command(name="cw_buy")
     @is_ripperdoc()
     async def cw_buy(self, ctx: commands.Context, lot_number: int, qty: int = 1) -> None:
@@ -332,7 +368,7 @@ class CyberwareShop(commands.Cog):
 
         state = await self._load_state()
         lots = state.get("cw_wholesale_lots", [])
-        all_ordered = self._sorted_lots(lots)
+        all_ordered = self._slot_ordered_lots(lots)
 
         if not all_ordered:
             await ctx.send(
@@ -392,7 +428,7 @@ class CyberwareShop(commands.Cog):
         async with self.lock:
             state = await self._load_state()
             lots2 = state.get("cw_wholesale_lots", [])
-            all2 = self._sorted_lots(lots2)
+            all2 = self._slot_ordered_lots(lots2)
 
             if lot_number < 1 or lot_number > len(all2):
                 await self.unbelievaboat.update_balance(
@@ -498,33 +534,29 @@ class CyberwareShop(commands.Cog):
             await ctx.send(f"📦 {name_str} cyberware inventory is empty.")
             return
 
-        from NightCityBot.utils.constants import CW_SLOT_ORDER, CW_SLOT_DISPLAY_NAMES
-        groups = self._grouped_inventory(inventory)
-        slot_buckets: dict[str, list] = {}
-        for g in groups:
+        from NightCityBot.utils.constants import CW_SLOT_DISPLAY_NAMES
+        ordered_groups = self._slot_ordered_groups(inventory)
+        current_slot = None
+        lines = []
+        row = 1
+        for g in ordered_groups:
             sample = g["items"][0] if g.get("items") else {}
             slot_raw = (sample.get("slot") or "").strip().lower()
             if slot_raw not in CW_SLOT_DISPLAY_NAMES:
                 slot_raw = "other"
-            slot_buckets.setdefault(slot_raw, []).append((g, sample))
-        ordered_keys = [k for k in CW_SLOT_ORDER if k in slot_buckets]
-        if "other" in slot_buckets:
-            ordered_keys.append("other")
-        lines = []
-        row = 1
-        for key in ordered_keys:
-            header = CW_SLOT_DISPLAY_NAMES.get(key, "Other")
-            lines.append(f"\n▬▬ {header} ▬▬")
-            for g, sample in slot_buckets[key]:
-                cwp = sample.get("cwp", "")
-                cwp_tag = f" — [CWP: {cwp}]" if cwp else ""
-                price = g["price_paid"]
-                count = g["count"]
-                date_str = g["date"] or "—"
-                price_str = f"${price:,}" if price else "—"
-                suffix = f" × {count}" if count > 1 else ""
-                lines.append(f"`{row}.` **{g['name']}**{cwp_tag}{suffix} — paid {price_str} ea. ({date_str})")
-                row += 1
+            if slot_raw != current_slot:
+                current_slot = slot_raw
+                header = CW_SLOT_DISPLAY_NAMES.get(slot_raw, "Other")
+                lines.append(f"\n▬▬ {header} ▬▬")
+            cwp = sample.get("cwp", "")
+            cwp_tag = f" — [CWP: {cwp}]" if cwp else ""
+            price = g["price_paid"]
+            count = g["count"]
+            date_str = g["date"] or "—"
+            price_str = f"${price:,}" if price else "—"
+            suffix = f" × {count}" if count > 1 else ""
+            lines.append(f"`{row}.` **{g['name']}**{cwp_tag}{suffix} — paid {price_str} ea. ({date_str})")
+            row += 1
 
         title = (
             "Your Cyberware Inventory"
@@ -578,7 +610,7 @@ class CyberwareShop(commands.Cog):
 
         # Pre-flight inventory check outside the lock (grouped rows)
         pre_inv = await self._load_inventory(ctx.author.id)
-        pre_groups = self._grouped_inventory(pre_inv)
+        pre_groups = self._slot_ordered_groups(pre_inv)
         if inv_number < 1 or inv_number > len(pre_groups):
             await ctx.send(
                 f"❌ Invalid row **{inv_number}**. Your inventory has {len(pre_groups)} group(s). "
@@ -588,7 +620,6 @@ class CyberwareShop(commands.Cog):
 
         pre_group = pre_groups[inv_number - 1]
         item_name = pre_group["name"]
-        # Tentative item for balance check (FIFO: first in group)
         inv_item = pre_group["items"][0]
         item_id = inv_item.get("item_id", str(uuid.uuid4()))
         price_paid_orig = inv_item.get("price_paid")
@@ -658,7 +689,7 @@ class CyberwareShop(commands.Cog):
 
         async with self._locks.acquire(str(ctx.author.id)):
             inventory = await self._load_inventory(ctx.author.id)
-            locked_groups = self._grouped_inventory(inventory)
+            locked_groups = self._slot_ordered_groups(inventory)
 
             if inv_number < 1 or inv_number > len(locked_groups):
                 logger.warning(
@@ -807,7 +838,7 @@ class CyberwareShop(commands.Cog):
             return
 
         pre_inv = await self._load_inventory(ctx.author.id)
-        pre_groups = self._grouped_inventory(pre_inv)
+        pre_groups = self._slot_ordered_groups(pre_inv)
         if inv_number < 1 or inv_number > len(pre_groups):
             await ctx.send(
                 f"❌ Invalid row **{inv_number}**. Your inventory has {len(pre_groups)} group(s). "
@@ -817,7 +848,7 @@ class CyberwareShop(commands.Cog):
 
         async with self._locks.acquire(str(ctx.author.id)):
             inventory = await self._load_inventory(ctx.author.id)
-            locked_groups = self._grouped_inventory(inventory)
+            locked_groups = self._slot_ordered_groups(inventory)
             if inv_number < 1 or inv_number > len(locked_groups):
                 await ctx.send(
                     "❌ Inventory changed while processing. Please try again."

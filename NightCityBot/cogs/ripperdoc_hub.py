@@ -86,7 +86,7 @@ async def _show_rd_stock(interaction, cw_cog, store, store_id, owner_id):
             "item_name": g["name"],
             "cwp": sample.get("cwp", ""),
             "slot": sample.get("slot", ""),
-            "unit_cost": 0,
+            "unit_cost": int(g.get("price_paid") or 0),
             "qty_available": g["count"],
         })
     lines = format_cw_lines_grouped(store_lots, max_items=30)
