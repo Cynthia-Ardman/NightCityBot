@@ -1574,7 +1574,7 @@ class _ManageBuyersView(SafeView):
             return
         ctx = PanelContext(interaction)
         view = _UnapproveCharacterView(cog, ctx, approved, store_id)
-        message = await send_ephemeral(interaction, 
+        view.message = await send_ephemeral(interaction, 
             "🚫 **Select a character to remove from your approved list:**", view=view, wait=True)
 
     @discord.ui.button(label="Approved Buyers", style=discord.ButtonStyle.secondary, emoji="📋", row=0)

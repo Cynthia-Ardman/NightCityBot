@@ -784,7 +784,8 @@ class TestItemHistoryViews:
             inter.data = {"values": ["uuid-1234"]}
             await view._on_select(inter)
             inter.response.defer.assert_called_once()
-            content = inter.followup.send.call_args.kwargs.get("content", "")
+            ca = inter.followup.send.call_args
+            content = ca.kwargs.get("content") or (ca.args[0] if ca.args else "")
             assert "no history" in content.lower()
         _run(run())
 

@@ -875,7 +875,9 @@ class TestWholesaleProcessFunctions:
             inter = _make_interaction()
             await _process_wh_remove_lot(cog, inter, "lot-g1", remove_qty=5)
             assert len(state["wholesale_lots"]) == 0
-            assert "Removed" in inter.followup.send.call_args.kwargs.get("content", "")
+            ca = inter.followup.send.call_args
+            msg = ca.kwargs.get("content") or (ca.args[0] if ca.args else "")
+            assert "Removed" in msg
         _run(_test())
 
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
@@ -895,7 +897,9 @@ class TestWholesaleProcessFunctions:
             await _process_wh_remove_lot(cog, inter, "lot-g2", remove_qty=2)
             assert len(state["wholesale_lots"]) == 1
             assert state["wholesale_lots"][0]["qty_available"] == 3
-            assert "Removed" in inter.followup.send.call_args.kwargs.get("content", "")
+            ca = inter.followup.send.call_args
+            msg = ca.kwargs.get("content") or (ca.args[0] if ca.args else "")
+            assert "Removed" in msg
         _run(_test())
 
     @patch("NightCityBot.cogs.fixer_hub._audit_channel", new_callable=AsyncMock, return_value=None)
@@ -933,7 +937,9 @@ class TestWholesaleProcessFunctions:
             inter = _make_interaction()
             await _process_wh_remove_lot(cog, inter, "lot-cw1", remove_qty=3)
             assert len(state["cw_wholesale_lots"]) == 0
-            assert "Kiroshi" in inter.followup.send.call_args.kwargs.get("content", "")
+            ca = inter.followup.send.call_args
+            msg = ca.kwargs.get("content") or (ca.args[0] if ca.args else "")
+            assert "Kiroshi" in msg
         _run(_test())
 
     def test_remove_lot_not_found(self):
@@ -945,7 +951,9 @@ class TestWholesaleProcessFunctions:
             cog.bot.cogs["GunsShopCog"] = guns_cog
             inter = _make_interaction()
             await _process_wh_remove_lot(cog, inter, "nope")
-            assert "not found" in inter.followup.send.call_args.kwargs.get("content", "")
+            ca = inter.followup.send.call_args
+            msg = ca.kwargs.get("content") or (ca.args[0] if ca.args else "")
+            assert "not found" in msg
         _run(_test())
 
     def test_add_gun_bad_input(self):
