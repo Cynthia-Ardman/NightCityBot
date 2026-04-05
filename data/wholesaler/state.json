@@ -1,121 +1,114 @@
 {
   "wholesale_lots": [
     {
-      "lot_id": "admin-20260404-623335",
-      "gun_name": "DR-5 Nova",
-      "gun_level": "H",
-      "unit_cost": 3000,
-      "qty_available": 2,
-      "restriction": "basic",
-      "weapon_type": "revolver"
-    },
-    {
-      "lot_id": "admin-20260404-01688a",
-      "gun_name": "Nowaki",
-      "gun_level": "M",
-      "unit_cost": 5000,
-      "qty_available": 2,
-      "restriction": "basic",
-      "weapon_type": "assault_rifle"
-    },
-    {
-      "lot_id": "admin-20260404-0f520d",
+      "lot_id": "admin-20260405-dd3373",
       "gun_name": "Tamayura",
       "gun_level": "M",
       "unit_cost": 1200,
-      "qty_available": 1,
+      "qty_available": 2,
       "restriction": "basic",
-      "weapon_type": "pistol"
+      "weapon_type": "pistol",
+      "gun_category": "Power"
     },
     {
-      "lot_id": "admin-20260404-4918b2",
-      "gun_name": "M2038 Tactician (6 pellets)",
-      "gun_level": "L",
-      "unit_cost": 4000,
-      "qty_available": 1,
-      "restriction": "basic",
-      "weapon_type": "shotgun"
-    },
-    {
-      "lot_id": "admin-20260404-ba20cb",
-      "gun_name": "M-10AF Lexington",
-      "gun_level": "L",
-      "unit_cost": 1000,
-      "qty_available": 1,
-      "restriction": "basic",
-      "weapon_type": "pistol"
-    },
-    {
-      "lot_id": "admin-20260404-8747bf",
+      "lot_id": "admin-20260405-ca12d6",
       "gun_name": "DB-2 Testera (6 pellets)",
       "gun_level": "L",
       "unit_cost": 2000,
       "qty_available": 1,
       "restriction": "basic",
-      "weapon_type": "shotgun"
+      "weapon_type": "shotgun",
+      "gun_category": "Power"
     },
     {
-      "lot_id": "admin-20260404-3ae5b1",
+      "lot_id": "admin-20260405-a312ab",
+      "gun_name": "M-10AF Lexington",
+      "gun_level": "L",
+      "unit_cost": 1000,
+      "qty_available": 2,
+      "restriction": "basic",
+      "weapon_type": "pistol",
+      "gun_category": "Power"
+    },
+    {
+      "lot_id": "admin-20260405-d15c34",
+      "gun_name": "M2038 Tactician (6 pellets)",
+      "gun_level": "L",
+      "unit_cost": 4000,
+      "qty_available": 1,
+      "restriction": "basic",
+      "weapon_type": "shotgun",
+      "gun_category": "Power"
+    },
+    {
+      "lot_id": "admin-20260405-2b94fb",
+      "gun_name": "DR-5 Nova",
+      "gun_level": "H",
+      "unit_cost": 3000,
+      "qty_available": 1,
+      "restriction": "basic",
+      "weapon_type": "revolver",
+      "gun_category": "Power"
+    },
+    {
+      "lot_id": "admin-20260405-cb4014",
       "gun_name": "Unity",
       "gun_level": "M",
       "unit_cost": 1500,
+      "qty_available": 1,
+      "restriction": "basic",
+      "weapon_type": "pistol",
+      "gun_category": "Power"
+    },
+    {
+      "lot_id": "admin-20260405-71529a",
+      "gun_name": "Nowaki",
+      "gun_level": "M",
+      "unit_cost": 5000,
       "qty_available": 2,
       "restriction": "basic",
-      "weapon_type": "pistol"
+      "weapon_type": "assault_rifle",
+      "gun_category": "Power"
     },
     {
-      "lot_id": "admin-20260404-2fbd06",
-      "gun_name": "M251s Ajax",
+      "lot_id": "admin-20260405-180b87",
+      "gun_name": "Nue",
       "gun_level": "M",
-      "unit_cost": 6000,
-      "qty_available": 1,
-      "restriction": "controlled",
-      "weapon_type": "assault_rifle"
+      "unit_cost": 1300,
+      "qty_available": 2,
+      "restriction": "basic",
+      "weapon_type": "pistol",
+      "gun_category": "Power"
     },
     {
-      "lot_id": "admin-20260404-b5f0ad",
+      "lot_id": "admin-20260405-c27985",
+      "gun_name": "Shigure",
+      "gun_level": "L",
+      "unit_cost": 5000,
+      "qty_available": 2,
+      "restriction": "controlled",
+      "weapon_type": "submachine_gun",
+      "gun_category": "Power"
+    },
+    {
+      "lot_id": "admin-20260405-fc6656",
       "gun_name": "Overture",
       "gun_level": "M",
       "unit_cost": 4000,
       "qty_available": 2,
       "restriction": "controlled",
-      "weapon_type": "revolver"
+      "weapon_type": "revolver",
+      "gun_category": "Power"
     },
     {
-      "lot_id": "admin-20260404-612af6",
+      "lot_id": "admin-20260405-bab92b",
       "gun_name": "M-179e Achilles",
       "gun_level": "H",
       "unit_cost": 90000,
       "qty_available": 1,
       "restriction": "restricted",
-      "weapon_type": "precision_rifle"
-    },
-    {
-      "lot_id": "fixer-20260404-096eec",
-      "gun_name": "test",
-      "gun_level": "L",
-      "unit_cost": 100,
-      "qty_available": 0,
-      "restriction": "controlled",
-      "weapon_type": ""
-    },
-    {
-      "lot_id": "fixer-20260404-7945be",
-      "gun_name": "test",
-      "gun_level": "L",
-      "unit_cost": 100,
-      "qty_available": 0,
-      "restriction": "restricted",
-      "weapon_type": ""
-    },
-    {
-      "lot_id": "fixer-20260404-a41038",
-      "gun_name": "test",
-      "gun_level": "L",
-      "unit_cost": 100,
-      "qty_available": 0,
-      "restriction": "basic",
-      "weapon_type": ""
+      "weapon_type": "precision_rifle",
+      "gun_category": "Tech"
     }
   ],
   "stores": {
@@ -134,9 +127,21 @@
     },
     "1348601552083882108:172847414791766016": {
       "owner_id": "172847414791766016",
-      "lots": [],
+      "lots": [
+        {
+          "lot_id": "fixer-20260405-62612a",
+          "gun_name": "M6 Fusion",
+          "gun_level": "M",
+          "unit_cost": 2000,
+          "restriction": "basic",
+          "weapon_type": "",
+          "gun_category": "Power",
+          "qty_remaining": 1
+        }
+      ],
       "employees": [],
-      "store_name": "Testing"
+      "store_name": "Liberty Arms",
+      "store_type": "standard"
     },
     "1348601552083882108:286338318076084226": {
       "owner_id": "286338318076084226",
@@ -156,7 +161,12 @@
       ],
       "store_name": "Shit my pants",
       "controlled_buyers": [
-        172847414791766016
+        172847414791766016,
+        {
+          "user_id": 286338318076084226,
+          "character_id": "b12025a9-a358-4070-a3f1-c6ac59001560",
+          "character_name": "Corpse"
+        }
       ]
     }
   },
@@ -203,7 +213,9 @@
       "light_machine_gun_H": 0,
       "light_machine_gun_L": 0,
       "light_machine_gun_M": 0
-    }
+    },
+    "last_auto_restock_week": "2026-W14",
+    "last_auto_restock_sunday": "2026-04-05"
   },
   "transactions": 0
 }

@@ -271,8 +271,16 @@ All hub commands (`!player`, `!fixer`, `!ripperdoc`, `!gunstore`, `!admin`, `!op
 - `@commands.max_concurrency(1, per=BucketType.user)` — prevents a user from running the same command concurrently
 - `@commands.cooldown(1, 5, BucketType.user)` — 5-second per-user cooldown
 
-### Error Isolation (`utils/interaction_safety.py`)
+### Error Isolation & Ephemeral Auto-Delete (`utils/interaction_safety.py`)
 `SafeView` base class provides `on_error` handler that logs the error and sends an ephemeral "something went wrong" message — preventing one user's error from crashing the UI for others. All View classes across all hub cogs and utility modules inherit from it. (Note: `SafeModal` was removed; there are no modals anywhere — all input is collected inline via `collect_text_input` from `inline_helpers.py`.)
+
+All ephemeral messages auto-delete after 5 minutes (300 seconds) via fire-and-forget asyncio tasks. Three helpers:
+- `schedule_ephemeral_delete(target, *, delay=300)` — core scheduler; accepts `WebhookMessage` (calls `.delete()`) or `Interaction` (calls `.delete_original_response()`). Silently ignores `NotFound`/`Forbidden`/`HTTPException`.
+- `send_ephemeral(interaction, content, **kwargs)` — wraps `followup.send(ephemeral=True)` + schedules auto-delete. Used across all cogs for followup ephemeral sends.
+- `respond_ephemeral(interaction, content, **kwargs)` — wraps `response.send_message(ephemeral=True)` + schedules auto-delete. Used across all cogs for initial response ephemeral sends.
+- `_safe_respond` and `safe_followup` also schedule auto-delete for ephemeral messages.
+
+Convention: **never** call `followup.send(ephemeral=True)` or `response.send_message(ephemeral=True)` directly in cog code. Always use `send_ephemeral()` / `respond_ephemeral()` to ensure auto-delete coverage. `defer(ephemeral=True)` and `ctx.send(ephemeral=True)` are NOT affected (defers don't send visible messages; ctx.send is for slash command responses).
 
 ### Inline Helpers (`utils/inline_helpers.py`)
 `collect_text_input(bot, channel_id, author_id)` — waits for a user's text message reply, auto-deletes it, supports cancel. Used by hub flows that replaced modals with inline text collection.

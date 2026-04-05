@@ -14,7 +14,7 @@ import discord
 from discord.ext import commands
 
 import config
-from NightCityBot.utils.interaction_safety import SafeView
+from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral
 from NightCityBot.utils import helpers
 from NightCityBot.utils.db import (
     pi_get_by_owner,
@@ -57,10 +57,10 @@ class AdminShopMenuView(SafeView):
             if guild:
                 member = guild.get_member(interaction.user.id)
         if member is None:
-            await interaction.response.send_message("Could not verify your role.", ephemeral=True)
+            await respond_ephemeral(interaction, "Could not verify your role.")
             return False
         if not (any(r.id == config.FIXER_ROLE_ID for r in member.roles) or member.guild_permissions.administrator):
-            await interaction.response.send_message("This panel is for Admins / Fixers only.", ephemeral=True)
+            await respond_ephemeral(interaction, "This panel is for Admins / Fixers only.")
             return False
         return True
 
@@ -70,11 +70,9 @@ class AdminShopMenuView(SafeView):
         cog = interaction.client.get_cog("AdminShop")
         ctx = PanelContext(interaction)
         view = ItemHistorySourceView(cog, ctx)
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             "📜 **Item History** — Where is the item?",
-            view=view,
-            ephemeral=True,
-        )
+            view=view)
 
     @discord.ui.button(label="Player Inventory", style=discord.ButtonStyle.secondary, emoji="📦", row=0, custom_id="admin_shop:player_inv")
     async def player_inv(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -82,7 +80,7 @@ class AdminShopMenuView(SafeView):
         cog = interaction.client.get_cog("AdminShop")
         ctx = PanelContext(interaction)
         view = PlayerInvPickerView(cog, ctx)
-        await interaction.followup.send("Select a player to view their inventory:", view=view, ephemeral=True)
+        await send_ephemeral(interaction, "Select a player to view their inventory:", view=view)
 
     @discord.ui.button(label="Wholesale Stock", style=discord.ButtonStyle.secondary, emoji="🏭", row=1, custom_id="admin_shop:wholesale_stock")
     async def wholesale_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -117,31 +115,29 @@ class AdminShopMenuView(SafeView):
             else:
                 lines.append("**💉 CW Wholesale:** Empty")
         if not lines:
-            await interaction.followup.send("No wholesale systems available.", ephemeral=True)
+            await send_ephemeral(interaction, "No wholesale systems available.")
             return
         embed = discord.Embed(
             title="🏭 Wholesale Stock Overview",
             description="\n".join(lines),
             color=discord.Color.orange(),
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await send_ephemeral(interaction, embed=embed)
 
     @discord.ui.button(label="Restock Gun Wholesale", style=discord.ButtonStyle.primary, emoji="📥", row=2, custom_id="admin_shop:restock_wholesale")
     async def restock_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("AdminShop")
         catalog = await gun_catalog_get_all()
         if not catalog:
-            await interaction.response.send_message("❌ Gun catalog is empty. Set a sheet and reload first.", ephemeral=True)
+            await respond_ephemeral(interaction, "❌ Gun catalog is empty. Set a sheet and reload first.")
             return
-        await interaction.response.send_message(
+        await respond_ephemeral(interaction, 
             f"📦 **Gun catalog has {len(catalog)} items.**\n"
             f"How many unique items to stock, and max qty per item?\n"
             f"Distribution: ~70% Basic, ~20% Controlled, ~10% Restricted\n"
             f"**Enter:** `total_items, max_qty`\n"
             f"Example: `10, 3` — stocks 10 random guns, up to 3 each\n"
-            f"Type `cancel` to abort.",
-            ephemeral=True,
-        )
+            f"Type `cancel` to abort.")
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
@@ -154,27 +150,23 @@ class AdminShopMenuView(SafeView):
         cog = interaction.client.get_cog("AdminShop")
         ctx = PanelContext(interaction)
         confirm_view = WholesaleClearConfirmView(cog, ctx, target="guns")
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             "⚠️ This will clear **all** gun wholesale lots. Are you sure?",
-            view=confirm_view,
-            ephemeral=True,
-        )
+            view=confirm_view)
 
     @discord.ui.button(label="Restock CW Wholesale", style=discord.ButtonStyle.primary, emoji="💉", row=3, custom_id="admin_shop:restock_cw")
     async def restock_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("AdminShop")
         catalog = await cw_catalog_get_all()
         if not catalog:
-            await interaction.response.send_message("❌ CW catalog is empty. Set a sheet and reload first.", ephemeral=True)
+            await respond_ephemeral(interaction, "❌ CW catalog is empty. Set a sheet and reload first.")
             return
-        await interaction.response.send_message(
+        await respond_ephemeral(interaction, 
             f"📦 **CW catalog has {len(catalog)} items.**\n"
             f"How many unique items to stock, and max qty per item?\n"
             f"**Enter:** `total_items, max_qty`\n"
             f"Example: `5, 3` — stocks 5 random items, up to 3 each\n"
-            f"Type `cancel` to abort.",
-            ephemeral=True,
-        )
+            f"Type `cancel` to abort.")
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
@@ -187,18 +179,16 @@ class AdminShopMenuView(SafeView):
         cog = interaction.client.get_cog("AdminShop")
         ctx = PanelContext(interaction)
         confirm_view = WholesaleClearConfirmView(cog, ctx, target="cw")
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             "⚠️ This will clear **all** cyberware wholesale lots. Are you sure?",
-            view=confirm_view,
-            ephemeral=True,
-        )
+            view=confirm_view)
 
     @discord.ui.button(label="Set Gun Sheet", style=discord.ButtonStyle.secondary, emoji="🔫", row=4, custom_id="admin_shop:set_gun_sheet")
     async def set_gun_sheet(self, interaction: discord.Interaction, button: discord.ui.Button):
         logger.info("set_gun_sheet: clicked by %s", interaction.user.id)
         guns_cog = interaction.client.get_cog("GunsShopCog")
         if not guns_cog:
-            await interaction.response.send_message("Gun shop system unavailable.", ephemeral=True)
+            await respond_ephemeral(interaction, "Gun shop system unavailable.")
             return
         try:
             state = await guns_cog._load_state()
@@ -210,7 +200,7 @@ class AdminShopMenuView(SafeView):
         if current:
             prompt += f"\nCurrent: `{current[:80]}{'…' if len(current) > 80 else ''}`"
         prompt += "\nType `cancel` to abort."
-        await interaction.response.send_message(prompt, ephemeral=True)
+        await respond_ephemeral(interaction, prompt)
         logger.info("set_gun_sheet: prompt shown, waiting for text input in channel %s", interaction.channel_id)
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
@@ -232,7 +222,7 @@ class AdminShopMenuView(SafeView):
         logger.info("set_cw_sheet: clicked by %s", interaction.user.id)
         cw_cog = interaction.client.get_cog("CyberwareShop")
         if not cw_cog:
-            await interaction.response.send_message("Cyberware system unavailable.", ephemeral=True)
+            await respond_ephemeral(interaction, "Cyberware system unavailable.")
             return
         try:
             state = await cw_cog._load_state()
@@ -244,7 +234,7 @@ class AdminShopMenuView(SafeView):
         if current:
             prompt += f"\nCurrent: `{current[:80]}{'…' if len(current) > 80 else ''}`"
         prompt += "\nType `cancel` to abort."
-        await interaction.response.send_message(prompt, ephemeral=True)
+        await respond_ephemeral(interaction, prompt)
         logger.info("set_cw_sheet: prompt shown, waiting for text input in channel %s", interaction.channel_id)
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
@@ -303,7 +293,7 @@ class AdminShopMenuView(SafeView):
                 results.append(f"💉 CW catalog reload failed: {e}")
         else:
             results.append("💉 Cyberware system unavailable")
-        await interaction.followup.send("\n".join(results), ephemeral=True)
+        await send_ephemeral(interaction, "\n".join(results))
 
 
 class PlayerInvPickerView(SafeView):
@@ -314,7 +304,7 @@ class PlayerInvPickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -323,12 +313,12 @@ class PlayerInvPickerView(SafeView):
         user = select.values[0] if select.values else None
         member = await _resolve_user_select(self.ctx, user)
         if not member:
-            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            await respond_ephemeral(interaction, "Could not resolve member.")
             return
         await interaction.response.defer(ephemeral=True)
         items = await pi_get_by_owner(str(member.id))
         if not items:
-            await interaction.followup.send(f"{member.display_name} has no items.", ephemeral=True)
+            await send_ephemeral(interaction, f"{member.display_name} has no items.")
             return
         lines = []
         for i, item in enumerate(items[:30], 1):
@@ -343,7 +333,7 @@ class PlayerInvPickerView(SafeView):
             color=discord.Color.blue(),
         )
         embed.set_footer(text=f"{len(items)} item(s) total")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await send_ephemeral(interaction, embed=embed)
 
 
 class ItemHistorySourceView(SafeView):
@@ -354,7 +344,7 @@ class ItemHistorySourceView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -385,7 +375,7 @@ class ItemHistoryPlayerPickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -394,12 +384,12 @@ class ItemHistoryPlayerPickerView(SafeView):
         user = select.values[0] if select.values else None
         member = await _resolve_user_select(self.ctx, user)
         if not member:
-            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            await respond_ephemeral(interaction, "Could not resolve member.")
             return
         await interaction.response.defer(ephemeral=True)
         items = await pi_get_by_owner(str(member.id))
         if not items:
-            await interaction.followup.send(f"{member.display_name} has no items.", ephemeral=True)
+            await send_ephemeral(interaction, f"{member.display_name} has no items.")
             return
         options = []
         for item in items[:25]:
@@ -426,7 +416,7 @@ class ItemHistoryStorePickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -435,7 +425,7 @@ class ItemHistoryStorePickerView(SafeView):
         user = select.values[0] if select.values else None
         owner = await _resolve_user_select(self.ctx, user)
         if not owner:
-            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            await respond_ephemeral(interaction, "Could not resolve member.")
             return
         await interaction.response.defer(ephemeral=True)
         guild = self.ctx.guild
@@ -464,9 +454,8 @@ class ItemHistoryStorePickerView(SafeView):
                     desc = f"${int(item.get('price_paid', 0) or 0):,}"[:100]
                     options.append(discord.SelectOption(label=label, value=iid, description=desc))
         if not options:
-            await interaction.followup.send(
-                f"{owner.display_name}'s stores are empty.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"{owner.display_name}'s stores are empty.")
             return
         options = options[:25]
         self.stop()
@@ -493,7 +482,7 @@ class ItemHistoryItemPickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -506,7 +495,7 @@ class ItemHistoryItemPickerView(SafeView):
 async def _inline_item_history(cog, interaction, item_id):
     history = await ih_get_history(item_id, limit=50)
     if not history:
-        await interaction.followup.send(content=f"No history for `{item_id}`.", ephemeral=True)
+        await send_ephemeral(interaction, content=f"No history for `{item_id}`.")
         return
     lines = []
     for entry in history:
@@ -530,9 +519,8 @@ async def _inline_item_history(cog, interaction, item_id):
         color=discord.Color.greyple(),
     )
     embed.set_footer(text=f"{len(history)} event(s)")
-    await interaction.followup.send(
-        embed=embed, ephemeral=True,
-    )
+    await send_ephemeral(interaction, 
+        embed=embed)
 
 
 def _pick_guns_by_restriction(catalog, total_items):
@@ -708,7 +696,7 @@ class WholesaleClearConfirmView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 

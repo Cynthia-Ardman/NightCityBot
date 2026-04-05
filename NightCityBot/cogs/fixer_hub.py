@@ -12,7 +12,7 @@ import discord
 from discord.ext import commands
 
 import config
-from NightCityBot.utils.interaction_safety import SafeView
+from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral
 from NightCityBot.utils.db import (
     pi_add_item,
     pi_get_item,
@@ -71,10 +71,10 @@ class FixerTopView(SafeView):
             if guild:
                 member = guild.get_member(interaction.user.id)
         if member is None:
-            await interaction.response.send_message("Could not verify your role.", ephemeral=True)
+            await respond_ephemeral(interaction, "Could not verify your role.")
             return False
         if not (any(r.id == config.FIXER_ROLE_ID for r in member.roles) or member.guild_permissions.administrator):
-            await interaction.response.send_message("This panel is for Fixers only.", ephemeral=True)
+            await respond_ephemeral(interaction, "This panel is for Fixers only.")
             return False
         return True
 
@@ -95,7 +95,7 @@ class FixerTopView(SafeView):
             ),
             color=discord.Color.blue(),
         )
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await respond_ephemeral(interaction, embed=embed, view=view)
 
     @discord.ui.button(label="Store", style=discord.ButtonStyle.primary, emoji="🏪", row=0, custom_id="fixer:store_menu")
     async def store_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -110,7 +110,7 @@ class FixerTopView(SafeView):
             ),
             color=discord.Color.green(),
         )
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await respond_ephemeral(interaction, embed=embed, view=view)
 
     @discord.ui.button(label="Wholesaler", style=discord.ButtonStyle.primary, emoji="🏭", row=0, custom_id="fixer:wholesaler_menu")
     async def wholesaler_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -128,7 +128,7 @@ class FixerTopView(SafeView):
             ),
             color=discord.Color.orange(),
         )
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await respond_ephemeral(interaction, embed=embed, view=view)
 
 
 class PlayerSubView(SafeView):
@@ -140,7 +140,7 @@ class PlayerSubView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -148,45 +148,41 @@ class PlayerSubView(SafeView):
     async def view_inventory(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         view = PlayerInvPickerView(self.cog, self.ctx)
-        await interaction.followup.send("Select a player to view their inventory:", view=view, ephemeral=True)
+        await send_ephemeral(interaction, "Select a player to view their inventory:", view=view)
 
     @discord.ui.button(label="Add Item", style=discord.ButtonStyle.primary, emoji="➕", row=0)
     async def add_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         view = PlayerAddItemPickerView(self.cog, self.ctx)
-        await interaction.followup.send("**Step 1** — Select the player to add an item to:", view=view, ephemeral=True)
+        await send_ephemeral(interaction, "**Step 1** — Select the player to add an item to:", view=view)
 
     @discord.ui.button(label="Remove Item", style=discord.ButtonStyle.danger, emoji="🗑️", row=0)
     async def remove_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         view = PlayerRemoveItemView(self.cog, self.ctx)
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             "**Remove Item** — Select the player, then enter the item UUID:",
-            view=view,
-            ephemeral=True,
-        )
+            view=view)
 
     @discord.ui.button(label="Reassign Item", style=discord.ButtonStyle.secondary, emoji="✏️", row=1)
     async def reassign_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         view = ReassignSourcePickerView(self.cog, self.ctx)
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             "✏️ **Reassign Item — Step 1** — Select the player who currently owns the item:",
-            view=view,
-            ephemeral=True,
-        )
+            view=view)
 
     @discord.ui.button(label="Start LOA", style=discord.ButtonStyle.success, emoji="🏖️", row=1)
     async def start_loa(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         view = LOAPickerView(self.cog, self.ctx, action="start")
-        await interaction.followup.send("Select a player to put on LOA:", view=view, ephemeral=True)
+        await send_ephemeral(interaction, "Select a player to put on LOA:", view=view)
 
     @discord.ui.button(label="End LOA", style=discord.ButtonStyle.danger, emoji="🔚", row=1)
     async def end_loa(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         view = LOAPickerView(self.cog, self.ctx, action="end")
-        await interaction.followup.send("Select a player to take off LOA:", view=view, ephemeral=True)
+        await send_ephemeral(interaction, "Select a player to take off LOA:", view=view)
 
 
 GUN_STORE_OWNER_ROLE_ID = config.GUN_STORE_OWNER_ROLE_ID
@@ -202,7 +198,7 @@ class StoreSubView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -211,7 +207,7 @@ class StoreSubView(SafeView):
         await interaction.response.defer(ephemeral=True)
         guild = self.ctx.guild
         if not guild:
-            await interaction.followup.send("Must be used in a server.", ephemeral=True)
+            await send_ephemeral(interaction, "Must be used in a server.")
             return
         guns_cog = self.cog.bot.cogs.get("GunsShopCog")
         state = await guns_cog._load_state() if guns_cog else {}
@@ -239,19 +235,18 @@ class StoreSubView(SafeView):
             if len(options) >= 25:
                 break
         if not options:
-            await interaction.followup.send("No gun stores found.", ephemeral=True)
+            await send_ephemeral(interaction, "No gun stores found.")
             return
         view = StoreOwnerPickerView(self.cog, self.ctx, options, store_type="gun")
-        await interaction.followup.send(
-            "🔫 **Gun Store** — Select a store:", view=view, ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            "🔫 **Gun Store** — Select a store:", view=view)
 
     @discord.ui.button(label="View Ripperdoc Store", style=discord.ButtonStyle.secondary, emoji="💉", row=0)
     async def view_ripperdoc_store(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         guild = self.ctx.guild
         if not guild:
-            await interaction.followup.send("Must be used in a server.", ephemeral=True)
+            await send_ephemeral(interaction, "Must be used in a server.")
             return
         cw_cog = interaction.client.get_cog("CyberwareShop")
         rd_stores = {}
@@ -260,7 +255,7 @@ class StoreSubView(SafeView):
             rd_stores = state.get("ripperdoc_stores", {})
         role = guild.get_role(RIPPERDOC_ROLE_ID)
         if not role or not role.members:
-            await interaction.followup.send("No Ripperdocs found.", ephemeral=True)
+            await send_ephemeral(interaction, "No Ripperdocs found.")
             return
         options = []
         guild_prefix = f"rd:{guild.id}:"
@@ -275,12 +270,11 @@ class StoreSubView(SafeView):
             options.append(discord.SelectOption(label=store_name[:100], value=str(m.id),
                                                description=m.display_name[:100]))
         if not options:
-            await interaction.followup.send("No Ripperdoc stores found. Ripperdocs must set up a store first.", ephemeral=True)
+            await send_ephemeral(interaction, "No Ripperdoc stores found. Ripperdocs must set up a store first.")
             return
         view = StoreOwnerPickerView(self.cog, self.ctx, options, store_type="cw")
-        await interaction.followup.send(
-            "💉 **Ripperdoc Store** — Select a Ripperdoc:", view=view, ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            "💉 **Ripperdoc Store** — Select a Ripperdoc:", view=view)
 
 
 class WholesalerSubView(SafeView):
@@ -292,7 +286,7 @@ class WholesalerSubView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -333,19 +327,19 @@ class WholesalerSubView(SafeView):
             else:
                 lines.append("**💉 Cyberware Wholesale:** Empty")
         if not lines:
-            await interaction.followup.send("No wholesale systems available.", ephemeral=True)
+            await send_ephemeral(interaction, "No wholesale systems available.")
             return
         embed = discord.Embed(
             title="🏭 Wholesale Stock Overview",
             description="\n".join(lines),
             color=discord.Color.orange(),
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await send_ephemeral(interaction, embed=embed)
 
     @discord.ui.button(label="Add Gun", style=discord.ButtonStyle.primary, emoji="🔫", row=1)
     async def add_gun(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        msg = await interaction.followup.send(
+        msg = await send_ephemeral(interaction, 
             "📝 **Enter gun wholesale details** in this format:\n"
             "`gun name, quantity, unit cost, restriction, power level, type`\n"
             "Example: `Militech Mk.31, 10, 5000, basic, medium, power`\n"
@@ -353,9 +347,7 @@ class WholesalerSubView(SafeView):
             "• **Power Level:** low / medium / high\n"
             "• **Type:** power / smart / tech\n"
             "Type `cancel` to abort.",
-            ephemeral=True,
-            wait=True,
-        )
+            wait=True)
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await msg.edit(content="⏰ Timed out or cancelled.")
@@ -365,16 +357,14 @@ class WholesalerSubView(SafeView):
     @discord.ui.button(label="Add Cyberware", style=discord.ButtonStyle.primary, emoji="💉", row=1)
     async def add_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        msg = await interaction.followup.send(
+        msg = await send_ephemeral(interaction, 
             "📝 **Enter cyberware wholesale details** in this format:\n"
             "`cyberware name, quantity, unit cost, cwp, slot`\n"
             "Example: `Neural Link, 10, 5000, 14, neural`\n"
             "• **CWP:** Cyberware Power (integer)\n"
             "• **Slot:** " + ", ".join(sorted(VALID_CW_SLOTS)) + "\n"
             "Type `cancel` to abort.",
-            ephemeral=True,
-            wait=True,
-        )
+            wait=True)
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
             await msg.edit(content="⏰ Timed out or cancelled.")
@@ -386,13 +376,13 @@ class WholesalerSubView(SafeView):
         await interaction.response.defer(ephemeral=True)
         guns_cog = self.cog.bot.cogs.get("GunsShopCog")
         if not guns_cog:
-            await interaction.followup.send("Gun shop system not loaded.", ephemeral=True)
+            await send_ephemeral(interaction, "Gun shop system not loaded.")
             return
         state = await guns_cog._load_state()
         lots = state.get("wholesale_lots", [])
         available = [l for l in lots if int(l.get("qty_available", 0)) > 0]
         if not available:
-            await interaction.followup.send("🔫 Gun wholesale is empty — nothing to remove.", ephemeral=True)
+            await send_ephemeral(interaction, "🔫 Gun wholesale is empty — nothing to remove.")
             return
         options = []
         for lot in available[:25]:
@@ -404,24 +394,22 @@ class WholesalerSubView(SafeView):
             desc = f"×{lot['qty_available']} — ${int(lot.get('unit_cost', 0)):,}"[:100]
             options.append(discord.SelectOption(label=label, value=lid, description=desc))
         view = WHRemoveGunPickerView(self.cog, self.ctx, options)
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             "🔫 **Remove Gun Lot** — Select the lot to remove:",
-            view=view,
-            ephemeral=True,
-        )
+            view=view)
 
     @discord.ui.button(label="Remove Cyberware", style=discord.ButtonStyle.danger, emoji="💉", row=2)
     async def remove_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cw_cog = self.cog.bot.cogs.get("CyberwareShop")
         if not cw_cog:
-            await interaction.followup.send("Cyberware shop system not loaded.", ephemeral=True)
+            await send_ephemeral(interaction, "Cyberware shop system not loaded.")
             return
         state = await cw_cog._load_state()
         lots = state.get("cw_wholesale_lots", [])
         available = [l for l in lots if int(l.get("qty_available", 0)) > 0]
         if not available:
-            await interaction.followup.send("💉 Cyberware wholesale is empty — nothing to remove.", ephemeral=True)
+            await send_ephemeral(interaction, "💉 Cyberware wholesale is empty — nothing to remove.")
             return
         options = []
         for lot in available[:25]:
@@ -431,11 +419,9 @@ class WholesalerSubView(SafeView):
             desc = f"×{lot['qty_available']} — ${int(lot.get('unit_cost', 0)):,}"[:100]
             options.append(discord.SelectOption(label=label, value=lid, description=desc))
         view = WHRemoveCWPickerView(self.cog, self.ctx, options)
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             "💉 **Remove Cyberware Lot** — Select the lot to remove:",
-            view=view,
-            ephemeral=True,
-        )
+            view=view)
 
 
 class ReassignSourcePickerView(SafeView):
@@ -448,25 +434,24 @@ class ReassignSourcePickerView(SafeView):
     async def source_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         raw_user = select.values[0] if select.values else None
         if raw_user is None:
-            await interaction.response.send_message("Please select a player.", ephemeral=True)
+            await respond_ephemeral(interaction, "Please select a player.")
             return
         guild = self.ctx.guild
         if not guild:
-            await interaction.response.send_message("Must be used in server.", ephemeral=True)
+            await respond_ephemeral(interaction, "Must be used in server.")
             return
         member = raw_user if isinstance(raw_user, discord.Member) else guild.get_member(raw_user.id)
         if member is None:
             try:
                 member = await guild.fetch_member(raw_user.id)
             except Exception:
-                await interaction.response.send_message("Could not find that member.", ephemeral=True)
+                await respond_ephemeral(interaction, "Could not find that member.")
                 return
         await interaction.response.defer(ephemeral=True)
         items = await pi_get_by_owner(str(member.id))
         if not items:
-            await interaction.followup.send(
-                f"{member.display_name} has no items to reassign.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"{member.display_name} has no items to reassign.")
             return
         options = []
         for item in items[:25]:
@@ -477,11 +462,9 @@ class ReassignSourcePickerView(SafeView):
             desc = f"Character: {char}"[:100]
             options.append(discord.SelectOption(label=label, value=iid, description=desc))
         view = ReassignItemPickerView(self.cog, self.ctx, member, items[:25])
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             f"✏️ **Step 2** — Select the item from **{member.display_name}**:",
-            view=view,
-            ephemeral=True,
-        )
+            view=view)
         self.stop()
 
 
@@ -508,14 +491,12 @@ class ReassignItemPickerView(SafeView):
         item_id = interaction.data["values"][0]
         item = self.items_map.get(item_id)
         if not item:
-            await interaction.response.send_message("Item not found.", ephemeral=True)
+            await respond_ephemeral(interaction, "Item not found.")
             return
         view = ReassignDestPickerView(self.cog, self.ctx, self.source_owner, item)
-        await interaction.response.send_message(
+        await respond_ephemeral(interaction, 
             f"✏️ **Step 3** — Select the new owner for **{item.get('name', '?')}**:",
-            view=view,
-            ephemeral=True,
-        )
+            view=view)
         self.stop()
 
 
@@ -531,34 +512,31 @@ class ReassignDestPickerView(SafeView):
     async def dest_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         raw_user = select.values[0] if select.values else None
         if raw_user is None:
-            await interaction.response.send_message("Please select a player.", ephemeral=True)
+            await respond_ephemeral(interaction, "Please select a player.")
             return
         guild = self.ctx.guild
         if not guild:
-            await interaction.response.send_message("Must be used in server.", ephemeral=True)
+            await respond_ephemeral(interaction, "Must be used in server.")
             return
         member = raw_user if isinstance(raw_user, discord.Member) else guild.get_member(raw_user.id)
         if member is None:
             try:
                 member = await guild.fetch_member(raw_user.id)
             except Exception:
-                await interaction.response.send_message("Could not find that member.", ephemeral=True)
+                await respond_ephemeral(interaction, "Could not find that member.")
                 return
         await interaction.response.defer(ephemeral=True)
         chars = await get_active_characters(str(member.id))
         if not chars:
-            await interaction.followup.send(
-                f"{member.display_name} has no active characters.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"{member.display_name} has no active characters.")
             return
         view = ReassignCharPickerView(
             self.cog, self.ctx, self.source_owner, self.item, member, chars[:25]
         )
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             f"✏️ **Step 4** — Select the character on **{member.display_name}** to receive the item:",
-            view=view,
-            ephemeral=True,
-        )
+            view=view)
         self.stop()
 
 
@@ -590,9 +568,8 @@ class ReassignCharPickerView(SafeView):
 
         char_record = await get_character_by_name(str(self.dest_owner.id), new_char_name)
         if char_record and not await ensure_character_active(char_record["character_id"]):
-            await interaction.followup.send(
-                f"❌ Character **{new_char_name}** is not active.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"❌ Character **{new_char_name}** is not active.")
             return
 
         new_char_id = char_record["character_id"] if char_record else None
@@ -601,7 +578,7 @@ class ReassignCharPickerView(SafeView):
         else:
             ok = await pi_update_owner(item_id, str(self.dest_owner.id), new_char_name, old_owner_id, new_character_id=new_char_id)
         if not ok:
-            await interaction.followup.send("Failed to reassign item.", ephemeral=True)
+            await send_ephemeral(interaction, "Failed to reassign item.")
             return
 
         await ih_record_event(
@@ -615,11 +592,9 @@ class ReassignCharPickerView(SafeView):
                 "new_character": new_char_name,
             },
         )
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             f"✅ Reassigned **{item_name}** from {self.source_owner.display_name} "
-            f"to {self.dest_owner.display_name} — {new_char_name}.",
-            ephemeral=True,
-        )
+            f"to {self.dest_owner.display_name} — {new_char_name}.")
         log_ch = await _audit_channel(self.cog.bot)
         if log_ch:
             embed = discord.Embed(
@@ -641,7 +616,7 @@ async def _process_wh_add_gun(cog, interaction, text, msg=None):
         if msg:
             await msg.edit(content=content)
         else:
-            await interaction.followup.send(content, ephemeral=True)
+            await send_ephemeral(interaction, content)
 
     guns_cog = cog.bot.cogs.get("GunsShopCog")
     if not guns_cog:
@@ -759,7 +734,7 @@ async def _process_wh_add_cw(cog, interaction, text, msg=None):
         if msg:
             await msg.edit(content=content)
         else:
-            await interaction.followup.send(content, ephemeral=True)
+            await send_ephemeral(interaction, content)
 
     cw_cog = cog.bot.cogs.get("CyberwareShop")
     if not cw_cog:
@@ -860,7 +835,7 @@ async def _process_wh_remove_lot(cog, interaction, lot_id, remove_qty=None):
             found_in = "cw"
 
     if not found_in:
-        await interaction.followup.send(content=f"Lot `{lot_id}` not found in either wholesale.", ephemeral=True)
+        await send_ephemeral(interaction, content=f"Lot `{lot_id}` not found in either wholesale.")
         return
 
     current_qty = int(lot.get("qty_available", 0))
@@ -872,23 +847,19 @@ async def _process_wh_remove_lot(cog, interaction, lot_id, remove_qty=None):
                 lbl = f"All ({i})" if i == current_qty else str(i)
                 options.append(discord.SelectOption(label=lbl, value=f"{lot_id}:{i}"))
             view = WHRemoveQtyPickerView(cog, interaction.user.id, options)
-            await interaction.followup.send(
+            await send_ephemeral(interaction, 
                 f"**{item_name}** has **{current_qty}** in stock. How many to remove?",
-                view=view,
-                ephemeral=True,
-            )
+                view=view)
         else:
-            await interaction.followup.send(
+            await send_ephemeral(interaction, 
                 f"**{item_name}** has **{current_qty}** in stock.\n"
                 f"Enter the quantity to remove (1–{current_qty}), or `all` to remove everything.\n"
-                "Type `cancel` to abort.",
-                ephemeral=True,
-            )
+                "Type `cancel` to abort.")
             text = await collect_text_input(
                 interaction.client, interaction.channel_id, interaction.user.id
             )
             if text is None:
-                await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+                await send_ephemeral(interaction, "⏰ Timed out or cancelled.")
                 return
             text = text.strip().lower()
             if text == "all":
@@ -897,12 +868,11 @@ async def _process_wh_remove_lot(cog, interaction, lot_id, remove_qty=None):
                 try:
                     remove_qty = int(text)
                 except ValueError:
-                    await interaction.followup.send("❌ Invalid number.", ephemeral=True)
+                    await send_ephemeral(interaction, "❌ Invalid number.")
                     return
                 if remove_qty < 1 or remove_qty > current_qty:
-                    await interaction.followup.send(
-                        f"❌ Must be between 1 and {current_qty}.", ephemeral=True
-                    )
+                    await send_ephemeral(interaction, 
+                        f"❌ Must be between 1 and {current_qty}.")
                     return
             await _process_wh_remove_lot(cog, interaction, lot_id, remove_qty=remove_qty)
         return
@@ -916,7 +886,7 @@ async def _process_wh_remove_lot(cog, interaction, lot_id, remove_qty=None):
             lots = state.get("wholesale_lots", [])
             lot = next((l for l in lots if l.get("lot_id") == lot_id), None)
             if not lot:
-                await interaction.followup.send(content="Lot disappeared.", ephemeral=True)
+                await send_ephemeral(interaction, content="Lot disappeared.")
                 return
             item_name = lot.get("gun_name", "?")
             available = int(lot.get("qty_available", 0))
@@ -932,7 +902,7 @@ async def _process_wh_remove_lot(cog, interaction, lot_id, remove_qty=None):
             lots = state.get("cw_wholesale_lots", [])
             lot = next((l for l in lots if l.get("lot_id") == lot_id), None)
             if not lot:
-                await interaction.followup.send(content="Lot disappeared.", ephemeral=True)
+                await send_ephemeral(interaction, content="Lot disappeared.")
                 return
             item_name = lot.get("item_name", "?")
             available = int(lot.get("qty_available", 0))
@@ -944,10 +914,8 @@ async def _process_wh_remove_lot(cog, interaction, lot_id, remove_qty=None):
             await cw_cog._save_state(state)
 
     label = "Gun" if found_in == "gun" else "CW"
-    await interaction.followup.send(
-        content=f"Removed **{item_name}** ×{removed} from {label} wholesale.",
-        ephemeral=True,
-    )
+    await send_ephemeral(interaction, 
+        content=f"Removed **{item_name}** ×{removed} from {label} wholesale.")
     log_ch = await _audit_channel(cog.bot)
     if log_ch:
         embed = discord.Embed(
@@ -970,7 +938,7 @@ class PlayerInvPickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -979,12 +947,12 @@ class PlayerInvPickerView(SafeView):
         user = select.values[0] if select.values else None
         member = await _resolve_user_select(self.ctx, user)
         if not member:
-            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            await respond_ephemeral(interaction, "Could not resolve member.")
             return
         await interaction.response.defer(ephemeral=True)
         items = await pi_get_by_owner(str(member.id))
         if not items:
-            await interaction.followup.send(f"{member.display_name} has no items.", ephemeral=True)
+            await send_ephemeral(interaction, f"{member.display_name} has no items.")
             return
         lines = []
         for i, item in enumerate(items[:30], 1):
@@ -999,7 +967,7 @@ class PlayerInvPickerView(SafeView):
             color=discord.Color.blue(),
         )
         embed.set_footer(text=f"{len(items)} item(s) total")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await send_ephemeral(interaction, embed=embed)
 
 
 class PlayerAddItemPickerView(SafeView):
@@ -1013,7 +981,7 @@ class PlayerAddItemPickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1022,17 +990,15 @@ class PlayerAddItemPickerView(SafeView):
         user = select.values[0] if select.values else None
         member = await _resolve_user_select(self.ctx, user)
         if not member:
-            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            await respond_ephemeral(interaction, "Could not resolve member.")
             return
         self.selected_player = member
         self.selected_character = None
         characters = await get_active_characters(str(member.id))
         if not characters:
-            await interaction.response.send_message(
+            await respond_ephemeral(interaction, 
                 f"❌ {member.display_name} has no active characters. "
-                "They must create a character before receiving items.",
-                ephemeral=True,
-            )
+                "They must create a character before receiving items.")
             self.selected_player = None
             return
         if self._character_select is not None:
@@ -1070,24 +1036,22 @@ class PlayerAddItemPickerView(SafeView):
                 view=self,
             )
         else:
-            await interaction.response.send_message("Character not found.", ephemeral=True)
+            await respond_ephemeral(interaction, "Character not found.")
 
     @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=2)
     async def continue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.selected_player is None:
-            await interaction.response.send_message("Please select a player first.", ephemeral=True)
+            await respond_ephemeral(interaction, "Please select a player first.")
             return
         if self.selected_character is None:
-            await interaction.response.send_message("Please select a character.", ephemeral=True)
+            await respond_ephemeral(interaction, "Please select a character.")
             return
         await interaction.response.defer(ephemeral=True)
         if not await ensure_character_active(self.selected_character["character_id"]):
-            await interaction.followup.send(
-                f"❌ Character **{self.selected_character['name']}** is no longer active.",
-                ephemeral=True,
-            )
+            await send_ephemeral(interaction, 
+                f"❌ Character **{self.selected_character['name']}** is no longer active.")
             return
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             "📝 **Enter item details** in this format:\n"
             "`item name, type, quantity, cost, restriction`\n\n"
             "**For guns:** `name, gun, qty, cost, restriction, power_level, type, gun_class`\n"
@@ -1098,12 +1062,10 @@ class PlayerAddItemPickerView(SafeView):
             "Example: `Kerenzikov, cyberware, 1, 3000, basic, 14, Neural`\n\n"
             "**For other items:** `name, type, qty, cost`\n"
             "Available types: **gun**, **cyberware**, **gear**, **misc** (default)\n"
-            "Type and price are optional (defaults: `misc`, no price). Type `cancel` to abort.",
-            ephemeral=True,
-        )
+            "Type and price are optional (defaults: `misc`, no price). Type `cancel` to abort.")
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await send_ephemeral(interaction, "⏰ Timed out or cancelled.")
             self.stop()
             return
         await _process_fixer_add_item(
@@ -1158,22 +1120,21 @@ class _ConfirmItemView(SafeView):
 async def _process_fixer_add_item(cog, interaction, player, character, text):
     guild = interaction.guild
     if not guild:
-        await interaction.followup.send("Must be used in server.", ephemeral=True)
+        await send_ephemeral(interaction, "Must be used in server.")
         return
     char_name = character.get("name", "")
     character_id = character.get("character_id")
     if not char_name:
-        await interaction.followup.send("Character selection required.", ephemeral=True)
+        await send_ephemeral(interaction, "Character selection required.")
         return
     if character_id and not await ensure_character_active(character_id):
-        await interaction.followup.send(
-            f"❌ Character **{char_name}** is no longer active.", ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            f"❌ Character **{char_name}** is no longer active.")
         return
     parts = [p.strip() for p in text.split(",")]
     name = parts[0] if parts else ""
     if not name:
-        await interaction.followup.send("❌ Item name is required.", ephemeral=True)
+        await send_ephemeral(interaction, "❌ Item name is required.")
         return
     item_type = parts[1].lower() if len(parts) > 1 and parts[1] else "misc"
     qty = 1
@@ -1204,34 +1165,26 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
     gun_class_val = None
     if item_type == "gun":
         if len(parts) < 8:
-            await interaction.followup.send(
+            await send_ephemeral(interaction, 
                 "❌ Gun items require: `name, gun, quantity, cost, restriction, power_level, type, gun_class`\n"
                 "power_level: low/medium/high — type: power/smart/tech\n"
-                "gun_class: pistol, revolver, shotgun, assault_rifle, etc.",
-                ephemeral=True,
-            )
+                "gun_class: pistol, revolver, shotgun, assault_rifle, etc.")
             return
         pl_raw = parts[5].strip().lower()
         type_raw = parts[6].strip().lower()
         gc_raw = parts[7].strip().lower().replace(" ", "_")
         if pl_raw not in VALID_GUN_POWER_LEVELS:
-            await interaction.followup.send(
-                f"❌ Invalid power_level `{pl_raw}`. Must be one of: low, medium, high.",
-                ephemeral=True,
-            )
+            await send_ephemeral(interaction, 
+                f"❌ Invalid power_level `{pl_raw}`. Must be one of: low, medium, high.")
             return
         if type_raw not in VALID_GUN_TYPES:
-            await interaction.followup.send(
-                f"❌ Invalid gun type `{type_raw}`. Must be one of: power, smart, tech.",
-                ephemeral=True,
-            )
+            await send_ephemeral(interaction, 
+                f"❌ Invalid gun type `{type_raw}`. Must be one of: power, smart, tech.")
             return
         if gc_raw not in VALID_GUN_CLASSES:
             gun_class_list = ", ".join(sorted(VALID_GUN_CLASSES))
-            await interaction.followup.send(
-                f"❌ Invalid gun class `{gc_raw}`. Must be one of: {gun_class_list}.",
-                ephemeral=True,
-            )
+            await send_ephemeral(interaction, 
+                f"❌ Invalid gun class `{gc_raw}`. Must be one of: {gun_class_list}.")
             return
         power_level = pl_raw
         weapon_subtype = type_raw
@@ -1239,27 +1192,21 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
 
     elif item_type == "cyberware":
         if len(parts) < 7:
-            await interaction.followup.send(
+            await send_ephemeral(interaction, 
                 "❌ Cyberware items require: `name, cyberware, quantity, cost, restriction, cwp, slot`\n"
-                "cwp: integer — slot: one of the valid body locations",
-                ephemeral=True,
-            )
+                "cwp: integer — slot: one of the valid body locations")
             return
         try:
             cwp_val = str(int(parts[5].strip()))
         except ValueError:
-            await interaction.followup.send(
-                f"❌ Invalid CWP `{parts[5].strip()}`. Must be an integer.",
-                ephemeral=True,
-            )
+            await send_ephemeral(interaction, 
+                f"❌ Invalid CWP `{parts[5].strip()}`. Must be an integer.")
             return
         slot_raw = parts[6].strip().lower()
         if slot_raw not in VALID_CW_SLOTS:
-            await interaction.followup.send(
+            await send_ephemeral(interaction, 
                 f"❌ Invalid slot `{parts[6].strip()}`. Valid slots:\n"
-                + "\n".join(f"• {s.title()}" for s in sorted(VALID_CW_SLOTS)),
-                ephemeral=True,
-            )
+                + "\n".join(f"• {s.title()}" for s in sorted(VALID_CW_SLOTS)))
             return
         slot_val = parts[6].strip()
 
@@ -1275,23 +1222,21 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
                 view=confirm_view,
             )
         except (discord.Forbidden, discord.HTTPException):
-            await interaction.followup.send(
-                f"Cannot DM {player.display_name}. They may have DMs disabled.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"Cannot DM {player.display_name}. They may have DMs disabled.")
             return
-        await interaction.followup.send(
-            f"Confirmation sent to {player.display_name} via DM. Waiting…", ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            f"Confirmation sent to {player.display_name} via DM. Waiting…")
         await confirm_view.wait()
         if confirm_view.result is None:
             try:
                 await dm_msg.edit(content="⏰ Confirmation timed out — transaction cancelled.", view=None)
             except Exception:
                 pass
-            await interaction.followup.send("⏰ Player did not respond in time. Item not added.", ephemeral=True)
+            await send_ephemeral(interaction, "⏰ Player did not respond in time. Item not added.")
             return
         if confirm_view.result is False:
-            await interaction.followup.send("❌ Player declined the transaction. Item not added.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Player declined the transaction. Item not added.")
             return
         try:
             await dm_msg.edit(view=None)
@@ -1299,18 +1244,17 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
             pass
         ub = getattr(cog.bot, "unbelievaboat", None)
         if ub is None:
-            await interaction.followup.send("❌ Economy system unavailable.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Economy system unavailable.")
             return
         balance = await ub.get_balance(player.id)
         if balance is None:
-            await interaction.followup.send("❌ Could not fetch player balance.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Could not fetch player balance.")
             return
         cash = int(balance.get("cash", 0))
         bank = int(balance.get("bank", 0))
         if cash + bank < total_cost:
-            await interaction.followup.send(
-                f"❌ Player cannot afford ${total_cost:,} (has ${cash + bank:,}).", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"❌ Player cannot afford ${total_cost:,} (has ${cash + bank:,}).")
             return
         cash_deducted = min(max(cash, 0), total_cost)
         bank_deducted = max(0, total_cost - cash_deducted)
@@ -1319,7 +1263,7 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
             reason=f"Fixer add-item: {name} x{qty}"
         )
         if not ok_deduct:
-            await interaction.followup.send("❌ Failed to deduct funds. Item not added.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Failed to deduct funds. Item not added.")
             return
 
     added = 0
@@ -1412,16 +1356,12 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
         embed.set_footer(text="NightCityBot Audit Log")
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
     if added < qty and price is not None and price > 0:
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             f"⚠️ Added **{name}** ×{added}/{qty} to {player.display_name}'s inventory ({char_name}). "
-            f"Payment was deducted but not all items were saved. Contact an admin for reconciliation.",
-            ephemeral=True,
-        )
+            f"Payment was deducted but not all items were saved. Contact an admin for reconciliation.")
     else:
-        await interaction.followup.send(
-            f"Added **{name}** ×{added} to {player.display_name}'s inventory ({char_name}).",
-            ephemeral=True,
-        )
+        await send_ephemeral(interaction, 
+            f"Added **{name}** ×{added} to {player.display_name}'s inventory ({char_name}).")
 
 
 class PlayerRemoveItemView(SafeView):
@@ -1433,7 +1373,7 @@ class PlayerRemoveItemView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1442,23 +1382,22 @@ class PlayerRemoveItemView(SafeView):
         user = select.values[0] if select.values else None
         member = await _resolve_user_select(self.ctx, user)
         if not member:
-            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            await respond_ephemeral(interaction, "Could not resolve member.")
             return
         self.selected_player = member
-        await interaction.response.send_message(f"Player: **{member.display_name}** ✓", ephemeral=True)
+        await respond_ephemeral(interaction, f"Player: **{member.display_name}** ✓")
 
     @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=1)
     async def continue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.selected_player is None:
-            await interaction.response.send_message("Please select a player first.", ephemeral=True)
+            await respond_ephemeral(interaction, "Please select a player first.")
             return
         await interaction.response.defer(ephemeral=True)
         player = self.selected_player
         items = await pi_get_by_owner(str(player.id))
         if not items:
-            await interaction.followup.send(
-                f"{player.display_name} has no items.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"{player.display_name} has no items.")
             return
         grouped: dict[str, list[dict]] = {}
         for item in items:
@@ -1483,10 +1422,9 @@ class PlayerRemoveItemView(SafeView):
             self.cog, self.ctx, player, grouped,
         )
         step2.item_dropdown.options = options
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             f"**{player.display_name}**'s inventory — select the item to remove:",
-            view=step2, ephemeral=True,
-        )
+            view=step2)
         self.stop()
 
 
@@ -1502,7 +1440,7 @@ class RemoveItemPickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1513,24 +1451,21 @@ class RemoveItemPickerView(SafeView):
         count = len(group)
         if count > 1:
             await interaction.response.defer(ephemeral=True)
-            await interaction.followup.send(
+            await send_ephemeral(interaction, 
                 f"**{self.selected_name}** — this player owns **{count}**. "
-                f"How many to remove? (1-{count}, or type `cancel`):",
-                ephemeral=True,
-            )
+                f"How many to remove? (1-{count}, or type `cancel`):")
             text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
             if text is None:
-                await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+                await send_ephemeral(interaction, "⏰ Timed out or cancelled.")
                 return
             try:
                 qty = int(text.strip())
             except ValueError:
-                await interaction.followup.send("Invalid number.", ephemeral=True)
+                await send_ephemeral(interaction, "Invalid number.")
                 return
             if qty < 1 or qty > count:
-                await interaction.followup.send(
-                    f"Quantity must be between 1 and {count}.", ephemeral=True
-                )
+                await send_ephemeral(interaction, 
+                    f"Quantity must be between 1 and {count}.")
                 return
         else:
             qty = 1
@@ -1556,12 +1491,10 @@ class RemoveItemPickerView(SafeView):
                     metadata={"item_name": self.selected_name},
                 )
         count_str = f"×{removed}" if removed > 1 else ""
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             f"Removed **{self.selected_name}** {count_str} from {self.player.display_name}."
             if removed > 0
-            else f"Failed to remove **{self.selected_name}**.",
-            ephemeral=True,
-        )
+            else f"Failed to remove **{self.selected_name}**.")
         log_ch = await _audit_channel(self.cog.bot)
         if log_ch and removed > 0:
             embed = discord.Embed(
@@ -1590,7 +1523,7 @@ class LOAPickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1599,50 +1532,46 @@ class LOAPickerView(SafeView):
         user = select.values[0] if select.values else None
         member = await _resolve_user_select(self.ctx, user)
         if not member:
-            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            await respond_ephemeral(interaction, "Could not resolve member.")
             return
         await interaction.response.defer(ephemeral=True)
         loa_cog = self.cog.bot.get_cog("LOA")
         if not loa_cog:
-            await interaction.followup.send("LOA system unavailable.", ephemeral=True)
+            await send_ephemeral(interaction, "LOA system unavailable.")
             return
         guild = self.ctx.guild
         if not guild:
-            await interaction.followup.send("Must be used in server.", ephemeral=True)
+            await send_ephemeral(interaction, "Must be used in server.")
             return
         loa_role = loa_cog.get_loa_role(guild)
         if loa_role is None:
-            await interaction.followup.send("⚠️ LOA role is not configured.", ephemeral=True)
+            await send_ephemeral(interaction, "⚠️ LOA role is not configured.")
             return
         has_role = any(r.id == loa_role.id for r in member.roles)
         if self.action == "start":
             if has_role:
-                await interaction.followup.send(
-                    f"{member.display_name} is already on LOA.", ephemeral=True
-                )
+                await send_ephemeral(interaction, 
+                    f"{member.display_name} is already on LOA.")
                 return
             try:
                 await member.add_roles(loa_role, reason=f"LOA start by {interaction.user}")
             except (discord.Forbidden, discord.HTTPException) as e:
-                await interaction.followup.send(f"❌ Could not assign LOA role: {e}", ephemeral=True)
+                await send_ephemeral(interaction, f"❌ Could not assign LOA role: {e}")
                 return
-            await interaction.followup.send(
-                f"✅ {member.display_name} is now on LOA.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"✅ {member.display_name} is now on LOA.")
         else:
             if not has_role:
-                await interaction.followup.send(
-                    f"{member.display_name} is not currently on LOA.", ephemeral=True
-                )
+                await send_ephemeral(interaction, 
+                    f"{member.display_name} is not currently on LOA.")
                 return
             try:
                 await member.remove_roles(loa_role, reason=f"LOA end by {interaction.user}")
             except (discord.Forbidden, discord.HTTPException) as e:
-                await interaction.followup.send(f"❌ Could not remove LOA role: {e}", ephemeral=True)
+                await send_ephemeral(interaction, f"❌ Could not remove LOA role: {e}")
                 return
-            await interaction.followup.send(
-                f"✅ {member.display_name}'s LOA has ended.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"✅ {member.display_name}'s LOA has ended.")
         self.stop()
 
 
@@ -1661,7 +1590,7 @@ class WHRemoveGunPickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1686,7 +1615,7 @@ class WHRemoveCWPickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1711,7 +1640,7 @@ class WHRemoveQtyPickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1731,7 +1660,7 @@ class FixerItemHistorySourceView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1762,7 +1691,7 @@ class FixerItemHistoryPlayerPickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1771,12 +1700,12 @@ class FixerItemHistoryPlayerPickerView(SafeView):
         user = select.values[0] if select.values else None
         member = await _resolve_user_select(self.ctx, user)
         if not member:
-            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            await respond_ephemeral(interaction, "Could not resolve member.")
             return
         await interaction.response.defer(ephemeral=True)
         items = await pi_get_by_owner(str(member.id))
         if not items:
-            await interaction.followup.send(f"{member.display_name} has no items.", ephemeral=True)
+            await send_ephemeral(interaction, f"{member.display_name} has no items.")
             return
         options = []
         for item in items[:25]:
@@ -1803,7 +1732,7 @@ class FixerItemHistoryStorePickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1812,7 +1741,7 @@ class FixerItemHistoryStorePickerView(SafeView):
         user = select.values[0] if select.values else None
         owner = await _resolve_user_select(self.ctx, user)
         if not owner:
-            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            await respond_ephemeral(interaction, "Could not resolve member.")
             return
         await interaction.response.defer(ephemeral=True)
         guild = self.ctx.guild
@@ -1846,9 +1775,8 @@ class FixerItemHistoryStorePickerView(SafeView):
                     desc = f"${int(item.get('price_paid', 0) or 0):,}"[:100]
                     options.append(discord.SelectOption(label=label, value=iid, description=desc))
         if not options:
-            await interaction.followup.send(
-                f"{owner.display_name}'s stores are empty.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"{owner.display_name}'s stores are empty.")
             return
         options = options[:25]
         self.stop()
@@ -1875,7 +1803,7 @@ class FixerItemHistoryItemPickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1884,7 +1812,7 @@ class FixerItemHistoryItemPickerView(SafeView):
         await interaction.response.defer(ephemeral=True)
         history = await ih_get_history(item_id, limit=50)
         if not history:
-            await interaction.followup.send(f"No history for this item.", ephemeral=True)
+            await send_ephemeral(interaction, f"No history for this item.")
             return
         lines = []
         for entry in history:
@@ -1908,7 +1836,7 @@ class FixerItemHistoryItemPickerView(SafeView):
             color=discord.Color.greyple(),
         )
         embed.set_footer(text=f"{len(history)} event(s)")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await send_ephemeral(interaction, embed=embed)
 
 
 class StoreOwnerPickerView(SafeView):
@@ -1927,7 +1855,7 @@ class StoreOwnerPickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1936,14 +1864,14 @@ class StoreOwnerPickerView(SafeView):
         guild = self.ctx.guild
         owner = guild.get_member(owner_id) if guild else None
         if not owner:
-            await interaction.response.send_message("Could not resolve member.", ephemeral=True)
+            await respond_ephemeral(interaction, "Could not resolve member.")
             return
         await interaction.response.defer(ephemeral=True)
 
         if self.store_type == "gun":
             guns_cog = self.cog.bot.cogs.get("GunsShopCog")
             if not guns_cog:
-                await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+                await send_ephemeral(interaction, "Gun shop system unavailable.")
                 return
             state = await guns_cog._load_state()
             store_id = guns_cog._store_id(guild.id, owner.id)
@@ -1979,7 +1907,7 @@ class StoreOwnerPickerView(SafeView):
         else:
             cw_cog = self.cog.bot.cogs.get("CyberwareShop")
             if not cw_cog:
-                await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+                await send_ephemeral(interaction, "Cyberware system unavailable.")
                 return
             state = await cw_cog._load_state()
             rd_stores = state.get("ripperdoc_stores", {})
@@ -2015,7 +1943,7 @@ class StoreOwnerPickerView(SafeView):
                 )
 
         action_view = StoreActionView(self.cog, self.ctx, owner, self.store_type)
-        await interaction.followup.send(embed=embed, view=action_view, ephemeral=True)
+        await send_ephemeral(interaction, embed=embed, view=action_view)
 
 
 class StoreActionView(SafeView):
@@ -2028,7 +1956,7 @@ class StoreActionView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -2036,34 +1964,30 @@ class StoreActionView(SafeView):
     async def add_item(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         if self.store_type == "gun":
-            await interaction.followup.send(
+            await send_ephemeral(interaction, 
                 f"📝 **Add to {self.owner.display_name}'s Gun Store**\n"
                 "Enter: `gun name, quantity, unit cost, restriction, power level, type`\n"
                 "Example: `Militech Mk.31, 5, 5000, basic, medium, power`\n"
                 "• **Restriction:** basic / controlled / restricted\n"
                 "• **Power Level:** low / medium / high\n"
                 "• **Type:** power / smart / tech\n"
-                "Type `cancel` to abort.",
-                ephemeral=True,
-            )
+                "Type `cancel` to abort.")
             text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
             if text is None:
-                await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+                await send_ephemeral(interaction, "⏰ Timed out or cancelled.")
                 return
             await _process_store_add_gun(self.cog, interaction, self.owner, text)
         else:
-            await interaction.followup.send(
+            await send_ephemeral(interaction, 
                 f"📝 **Add to {self.owner.display_name}'s Ripperdoc Store**\n"
                 "Enter: `cyberware name, quantity, unit cost, cwp, slot`\n"
                 "Example: `Kiroshi Optics, 3, 8000, 14, ocular system`\n"
                 "• **CWP:** Cyberware Power (integer)\n"
                 "• **Slot:** " + ", ".join(sorted(VALID_CW_SLOTS)) + "\n"
-                "Type `cancel` to abort.",
-                ephemeral=True,
-            )
+                "Type `cancel` to abort.")
             text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
             if text is None:
-                await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+                await send_ephemeral(interaction, "⏰ Timed out or cancelled.")
                 return
             await _process_store_add_cw(self.cog, interaction, self.owner, text)
 
@@ -2074,7 +1998,7 @@ class StoreActionView(SafeView):
         if self.store_type == "gun":
             guns_cog = self.cog.bot.cogs.get("GunsShopCog")
             if not guns_cog:
-                await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+                await send_ephemeral(interaction, "Gun shop system unavailable.")
                 return
             state = await guns_cog._load_state()
             store_id = guns_cog._store_id(guild.id, self.owner.id)
@@ -2083,10 +2007,8 @@ class StoreActionView(SafeView):
                 if l.get("qty_remaining", 0) > 0
             ]
             if not lots:
-                await interaction.followup.send(
-                    f"{self.owner.display_name}'s gun store is empty — nothing to remove.",
-                    ephemeral=True,
-                )
+                await send_ephemeral(interaction, 
+                    f"{self.owner.display_name}'s gun store is empty — nothing to remove.")
                 return
             options = []
             for lot in lots[:25]:
@@ -2100,22 +2022,18 @@ class StoreActionView(SafeView):
             view = StoreRemoveLotPickerView(
                 self.cog, self.ctx, self.owner, options, store_type="gun"
             )
-            await interaction.followup.send(
+            await send_ephemeral(interaction, 
                 f"🗑️ **Remove from {self.owner.display_name}'s Gun Store** — Select the lot:",
-                view=view,
-                ephemeral=True,
-            )
+                view=view)
         else:
             cw_cog = self.cog.bot.cogs.get("CyberwareShop")
             if not cw_cog:
-                await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+                await send_ephemeral(interaction, "Cyberware system unavailable.")
                 return
             inventory = await cw_cog._load_inventory(self.owner.id)
             if not inventory:
-                await interaction.followup.send(
-                    f"{self.owner.display_name}'s Ripperdoc stock is empty — nothing to remove.",
-                    ephemeral=True,
-                )
+                await send_ephemeral(interaction, 
+                    f"{self.owner.display_name}'s Ripperdoc stock is empty — nothing to remove.")
                 return
             seen = set()
             options = []
@@ -2131,11 +2049,9 @@ class StoreActionView(SafeView):
             view = StoreRemoveLotPickerView(
                 self.cog, self.ctx, self.owner, options, store_type="cw"
             )
-            await interaction.followup.send(
+            await send_ephemeral(interaction, 
                 f"🗑️ **Remove from {self.owner.display_name}'s Ripperdoc Store** — Select the item:",
-                view=view,
-                ephemeral=True,
-            )
+                view=view)
 
 
 class StoreRemoveLotPickerView(SafeView):
@@ -2155,7 +2071,7 @@ class StoreRemoveLotPickerView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -2172,93 +2088,83 @@ class StoreRemoveLotPickerView(SafeView):
 async def _process_store_add_gun(cog, interaction, owner, text):
     guild = interaction.guild
     if not guild:
-        await interaction.followup.send("Must be used in server.", ephemeral=True)
+        await send_ephemeral(interaction, "Must be used in server.")
         return
     guns_cog = cog.bot.cogs.get("GunsShopCog")
     if not guns_cog:
-        await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+        await send_ephemeral(interaction, "Gun shop system unavailable.")
         return
     parts = [p.strip() for p in text.split(",")]
     if len(parts) < 3:
-        await interaction.followup.send("❌ Need at least: `gun name, quantity, unit cost`", ephemeral=True)
+        await send_ephemeral(interaction, "❌ Need at least: `gun name, quantity, unit cost`")
         return
     gun_name = parts[0]
     try:
         qty = int(parts[1])
         cost = int(parts[2])
     except ValueError:
-        await interaction.followup.send("Quantity and cost must be numbers.", ephemeral=True)
+        await send_ephemeral(interaction, "Quantity and cost must be numbers.")
         return
     if qty < 1 or cost < 0:
-        await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
+        await send_ephemeral(interaction, "Invalid quantity or cost.")
         return
     restriction = parts[3].strip().lower() if len(parts) > 3 else ""
     while restriction not in ("basic", "controlled", "restricted"):
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             f"Got: **{gun_name}** ×{qty} at ${cost:,} — now enter the restriction level:\n"
             "`basic`, `controlled`, or `restricted`\n"
-            "Type `cancel` to abort.",
-            ephemeral=True,
-        )
+            "Type `cancel` to abort.")
         r_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if r_text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await send_ephemeral(interaction, "⏰ Timed out or cancelled.")
             return
         restriction = r_text.strip().lower()
         if restriction not in ("basic", "controlled", "restricted"):
-            await interaction.followup.send(
-                "❌ Invalid restriction. Must be `basic`, `controlled`, or `restricted`. Try again.",
-                ephemeral=True,
-            )
+            await send_ephemeral(interaction, 
+                "❌ Invalid restriction. Must be `basic`, `controlled`, or `restricted`. Try again.")
     pl_map = {"low": "L", "medium": "M", "high": "H"}
     power_level = parts[4].strip().lower() if len(parts) > 4 else ""
     while power_level not in VALID_GUN_POWER_LEVELS:
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             f"Got: **{gun_name}** ×{qty} at ${cost:,} [{restriction}] — now enter the **power level**:\n"
             "`low`, `medium`, or `high`\n"
-            "Type `cancel` to abort.",
-            ephemeral=True,
-        )
+            "Type `cancel` to abort.")
         pl_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if pl_text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await send_ephemeral(interaction, "⏰ Timed out or cancelled.")
             return
         power_level = pl_text.strip().lower()
         if power_level not in VALID_GUN_POWER_LEVELS:
-            await interaction.followup.send("❌ Invalid power level. Must be `low`, `medium`, or `high`. Try again.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Invalid power level. Must be `low`, `medium`, or `high`. Try again.")
     gun_level = pl_map[power_level]
     gun_type = parts[5].strip().lower() if len(parts) > 5 else ""
     while gun_type not in VALID_GUN_TYPES:
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             f"Got: **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}] — now enter the **weapon type**:\n"
             "`power`, `smart`, or `tech`\n"
-            "Type `cancel` to abort.",
-            ephemeral=True,
-        )
+            "Type `cancel` to abort.")
         wt_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if wt_text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await send_ephemeral(interaction, "⏰ Timed out or cancelled.")
             return
         gun_type = wt_text.strip().lower()
         if gun_type not in VALID_GUN_TYPES:
-            await interaction.followup.send("❌ Invalid weapon type. Must be `power`, `smart`, or `tech`. Try again.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Invalid weapon type. Must be `power`, `smart`, or `tech`. Try again.")
     gun_category = gun_type.title()
     gun_class = parts[6].strip().lower().replace(" ", "_") if len(parts) > 6 else ""
     gun_class_list = ", ".join(f"`{c}`" for c in sorted(VALID_GUN_CLASSES))
     while gun_class not in VALID_GUN_CLASSES:
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             f"Got: **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}/{gun_category}] — now enter the **gun class**:\n"
             f"{gun_class_list}\n"
-            "Type `cancel` to abort.",
-            ephemeral=True,
-        )
+            "Type `cancel` to abort.")
         gc_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if gc_text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await send_ephemeral(interaction, "⏰ Timed out or cancelled.")
             return
         gun_class = gc_text.strip().lower().replace(" ", "_")
         if gun_class not in VALID_GUN_CLASSES:
-            await interaction.followup.send(f"❌ Invalid gun class. Valid options: {gun_class_list}. Try again.", ephemeral=True)
+            await send_ephemeral(interaction, f"❌ Invalid gun class. Valid options: {gun_class_list}. Try again.")
 
     total_cost = cost * qty
     cash_deducted = 0
@@ -2271,23 +2177,21 @@ async def _process_store_add_gun(cog, interaction, owner, text):
                 view=confirm_view,
             )
         except (discord.Forbidden, discord.HTTPException):
-            await interaction.followup.send(
-                f"Cannot DM {owner.display_name}. They may have DMs disabled.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"Cannot DM {owner.display_name}. They may have DMs disabled.")
             return
-        await interaction.followup.send(
-            f"Confirmation sent to {owner.display_name} via DM. Waiting…", ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            f"Confirmation sent to {owner.display_name} via DM. Waiting…")
         await confirm_view.wait()
         if confirm_view.result is None:
             try:
                 await dm_msg.edit(content="⏰ Confirmation timed out — cancelled.", view=None)
             except Exception:
                 pass
-            await interaction.followup.send("⏰ Store owner did not respond. Item not added.", ephemeral=True)
+            await send_ephemeral(interaction, "⏰ Store owner did not respond. Item not added.")
             return
         if confirm_view.result is False:
-            await interaction.followup.send("❌ Store owner declined. Item not added.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Store owner declined. Item not added.")
             return
         try:
             await dm_msg.edit(view=None)
@@ -2295,18 +2199,17 @@ async def _process_store_add_gun(cog, interaction, owner, text):
             pass
         ub = getattr(cog.bot, "unbelievaboat", None)
         if ub is None:
-            await interaction.followup.send("❌ Economy system unavailable.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Economy system unavailable.")
             return
         balance = await ub.get_balance(owner.id)
         if balance is None:
-            await interaction.followup.send("❌ Could not fetch store owner's balance.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Could not fetch store owner's balance.")
             return
         cash = int(balance.get("cash", 0))
         bank = int(balance.get("bank", 0))
         if cash + bank < total_cost:
-            await interaction.followup.send(
-                f"❌ Store owner cannot afford ${total_cost:,} (has ${cash + bank:,}).", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"❌ Store owner cannot afford ${total_cost:,} (has ${cash + bank:,}).")
             return
         cash_deducted = min(max(cash, 0), total_cost)
         bank_deducted = max(0, total_cost - cash_deducted)
@@ -2315,7 +2218,7 @@ async def _process_store_add_gun(cog, interaction, owner, text):
             reason=f"Fixer store-add gun: {gun_name} x{qty}"
         )
         if not ok_deduct:
-            await interaction.followup.send("❌ Failed to deduct funds. Item not added.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Failed to deduct funds. Item not added.")
             return
 
     async with guns_cog.lock:
@@ -2341,74 +2244,67 @@ async def _process_store_add_gun(cog, interaction, owner, text):
                 owner.id, {"cash": cash_deducted, "bank": bank_deducted},
                 reason=f"Fixer store-add gun refund: save failed for {gun_name} x{qty}"
             )
-        await interaction.followup.send(
-            f"❌ Failed to save store inventory. Funds have been refunded.", ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            f"❌ Failed to save store inventory. Funds have been refunded.")
         return
-    await interaction.followup.send(
-        f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}/{gun_category}] ({GUN_CLASS_DISPLAY_NAMES.get(gun_class, gun_class)}) to {owner.display_name}'s store.",
-        ephemeral=True,
-    )
+    await send_ephemeral(interaction, 
+        f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}/{gun_category}] ({GUN_CLASS_DISPLAY_NAMES.get(gun_class, gun_class)}) to {owner.display_name}'s store.")
 
 
 async def _process_store_add_cw(cog, interaction, owner, text):
     guild = interaction.guild
     if not guild:
-        await interaction.followup.send("Must be used in server.", ephemeral=True)
+        await send_ephemeral(interaction, "Must be used in server.")
         return
     cw_cog = cog.bot.cogs.get("CyberwareShop")
     if not cw_cog:
-        await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+        await send_ephemeral(interaction, "Cyberware system unavailable.")
         return
     parts = [p.strip() for p in text.split(",")]
     if len(parts) < 3:
-        await interaction.followup.send("❌ Need at least: `cyberware name, quantity, unit cost`", ephemeral=True)
+        await send_ephemeral(interaction, "❌ Need at least: `cyberware name, quantity, unit cost`")
         return
     item_name = parts[0]
     try:
         qty = int(parts[1])
         cost = int(parts[2])
     except ValueError:
-        await interaction.followup.send("Quantity and cost must be numbers.", ephemeral=True)
+        await send_ephemeral(interaction, "Quantity and cost must be numbers.")
         return
     if qty < 1 or cost < 0:
-        await interaction.followup.send("Invalid quantity or cost.", ephemeral=True)
+        await send_ephemeral(interaction, "Invalid quantity or cost.")
         return
     cwp_raw = parts[3].strip() if len(parts) > 3 else ""
     while True:
         if cwp_raw == "":
-            await interaction.followup.send(
+            await send_ephemeral(interaction, 
                 f"Got: **{item_name}** ×{qty} at ${cost:,} — now enter the **CWP** (integer):\n"
-                "Type `cancel` to abort.",
-                ephemeral=True,
-            )
+                "Type `cancel` to abort.")
             cwp_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
             if cwp_text is None:
-                await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+                await send_ephemeral(interaction, "⏰ Timed out or cancelled.")
                 return
             cwp_raw = cwp_text.strip()
         try:
             cwp = int(cwp_raw)
             break
         except ValueError:
-            await interaction.followup.send("❌ CWP must be an integer. Try again.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ CWP must be an integer. Try again.")
             cwp_raw = ""
     slot_raw = parts[4].strip().lower() if len(parts) > 4 else ""
     while slot_raw not in VALID_CW_SLOTS:
         slot_list = "\n".join(f"• {s}" for s in sorted(VALID_CW_SLOTS))
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             f"Got: **{item_name}** ×{qty} at ${cost:,}, CWP:{cwp} — now enter the **slot**:\n"
             f"{slot_list}\n"
-            "Type `cancel` to abort.",
-            ephemeral=True,
-        )
+            "Type `cancel` to abort.")
         slot_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if slot_text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await send_ephemeral(interaction, "⏰ Timed out or cancelled.")
             return
         slot_raw = slot_text.strip().lower()
         if slot_raw not in VALID_CW_SLOTS:
-            await interaction.followup.send("❌ Invalid slot. Try again.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Invalid slot. Try again.")
 
     total_cost = cost * qty
     cash_deducted = 0
@@ -2421,23 +2317,21 @@ async def _process_store_add_cw(cog, interaction, owner, text):
                 view=confirm_view,
             )
         except (discord.Forbidden, discord.HTTPException):
-            await interaction.followup.send(
-                f"Cannot DM {owner.display_name}. They may have DMs disabled.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"Cannot DM {owner.display_name}. They may have DMs disabled.")
             return
-        await interaction.followup.send(
-            f"Confirmation sent to {owner.display_name} via DM. Waiting…", ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            f"Confirmation sent to {owner.display_name} via DM. Waiting…")
         await confirm_view.wait()
         if confirm_view.result is None:
             try:
                 await dm_msg.edit(content="⏰ Confirmation timed out — cancelled.", view=None)
             except Exception:
                 pass
-            await interaction.followup.send("⏰ Store owner did not respond. Item not added.", ephemeral=True)
+            await send_ephemeral(interaction, "⏰ Store owner did not respond. Item not added.")
             return
         if confirm_view.result is False:
-            await interaction.followup.send("❌ Store owner declined. Item not added.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Store owner declined. Item not added.")
             return
         try:
             await dm_msg.edit(view=None)
@@ -2445,18 +2339,17 @@ async def _process_store_add_cw(cog, interaction, owner, text):
             pass
         ub = getattr(cog.bot, "unbelievaboat", None)
         if ub is None:
-            await interaction.followup.send("❌ Economy system unavailable.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Economy system unavailable.")
             return
         balance = await ub.get_balance(owner.id)
         if balance is None:
-            await interaction.followup.send("❌ Could not fetch store owner's balance.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Could not fetch store owner's balance.")
             return
         cash = int(balance.get("cash", 0))
         bank = int(balance.get("bank", 0))
         if cash + bank < total_cost:
-            await interaction.followup.send(
-                f"❌ Store owner cannot afford ${total_cost:,} (has ${cash + bank:,}).", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"❌ Store owner cannot afford ${total_cost:,} (has ${cash + bank:,}).")
             return
         cash_deducted = min(max(cash, 0), total_cost)
         bank_deducted = max(0, total_cost - cash_deducted)
@@ -2465,7 +2358,7 @@ async def _process_store_add_cw(cog, interaction, owner, text):
             reason=f"Fixer store-add cyberware: {item_name} x{qty}"
         )
         if not ok_deduct:
-            await interaction.followup.send("❌ Failed to deduct funds. Item not added.", ephemeral=True)
+            await send_ephemeral(interaction, "❌ Failed to deduct funds. Item not added.")
             return
 
     async with cw_cog._locks.acquire(str(owner.id)):
@@ -2490,62 +2383,57 @@ async def _process_store_add_cw(cog, interaction, owner, text):
                 owner.id, {"cash": cash_deducted, "bank": bank_deducted},
                 reason=f"Fixer store-add CW refund: save failed for {item_name} x{qty}"
             )
-        await interaction.followup.send(
-            f"❌ Failed to save clinic inventory. Funds have been refunded.", ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            f"❌ Failed to save clinic inventory. Funds have been refunded.")
         return
-    await interaction.followup.send(
-        f"Added **{item_name}** ×{qty} at ${cost:,} (CWP:{cwp}, {slot_raw}) to {owner.display_name}'s Ripperdoc store.",
-        ephemeral=True,
-    )
+    await send_ephemeral(interaction, 
+        f"Added **{item_name}** ×{qty} at ${cost:,} (CWP:{cwp}, {slot_raw}) to {owner.display_name}'s Ripperdoc store.")
 
 
 async def _process_store_remove_gun(cog, interaction, owner, lot_id):
     guild = interaction.guild
     if not guild:
-        await interaction.followup.send("Must be used in server.", ephemeral=True)
+        await send_ephemeral(interaction, "Must be used in server.")
         return
     guns_cog = cog.bot.cogs.get("GunsShopCog")
     if not guns_cog:
-        await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+        await send_ephemeral(interaction, "Gun shop system unavailable.")
         return
     async with guns_cog.lock:
         state = await guns_cog._load_state()
         store_id = guns_cog._store_id(guild.id, owner.id)
         store = state.get("stores", {}).get(store_id)
         if not store:
-            await interaction.followup.send("Store not found.", ephemeral=True)
+            await send_ephemeral(interaction, "Store not found.")
             return
         lot = next((l for l in store.get("lots", []) if l.get("lot_id") == lot_id), None)
         if not lot:
-            await interaction.followup.send(f"Lot not found in store.", ephemeral=True)
+            await send_ephemeral(interaction, f"Lot not found in store.")
             return
         gun_name = lot.get("gun_name", "?")
         removed = int(lot.get("qty_remaining", 0))
         store["lots"].remove(lot)
         await guns_cog._save_state(state)
-    await interaction.followup.send(
-        f"Removed **{gun_name}** ×{removed} from {owner.display_name}'s store.", ephemeral=True
-    )
+    await send_ephemeral(interaction, 
+        f"Removed **{gun_name}** ×{removed} from {owner.display_name}'s store.")
 
 
 async def _process_store_remove_cw(cog, interaction, owner, item_id):
     cw_cog = cog.bot.cogs.get("CyberwareShop")
     if not cw_cog:
-        await interaction.followup.send("Cyberware system unavailable.", ephemeral=True)
+        await send_ephemeral(interaction, "Cyberware system unavailable.")
         return
     async with cw_cog._locks.acquire(str(owner.id)):
         inventory = await cw_cog._load_inventory(owner.id)
         item = next((i for i in inventory if i.get("item_id") == item_id), None)
         if not item:
-            await interaction.followup.send("Item not found in store.", ephemeral=True)
+            await send_ephemeral(interaction, "Item not found in store.")
             return
         item_name = item.get("name", "?")
         inventory.remove(item)
         await cw_cog._save_inventory(owner.id, inventory)
-    await interaction.followup.send(
-        f"Removed **{item_name}** from {owner.display_name}'s Ripperdoc store.", ephemeral=True
-    )
+    await send_ephemeral(interaction, 
+        f"Removed **{item_name}** from {owner.display_name}'s Ripperdoc store.")
 
 class FixerHubCog(commands.Cog, name="FixerHub"):
 

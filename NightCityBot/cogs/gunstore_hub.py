@@ -16,7 +16,7 @@ import discord
 from discord.ext import commands
 
 import config
-from NightCityBot.utils.interaction_safety import SafeView
+from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral
 from NightCityBot.utils.db import (
     pi_add_item,
     ih_record_event,
@@ -76,12 +76,12 @@ def _find_accessible_stores(state: dict, guild_id: int, user_id: int, member) ->
 
 async def _show_gun_inventory(interaction, store, store_id):
     if not store or not store.get("lots"):
-        await interaction.followup.send("Store inventory is empty.", ephemeral=True)
+        await send_ephemeral(interaction, "Store inventory is empty.")
         return
     from NightCityBot.utils.helpers import format_gun_lines_grouped
     lines = format_gun_lines_grouped(store["lots"], qty_key="qty_remaining", max_items=30)
     if not lines:
-        await interaction.followup.send("Store inventory is empty.", ephemeral=True)
+        await send_ephemeral(interaction, "Store inventory is empty.")
         return
     store_name = store.get("store_name") or f"Store {store_id}"
     embed = discord.Embed(
@@ -89,23 +89,23 @@ async def _show_gun_inventory(interaction, store, store_id):
         description="\n".join(lines[:30]),
         color=discord.Color.dark_gold(),
     )
-    await interaction.followup.send(embed=embed, ephemeral=True)
+    await send_ephemeral(interaction, embed=embed)
 
 
 async def _open_sell_for_store(cog, interaction, guns_cog, store_id, store):
     if not store or not store.get("lots"):
-        await interaction.followup.send("Store inventory is empty. Buy from wholesale first.", ephemeral=True)
+        await send_ephemeral(interaction, "Store inventory is empty. Buy from wholesale first.")
         return
     available = [l for l in store["lots"] if int(l.get("qty_remaining", 0)) > 0]
     if not available:
-        await interaction.followup.send("Store inventory is empty.", ephemeral=True)
+        await send_ephemeral(interaction, "Store inventory is empty.")
         return
     ctx = PanelContext(interaction)
     view = GunSellSetupView(cog, ctx, available, store_id)
     msg = "**Step 1** — Select the customer and the gun to sell:"
     if view.truncated:
         msg += f"\n⚠️ Showing first 25 of {len(available)} lots."
-    await interaction.followup.send(msg, view=view, ephemeral=True)
+    await send_ephemeral(interaction, msg, view=view)
 
 
 class GunstoreMenuView(SafeView):
@@ -119,26 +119,25 @@ class GunstoreMenuView(SafeView):
             if guild:
                 member = guild.get_member(interaction.user.id)
         if member is None:
-            await interaction.response.send_message("Could not verify your role.", ephemeral=True)
+            await respond_ephemeral(interaction, "Could not verify your role.")
             return False
         if _is_store_owner_member(member) or _is_employee_member(member) or member.guild_permissions.administrator:
             return True
-        await interaction.response.send_message("This panel is for Store Owners and Employees only.", ephemeral=True)
+        await respond_ephemeral(interaction, "This panel is for Store Owners and Employees only.")
         return False
 
     @discord.ui.button(label="Buy from Wholesale", style=discord.ButtonStyle.primary, emoji="🛒", row=0, custom_id="gunstore:buy_wholesale")
     async def buy_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if member and _is_employee_member(member) and not _is_store_owner_member(member):
-            await interaction.response.send_message(
-                "Only Store Owners can buy from wholesale.", ephemeral=True
-            )
+            await respond_ephemeral(interaction, 
+                "Only Store Owners can buy from wholesale.")
             return
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("GunstoreHub")
         guns_cog = cog._guns_cog() if cog else None
         if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            await send_ephemeral(interaction, "Gun shop system unavailable.")
             return
 
         state = await guns_cog._load_state()
@@ -150,20 +149,20 @@ class GunstoreMenuView(SafeView):
             catalog = await gun_catalog_get_all()
             lots = _build_black_market_lots(catalog)
             if not lots:
-                await interaction.followup.send("No Black Market stock available.", ephemeral=True)
+                await send_ephemeral(interaction, "No Black Market stock available.")
                 return
             ctx = PanelContext(interaction)
             view = GunBuySelect(cog, ctx, lots, guns_cog, black_market=True)
-            await interaction.followup.send("🏴 **Black Market** — select a gun to buy:", view=view, ephemeral=True)
+            await send_ephemeral(interaction, "🏴 **Black Market** — select a gun to buy:", view=view)
         else:
             state = await guns_cog._load_state()
             lots = [l for l in state.get("wholesale_lots", []) if int(l.get("qty_available", 0)) > 0]
             if not lots:
-                await interaction.followup.send("No wholesale stock available.", ephemeral=True)
+                await send_ephemeral(interaction, "No wholesale stock available.")
                 return
             ctx = PanelContext(interaction)
             view = GunBuySelect(cog, ctx, lots, guns_cog)
-            await interaction.followup.send("Select a gun to buy:", view=view, ephemeral=True)
+            await send_ephemeral(interaction, "Select a gun to buy:", view=view)
 
     @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=0, custom_id="gunstore:wholesale_list")
     async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -171,13 +170,13 @@ class GunstoreMenuView(SafeView):
         cog = interaction.client.get_cog("GunstoreHub")
         guns_cog = cog._guns_cog() if cog else None
         if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            await send_ephemeral(interaction, "Gun shop system unavailable.")
             return
         state = await guns_cog._load_state()
         lots = state.get("wholesale_lots", [])
         available = [l for l in lots if int(l.get("qty_available", 0)) > 0]
         if not available:
-            await interaction.followup.send("No wholesale stock available.", ephemeral=True)
+            await send_ephemeral(interaction, "No wholesale stock available.")
             return
         from NightCityBot.utils.helpers import format_gun_lines_grouped
         lines = format_gun_lines_grouped(available, qty_key="qty_available", max_items=30)
@@ -186,7 +185,7 @@ class GunstoreMenuView(SafeView):
             description="\n".join(lines),
             color=discord.Color.dark_gold(),
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await send_ephemeral(interaction, embed=embed)
 
     @discord.ui.button(label="Sell to Customer", style=discord.ButtonStyle.success, emoji="🔫", row=1, custom_id="gunstore:sell_customer")
     async def sell_to_customer(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -194,16 +193,14 @@ class GunstoreMenuView(SafeView):
         cog = interaction.client.get_cog("GunstoreHub")
         guns_cog = cog._guns_cog() if cog else None
         if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            await send_ephemeral(interaction, "Gun shop system unavailable.")
             return
         state = await guns_cog._load_state()
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         accessible = _find_accessible_stores(state, interaction.guild.id, interaction.user.id, member)
         if not accessible:
-            await interaction.followup.send(
-                "You are not assigned to any store. Ask a Store Owner to add you as an employee.",
-                ephemeral=True,
-            )
+            await send_ephemeral(interaction, 
+                "You are not assigned to any store. Ask a Store Owner to add you as an employee.")
             return
         if len(accessible) == 1:
             store_id, store = accessible[0]
@@ -211,11 +208,9 @@ class GunstoreMenuView(SafeView):
         else:
             ctx = PanelContext(interaction)
             view = _StorePickerForAction(cog, ctx, accessible, action="sell")
-            await interaction.followup.send(
+            await send_ephemeral(interaction, 
                 "You have access to multiple stores. Select which store to sell from:",
-                view=view,
-                ephemeral=True,
-            )
+                view=view)
 
     @discord.ui.button(label="My Store Inventory", style=discord.ButtonStyle.secondary, emoji="📦", row=1, custom_id="gunstore:my_inv")
     async def view_inventory(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -223,20 +218,19 @@ class GunstoreMenuView(SafeView):
         cog = interaction.client.get_cog("GunstoreHub")
         guns_cog = cog._guns_cog() if cog else None
         if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            await send_ephemeral(interaction, "Gun shop system unavailable.")
             return
         state = await guns_cog._load_state()
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         stores = _find_accessible_stores(state, interaction.guild.id, interaction.user.id, member)
         if not stores:
-            await interaction.followup.send("You are not assigned to any store.", ephemeral=True)
+            await send_ephemeral(interaction, "You are not assigned to any store.")
             return
         if len(stores) > 1:
             ctx = PanelContext(interaction)
             view = _StorePickerForAction(cog, ctx, stores, action="view_inventory")
-            await interaction.followup.send(
-                "📦 **Select which store inventory to view:**", view=view, ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                "📦 **Select which store inventory to view:**", view=view)
             return
         store_id, store = stores[0]
         await _show_gun_inventory(interaction, store, store_id)
@@ -245,9 +239,8 @@ class GunstoreMenuView(SafeView):
     async def manage_store(self, interaction: discord.Interaction, button: discord.ui.Button):
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if member and _is_employee_member(member) and not _is_store_owner_member(member):
-            await interaction.response.send_message(
-                "Only Store Owners can manage their store.", ephemeral=True
-            )
+            await respond_ephemeral(interaction, 
+                "Only Store Owners can manage their store.")
             return
         cog = interaction.client.get_cog("GunstoreHub")
         guns_cog = cog._guns_cog() if cog else None
@@ -264,31 +257,28 @@ class GunstoreMenuView(SafeView):
         if store_name:
             header += f" — {store_name}"
         header += "** — choose an action:"
-        await interaction.response.send_message(header, view=view, ephemeral=True)
+        await respond_ephemeral(interaction, header, view=view)
 
     @discord.ui.button(label="Manage Employees", style=discord.ButtonStyle.secondary, emoji="👥", row=2, custom_id="gunstore:manage_employees")
     async def manage_employees(self, interaction: discord.Interaction, button: discord.ui.Button):
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if member and _is_employee_member(member) and not _is_store_owner_member(member):
-            await interaction.response.send_message(
-                "Only Store Owners can manage employees.", ephemeral=True
-            )
+            await respond_ephemeral(interaction, 
+                "Only Store Owners can manage employees.")
             return
         cog = interaction.client.get_cog("GunstoreHub")
         ctx = PanelContext(interaction)
         view = _ManageEmployeesView(cog, ctx)
-        await interaction.response.send_message(
-            "👥 **Manage Employees** — choose an action:", view=view, ephemeral=True
-        )
+        await respond_ephemeral(interaction, 
+            "👥 **Manage Employees** — choose an action:", view=view)
 
     @discord.ui.button(label="Manage Buyers", style=discord.ButtonStyle.secondary, emoji="📝", row=2, custom_id="gunstore:manage_buyers")
     async def manage_buyers(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("GunstoreHub")
         ctx = PanelContext(interaction)
         view = _ManageBuyersView(cog, ctx)
-        await interaction.response.send_message(
-            "📝 **Manage Buyers** — choose an action:", view=view, ephemeral=True
-        )
+        await respond_ephemeral(interaction, 
+            "📝 **Manage Buyers** — choose an action:", view=view)
 
 
 def _build_black_market_lots(catalog: list[dict]) -> list[dict]:
@@ -338,14 +328,12 @@ class GunBuySelect(SafeView):
         lot = self.lots[idx]
         max_qty = int(lot.get("qty_available", 1))
         qty_view = QtySelectView(interaction.user.id, max_qty)
-        await interaction.response.send_message(
+        await respond_ephemeral(interaction, 
             f"**{lot['gun_name']}** — how many? (max {max_qty})",
-            view=qty_view,
-            ephemeral=True,
-        )
+            view=qty_view)
         await qty_view.wait()
         if qty_view.result is None:
-            await interaction.followup.send("⏰ Timed out.", ephemeral=True)
+            await send_ephemeral(interaction, "⏰ Timed out.")
             return
         await _process_gun_buy(self.cog, interaction, self.ctx, lot, self.guns_cog, qty_view.result,
                                black_market=self.black_market)
@@ -353,12 +341,11 @@ class GunBuySelect(SafeView):
 
 async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty, *, black_market=False):
     if qty < 1:
-        await interaction.followup.send("Quantity must be at least 1.", ephemeral=True)
+        await send_ephemeral(interaction, "Quantity must be at least 1.")
         return
     if qty > int(lot.get("qty_available", 0)):
-        await interaction.followup.send(
-            f"Only {lot['qty_available']} available.", ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            f"Only {lot['qty_available']} available.")
         return
 
     unit_cost = int(lot["unit_cost"])
@@ -367,14 +354,13 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty, *, black_m
 
     balance = await cog.unbelievaboat.get_balance(member.id)
     if balance is None:
-        await interaction.followup.send("Could not fetch your balance.", ephemeral=True)
+        await send_ephemeral(interaction, "Could not fetch your balance.")
         return
     cash = int(balance.get("cash", 0))
     bank = int(balance.get("bank", 0))
     if cash + bank < total:
-        await interaction.followup.send(
-            f"You cannot afford ${total:,} (you have ${cash + bank:,}).", ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            f"You cannot afford ${total:,} (you have ${cash + bank:,}).")
         return
 
     cash_deduct = min(max(cash, 0), total)
@@ -385,7 +371,7 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty, *, black_m
         reason=f"Gun wholesale buy: {lot['gun_name']} x{qty}",
     )
     if not ok:
-        await interaction.followup.send("Payment failed.", ephemeral=True)
+        await send_ephemeral(interaction, "Payment failed.")
         return
 
     async with guns_cog.lock:
@@ -404,7 +390,7 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty, *, black_m
                     {"cash": cash_deduct, "bank": bank_deduct},
                     reason="Gun wholesale refund — stock depleted",
                 )
-                await interaction.followup.send("Stock depleted. Refunded.", ephemeral=True)
+                await send_ephemeral(interaction, "Stock depleted. Refunded.")
                 return
             target_lot["qty_available"] = int(target_lot["qty_available"]) - qty
 
@@ -439,10 +425,8 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty, *, black_m
                 {"cash": cash_deduct, "bank": bank_deduct},
                 reason="Gun wholesale refund — save failed",
             )
-            await interaction.followup.send(
-                "⚠️ Purchase failed (save error). Payment has been refunded. Please try again.",
-                ephemeral=True,
-            )
+            await send_ephemeral(interaction, 
+                "⚠️ Purchase failed (save error). Payment has been refunded. Please try again.")
             return
 
     event_type = "black_market_buy" if black_market else "wholesale_buy"
@@ -459,10 +443,8 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty, *, black_m
             },
         )
 
-    await interaction.followup.send(
-        f"Purchased **{lot['gun_name']}** ×{qty} for **${total:,}**.",
-        ephemeral=True,
-    )
+    await send_ephemeral(interaction, 
+        f"Purchased **{lot['gun_name']}** ×{qty} for **${total:,}**.")
     log_ch = await cog._log_channel()
     if log_ch:
         bm_label = "🏴 Black Market Purchase" if black_market else "🛒 Gun Wholesale Purchase"
@@ -513,7 +495,7 @@ class GunSellSetupView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -522,9 +504,8 @@ class GunSellSetupView(SafeView):
                               select: discord.ui.UserSelect):
         user = select.values[0] if select.values else None
         if user is None:
-            await interaction.response.send_message(
-                "Please select a server member.", ephemeral=True
-            )
+            await respond_ephemeral(interaction, 
+                "Please select a server member.")
             return
         if isinstance(user, discord.Member):
             self.selected_customer = user
@@ -535,23 +516,19 @@ class GunSellSetupView(SafeView):
                 if member:
                     self.selected_customer = member
                 else:
-                    await interaction.response.send_message(
-                        "That user doesn't appear to be in this server.", ephemeral=True
-                    )
+                    await respond_ephemeral(interaction, 
+                        "That user doesn't appear to be in this server.")
                     return
             else:
-                await interaction.response.send_message(
-                    "Could not resolve server member.", ephemeral=True
-                )
+                await respond_ephemeral(interaction, 
+                    "Could not resolve server member.")
                 return
         self.selected_character = None
         characters = await get_active_characters(str(self.selected_customer.id))
         if not characters:
-            await interaction.response.send_message(
+            await respond_ephemeral(interaction, 
                 f"❌ {self.selected_customer.display_name} has no active characters. "
-                "They must create a character before receiving items.",
-                ephemeral=True,
-            )
+                "They must create a character before receiving items.")
             self.selected_customer = None
             return
         if self._character_select is not None:
@@ -583,62 +560,53 @@ class GunSellSetupView(SafeView):
                 self.selected_character = ch
                 break
         if self.selected_character:
-            await interaction.response.send_message(
-                f"Character: **{self.selected_character['name']}** ✓", ephemeral=True
-            )
+            await respond_ephemeral(interaction, 
+                f"Character: **{self.selected_character['name']}** ✓")
         else:
-            await interaction.response.send_message("Character not found.", ephemeral=True)
+            await respond_ephemeral(interaction, "Character not found.")
 
     async def _on_stock_select(self, interaction: discord.Interaction):
         self.selected_lot_idx = int(interaction.data["values"][0])
         lot = self.lots[self.selected_lot_idx]
-        await interaction.response.send_message(
-            f"Gun: **{lot['gun_name']}** ✓", ephemeral=True
-        )
+        await respond_ephemeral(interaction, 
+            f"Gun: **{lot['gun_name']}** ✓")
 
     @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=3)
     async def continue_btn(self, interaction: discord.Interaction,
                            button: discord.ui.Button):
         if self.selected_customer is None:
-            await interaction.response.send_message(
-                "Please select a customer first.", ephemeral=True
-            )
+            await respond_ephemeral(interaction, 
+                "Please select a customer first.")
             return
         if self.selected_character is None:
-            await interaction.response.send_message(
-                "Please select a character for the customer.", ephemeral=True
-            )
+            await respond_ephemeral(interaction, 
+                "Please select a character for the customer.")
             return
         if self.selected_lot_idx is None:
-            await interaction.response.send_message(
-                "Please select a gun from your stock first.", ephemeral=True
-            )
+            await respond_ephemeral(interaction, 
+                "Please select a gun from your stock first.")
             return
         if not await ensure_character_active(self.selected_character["character_id"]):
-            await interaction.response.send_message(
-                f"❌ Character **{self.selected_character['name']}** is no longer active.",
-                ephemeral=True,
-            )
+            await respond_ephemeral(interaction, 
+                f"❌ Character **{self.selected_character['name']}** is no longer active.")
             return
         lot = self.lots[self.selected_lot_idx]
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "📝 **Enter the sale price** (number only, `0` for free), or type `cancel`:",
-            ephemeral=True,
-        )
+        await send_ephemeral(interaction, 
+            "📝 **Enter the sale price** (number only, `0` for free), or type `cancel`:")
         price_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if price_text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await send_ephemeral(interaction, "⏰ Timed out or cancelled.")
             self.stop()
             return
         try:
             price = int(price_text.replace(",", "").replace("$", "").strip())
         except ValueError:
-            await interaction.followup.send("Price must be a number.", ephemeral=True)
+            await send_ephemeral(interaction, "Price must be a number.")
             self.stop()
             return
         if price < 0:
-            await interaction.followup.send("Price cannot be negative.", ephemeral=True)
+            await send_ephemeral(interaction, "Price cannot be negative.")
             self.stop()
             return
         await _process_gun_sell(
@@ -652,12 +620,11 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
     character_name = character.get("name", "")
     character_id = character.get("character_id")
     if not character_name:
-        await interaction.followup.send("Character selection required.", ephemeral=True)
+        await send_ephemeral(interaction, "Character selection required.")
         return
     if character_id and not await ensure_character_active(character_id):
-        await interaction.followup.send(
-            f"❌ Character **{character_name}** is no longer active.", ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            f"❌ Character **{character_name}** is no longer active.")
         return
 
     gun_name = lot["gun_name"]
@@ -665,7 +632,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
 
     guns_cog = cog._guns_cog()
     if not guns_cog:
-        await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+        await send_ephemeral(interaction, "Gun shop system unavailable.")
         return
 
     state = await guns_cog._load_state()
@@ -684,13 +651,11 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                 cog, ctx, guns_cog, store_id, customer,
                 character_id=character_id, character_name=character_name,
             )
-            approve_msg = await interaction.followup.send(
+            approve_msg = await send_ephemeral(interaction, 
                 f"**{gun_name}** is **{restriction}**. **{character_name}** ({customer.display_name}) is not on your approved list.\n"
                 "Would you like to approve them and proceed?",
                 view=approve_view,
-                ephemeral=True,
-                wait=True,
-            )
+                wait=True)
             approve_view.message = approve_msg
             await approve_view.wait()
             if not approve_view.approved:
@@ -712,14 +677,12 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
             view=confirm_view,
         )
     except (discord.Forbidden, discord.HTTPException):
-        await interaction.followup.send(
-            f"Cannot DM {customer.display_name}. They may have DMs disabled.", ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            f"Cannot DM {customer.display_name}. They may have DMs disabled.")
         return
 
-    await interaction.followup.send(
-        f"Confirmation sent to {customer.display_name} via DM. Waiting...", ephemeral=True
-    )
+    await send_ephemeral(interaction, 
+        f"Confirmation sent to {customer.display_name} via DM. Waiting...")
     await confirm_view.wait()
 
     if not confirm_view.accepted:
@@ -921,10 +884,8 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
     owner_note = ""
     if owner_id != ctx.author.id:
         owner_note = f" (payment to store owner <@{owner_id}>)"
-    await interaction.followup.send(
-        f"Sold **{gun_name}** to **{character_name}** ({customer.display_name}) for **${price:,}**.",
-        ephemeral=True,
-    )
+    await send_ephemeral(interaction, 
+        f"Sold **{gun_name}** to **{character_name}** ({customer.display_name}) for **${price:,}**.")
     log_ch = await cog._log_channel()
     if log_ch:
         confirm_text = (
@@ -956,13 +917,13 @@ class _FixerApprovalView(SafeView):
     async def _check_approver(self, interaction: discord.Interaction) -> bool:
         user = interaction.user
         if not isinstance(user, discord.Member):
-            await interaction.response.send_message("Must be used in a server.", ephemeral=True)
+            await respond_ephemeral(interaction, "Must be used in a server.")
             return False
         if user.guild_permissions.administrator:
             return True
         if self.fixer_role_id and any(r.id == self.fixer_role_id for r in user.roles):
             return True
-        await interaction.response.send_message("❌ Only Fixers or Admins can approve restricted sales.", ephemeral=True)
+        await respond_ephemeral(interaction, "❌ Only Fixers or Admins can approve restricted sales.")
         return False
 
     @discord.ui.button(label="Approve", style=discord.ButtonStyle.success, emoji="✅")
@@ -990,9 +951,8 @@ async def _request_fixer_approval(cog, interaction, ctx, customer, gun_name, lot
         try:
             channel = await cog.bot.fetch_channel(GUN_APPROVALS_CHANNEL_ID)
         except Exception:
-            await interaction.followup.send(
-                "Gun approvals channel not found. Cannot process restricted sales.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                "Gun approvals channel not found. Cannot process restricted sales.")
             return False
 
     fixer_role_id = getattr(config, "FIXER_ROLE_ID", 0)
@@ -1021,14 +981,12 @@ async def _request_fixer_approval(cog, interaction, ctx, customer, gun_name, lot
         )
     except Exception:
         logger.exception("Failed to post restricted sale approval request")
-        await interaction.followup.send(
-            "Failed to post approval request to the approvals channel.", ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            "Failed to post approval request to the approvals channel.")
         return False
 
-    await interaction.followup.send(
-        "⏳ Restricted sale pending Fixer approval. Waiting up to 5 minutes...", ephemeral=True
-    )
+    await send_ephemeral(interaction, 
+        "⏳ Restricted sale pending Fixer approval. Waiting up to 5 minutes...")
 
     await approval_view.wait()
 
@@ -1157,12 +1115,12 @@ class _ApproveBuyerView(SafeView):
     async def buyer_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         raw_user = select.values[0] if select.values else None
         if raw_user is None:
-            await interaction.response.send_message("Please select a member.", ephemeral=True)
+            await respond_ephemeral(interaction, "Please select a member.")
             return
 
         guild = self.ctx.guild
         if not guild:
-            await interaction.response.send_message("Must be used in server.", ephemeral=True)
+            await respond_ephemeral(interaction, "Must be used in server.")
             return
 
         if isinstance(raw_user, discord.Member):
@@ -1173,14 +1131,13 @@ class _ApproveBuyerView(SafeView):
                 try:
                     user = await guild.fetch_member(raw_user.id)
                 except Exception:
-                    await interaction.response.send_message("Could not find that member.", ephemeral=True)
+                    await respond_ephemeral(interaction, "Could not find that member.")
                     return
 
         characters = await get_active_characters(str(user.id))
         if not characters:
-            await interaction.response.send_message(
-                f"❌ {user.display_name} has no active characters.", ephemeral=True
-            )
+            await respond_ephemeral(interaction, 
+                f"❌ {user.display_name} has no active characters.")
             return
 
         self._selected_user = user
@@ -1216,12 +1173,12 @@ class _ApproveBuyerView(SafeView):
                 selected_char = ch
                 break
         if not selected_char or not self._selected_user:
-            await interaction.response.send_message("Selection error.", ephemeral=True)
+            await respond_ephemeral(interaction, "Selection error.")
             return
 
         guns_cog = self.cog._guns_cog()
         if not guns_cog:
-            await interaction.response.send_message("Gun shop system unavailable.", ephemeral=True)
+            await respond_ephemeral(interaction, "Gun shop system unavailable.")
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -1235,16 +1192,15 @@ class _ApproveBuyerView(SafeView):
                 store_id = guns_cog._store_id(guild.id, self.ctx.author.id)
                 store = state.get("stores", {}).get(store_id)
             if not store:
-                await interaction.followup.send("No store found. Buy stock first.", ephemeral=True)
+                await send_ephemeral(interaction, "No store found. Buy stock first.")
                 self.stop()
                 return
             approved = store.setdefault("controlled_buyers", [])
             char_name = selected_char["name"]
             if self.approve:
                 if _is_character_approved(approved, char_id, self._selected_user.id):
-                    await interaction.followup.send(
-                        f"{char_name} is already approved.", ephemeral=True
-                    )
+                    await send_ephemeral(interaction, 
+                        f"{char_name} is already approved.")
                     self.stop()
                     return
                 approved.append({
@@ -1254,18 +1210,15 @@ class _ApproveBuyerView(SafeView):
                 })
             else:
                 if not _remove_character_approval(approved, char_id):
-                    await interaction.followup.send(
-                        f"{char_name} is not on your approved list.", ephemeral=True
-                    )
+                    await send_ephemeral(interaction, 
+                        f"{char_name} is not on your approved list.")
                     self.stop()
                     return
             await guns_cog._save_state(state)
 
         action = "added to" if self.approve else "removed from"
-        await interaction.followup.send(
-            f"**{char_name}** ({self._selected_user.display_name}) {action} your controlled-buyer list.",
-            ephemeral=True,
-        )
+        await send_ephemeral(interaction, 
+            f"**{char_name}** ({self._selected_user.display_name}) {action} your controlled-buyer list.")
         self.stop()
 
 
@@ -1306,7 +1259,7 @@ class _UnapproveCharacterView(SafeView):
 
         guns_cog = self.cog._guns_cog()
         if not guns_cog:
-            await interaction.response.send_message("Gun shop system unavailable.", ephemeral=True)
+            await respond_ephemeral(interaction, "Gun shop system unavailable.")
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -1314,7 +1267,7 @@ class _UnapproveCharacterView(SafeView):
             state = await guns_cog._load_state()
             store = state.get("stores", {}).get(self.store_id)
             if not store:
-                await interaction.followup.send("No store found.", ephemeral=True)
+                await send_ephemeral(interaction, "No store found.")
                 self.stop()
                 return
             approved = store.setdefault("controlled_buyers", [])
@@ -1324,7 +1277,7 @@ class _UnapproveCharacterView(SafeView):
                     approved.remove(uid)
                     label = f"Player <@{uid}>"
                 else:
-                    await interaction.followup.send("That entry is no longer on your list.", ephemeral=True)
+                    await send_ephemeral(interaction, "That entry is no longer on your list.")
                     self.stop()
                     return
             else:
@@ -1334,15 +1287,14 @@ class _UnapproveCharacterView(SafeView):
                         entry_name = e.get("character_name", "Unknown")
                         break
                 if not _remove_character_approval(approved, value):
-                    await interaction.followup.send("That character is no longer on your list.", ephemeral=True)
+                    await send_ephemeral(interaction, "That character is no longer on your list.")
                     self.stop()
                     return
                 label = f"**{entry_name}**"
             await guns_cog._save_state(state)
 
-        await interaction.followup.send(
-            f"{label} removed from your controlled-buyer list.", ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            f"{label} removed from your controlled-buyer list.")
         self.stop()
 
 
@@ -1354,7 +1306,7 @@ class _ManageEmployeesView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1363,40 +1315,36 @@ class _ManageEmployeesView(SafeView):
         cog = interaction.client.get_cog("GunstoreHub")
         ctx = PanelContext(interaction)
         view = _EmployeePickerView(cog, ctx, add=True)
-        await interaction.response.send_message(
-            "➕ **Select a member to add as employee:**", view=view, ephemeral=True
-        )
+        await respond_ephemeral(interaction, 
+            "➕ **Select a member to add as employee:**", view=view)
 
     @discord.ui.button(label="Remove Employee", style=discord.ButtonStyle.danger, emoji="➖", row=0)
     async def remove_employee(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("GunstoreHub")
         ctx = PanelContext(interaction)
         view = _EmployeePickerView(cog, ctx, add=False)
-        await interaction.response.send_message(
-            "➖ **Select an employee to remove:**", view=view, ephemeral=True
-        )
+        await respond_ephemeral(interaction, 
+            "➖ **Select an employee to remove:**", view=view)
 
     @discord.ui.button(label="View Employees", style=discord.ButtonStyle.secondary, emoji="📋", row=0)
     async def view_employees(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         guns_cog = self.cog._guns_cog()
         if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            await send_ephemeral(interaction, "Gun shop system unavailable.")
             return
         state = await guns_cog._load_state()
         store_id = guns_cog._store_id(self.ctx.guild.id, self.ctx.author.id)
         store = state.get("stores", {}).get(store_id)
         employees = store.get("employees", []) if store else []
         if not employees:
-            await interaction.followup.send("No employees assigned to your store.", ephemeral=True)
+            await send_ephemeral(interaction, "No employees assigned to your store.")
             return
         lines = [f"<@{uid}>" for uid in employees]
         store_name = store.get("store_name") or f"{self.ctx.author.display_name}'s Gun Store"
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             f"**{store_name} — Employees ({len(employees)}):**\n" + "\n".join(lines),
-            ephemeral=True,
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
+            allowed_mentions=discord.AllowedMentions.none())
 
 
 class _GunEmployeeDMConfirmView(SafeView):
@@ -1432,11 +1380,11 @@ class _EmployeePickerView(SafeView):
     async def employee_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         raw_user = select.values[0] if select.values else None
         if raw_user is None:
-            await interaction.response.send_message("Please select a member.", ephemeral=True)
+            await respond_ephemeral(interaction, "Please select a member.")
             return
         guild = self.ctx.guild
         if not guild:
-            await interaction.response.send_message("Must be used in server.", ephemeral=True)
+            await respond_ephemeral(interaction, "Must be used in server.")
             return
         if isinstance(raw_user, discord.Member):
             user = raw_user
@@ -1446,11 +1394,11 @@ class _EmployeePickerView(SafeView):
                 try:
                     user = await guild.fetch_member(raw_user.id)
                 except Exception:
-                    await interaction.response.send_message("Could not find that member.", ephemeral=True)
+                    await respond_ephemeral(interaction, "Could not find that member.")
                     return
         guns_cog = self.cog._guns_cog()
         if not guns_cog:
-            await interaction.response.send_message("Gun shop system unavailable.", ephemeral=True)
+            await respond_ephemeral(interaction, "Gun shop system unavailable.")
             return
         await interaction.response.defer(ephemeral=True)
         if self.add:
@@ -1459,16 +1407,13 @@ class _EmployeePickerView(SafeView):
             store = state.get("stores", {}).get(store_id, {"owner_id": self.ctx.author.id, "lots": [], "controlled_buyers": []})
             employees = store.get("employees", [])
             if user.id in employees:
-                await interaction.followup.send(
-                    f"{user.display_name} is already an employee.", ephemeral=True
-                )
+                await send_ephemeral(interaction, 
+                    f"{user.display_name} is already an employee.")
                 self.stop()
                 return
             if len(employees) >= 25:
-                await interaction.followup.send(
-                    "❌ Employee limit reached (25 max). Remove an employee before adding a new one.",
-                    ephemeral=True,
-                )
+                await send_ephemeral(interaction, 
+                    "❌ Employee limit reached (25 max). Remove an employee before adding a new one.")
                 self.stop()
                 return
             store_name = store.get("store_name") or f"{self.ctx.author.display_name}'s Gun Store"
@@ -1480,20 +1425,17 @@ class _EmployeePickerView(SafeView):
                     view=dm_view,
                 )
             except discord.Forbidden:
-                await interaction.followup.send(
-                    f"❌ Could not DM {user.display_name}. They may have DMs disabled.", ephemeral=True
-                )
+                await send_ephemeral(interaction, 
+                    f"❌ Could not DM {user.display_name}. They may have DMs disabled.")
                 self.stop()
                 return
-            await interaction.followup.send(
-                f"📨 Sent a DM to **{user.display_name}** — waiting for their response…", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"📨 Sent a DM to **{user.display_name}** — waiting for their response…")
             timed_out = await dm_view.wait()
             if timed_out or not dm_view.accepted:
                 reason = "timed out" if timed_out else "declined"
-                await interaction.followup.send(
-                    f"❌ **{user.display_name}** {reason} the employee offer.", ephemeral=True
-                )
+                await send_ephemeral(interaction, 
+                    f"❌ **{user.display_name}** {reason} the employee offer.")
                 if timed_out:
                     try:
                         await dm_msg.edit(content="⏰ Employee offer expired.", view=None)
@@ -1519,10 +1461,8 @@ class _EmployeePickerView(SafeView):
                     await user.add_roles(emp_role, reason=f"Hired as gun store employee at {store_name}")
                 except discord.Forbidden:
                     pass
-            await interaction.followup.send(
-                f"✅ **{user.display_name}** accepted and has been added as employee at **{store_name}**.",
-                ephemeral=True,
-            )
+            await send_ephemeral(interaction, 
+                f"✅ **{user.display_name}** accepted and has been added as employee at **{store_name}**.")
         else:
             async with guns_cog.lock:
                 state = await guns_cog._load_state()
@@ -1534,9 +1474,8 @@ class _EmployeePickerView(SafeView):
                 store.setdefault("store_type", "standard")
                 employees = store.setdefault("employees", [])
                 if user.id not in employees:
-                    await interaction.followup.send(
-                        f"{user.display_name} is not an employee.", ephemeral=True
-                    )
+                    await send_ephemeral(interaction, 
+                        f"{user.display_name} is not an employee.")
                     self.stop()
                     return
                 employees.remove(user.id)
@@ -1555,9 +1494,8 @@ class _EmployeePickerView(SafeView):
                         await user.remove_roles(emp_role, reason="Removed as gun store employee")
                     except discord.Forbidden:
                         pass
-            await interaction.followup.send(
-                f"{user.display_name} removed as employee from **{store_name}**.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"{user.display_name} removed as employee from **{store_name}**.")
         self.stop()
 
 
@@ -1582,7 +1520,7 @@ class _StorePickerForAction(SafeView):
         store_id = interaction.data["values"][0]
         store = self.stores.get(store_id)
         if not store:
-            await interaction.response.send_message("Store not found.", ephemeral=True)
+            await respond_ephemeral(interaction, "Store not found.")
             return
         await interaction.response.defer(ephemeral=True)
         if self.action == "sell":
@@ -1601,7 +1539,7 @@ class _ManageBuyersView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1610,9 +1548,8 @@ class _ManageBuyersView(SafeView):
         cog = interaction.client.get_cog("GunstoreHub")
         ctx = PanelContext(interaction)
         view = _ApproveBuyerView(cog, ctx, approve=True)
-        await interaction.response.send_message(
-            "📝 **Select a player to approve:**", view=view, ephemeral=True
-        )
+        await respond_ephemeral(interaction, 
+            "📝 **Select a player to approve:**", view=view)
         view.message = await interaction.original_response()
 
     @discord.ui.button(label="Unapprove Buyer", style=discord.ButtonStyle.danger, emoji="🚫", row=0)
@@ -1620,7 +1557,7 @@ class _ManageBuyersView(SafeView):
         cog = interaction.client.get_cog("GunstoreHub")
         guns_cog = cog._guns_cog() if cog else None
         if not guns_cog:
-            await interaction.response.send_message("Gun shop system unavailable.", ephemeral=True)
+            await respond_ephemeral(interaction, "Gun shop system unavailable.")
             return
         await interaction.response.defer(ephemeral=True)
         state = await guns_cog._load_state()
@@ -1633,13 +1570,12 @@ class _ManageBuyersView(SafeView):
             store = state.get("stores", {}).get(store_id)
         approved = store.get("controlled_buyers", []) if store else []
         if not approved:
-            await interaction.followup.send("Your approved-buyer list is empty — nothing to remove.", ephemeral=True)
+            await send_ephemeral(interaction, "Your approved-buyer list is empty — nothing to remove.")
             return
         ctx = PanelContext(interaction)
         view = _UnapproveCharacterView(cog, ctx, approved, store_id)
-        view.message = await interaction.followup.send(
-            "🚫 **Select a character to remove from your approved list:**", view=view, ephemeral=True, wait=True
-        )
+        message = await send_ephemeral(interaction, 
+            "🚫 **Select a character to remove from your approved list:**", view=view, wait=True)
 
     @discord.ui.button(label="Approved Buyers", style=discord.ButtonStyle.secondary, emoji="📋", row=0)
     async def approved_list(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1647,7 +1583,7 @@ class _ManageBuyersView(SafeView):
         cog = interaction.client.get_cog("GunstoreHub")
         guns_cog = cog._guns_cog() if cog else None
         if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            await send_ephemeral(interaction, "Gun shop system unavailable.")
             return
         state = await guns_cog._load_state()
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
@@ -1658,7 +1594,7 @@ class _ManageBuyersView(SafeView):
             store = state.get("stores", {}).get(store_id)
         approved = store.get("controlled_buyers", []) if store else []
         if not approved:
-            await interaction.followup.send("Controlled-buyer list is empty.", ephemeral=True)
+            await send_ephemeral(interaction, "Controlled-buyer list is empty.")
             return
         lines = []
         for entry in approved[:25]:
@@ -1668,11 +1604,9 @@ class _ManageBuyersView(SafeView):
                 lines.append(f"• **{cname}** (<@{uid}>)")
             else:
                 lines.append(f"• <@{entry}> (legacy — player-level)")
-        await interaction.followup.send(
+        await send_ephemeral(interaction, 
             "**Approved Controlled Buyers:**\n" + "\n".join(lines),
-            ephemeral=True,
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
+            allowed_mentions=discord.AllowedMentions.none())
 
 
 class _ManageGunStoreView(SafeView):
@@ -1683,7 +1617,7 @@ class _ManageGunStoreView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1693,27 +1627,24 @@ class _ManageGunStoreView(SafeView):
         cog = interaction.client.get_cog("GunstoreHub")
         guns_cog = cog._guns_cog() if cog else None
         if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            await send_ephemeral(interaction, "Gun shop system unavailable.")
             return
         state = await guns_cog._load_state()
         store_id = guns_cog._store_id(interaction.guild.id, interaction.user.id)
         existing = state.get("stores", {}).get(store_id)
         if existing and existing.get("store_name"):
-            await interaction.followup.send(
-                f"You already own a gun store: **{existing['store_name']}**.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"You already own a gun store: **{existing['store_name']}**.")
             return
-        await interaction.followup.send(
-            "🏪 **Enter a name for your new store** (e.g. `Hellfire Arms`), or type `cancel`:",
-            ephemeral=True,
-        )
+        await send_ephemeral(interaction, 
+            "🏪 **Enter a name for your new store** (e.g. `Hellfire Arms`), or type `cancel`:")
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await send_ephemeral(interaction, "⏰ Timed out or cancelled.")
             return
         name = text.strip()[:100]
         if not name:
-            await interaction.followup.send("Name cannot be empty.", ephemeral=True)
+            await send_ephemeral(interaction, "Name cannot be empty.")
             return
         async with guns_cog.lock:
             state = await guns_cog._load_state()
@@ -1736,7 +1667,7 @@ class _ManageGunStoreView(SafeView):
                         await member.add_roles(owner_role, reason="Created gun store")
                     except discord.Forbidden:
                         pass
-        await interaction.followup.send(f"✅ Store **{name}** created!", ephemeral=True)
+        await send_ephemeral(interaction, f"✅ Store **{name}** created!")
 
     @discord.ui.button(label="Change Store Name", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
     async def change_store_name(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1744,7 +1675,7 @@ class _ManageGunStoreView(SafeView):
         cog = interaction.client.get_cog("GunstoreHub")
         guns_cog = cog._guns_cog() if cog else None
         if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            await send_ephemeral(interaction, "Gun shop system unavailable.")
             return
         state = await guns_cog._load_state()
         store_id = guns_cog._store_id(interaction.guild.id, interaction.user.id)
@@ -1754,14 +1685,14 @@ class _ManageGunStoreView(SafeView):
         if current_name:
             prompt += f"Current name: **{current_name}**\n"
         prompt += "**Enter a new store name**, or type `cancel`:"
-        await interaction.followup.send(prompt, ephemeral=True)
+        await send_ephemeral(interaction, prompt)
         text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if text is None:
-            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            await send_ephemeral(interaction, "⏰ Timed out or cancelled.")
             return
         name = text.strip()[:100]
         if not name:
-            await interaction.followup.send("Name cannot be empty.", ephemeral=True)
+            await send_ephemeral(interaction, "Name cannot be empty.")
             return
         async with guns_cog.lock:
             state = await guns_cog._load_state()
@@ -1772,23 +1703,22 @@ class _ManageGunStoreView(SafeView):
             store.setdefault("store_type", "standard")
             store["store_name"] = name
             await guns_cog._save_state(state)
-        await interaction.followup.send(f"Store name changed to **{name}**.", ephemeral=True)
+        await send_ephemeral(interaction, f"Store name changed to **{name}**.")
 
     @discord.ui.button(label="Transfer Ownership", style=discord.ButtonStyle.primary, emoji="🔄", row=1)
     async def transfer_ownership(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("GunstoreHub")
         ctx = PanelContext(interaction)
         view = _GunTransferOwnerView(cog, ctx)
-        await interaction.response.send_message(
-            "🔄 **Select the new owner for your gun store:**", view=view, ephemeral=True
-        )
+        await respond_ephemeral(interaction, 
+            "🔄 **Select the new owner for your gun store:**", view=view)
 
     @discord.ui.button(label="Close Store", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
     async def close_store(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("GunstoreHub")
         ctx = PanelContext(interaction)
         view = _GunCloseConfirmView(cog, ctx)
-        await interaction.response.send_message(
+        await respond_ephemeral(interaction, 
             "⚠️ **Are you sure you want to close your gun store?**\n"
             "This will:\n"
             "• Remove all employees\n"
@@ -1796,9 +1726,7 @@ class _ManageGunStoreView(SafeView):
             "• Return a random 20% of inventory to wholesale at 75% of original price\n"
             "• Delete the remaining inventory\n\n"
             "**This action cannot be undone.**",
-            view=view,
-            ephemeral=True,
-        )
+            view=view)
 
 
 class _GunTransferDMConfirmView(SafeView):
@@ -1833,39 +1761,38 @@ class _GunTransferOwnerView(SafeView):
     async def owner_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         raw_user = select.values[0] if select.values else None
         if raw_user is None:
-            await interaction.response.send_message("Please select a member.", ephemeral=True)
+            await respond_ephemeral(interaction, "Please select a member.")
             return
         guild = self.ctx.guild
         if not guild:
-            await interaction.response.send_message("Must be used in server.", ephemeral=True)
+            await respond_ephemeral(interaction, "Must be used in server.")
             return
         new_owner = raw_user if isinstance(raw_user, discord.Member) else guild.get_member(raw_user.id)
         if new_owner is None:
             try:
                 new_owner = await guild.fetch_member(raw_user.id)
             except Exception:
-                await interaction.response.send_message("Could not find that member.", ephemeral=True)
+                await respond_ephemeral(interaction, "Could not find that member.")
                 return
         if new_owner.id == self.ctx.author.id:
-            await interaction.response.send_message("You already own this store.", ephemeral=True)
+            await respond_ephemeral(interaction, "You already own this store.")
             return
         await interaction.response.defer(ephemeral=True)
         guns_cog = self.cog._guns_cog()
         if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            await send_ephemeral(interaction, "Gun shop system unavailable.")
             return
         state = await guns_cog._load_state()
         new_store_id = guns_cog._store_id(guild.id, new_owner.id)
         existing = state.get("stores", {}).get(new_store_id)
         if existing and existing.get("store_name"):
-            await interaction.followup.send(
-                f"{new_owner.display_name} already owns a gun store.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"{new_owner.display_name} already owns a gun store.")
             return
         old_store_id = guns_cog._store_id(guild.id, self.ctx.author.id)
         store = state.get("stores", {}).get(old_store_id)
         if not store:
-            await interaction.followup.send("You don't have a store to transfer.", ephemeral=True)
+            await send_ephemeral(interaction, "You don't have a store to transfer.")
             return
         store_name = store.get("store_name") or "Gun Store"
         confirm_view = _GunTransferDMConfirmView(new_owner.id, timeout=120)
@@ -1876,26 +1803,23 @@ class _GunTransferOwnerView(SafeView):
                 view=confirm_view,
             )
         except (discord.Forbidden, discord.HTTPException):
-            await interaction.followup.send(
-                f"Could not DM {new_owner.display_name}. They may have DMs disabled.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"Could not DM {new_owner.display_name}. They may have DMs disabled.")
             return
-        await interaction.followup.send(
-            f"📩 Sent a DM to {new_owner.display_name} for confirmation. Waiting…", ephemeral=True
-        )
+        await send_ephemeral(interaction, 
+            f"📩 Sent a DM to {new_owner.display_name} for confirmation. Waiting…")
         await confirm_view.wait()
         if not confirm_view.accepted:
             reason = "declined" if confirm_view.accepted is False else "timed out"
-            await interaction.followup.send(
-                f"❌ Transfer {reason} by {new_owner.display_name}.", ephemeral=True
-            )
+            await send_ephemeral(interaction, 
+                f"❌ Transfer {reason} by {new_owner.display_name}.")
             return
         async with guns_cog.lock:
             state = await guns_cog._load_state()
             old_store_id = guns_cog._store_id(guild.id, self.ctx.author.id)
             store = state.get("stores", {}).pop(old_store_id, None)
             if not store:
-                await interaction.followup.send("You don't have a store to transfer.", ephemeral=True)
+                await send_ephemeral(interaction, "You don't have a store to transfer.")
                 return
             new_store_id = guns_cog._store_id(guild.id, new_owner.id)
             store["owner_id"] = new_owner.id
@@ -1914,10 +1838,8 @@ class _GunTransferOwnerView(SafeView):
                 await new_owner.add_roles(owner_role, reason=f"Gun store transferred from {self.ctx.author.display_name}")
             except (discord.Forbidden, discord.HTTPException):
                 pass
-        await interaction.followup.send(
-            f"✅ **{store_name}** has been transferred to {new_owner.display_name}.",
-            ephemeral=True,
-        )
+        await send_ephemeral(interaction, 
+            f"✅ **{store_name}** has been transferred to {new_owner.display_name}.")
         log_ch = await self.cog._log_channel()
         if log_ch:
             embed = discord.Embed(
@@ -1941,7 +1863,7 @@ class _GunCloseConfirmView(SafeView):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This menu isn't for you.", ephemeral=True)
+            await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
 
@@ -1950,7 +1872,7 @@ class _GunCloseConfirmView(SafeView):
         await interaction.response.defer(ephemeral=True)
         guns_cog = self.cog._guns_cog()
         if not guns_cog:
-            await interaction.followup.send("Gun shop system unavailable.", ephemeral=True)
+            await send_ephemeral(interaction, "Gun shop system unavailable.")
             return
         guild = self.ctx.guild
         async with guns_cog.lock:
@@ -1958,7 +1880,7 @@ class _GunCloseConfirmView(SafeView):
             store_id = guns_cog._store_id(guild.id, self.ctx.author.id)
             store = state.get("stores", {}).pop(store_id, None)
             if not store:
-                await interaction.followup.send("No store found to close.", ephemeral=True)
+                await send_ephemeral(interaction, "No store found to close.")
                 return
             store_name = store.get("store_name") or "Gun Store"
             lots = [l for l in store.get("lots", []) if int(l.get("qty_remaining", 0)) > 0]
@@ -2013,7 +1935,7 @@ class _GunCloseConfirmView(SafeView):
             summary += f"• {len(returned_lots)} lot(s) returned to wholesale:\n  " + "\n  ".join(returned_names)
         else:
             summary += "• No items returned to wholesale"
-        await interaction.followup.send(summary, ephemeral=True)
+        await send_ephemeral(interaction, summary)
 
         log_ch = await self.cog._log_channel()
         if log_ch:

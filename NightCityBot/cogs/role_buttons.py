@@ -4,7 +4,7 @@ import discord
 from discord.ext import commands
 
 import config
-from NightCityBot.utils.interaction_safety import SafeView
+from NightCityBot.utils.interaction_safety import SafeView, respond_ephemeral
 from NightCityBot.utils.permissions import is_fixer
 
 
@@ -26,15 +26,15 @@ class NPCButtonView(SafeView):
         """Grant the NPC role to the interacting member."""
         guild = interaction.guild or self.bot.get_guild(config.GUILD_ID)
         if not guild:
-            await interaction.response.send_message(
-                "⚠️ Guild not found.", ephemeral=True
+            await respond_ephemeral(interaction,
+                "⚠️ Guild not found."
             )
             return
 
         role = guild.get_role(config.NPC_ROLE_ID)
         if role is None:
-            await interaction.response.send_message(
-                "⚠️ NPC role is not configured.", ephemeral=True
+            await respond_ephemeral(interaction,
+                "⚠️ NPC role is not configured."
             )
             return
 
@@ -48,22 +48,22 @@ class NPCButtonView(SafeView):
                     member = None
 
         if member is None:
-            await interaction.response.send_message(
-                "⚠️ Could not find your member record.", ephemeral=True
+            await respond_ephemeral(interaction,
+                "⚠️ Could not find your member record."
             )
             return
 
         if any(r.id == role.id for r in getattr(member, "roles", [])):
-            await interaction.response.send_message(
-                "✅ You already have the NPC role.", ephemeral=True
+            await respond_ephemeral(interaction,
+                "✅ You already have the NPC role."
             )
             return
 
         try:
             await member.add_roles(role, reason="NPC role button")
         except (discord.Forbidden, discord.HTTPException) as e:
-            await interaction.response.send_message(
-                f"❌ Could not assign NPC role: {e}", ephemeral=True
+            await respond_ephemeral(interaction,
+                f"❌ Could not assign NPC role: {e}"
             )
             return
         admin = self.bot.get_cog("Admin")
@@ -71,8 +71,8 @@ class NPCButtonView(SafeView):
             await admin.log_audit(
                 member, "✅ Self-assigned NPC role via button."
             )
-        await interaction.response.send_message(
-            "✅ NPC role granted.", ephemeral=True
+        await respond_ephemeral(interaction,
+            "✅ NPC role granted."
         )
 
 

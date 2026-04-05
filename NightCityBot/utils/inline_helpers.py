@@ -3,7 +3,7 @@ from typing import Optional
 
 import discord
 
-from NightCityBot.utils.interaction_safety import SafeView
+from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral
 
 
 async def collect_text_input(bot, channel_id: int, author_id: int, *, timeout: int = 60) -> Optional[str]:
@@ -72,9 +72,8 @@ class PriceSelectView(SafeView):
     async def _on_select(self, interaction: discord.Interaction):
         val = interaction.data["values"][0]
         if val == "custom":
-            await interaction.response.send_message(
-                "📝 Type the price amount (number only), or `cancel` to abort:",
-                ephemeral=True,
+            await respond_ephemeral(interaction,
+                "📝 Type the price amount (number only), or `cancel` to abort:"
             )
             text = await collect_text_input(self.bot, self.channel_id, self.author_id)
             if text is None:
@@ -83,7 +82,7 @@ class PriceSelectView(SafeView):
             try:
                 self.result = int(text.replace(",", "").replace("$", ""))
             except ValueError:
-                await interaction.followup.send("❌ Invalid price.", ephemeral=True)
+                await send_ephemeral(interaction, "❌ Invalid price.")
                 self.stop()
                 return
         else:
