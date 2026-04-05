@@ -117,8 +117,8 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
 
     VALID_RESTRICTIONS = ("basic", "controlled", "restricted")
 
-    TYPE_ORDER = {"gun": 0, "cyberware": 1}
-    TYPE_LABELS = {"gun": "🔫 Guns", "cyberware": "🦾 Cyberware"}
+    TYPE_ORDER = {"gun": 0, "cyberware": 1, "other": 2}
+    TYPE_LABELS = {"gun": "🔫 Guns", "cyberware": "🦾 Cyberware", "other": "📦 Other Items"}
     DEFAULT_TYPE_LABEL = "📦 Other Items"
 
     @staticmethod
@@ -132,6 +132,8 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
         type_buckets: dict[str, list[dict]] = {}
         for item in filtered_items:
             itype = item.get("item_type", "misc")
+            if itype not in ("gun", "cyberware"):
+                itype = "other"
             type_buckets.setdefault(itype, []).append(item)
 
         sorted_types = sorted(
@@ -155,7 +157,7 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 display.append((None, "> `#` · **Name** · Price · Seller · Date"))
             else:
                 display.append((None, f"\n**{type_label}**"))
-                display.append((None, "> `#` · **Name** · Details"))
+                display.append((None, "> `#` · **Name** · Price · Seller · Date"))
             for g in groups:
                 count_str = f" ×{g['count']}" if g["count"] > 1 else ""
                 sample = g["items"][0] if g.get("items") else {}
