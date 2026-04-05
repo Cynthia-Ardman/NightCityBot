@@ -131,6 +131,16 @@
       "description": "",
       "effectiveness_raw": "",
       "gun_category": "Tech"
+    },
+    {
+      "lot_id": "fixer-20260405-3e490b",
+      "gun_name": "test",
+      "gun_level": "M",
+      "gun_category": "Power",
+      "weapon_type": "pistol",
+      "unit_cost": 1,
+      "qty_available": 100,
+      "restriction": "basic"
     }
   ],
   "stores": {
@@ -157,7 +167,6 @@
       "store_name": "Liberty Arms",
       "balance": 0,
       "total_sales": 0,
-      "lots": [],
       "employees": [],
       "store_type": "standard"
     },
@@ -166,6 +175,14 @@
       "store_name": "Shit my pants",
       "balance": 0,
       "total_sales": 0,
+      "controlled_buyers": [
+        172847414791766016,
+        {
+          "user_id": 286338318076084226,
+          "character_id": "b12025a9-a358-4070-a3f1-c6ac59001560",
+          "character_name": "Corpse"
+        }
+      ],
       "lots": [
         {
           "lot_id": "fixer-20260405-727f00",
@@ -176,14 +193,6 @@
           "item_ids": [],
           "restriction": "basic",
           "weapon_type": "pistol"
-        }
-      ],
-      "controlled_buyers": [
-        172847414791766016,
-        {
-          "user_id": 286338318076084226,
-          "character_id": "b12025a9-a358-4070-a3f1-c6ac59001560",
-          "character_name": "Corpse"
         }
       ]
     }
