@@ -40,7 +40,7 @@ Each panel has a guide at the top explaining what every button does. All respons
 
 - **Sell to Player** — sell an item from your character's inventory to another player for a price you set.
 - **Give Item** — transfer an item to another player for free.
-- **Sell to Store** — sell a gun back to a gun store.
+- **Sell to Store** — sell guns back to a gun store or cyberware back to a ripperdoc store.
 - **All trades and sales** go through DM confirmation — the other person has to accept before anything happens. Both sides pick which character is involved.
 - The sell flow shows your selections (character, item, price) **inline as you pick them** so you always know where you are.
 - If anything goes wrong mid-transaction, the buyer gets an **automatic refund**.
@@ -82,6 +82,24 @@ Each panel has a guide at the top explaining what every button does. All respons
 - Each hub has its own dedicated channel — no more commands scattered everywhere.
 - All menus give you **5 minutes** to finish what you're doing, and bot responses **auto-clean** after 5 minutes to keep channels tidy.
 - Help commands have been updated to reflect the new layout.
+
+---
+
+## Gun Properties Guide
+
+New reference doc explaining how guns work in the bot:
+
+- **Power Level** (Low / Medium / High) — quality tiers that affect wholesale availability and pricing. Low-tier guns are the most common, high-tier are rare.
+- **Type** (Power / Smart / Tech) — weapon damage categories for RP flavor.
+- **Restriction** (Basic / Controlled / Restricted) — determines what approval is needed before a store owner can sell to a customer. Basic is open, Controlled requires per-character buyer approval, and Restricted needs real-time Fixer/Admin sign-off.
+
+Full guide: https://github.com/Cynthia-Ardman/NightCityBot/blob/main/docs/gun_properties_guide.md
+
+---
+
+## Admin Updates
+
+- **Seed Ripperdoc Stores** — new button on the Admin Shop panel that fills empty ripperdoc stores with 10 random starter cyberware items. Stores that already have stock are skipped.
 
 ---
 
