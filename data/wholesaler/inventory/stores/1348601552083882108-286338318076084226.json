@@ -3,16 +3,14 @@
   "owner_id": "286338318076084226",
   "lots": [
     {
-      "lot_id": "lot-20260404-4fce9c",
+      "lot_id": "fixer-20260405-727f00",
       "gun_name": "test",
-      "item_ids": [
-        "9067119f-9fbd-4ce4-b6f3-a05cfdd006df"
-      ],
       "gun_level": "L",
-      "unit_cost": 100,
+      "unit_cost": 1,
+      "qty_available": 0,
+      "item_ids": [],
       "restriction": "basic",
-      "weapon_type": "",
-      "qty_remaining": 1
+      "weapon_type": "pistol"
     }
   ],
   "controlled_buyers": [
@@ -23,5 +21,5 @@
       "character_name": "Corpse"
     }
   ],
-  "updated_at": "2026-04-05T02:18:34.604283+00:00"
+  "updated_at": "2026-04-05T05:24:32.871969+00:00"
 }

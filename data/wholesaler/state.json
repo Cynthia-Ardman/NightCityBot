@@ -6,8 +6,10 @@
       "gun_level": "M",
       "unit_cost": 1200,
       "qty_available": 2,
-      "restriction": "basic",
       "weapon_type": "pistol",
+      "restriction": "basic",
+      "description": "",
+      "effectiveness_raw": "",
       "gun_category": "Power"
     },
     {
@@ -16,8 +18,10 @@
       "gun_level": "L",
       "unit_cost": 2000,
       "qty_available": 1,
-      "restriction": "basic",
       "weapon_type": "shotgun",
+      "restriction": "basic",
+      "description": "",
+      "effectiveness_raw": "",
       "gun_category": "Power"
     },
     {
@@ -26,8 +30,10 @@
       "gun_level": "L",
       "unit_cost": 1000,
       "qty_available": 2,
-      "restriction": "basic",
       "weapon_type": "pistol",
+      "restriction": "basic",
+      "description": "",
+      "effectiveness_raw": "",
       "gun_category": "Power"
     },
     {
@@ -36,8 +42,10 @@
       "gun_level": "L",
       "unit_cost": 4000,
       "qty_available": 1,
-      "restriction": "basic",
       "weapon_type": "shotgun",
+      "restriction": "basic",
+      "description": "",
+      "effectiveness_raw": "",
       "gun_category": "Power"
     },
     {
@@ -46,8 +54,10 @@
       "gun_level": "H",
       "unit_cost": 3000,
       "qty_available": 1,
-      "restriction": "basic",
       "weapon_type": "revolver",
+      "restriction": "basic",
+      "description": "",
+      "effectiveness_raw": "",
       "gun_category": "Power"
     },
     {
@@ -56,8 +66,10 @@
       "gun_level": "M",
       "unit_cost": 1500,
       "qty_available": 1,
-      "restriction": "basic",
       "weapon_type": "pistol",
+      "restriction": "basic",
+      "description": "",
+      "effectiveness_raw": "",
       "gun_category": "Power"
     },
     {
@@ -66,8 +78,10 @@
       "gun_level": "M",
       "unit_cost": 5000,
       "qty_available": 2,
-      "restriction": "basic",
       "weapon_type": "assault_rifle",
+      "restriction": "basic",
+      "description": "",
+      "effectiveness_raw": "",
       "gun_category": "Power"
     },
     {
@@ -76,8 +90,10 @@
       "gun_level": "M",
       "unit_cost": 1300,
       "qty_available": 2,
-      "restriction": "basic",
       "weapon_type": "pistol",
+      "restriction": "basic",
+      "description": "",
+      "effectiveness_raw": "",
       "gun_category": "Power"
     },
     {
@@ -86,8 +102,10 @@
       "gun_level": "L",
       "unit_cost": 5000,
       "qty_available": 2,
-      "restriction": "controlled",
       "weapon_type": "submachine_gun",
+      "restriction": "controlled",
+      "description": "",
+      "effectiveness_raw": "",
       "gun_category": "Power"
     },
     {
@@ -96,8 +114,10 @@
       "gun_level": "M",
       "unit_cost": 4000,
       "qty_available": 2,
-      "restriction": "controlled",
       "weapon_type": "revolver",
+      "restriction": "controlled",
+      "description": "",
+      "effectiveness_raw": "",
       "gun_category": "Power"
     },
     {
@@ -106,49 +126,58 @@
       "gun_level": "H",
       "unit_cost": 90000,
       "qty_available": 1,
-      "restriction": "restricted",
       "weapon_type": "precision_rifle",
+      "restriction": "restricted",
+      "description": "",
+      "effectiveness_raw": "",
       "gun_category": "Tech"
     }
   ],
   "stores": {
     "111:2001": {
       "owner_id": "2001",
+      "store_name": "",
+      "balance": 0,
+      "total_sales": 0,
       "lots": [
         {
           "lot_id": "lot-001",
           "gun_name": "Nue",
           "gun_level": "M",
           "unit_cost": 1300,
-          "weapon_type": "pistol",
-          "qty_remaining": 3
+          "qty_available": 0,
+          "item_ids": [],
+          "restriction": "basic",
+          "weapon_type": "pistol"
         }
       ]
     },
     "1348601552083882108:172847414791766016": {
       "owner_id": "172847414791766016",
+      "store_name": "Liberty Arms",
+      "balance": 0,
+      "total_sales": 0,
       "lots": [],
       "employees": [],
-      "store_name": "Liberty Arms",
       "store_type": "standard"
     },
     "1348601552083882108:286338318076084226": {
       "owner_id": "286338318076084226",
+      "store_name": "Shit my pants",
+      "balance": 0,
+      "total_sales": 0,
       "lots": [
         {
-          "lot_id": "lot-20260404-4fce9c",
+          "lot_id": "fixer-20260405-727f00",
           "gun_name": "test",
-          "item_ids": [
-            "9067119f-9fbd-4ce4-b6f3-a05cfdd006df"
-          ],
           "gun_level": "L",
-          "unit_cost": 100,
+          "unit_cost": 1,
+          "qty_available": 0,
+          "item_ids": [],
           "restriction": "basic",
-          "weapon_type": "",
-          "qty_remaining": 1
+          "weapon_type": "pistol"
         }
       ],
-      "store_name": "Shit my pants",
       "controlled_buyers": [
         172847414791766016,
         {
