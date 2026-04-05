@@ -2497,9 +2497,8 @@ class FixerHubCog(commands.Cog, name="FixerHub"):
         if channel is None:
             await ctx.send("❌ Fixer hub channel not found.", ephemeral=True)
             return
-        await channel.send(embed=self._guide_embed())
         view = FixerTopView()
-        await channel.send(embed=self._panel_embed(), view=view)
+        await channel.send(embed=self._guide_embed(), view=view)
         await ctx.send("✅ Fixer panel posted.", ephemeral=True)
         try:
             await ctx.message.delete()

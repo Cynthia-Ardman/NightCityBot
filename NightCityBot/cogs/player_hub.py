@@ -186,9 +186,8 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
         if channel is None:
             await ctx.send("❌ Player hub channel not found.", ephemeral=True)
             return
-        await channel.send(embed=self._guide_embed())
         view = PlayerHubView()
-        await channel.send(embed=self._panel_embed(), view=view)
+        await channel.send(embed=self._guide_embed(), view=view)
         await ctx.send("✅ Player Hub panel posted.", ephemeral=True)
         try:
             await ctx.message.delete()

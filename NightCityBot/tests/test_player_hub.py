@@ -160,12 +160,10 @@ def test_player_cmd_sends_hub():
         channel.send = AsyncMock()
         cog.bot.get_channel = MagicMock(return_value=channel)
         await PlayerHubCog.player_cmd(cog, ctx)
-        assert channel.send.call_count == 2
-        guide_call = channel.send.call_args_list[0]
-        panel_call = channel.send.call_args_list[1]
-        assert "embed" in guide_call.kwargs
-        assert "embed" in panel_call.kwargs
-        assert "view" in panel_call.kwargs
+        assert channel.send.call_count == 1
+        call = channel.send.call_args_list[0]
+        assert "embed" in call.kwargs
+        assert "view" in call.kwargs
     _run(_test())
 
 

@@ -857,9 +857,8 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
         if channel is None:
             await ctx.send("❌ Admin hub channel not found.", ephemeral=True)
             return
-        await channel.send(embed=self._guide_embed())
         view = AdminShopMenuView()
-        await channel.send(embed=self._panel_embed(), view=view)
+        await channel.send(embed=self._guide_embed(), view=view)
         await ctx.send("✅ Admin Shop panel posted.", ephemeral=True)
         try:
             await ctx.message.delete()

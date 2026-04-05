@@ -1831,9 +1831,8 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
         if channel is None:
             await ctx.send("❌ Ripperdoc hub channel not found.", ephemeral=True)
             return
-        await channel.send(embed=self._guide_embed())
         view = RipperdocMenuView()
-        await channel.send(embed=self._panel_embed(), view=view)
+        await channel.send(embed=self._guide_embed(), view=view)
         await ctx.send("✅ Ripperdoc panel posted.", ephemeral=True)
         try:
             await ctx.message.delete()

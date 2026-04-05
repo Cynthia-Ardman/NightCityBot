@@ -2095,9 +2095,8 @@ class GunstoreHub(commands.Cog, name="GunstoreHub"):
         if channel is None:
             await ctx.send("❌ Gun store hub channel not found.", ephemeral=True)
             return
-        await channel.send(embed=self._guide_embed())
         view = GunstoreMenuView()
-        await channel.send(embed=self._panel_embed(), view=view)
+        await channel.send(embed=self._guide_embed(), view=view)
         await ctx.send("✅ Gun Store panel posted.", ephemeral=True)
         try:
             await ctx.message.delete()
