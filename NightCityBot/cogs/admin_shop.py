@@ -82,6 +82,15 @@ class AdminShopMenuView(SafeView):
         view = PlayerInvPickerView(cog, ctx)
         await send_ephemeral(interaction, "Select a player to view their inventory:", view=view)
 
+    @discord.ui.button(label="Seed Ripperdoc Stores", style=discord.ButtonStyle.success, emoji="🌱", row=1, custom_id="admin_shop:seed_ripperdoc")
+    async def seed_ripperdoc(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("AdminShop")
+        if not cog:
+            await send_ephemeral(interaction, "❌ Admin shop system unavailable.")
+            return
+        await _seed_ripperdoc_stores(cog, interaction)
+
     @discord.ui.button(label="Wholesale Stock", style=discord.ButtonStyle.secondary, emoji="🏭", row=1, custom_id="admin_shop:wholesale_stock")
     async def wholesale_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
@@ -683,6 +692,105 @@ async def _inline_restock_cw(cog, interaction, text, catalog):
         embed.add_field(name="Items", value=str(len(stocked)), inline=True)
         embed.add_field(name="Max Qty", value=str(max_qty), inline=True)
         embed.add_field(name="Details", value=summary[:1024], inline=False)
+        embed.set_footer(text="NightCityBot Audit Log")
+        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+
+async def _seed_ripperdoc_stores(cog, interaction: discord.Interaction):
+    cw_cog = cog.bot.cogs.get("CyberwareShop")
+    if not cw_cog:
+        await send_ephemeral(interaction, "❌ Cyberware system unavailable.")
+        return
+
+    catalog = await cw_catalog_get_all()
+    if not catalog:
+        await send_ephemeral(interaction, "❌ CW catalog is empty. Set a sheet and reload first.")
+        return
+
+    catalog = [item for item in catalog if item.get("name")]
+    if len(catalog) < 10:
+        await send_ephemeral(interaction, f"❌ CW catalog only has {len(catalog)} valid items — need at least 10 to seed stores.")
+        return
+
+    async with cw_cog.lock:
+        state = await cw_cog._load_state()
+        stores = state.get("ripperdoc_stores", {})
+
+        if not stores:
+            await send_ephemeral(interaction, "❌ No ripperdoc stores are registered.")
+            return
+
+        seeded_summary: list[str] = []
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        for store_id, store_info in stores.items():
+            owner_id = store_info.get("owner_id")
+            if not owner_id:
+                continue
+            inventory = await cw_cog._load_inventory(owner_id)
+            if inventory:
+                continue
+
+            chosen = random.sample(catalog, 10)
+            new_items = []
+            item_names = []
+            for item in chosen:
+                name = item["name"]
+                new_entry = {
+                    "item_id": str(uuid.uuid4()),
+                    "name": name,
+                    "price_paid": 0,
+                    "cwp": item.get("cwp", ""),
+                    "slot": item.get("slot", ""),
+                    "purchased_at": now_iso,
+                }
+                new_items.append(new_entry)
+                item_names.append(name)
+
+            if not new_items:
+                continue
+            await cw_cog._save_inventory(owner_id, new_items)
+
+            store_name = store_info.get("store_name") or f"Store {owner_id}"
+            items_list = ", ".join(item_names)
+            seeded_summary.append(f"**{store_name}** (owner <@{owner_id}>): {len(new_items)} items\n> {items_list}")
+
+            for seeded_item in new_items:
+                tx = {
+                    "tx_id": str(uuid.uuid4()),
+                    "tx_type": "ADMIN_SEED",
+                    "ts": now_iso,
+                    "ripperdoc_id": str(owner_id),
+                    "admin_id": str(interaction.user.id),
+                    "admin_name": interaction.user.display_name,
+                    "item": seeded_item["name"],
+                    "item_id": seeded_item["item_id"],
+                    "price": 0,
+                    "qty": 1,
+                }
+                await cw_cog._append_tx(tx)
+
+    if not seeded_summary:
+        await send_ephemeral(interaction, "✅ All ripperdoc stores already have inventory — nothing to seed.")
+        return
+
+    summary_text = "\n".join(seeded_summary)
+    msg = f"🌱 **Seeded {len(seeded_summary)} ripperdoc store(s):**\n{summary_text}"
+    if len(msg) > 1900:
+        msg = msg[:1900] + "\n…(truncated)"
+    await send_ephemeral(interaction, msg)
+
+    log_ch = await cog._audit_channel()
+    if log_ch:
+        embed = discord.Embed(
+            title="🌱 Admin: Ripperdoc Stores Seeded",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Admin", value=f"{interaction.user.mention}", inline=False)
+        embed.add_field(name="Stores Seeded", value=str(len(seeded_summary)), inline=True)
+        embed.add_field(name="Items Per Store", value="10", inline=True)
+        embed.add_field(name="Details", value=summary_text[:1024], inline=False)
         embed.set_footer(text="NightCityBot Audit Log")
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
