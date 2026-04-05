@@ -82,3 +82,10 @@ Each panel has a guide at the top explaining what every button does. All respons
 - Each hub has its own dedicated channel — no more commands scattered everywhere.
 - All menus give you **5 minutes** to finish what you're doing, and bot responses **auto-clean** after 5 minutes to keep channels tidy.
 - Help commands have been updated to reflect the new layout.
+
+---
+
+## Full Documentation
+
+For a complete breakdown of every system, command, and feature, check out the full docs:
+https://github.com/Cynthia-Ardman/NightCityBot/blob/main/docs/DOCUMENTATION.md
