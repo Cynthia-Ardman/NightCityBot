@@ -2591,11 +2591,13 @@ async def _process_sell_to_store(cog, interaction, store_owner, group, seller_ch
     weapon_type = ""
     if hasattr(guns_cog, "_derive_weapon_type"):
         weapon_type = guns_cog._derive_weapon_type(item_name, "") or ""
+    gun_category = selected_item.get("weapon_subtype", "").title()
     store_lot = {
         "lot_id": lot_id,
         "gun_name": item_name,
         "gun_level": selected_item.get("gun_level", ""),
         "weapon_type": weapon_type,
+        "gun_category": gun_category,
         "unit_cost": price,
         "qty_remaining": 1,
         "restriction": restriction,

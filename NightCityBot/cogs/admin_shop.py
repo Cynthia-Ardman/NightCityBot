@@ -612,6 +612,7 @@ async def _inline_restock_wholesale(cog, interaction, text, catalog):
                 "gun_name": gun["gun_name"],
                 "gun_level": gun.get("gun_level", "L"),
                 "weapon_type": gun.get("weapon_type", ""),
+                "gun_category": gun.get("gun_category", ""),
                 "unit_cost": cost,
                 "qty_available": qty,
                 "restriction": restriction,

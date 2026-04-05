@@ -85,10 +85,10 @@ async def _show_gun_inventory(interaction, store, store_id):
             continue
         restriction = lot.get("restriction", "basic")
         r_tag = f" [{restriction}]" if restriction != "basic" else ""
-        wt = lot.get("weapon_type", "")
-        wt_tag = f" {wt}" if wt else ""
+        gc = lot.get("gun_category", "")
+        gc_tag = f" {gc}" if gc else ""
         lines.append(
-            f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}]{wt_tag} "
+            f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}]{gc_tag} "
             f"— ${int(lot.get('unit_cost', 0)):,} × {qty}"
         )
     if not lines:
@@ -194,10 +194,10 @@ class GunstoreMenuView(SafeView):
         for i, lot in enumerate(available[:30], 1):
             r = lot.get("restriction", "basic")
             r_tag = f" [{r}]" if r != "basic" else ""
-            wt = lot.get("weapon_type", "")
-            wt_tag = f" {wt}" if wt else ""
+            gc = lot.get("gun_category", "")
+            gc_tag = f" {gc}" if gc else ""
             lines.append(
-                f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}]{wt_tag} "
+                f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}]{gc_tag} "
                 f"— ${int(lot['unit_cost']):,} × {lot['qty_available']}"
             )
         embed = discord.Embed(
@@ -323,6 +323,7 @@ def _build_black_market_lots(catalog: list[dict]) -> list[dict]:
             "gun_name": entry["gun_name"],
             "gun_level": entry.get("gun_level", "L"),
             "weapon_type": entry.get("weapon_type", ""),
+            "gun_category": entry.get("gun_category", ""),
             "unit_cost": math.ceil(int(entry.get("price", 0)) * multiplier),
             "qty_available": 99,
             "restriction": entry["restriction"],
@@ -443,6 +444,7 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty, *, black_m
             "gun_name": lot["gun_name"],
             "gun_level": lot.get("gun_level", "L"),
             "weapon_type": lot.get("weapon_type", ""),
+            "gun_category": lot.get("gun_category", ""),
             "unit_cost": unit_cost,
             "qty_remaining": qty,
             "restriction": lot.get("restriction", "basic"),
@@ -873,12 +875,12 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
         "seller_name": ctx.author.display_name,
     }
     gl = lot.get("gun_level", "")
-    wt = lot.get("weapon_type", "")
+    gc = lot.get("gun_category", "")
     level_map = {"L": "low", "M": "medium", "H": "high"}
     if gl:
         pi_payload["power_level"] = level_map.get(gl, gl.lower())
-    if wt:
-        pi_payload["weapon_subtype"] = wt
+    if gc:
+        pi_payload["weapon_subtype"] = gc.lower()
     pi_ok = await pi_add_item(pi_payload)
     if not pi_ok:
         logger.error("gunstore sell: pi_add_item failed — attempting compensation")
@@ -900,6 +902,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                         "item_ids": [item_id],
                         "gun_level": lot.get("gun_level", ""),
                         "weapon_type": lot.get("weapon_type", ""),
+                        "gun_category": lot.get("gun_category", ""),
                     })
                 await guns_cog._save_state(state)
                 logger.info("gunstore sell: restored item_id=%s to store lot=%s", item_id, lot_id)

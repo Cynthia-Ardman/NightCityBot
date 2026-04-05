@@ -745,7 +745,8 @@ class TestStorePickerViews:
             store_lots = state["stores"]["999:222"]["lots"]
             assert len(store_lots) == 1
             assert store_lots[0]["gun_level"] == "L"
-            assert store_lots[0]["weapon_type"] == "power"
+            assert store_lots[0]["gun_category"] == "Power"
+            assert store_lots[0]["weapon_type"] == ""
             assert "TestGun" in inter.followup.send.call_args[0][0]
         _run(_test())
 
@@ -830,7 +831,8 @@ class TestWholesaleProcessFunctions:
             assert len(state["wholesale_lots"]) == 1
             lot = state["wholesale_lots"][0]
             assert lot["gun_level"] == "M"
-            assert lot["weapon_type"] == "power"
+            assert lot["gun_category"] == "Power"
+            assert lot["weapon_type"] == ""
             assert "TestGun" in msg.edit.call_args[1].get("content", "")
         _run(_test())
 
