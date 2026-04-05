@@ -86,7 +86,7 @@ Each hub is posted once by an admin using a hybrid command (e.g., `!player`). Th
 
 | Button | Flow |
 |--------|------|
-| **Create Character** | Bot prompts for a name (60s timeout) -> validates length and uniqueness -> creates character |
+| **Create Character** | Bot prompts for a name (5-minute timeout) -> validates length and uniqueness -> creates character |
 | **View Characters** | Shows all your active and inactive characters |
 | **Deactivate Character** | Select an active character -> confirm -> character set to inactive (items preserved) |
 | **Reactivate** | (Shown when you have inactive characters) Select an inactive character -> confirm -> character set to active |
@@ -767,7 +767,7 @@ All IDs, paths, and feature settings. Key groups:
 
 **Backups:** Automated daily Google Drive backups bundling database exports, balance snapshots, character sheet backups, and rent audit files. Compressed as gzipped JSON. Configurable retention with automatic rotation of old backups. Full in-Discord restore flow with confirmation safeguards.
 
-**Testing:** 951 tests across 105+ files, 66% coverage floor
+**Testing:** 982 tests across 105+ files, 63% coverage floor
 
 **Instance locking:** File lock (`fcntl`) prevents duplicate bot instances
 
@@ -783,4 +783,4 @@ All IDs, paths, and feature settings. Key groups:
 9. **Log cleanup** — removes entries for members who have left the server from attendance, open shop, and other log files
 10. **Startup audit log** — posts a confirmation message to the audit channel when all checks pass
 
-**Error handling:** All interactive Views (button panels, dropdowns, modals) extend `SafeView`, a base class that catches any unhandled exception inside a button or select callback. When an error occurs, SafeView logs the full traceback (including the view type, user, and item that triggered it) and sends an ephemeral error message to the user so they know something went wrong. This prevents one user's error from crashing the panel for everyone else. When a View times out, SafeView attempts to delete the message or, if that fails, edits it to show a timeout notice. All DM confirmation views enforce `interaction_check` to ensure only the intended recipient can click Accept/Decline. Expired interaction tokens are caught gracefully without raising errors.
+**Error handling:** All interactive Views (button panels, dropdowns) extend `SafeView`, a base class that catches any unhandled exception inside a button or select callback. When an error occurs, SafeView logs the full traceback (including the view type, user, and item that triggered it) and sends an ephemeral error message to the user so they know something went wrong. This prevents one user's error from crashing the panel for everyone else. When a View times out, SafeView attempts to delete the message or, if that fails, edits it to show a timeout notice. All DM confirmation views enforce `interaction_check` to ensure only the intended recipient can click Accept/Decline. Expired interaction tokens are caught gracefully without raising errors. All interactive view timeouts are set to 5 minutes (300 seconds).

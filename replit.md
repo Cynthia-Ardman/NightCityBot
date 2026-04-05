@@ -193,7 +193,7 @@ All inventory operations are handled through the interactive hubs:
 
 ## Unified Shop System (Task #14)
 
-Consolidates separate command sets into interactive hub commands with Discord UI (dropdowns, buttons, modals), DM-confirmation trade flows, and a full per-item audit trail.
+Consolidates separate command sets into interactive hub commands with Discord UI (dropdowns, buttons, inline text input), DM-confirmation trade flows, and a full per-item audit trail.
 
 ### New Cogs
 - `NightCityBot/cogs/ripperdoc_hub.py` — `/ripperdoc` interactive panel. Layout: row0=[Buy Wholesale, Wholesale List], row1=[Sell/Install to Patient], row2=[Manage Store, Manage Employees]. Manage Store submenu (`_ManageRDStoreView`): Create Store, Change Store Name (shows current name), My Stock, Transfer Ownership (DM confirmation to receiver), Close Store. Store data stored in CyberwareShop state as `ripperdoc_stores: {store_id: {owner_id, employees, store_name}}`. Store ID format: `"rd:{guild_id}:{owner_id}"`. Owner role (`RIPPERDOC_OWNER_ROLE_ID`) required for wholesale, manage store/employees. Employee role (`RIPPERDOC_EMPLOYEE_ROLE_ID`) can sell/install from assigned store only. Money goes to store owner. Dual-role users see a store picker. 1-store limit per player. DM confirmation flow for ownership transfer (`_RDTransferDMConfirmView`).
@@ -211,7 +211,7 @@ Table: `item_history` (keyed by item UUID, stores event_type, actor_id, target_i
 - `!item_history <uuid>` command for lookup
 
 ### DM Confirmation Flow
-All sell/trade operations with another player now send a DM to the buyer/patient with Accept/Decline buttons (60s timeout). Self-trades (same user, different characters) bypass DM confirmation.
+All sell/trade operations with another player now send a DM to the buyer/patient with Accept/Decline buttons (5-minute timeout). Self-trades (same user, different characters) bypass DM confirmation.
 
 ### Legacy Fallback Commands
 `!cw_buy`, `!cw_sell`, `!cw_install`, and `!cw_inventory` are retained as fallbacks for cases exceeding the 25-item Discord dropdown limit. All gun wholesaler prefix commands have been fully removed.
@@ -281,6 +281,11 @@ All ephemeral messages auto-delete after 5 minutes (300 seconds) via fire-and-fo
 - `_safe_respond` and `safe_followup` also schedule auto-delete for ephemeral messages.
 
 Convention: **never** call `followup.send(ephemeral=True)` or `response.send_message(ephemeral=True)` directly in cog code. Always use `send_ephemeral()` / `respond_ephemeral()` to ensure auto-delete coverage. `defer(ephemeral=True)` and `ctx.send(ephemeral=True)` are NOT affected (defers don't send visible messages; ctx.send is for slash command responses).
+
+All sell/install flow error and status messages (decline/timeout, balance failures, refund notices, out-of-stock, save errors) are sent as ephemeral messages via `send_ephemeral()` — never as public channel messages via `ctx.send()`.
+
+### View Timeouts
+All interactive View timeouts across all hub cogs are standardized to **300 seconds (5 minutes)**. This applies to: sell/install setup views, DM confirmation views, employee hiring confirmations, store transfer confirmations, store close confirmations, manage views, buyer approval views, wholesale buy selects, and character creation text input. The only exception is the backup restore confirmation (`backup.py`) which stays at 30 seconds as a safety measure for that destructive operation. Discord interaction tokens last 15 minutes, so 5-minute view timeouts are safely within that window. The persistent hub panels (`GunstoreMenuView`, `RipperdocMenuView`, `PlayerMenuView`) use `timeout=None` (never expire).
 
 ### Inline Helpers (`utils/inline_helpers.py`)
 `collect_text_input(bot, channel_id, author_id)` — waits for a user's text message reply, auto-deletes it, supports cancel. Used by hub flows that replaced modals with inline text collection.
