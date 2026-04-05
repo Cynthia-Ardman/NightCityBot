@@ -100,9 +100,9 @@ Each hub is posted once by an admin using a hybrid command (e.g., `!player`). Th
 | Row | Button | What it does |
 |-----|--------|-------------|
 | 0 | **Buy from Wholesale** | Browse this week's gun rotation (or Black Market catalog if applicable), select a gun, pick quantity, pay from your balance. **Owner only** — employees cannot buy wholesale |
-| 0 | **Wholesale List** | View the current wholesale lots without buying. Shows gun name, restriction, power level (L/M/H), damage type (Power/Smart/Tech), cost, and quantity |
+| 0 | **Wholesale List** | View the current wholesale lots grouped by gun class (Pistols, Shotguns, etc.) with section headers. Format: `Name — [Restriction] · [Level] · [DamageType] — $Price × Qty`. Power level shown as full words (Low/Medium/High). Guns without a class appear under "Other" |
 | 1 | **Sell to Customer** | Select a gun from your store stock -> select customer (user picker) -> select customer's character -> enter price -> customer gets DM to Accept/Decline -> payment processed -> item added to customer's inventory. Controlled/restricted items require per-character buyer approval |
-| 1 | **My Store Inventory** | View your store's current stock with power level and damage type displayed |
+| 1 | **My Store Inventory** | View your store's current stock grouped by gun class with section headers. Format: `Name — [Restriction] · [Level] · [DamageType] — $Price × Qty` |
 | 2 | **Manage Store** | Create store, change name, transfer ownership, close store |
 | 2 | **Manage Employees** | Add employee, remove employee, view employees |
 | 2 | **Manage Buyers** | Approve buyer (per-character), unapprove buyer, view approved buyers |
@@ -139,15 +139,15 @@ Top-level buttons open sub-menus:
 
 **Add Item flow:** Select player (user picker) -> enter item name -> select item type (gun/cyberware/gear/misc) -> select restriction (basic/controlled/restricted) -> enter quantity -> select character -> enter custom cost (or 0 for free) -> player receives a DM with Accept/Decline buttons (5-minute timeout) -> payment deducted (cash first, then bank) -> items created with unique UUIDs. Gun items additionally require Power Level (low/medium/high) and Type (power/smart/tech). Cyberware items additionally require CWP (integer) and Slot (body location). If payment fails or items cannot be saved, the player is automatically refunded
 
-**Add Gun to Wholesale flow:** Enter `gun name, quantity, unit cost, restriction, power level, type` (e.g. `Militech Mk.31, 10, 5000, basic, medium, power`). Missing fields are prompted interactively. The lot is saved with the mapped gun_level (L/M/H) and gun_category (Power/Smart/Tech)
+**Add Gun to Wholesale flow:** Enter `gun name, quantity, unit cost, restriction, power level, type, gun class` (e.g. `Militech Mk.31, 10, 5000, basic, medium, power, pistol`). Missing fields are prompted interactively. The lot is saved with the mapped gun_level (L/M/H), gun_category (Power/Smart/Tech), and weapon_type (gun class). Valid gun classes: pistol, revolver, submachine_gun, shotgun, assault_rifle, light_machine_gun, heavy_machine_gun, precision_rifle, sniper_rifle
 
 **Add Cyberware to Wholesale flow:** Enter `cyberware name, quantity, unit cost, cwp, slot` (e.g. `Neural Link, 10, 5000, 14, neural`). Missing fields are prompted interactively. The lot is saved with CWP (integer) and slot (body location)
 
-**Add Gun to Store flow:** (via Store sub-menu → select store → Add Item) Enter gun details inline → store owner receives a DM with Accept/Decline buttons (5-minute timeout) → payment deducted (cash first, then bank) → guns added to store stock with gun_level and gun_category. Refunded automatically if store save fails
+**Add Gun to Store flow:** (via Store sub-menu → select store → Add Item) Enter gun details inline (including gun class) → store owner receives a DM with Accept/Decline buttons (5-minute timeout) → payment deducted (cash first, then bank) → guns added to store stock with gun_level, gun_category, and weapon_type. Refunded automatically if store save fails
 
 **Add Cyberware to Store flow:** (via Store sub-menu → select store → Add Item) Enter cyberware details inline → Ripperdoc receives a DM with Accept/Decline buttons (5-minute timeout) → payment deducted → items added to clinic stock with CWP and slot. Refunded automatically if inventory save fails
 
-**View Stock:** (via Wholesaler sub-menu) Shows all gun and CW wholesale lots with full details — guns display restriction, power level (L/M/H), and damage type (Power/Smart/Tech); cyberware displays CWP and slot
+**View Stock:** (via Wholesaler sub-menu) Shows all gun and CW wholesale lots — guns grouped by gun class with section headers, using format `Name — [Restriction] · [Level] · [DamageType] — $Price × Qty`; cyberware displays CWP and slot
 
 **Remove Item flow:** Select player -> see their inventory -> select item -> confirm removal
 
@@ -233,7 +233,7 @@ Characters live in the `characters` database table.
 
 **Supply chain:** Google Sheet (master gun list) -> Gun catalog DB table -> Weekly wholesale rotation -> Store owners buy from wholesale -> Store owners sell to players
 
-**Gun properties:** Each gun in the catalog includes a Power Level (low/medium/high, stored as `gun_level` L/M/H) and a damage type (Power/Smart/Tech, stored as `gun_category`). The spreadsheet also provides a gun class (pistol/revolver/shotgun etc., stored as `weapon_type`) used for restock bucketing. The damage type and power level are carried through the entire chain — catalog → wholesale lots → store lots → player inventory (as `power_level` and `weapon_subtype`). All display surfaces show the damage type and power level.
+**Gun properties:** Each gun in the catalog includes a Power Level (low/medium/high, stored as `gun_level` L/M/H), a damage type (Power/Smart/Tech, stored as `gun_category`), and a gun class (pistol/revolver/shotgun etc., stored as `weapon_type`). These are carried through the entire chain — catalog → wholesale lots → store lots → player inventory (as `power_level`, `weapon_subtype`, and `weapon_type`). All list display surfaces group guns by `weapon_type` with section headers and use bracketed tag format: `Name — [Restriction] · [Level] · [DamageType] — $Price × Qty`. Player inventory shows full power level words (Low/Medium/High). Fixer add flows now collect gun class alongside damage type and power level.
 
 **Weekly rotation:** Every Monday (triggered by the cyberware weekly process), a fresh set of guns is randomly selected from the catalog. Configurable settings control lot counts and quantity ranges per tier (L/M/H).
 

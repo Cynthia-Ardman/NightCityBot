@@ -479,6 +479,10 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
             ADD COLUMN IF NOT EXISTS slot TEXT
         """,
         """
+        ALTER TABLE player_inventory
+            ADD COLUMN IF NOT EXISTS weapon_type TEXT NOT NULL DEFAULT ''
+        """,
+        """
         CREATE INDEX IF NOT EXISTS idx_player_inventory_owner
             ON player_inventory (owner_id)
         """,
@@ -2844,6 +2848,7 @@ async def pi_add_item(item: dict) -> bool:
         char_id = item.get("character_id")
         power_level = item.get("power_level")
         weapon_subtype = item.get("weapon_subtype")
+        weapon_type = item.get("weapon_type")
         cwp = item.get("cwp")
         slot = item.get("slot")
         status: str = await _with_retry(
@@ -2852,9 +2857,9 @@ async def pi_add_item(item: dict) -> bool:
                 INSERT INTO player_inventory
                     (item_id, owner_id, character_name, item_type, name, restriction,
                      description, price_paid, seller_id, seller_name, acquired_at, created_at,
-                     character_id, power_level, weapon_subtype, cwp, slot)
+                     character_id, power_level, weapon_subtype, cwp, slot, weapon_type)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                        COALESCE($11, NOW()), NOW(), $12, $13, $14, $15, $16)
+                        COALESCE($11, NOW()), NOW(), $12, $13, $14, $15, $16, $17)
                 ON CONFLICT (item_id) DO NOTHING
                 """,
                 str(item["item_id"]),
@@ -2873,6 +2878,7 @@ async def pi_add_item(item: dict) -> bool:
                 str(weapon_subtype) if weapon_subtype else None,
                 str(cwp) if cwp else None,
                 str(slot) if slot else None,
+                str(weapon_type) if weapon_type else "",
             ),
             label="pi_add_item",
         )

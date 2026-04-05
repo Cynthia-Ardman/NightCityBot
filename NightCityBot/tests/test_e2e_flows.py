@@ -182,7 +182,7 @@ class TestFlowA_FixerAddItem:
     @patch("NightCityBot.cogs.fixer_hub.get_active_characters", new_callable=AsyncMock)
     def test_full_add_item_flow(self, mock_chars, mock_text, mock_ensure, mock_add, mock_history):
         mock_chars.return_value = MOCK_CHARS_PLAYER
-        mock_text.return_value = "Militech Pistol, gun, 1, 0, basic, high, power"
+        mock_text.return_value = "Militech Pistol, gun, 1, 0, basic, high, power, pistol"
 
         async def _test():
             bot = _make_bot()

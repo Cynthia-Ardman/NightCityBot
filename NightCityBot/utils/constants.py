@@ -130,3 +130,27 @@ UNBELIEVABOAT_COMMANDS = {
     "withdrawl", "work",
 }
 
+VALID_GUN_CLASSES = {
+    "pistol", "revolver", "submachine_gun", "shotgun", "assault_rifle",
+    "light_machine_gun", "heavy_machine_gun", "precision_rifle", "sniper_rifle",
+}
+
+GUN_CLASS_DISPLAY_NAMES = {
+    "pistol": "Pistols",
+    "revolver": "Revolvers",
+    "submachine_gun": "Submachine Guns",
+    "shotgun": "Shotguns",
+    "assault_rifle": "Assault Rifles",
+    "light_machine_gun": "Light Machine Guns",
+    "heavy_machine_gun": "Heavy Machine Guns",
+    "precision_rifle": "Precision Rifles",
+    "sniper_rifle": "Sniper Rifles",
+}
+
+GUN_CLASS_ORDER = [
+    "pistol", "revolver", "submachine_gun", "shotgun", "assault_rifle",
+    "light_machine_gun", "heavy_machine_gun", "precision_rifle", "sniper_rifle",
+]
+
+POWER_LEVEL_WORDS = {"L": "Low", "M": "Medium", "H": "High"}
+

@@ -213,4 +213,5 @@ def test_pi_add_item_sql_parameter_alignment():
     assert args[13] is None, f"$14 (weapon_subtype) = {args[13]}"
     assert args[14] is None, f"$15 (cwp) = {args[14]}"
     assert args[15] is None, f"$16 (slot) = {args[15]}"
-    assert len(args) == 16, f"Expected 16 args for 16 placeholders, got {len(args)}"
+    assert args[16] == "", f"$17 (weapon_type) = {args[16]}"
+    assert len(args) == 17, f"Expected 17 args for 17 placeholders, got {len(args)}"

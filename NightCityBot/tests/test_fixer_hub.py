@@ -566,7 +566,7 @@ class TestPlayerPickerViews:
             await _process_fixer_add_item(
                 cog, inter, member,
                 {"character_id": "char-1", "name": "V"},
-                "Katana, gun, 2, 0, basic, high, power",
+                "Katana, gun, 2, 0, basic, high, power, pistol",
             )
             assert mock_add.call_count == 2
             assert "Katana" in inter.followup.send.call_args[0][0]
@@ -740,13 +740,13 @@ class TestStorePickerViews:
             guns_cog.lock = asyncio.Lock()
             cog.bot.cogs["GunsShopCog"] = guns_cog
             inter = _make_interaction()
-            await _process_store_add_gun(cog, inter, owner, "TestGun, 5, 0, basic, low, power")
+            await _process_store_add_gun(cog, inter, owner, "TestGun, 5, 0, basic, low, power, pistol")
             guns_cog._save_state.assert_called_once()
             store_lots = state["stores"]["999:222"]["lots"]
             assert len(store_lots) == 1
             assert store_lots[0]["gun_level"] == "L"
             assert store_lots[0]["gun_category"] == "Power"
-            assert store_lots[0]["weapon_type"] == ""
+            assert store_lots[0]["weapon_type"] == "pistol"
             assert "TestGun" in inter.followup.send.call_args[0][0]
         _run(_test())
 
@@ -826,13 +826,13 @@ class TestWholesaleProcessFunctions:
             inter = _make_interaction()
             msg = MagicMock()
             msg.edit = AsyncMock()
-            await _process_wh_add_gun(cog, inter, "TestGun, 10, 5000, basic, medium, power", msg)
+            await _process_wh_add_gun(cog, inter, "TestGun, 10, 5000, basic, medium, power, pistol", msg)
             guns_cog._save_state.assert_called_once()
             assert len(state["wholesale_lots"]) == 1
             lot = state["wholesale_lots"][0]
             assert lot["gun_level"] == "M"
             assert lot["gun_category"] == "Power"
-            assert lot["weapon_type"] == ""
+            assert lot["weapon_type"] == "pistol"
             assert "TestGun" in msg.edit.call_args[1].get("content", "")
         _run(_test())
 

@@ -90,3 +90,47 @@ def truncation_note(total: int, kind: str = "items") -> str:
     if total > MAX_SELECT_OPTIONS:
         return f"\n⚠️ Showing first {MAX_SELECT_OPTIONS} of {total} {kind}."
     return ""
+
+
+def format_gun_lines_grouped(lots, *, qty_key="qty_available", max_items=30):
+    from NightCityBot.utils.constants import (
+        GUN_CLASS_ORDER, GUN_CLASS_DISPLAY_NAMES, POWER_LEVEL_WORDS,
+    )
+
+    groups: dict[str, list] = {}
+    for lot in lots:
+        qty = int(lot.get(qty_key, 0))
+        if qty <= 0:
+            continue
+        wt = (lot.get("weapon_type") or "").strip().lower()
+        if wt not in GUN_CLASS_DISPLAY_NAMES:
+            wt = "other"
+        groups.setdefault(wt, []).append(lot)
+
+    ordered_keys = [k for k in GUN_CLASS_ORDER if k in groups]
+    if "other" in groups:
+        ordered_keys.append("other")
+
+    lines: list[str] = []
+    row = 1
+    for key in ordered_keys:
+        if row > max_items:
+            break
+        header = GUN_CLASS_DISPLAY_NAMES.get(key, "Other")
+        lines.append(f"\n▬▬ {header} ▬▬")
+        for lot in groups[key]:
+            if row > max_items:
+                break
+            qty = int(lot.get(qty_key, 0))
+            restriction = (lot.get("restriction") or "basic").title()
+            level_raw = lot.get("gun_level", "?")
+            level = POWER_LEVEL_WORDS.get(level_raw, level_raw)
+            gc = lot.get("gun_category") or "?"
+            name = lot.get("gun_name", "?")
+            cost = int(lot.get("unit_cost", 0))
+            lines.append(
+                f"`{row}.` **{name}** — [{restriction}] · [{level}] · [{gc}] — ${cost:,} × {qty}"
+            )
+            row += 1
+
+    return lines

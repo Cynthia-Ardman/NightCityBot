@@ -161,10 +161,12 @@ class PlayerInventoryCog(commands.Cog, name="PlayerInventory"):
                 sample = g["items"][0] if g.get("items") else {}
                 attr_parts = []
                 if itype == "gun":
+                    from NightCityBot.utils.constants import POWER_LEVEL_WORDS
                     ws = sample.get("weapon_subtype", "")
                     pl = sample.get("power_level", "")
                     if pl:
-                        attr_parts.append(pl.upper())
+                        full_word = POWER_LEVEL_WORDS.get(pl.upper()[0], pl.title()) if pl else pl
+                        attr_parts.append(full_word)
                     if ws:
                         attr_parts.append(ws)
                 elif itype == "cyberware":

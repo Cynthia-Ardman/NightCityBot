@@ -27,6 +27,7 @@ from NightCityBot.utils.characters import get_active_characters, ensure_characte
 from NightCityBot.utils.permissions import is_fixer
 from NightCityBot.utils.inline_helpers import collect_text_input
 from NightCityBot.utils.panel_context import PanelContext
+from NightCityBot.utils.constants import VALID_GUN_CLASSES, GUN_CLASS_DISPLAY_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -306,15 +307,9 @@ class WholesalerSubView(SafeView):
             gun_lots = state.get("wholesale_lots", [])
             available = [l for l in gun_lots if int(l.get("qty_available", 0)) > 0]
             if available:
+                from NightCityBot.utils.helpers import format_gun_lines_grouped
                 lines.append("**🔫 Gun Wholesale:**")
-                for i, lot in enumerate(available[:15], 1):
-                    r = lot.get("restriction", "basic")
-                    r_tag = f" [{r}]" if r != "basic" else ""
-                    gc = lot.get("gun_category", "")
-                    gc_tag = f" {gc}" if gc else ""
-                    lines.append(
-                        f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}]{gc_tag} — ${int(lot['unit_cost']):,} × {lot['qty_available']}"
-                    )
+                lines.extend(format_gun_lines_grouped(available, qty_key="qty_available", max_items=15))
             else:
                 lines.append("**🔫 Gun Wholesale:** Empty")
         if cw_cog:
@@ -713,6 +708,21 @@ async def _process_wh_add_gun(cog, interaction, text, msg=None):
         if gun_type not in VALID_GUN_TYPES:
             await _reply("❌ Invalid weapon type. Must be `power`, `smart`, or `tech`. Try again.")
     gun_category = gun_type.title()
+    gun_class = parts[6].strip().lower().replace(" ", "_") if len(parts) > 6 else ""
+    gun_class_list = ", ".join(f"`{c}`" for c in sorted(VALID_GUN_CLASSES))
+    while gun_class not in VALID_GUN_CLASSES:
+        await _reply(
+            f"Got: **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}/{gun_category}] — now enter the **gun class**:\n"
+            f"{gun_class_list}\n"
+            "Type `cancel` to abort."
+        )
+        gc_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+        if gc_text is None:
+            await _reply("⏰ Timed out or cancelled.")
+            return
+        gun_class = gc_text.strip().lower().replace(" ", "_")
+        if gun_class not in VALID_GUN_CLASSES:
+            await _reply(f"❌ Invalid gun class. Valid options: {gun_class_list}. Try again.")
     async with guns_cog.lock:
         state = await guns_cog._load_state()
         lots = state.setdefault("wholesale_lots", [])
@@ -722,13 +732,13 @@ async def _process_wh_add_gun(cog, interaction, text, msg=None):
             "gun_name": gun_name,
             "gun_level": gun_level,
             "gun_category": gun_category,
-            "weapon_type": "",
+            "weapon_type": gun_class,
             "unit_cost": cost,
             "qty_available": qty,
             "restriction": restriction,
         })
         await guns_cog._save_state(state)
-    await _reply(f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}/{gun_category}] to wholesale.")
+    await _reply(f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}/{gun_category}] ({GUN_CLASS_DISPLAY_NAMES.get(gun_class, gun_class)}) to wholesale.")
     log_ch = await _audit_channel(cog.bot)
     if log_ch:
         embed = discord.Embed(
@@ -1080,9 +1090,10 @@ class PlayerAddItemPickerView(SafeView):
         await interaction.followup.send(
             "📝 **Enter item details** in this format:\n"
             "`item name, type, quantity, cost, restriction`\n\n"
-            "**For guns:** `name, gun, qty, cost, restriction, power_level, type`\n"
-            "Example: `Militech Pistol, gun, 1, 5000, basic, high, power`\n"
-            "power_level: low/medium/high — type: power/smart/tech\n\n"
+            "**For guns:** `name, gun, qty, cost, restriction, power_level, type, gun_class`\n"
+            "Example: `Militech Pistol, gun, 1, 5000, basic, high, power, pistol`\n"
+            "power_level: low/medium/high — type: power/smart/tech\n"
+            "gun_class: pistol, revolver, submachine_gun, shotgun, assault_rifle, etc.\n\n"
             "**For cyberware:** `name, cyberware, qty, cost, restriction, cwp, slot`\n"
             "Example: `Kerenzikov, cyberware, 1, 3000, basic, 14, Neural`\n\n"
             "**For other items:** `name, type, qty, cost`\n"
@@ -1190,16 +1201,19 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
     cwp_val = None
     slot_val = None
 
+    gun_class_val = None
     if item_type == "gun":
-        if len(parts) < 7:
+        if len(parts) < 8:
             await interaction.followup.send(
-                "❌ Gun items require: `name, gun, quantity, cost, restriction, power_level, type`\n"
-                "power_level: low/medium/high — type: power/smart/tech",
+                "❌ Gun items require: `name, gun, quantity, cost, restriction, power_level, type, gun_class`\n"
+                "power_level: low/medium/high — type: power/smart/tech\n"
+                "gun_class: pistol, revolver, shotgun, assault_rifle, etc.",
                 ephemeral=True,
             )
             return
         pl_raw = parts[5].strip().lower()
         type_raw = parts[6].strip().lower()
+        gc_raw = parts[7].strip().lower().replace(" ", "_")
         if pl_raw not in VALID_GUN_POWER_LEVELS:
             await interaction.followup.send(
                 f"❌ Invalid power_level `{pl_raw}`. Must be one of: low, medium, high.",
@@ -1212,8 +1226,16 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
                 ephemeral=True,
             )
             return
+        if gc_raw not in VALID_GUN_CLASSES:
+            gun_class_list = ", ".join(sorted(VALID_GUN_CLASSES))
+            await interaction.followup.send(
+                f"❌ Invalid gun class `{gc_raw}`. Must be one of: {gun_class_list}.",
+                ephemeral=True,
+            )
+            return
         power_level = pl_raw
         weapon_subtype = type_raw
+        gun_class_val = gc_raw
 
     elif item_type == "cyberware":
         if len(parts) < 7:
@@ -1319,6 +1341,7 @@ async def _process_fixer_add_item(cog, interaction, player, character, text):
             "acquired_at": now,
             "power_level": power_level,
             "weapon_subtype": weapon_subtype,
+            "weapon_type": gun_class_val,
             "cwp": cwp_val,
             "slot": slot_val,
         })
@@ -1931,16 +1954,11 @@ class StoreOwnerPickerView(SafeView):
             ]
             store_title = store_data.get("store_name") or f"{owner.display_name}'s Gun Store"
             if lots:
-                lines = []
-                for i, l in enumerate(lots[:25], 1):
-                    r = l.get("restriction", "basic")
-                    r_tag = f" [{r}]" if r != "basic" else ""
-                    lines.append(
-                        f"`{i}.` **{l['gun_name']}**{r_tag} — ${int(l['unit_cost']):,} × {l['qty_remaining']}"
-                    )
+                from NightCityBot.utils.helpers import format_gun_lines_grouped
+                lines = format_gun_lines_grouped(lots, qty_key="qty_remaining", max_items=25)
                 embed = discord.Embed(
                     title=f"🔫 {store_title}",
-                    description="\n".join(lines),
+                    description="\n".join(lines) if lines else "This store is currently empty.",
                     color=discord.Color.dark_green(),
                 )
                 embed.set_footer(text=f"{len(lots)} lot(s)")
@@ -2225,6 +2243,22 @@ async def _process_store_add_gun(cog, interaction, owner, text):
         if gun_type not in VALID_GUN_TYPES:
             await interaction.followup.send("❌ Invalid weapon type. Must be `power`, `smart`, or `tech`. Try again.", ephemeral=True)
     gun_category = gun_type.title()
+    gun_class = parts[6].strip().lower().replace(" ", "_") if len(parts) > 6 else ""
+    gun_class_list = ", ".join(f"`{c}`" for c in sorted(VALID_GUN_CLASSES))
+    while gun_class not in VALID_GUN_CLASSES:
+        await interaction.followup.send(
+            f"Got: **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}/{gun_category}] — now enter the **gun class**:\n"
+            f"{gun_class_list}\n"
+            "Type `cancel` to abort.",
+            ephemeral=True,
+        )
+        gc_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+        if gc_text is None:
+            await interaction.followup.send("⏰ Timed out or cancelled.", ephemeral=True)
+            return
+        gun_class = gc_text.strip().lower().replace(" ", "_")
+        if gun_class not in VALID_GUN_CLASSES:
+            await interaction.followup.send(f"❌ Invalid gun class. Valid options: {gun_class_list}. Try again.", ephemeral=True)
 
     total_cost = cost * qty
     cash_deducted = 0
@@ -2294,7 +2328,7 @@ async def _process_store_add_gun(cog, interaction, owner, text):
             "gun_name": gun_name,
             "gun_level": gun_level,
             "gun_category": gun_category,
-            "weapon_type": "",
+            "weapon_type": gun_class,
             "unit_cost": cost,
             "qty_remaining": qty,
             "restriction": restriction,
@@ -2312,7 +2346,7 @@ async def _process_store_add_gun(cog, interaction, owner, text):
         )
         return
     await interaction.followup.send(
-        f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}/{gun_category}] to {owner.display_name}'s store.",
+        f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}/{gun_category}] ({GUN_CLASS_DISPLAY_NAMES.get(gun_class, gun_class)}) to {owner.display_name}'s store.",
         ephemeral=True,
     )
 

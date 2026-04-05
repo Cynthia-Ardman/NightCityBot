@@ -78,19 +78,8 @@ async def _show_gun_inventory(interaction, store, store_id):
     if not store or not store.get("lots"):
         await interaction.followup.send("Store inventory is empty.", ephemeral=True)
         return
-    lines = []
-    for i, lot in enumerate(store["lots"], 1):
-        qty = int(lot.get("qty_remaining", 0))
-        if qty <= 0:
-            continue
-        restriction = lot.get("restriction", "basic")
-        r_tag = f" [{restriction}]" if restriction != "basic" else ""
-        gc = lot.get("gun_category", "")
-        gc_tag = f" {gc}" if gc else ""
-        lines.append(
-            f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}]{gc_tag} "
-            f"— ${int(lot.get('unit_cost', 0)):,} × {qty}"
-        )
+    from NightCityBot.utils.helpers import format_gun_lines_grouped
+    lines = format_gun_lines_grouped(store["lots"], qty_key="qty_remaining", max_items=30)
     if not lines:
         await interaction.followup.send("Store inventory is empty.", ephemeral=True)
         return
@@ -190,16 +179,8 @@ class GunstoreMenuView(SafeView):
         if not available:
             await interaction.followup.send("No wholesale stock available.", ephemeral=True)
             return
-        lines = []
-        for i, lot in enumerate(available[:30], 1):
-            r = lot.get("restriction", "basic")
-            r_tag = f" [{r}]" if r != "basic" else ""
-            gc = lot.get("gun_category", "")
-            gc_tag = f" {gc}" if gc else ""
-            lines.append(
-                f"`{i}.` **{lot['gun_name']}**{r_tag} [{lot.get('gun_level', '?')}]{gc_tag} "
-                f"— ${int(lot['unit_cost']):,} × {lot['qty_available']}"
-            )
+        from NightCityBot.utils.helpers import format_gun_lines_grouped
+        lines = format_gun_lines_grouped(available, qty_key="qty_available", max_items=30)
         embed = discord.Embed(
             title="🔫 Gun Wholesale",
             description="\n".join(lines),
@@ -876,11 +857,14 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
     }
     gl = lot.get("gun_level", "")
     gc = lot.get("gun_category", "")
+    wt = lot.get("weapon_type", "")
     level_map = {"L": "low", "M": "medium", "H": "high"}
     if gl:
         pi_payload["power_level"] = level_map.get(gl, gl.lower())
     if gc:
         pi_payload["weapon_subtype"] = gc.lower()
+    if wt:
+        pi_payload["weapon_type"] = wt
     pi_ok = await pi_add_item(pi_payload)
     if not pi_ok:
         logger.error("gunstore sell: pi_add_item failed — attempting compensation")
