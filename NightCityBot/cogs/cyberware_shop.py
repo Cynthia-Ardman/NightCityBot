@@ -131,7 +131,7 @@ class CyberwareShop(commands.Cog):
     _PROTECTED_KEYS = ("ripperdoc_stores",)
 
     async def _save_state(self, state: dict[str, Any]) -> bool:
-        existing = await db_load(self._DB_STATE_KEY, default=None)
+        existing = await self._load_state()
         if isinstance(existing, dict):
             for key in self._PROTECTED_KEYS:
                 if key in existing and key not in state:

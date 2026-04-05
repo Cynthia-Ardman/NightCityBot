@@ -1891,7 +1891,7 @@ async def _process_give(cog, interaction, target, group, receiver_character, sen
 
         async with cw_cog._locks.acquire(str(target.id)):
             rd_inventory = await cw_cog._load_inventory(target.id)
-            rd_inventory.append({
+            rd_entry = {
                 "item_id": item_id,
                 "name": item_name,
                 "price_paid": selected_item.get("price_paid"),
@@ -1900,7 +1900,12 @@ async def _process_give(cog, interaction, target, group, receiver_character, sen
                     or selected_item.get("created_at")
                     or datetime.now(timezone.utc).isoformat()
                 ),
-            })
+            }
+            if selected_item.get("cwp"):
+                rd_entry["cwp"] = selected_item["cwp"]
+            if selected_item.get("slot"):
+                rd_entry["slot"] = selected_item["slot"]
+            rd_inventory.append(rd_entry)
             ok_save = await cw_cog._save_inventory(target.id, rd_inventory)
         if not ok_save:
             logger.error(
@@ -2413,7 +2418,7 @@ async def _process_sell_to_store(cog, interaction, store_owner, group, seller_ch
         try:
             async with cw_cog._locks.acquire(str(store_owner.id)):
                 rd_inventory = await cw_cog._load_inventory(store_owner.id)
-                rd_inventory.append({
+                rd_entry = {
                     "item_id": item_id,
                     "name": item_name,
                     "price_paid": selected_item.get("price_paid"),
@@ -2422,7 +2427,12 @@ async def _process_sell_to_store(cog, interaction, store_owner, group, seller_ch
                         or selected_item.get("created_at")
                         or datetime.now(timezone.utc).isoformat()
                     ),
-                })
+                }
+                if selected_item.get("cwp"):
+                    rd_entry["cwp"] = selected_item["cwp"]
+                if selected_item.get("slot"):
+                    rd_entry["slot"] = selected_item["slot"]
+                rd_inventory.append(rd_entry)
                 ok_save = await cw_cog._save_inventory(store_owner.id, rd_inventory)
             if not ok_save:
                 raise RuntimeError("_save_inventory returned falsy")

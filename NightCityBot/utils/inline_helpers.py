@@ -6,7 +6,7 @@ import discord
 from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral
 
 
-async def collect_text_input(bot, channel_id: int, author_id: int, *, timeout: int = 60) -> Optional[str]:
+async def collect_text_input(bot, channel_id: int, author_id: int, *, timeout: int = 300) -> Optional[str]:
     def check(m: discord.Message) -> bool:
         return m.author.id == author_id and m.channel.id == channel_id
 
@@ -26,7 +26,7 @@ async def collect_text_input(bot, channel_id: int, author_id: int, *, timeout: i
 
 class QtySelectView(SafeView):
     def __init__(self, author_id: int, max_qty: int = 10):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.author_id = author_id
         self.result: Optional[int] = None
         cap = min(max_qty, 25)
@@ -48,7 +48,7 @@ class QtySelectView(SafeView):
 
 class PriceSelectView(SafeView):
     def __init__(self, author_id: int, bot, channel_id: int, *, allow_zero: bool = True):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.author_id = author_id
         self.bot = bot
         self.channel_id = channel_id

@@ -852,12 +852,17 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
         logger.error("ripperdoc sell: pi_add_item failed — attempting compensation")
         async with cw_cog._locks.acquire(str(owner_id)):
             inv_restore = await cw_cog._load_inventory(owner_id)
-            inv_restore.append({
+            restore_entry = {
                 "item_id": item_id,
                 "name": item_name,
                 "price_paid": price,
                 "purchased_at": datetime.now(timezone.utc).isoformat(),
-            })
+            }
+            if selected.get("cwp"):
+                restore_entry["cwp"] = selected["cwp"]
+            if selected.get("slot"):
+                restore_entry["slot"] = selected["slot"]
+            inv_restore.append(restore_entry)
             await cw_cog._save_inventory(owner_id, inv_restore)
             logger.info("ripperdoc sell: restored item_id=%s to ripperdoc=%s stock", item_id, owner_id)
         if price > 0:
