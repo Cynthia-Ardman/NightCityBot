@@ -128,7 +128,14 @@ class CyberwareShop(commands.Cog):
             state = default
         return state
 
+    _PROTECTED_KEYS = ("ripperdoc_stores",)
+
     async def _save_state(self, state: dict[str, Any]) -> bool:
+        existing = await db_load(self._DB_STATE_KEY, default=None)
+        if isinstance(existing, dict):
+            for key in self._PROTECTED_KEYS:
+                if key in existing and key not in state:
+                    state[key] = existing[key]
         db_ok = await db_save(self._DB_STATE_KEY, state)
         file_ok = await helpers.save_json_file(self.state_file, state)
         return db_ok or file_ok
