@@ -199,22 +199,6 @@ def test_store_owner_role_check_accepts_csv_string_config(monkeypatch):
     assert cog._is_store_owner(_Member()) is True
 
 
-def test_inventory_totals_reports_wholesale_and_store_quantities():
-    state = {
-        "wholesale_lots": [
-            {"qty_available": 3},
-            {"qty_available": 0},
-            {"qty_available": 2},
-        ],
-        "stores": {
-            "shop-a": {"lots": [{"qty_remaining": 1}, {"qty_remaining": 4}]},
-            "shop-b": {"lots": [{"qty_remaining": 0}]},
-        },
-    }
-
-    assert WholesalerCog._inventory_totals(state) == (3, 5, 2, 5)
-
-
 def test_resolve_sheet_path_accepts_url_in_legacy_xlsx_path(monkeypatch):
     import asyncio
 

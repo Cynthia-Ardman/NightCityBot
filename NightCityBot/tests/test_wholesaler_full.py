@@ -357,24 +357,6 @@ class TestEdgeCases:
         assert WholesalerCog._normalize_shop_name("Shop 1") == "shop-1"
         assert WholesalerCog._normalize_shop_name("SHOP__2") == "shop-2"
 
-    def test_inventory_totals_calculation(self):
-        state = {
-            "wholesale_lots": [
-                {"qty_available": 3},
-                {"qty_available": 0},
-                {"qty_available": 2},
-            ],
-            "stores": {
-                "shop-a": {"lots": [{"qty_remaining": 1}, {"qty_remaining": 4}]},
-                "shop-b": {"lots": [{"qty_remaining": 0}]},
-            },
-        }
-        assert WholesalerCog._inventory_totals(state) == (3, 5, 2, 5)
-
-    def test_inventory_totals_empty_state(self):
-        state = {"wholesale_lots": [], "stores": {}}
-        assert WholesalerCog._inventory_totals(state) == (0, 0, 0, 0)
-
     def test_store_id_generation(self):
         assert WholesalerCog._store_id(111, 2001) == "111:2001"
         assert WholesalerCog._store_id(999, 1) == "999:1"

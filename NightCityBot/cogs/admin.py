@@ -575,9 +575,6 @@ class Admin(commands.Cog):
     async def shutdown_bot(self, ctx):
         """Force a clean bot shutdown with audit logging."""
         await ctx.send("🛑 Shutdown requested. Closing bot process...")
-        wholesaler = self.bot.get_cog("GunsShopCog")
-        if wholesaler and hasattr(wholesaler, "emit_inventory_snapshot_audit"):
-            await wholesaler.emit_inventory_snapshot_audit("MANUAL_SHUTDOWN", actor=ctx.author)
         await self.log_audit(ctx.author, "🛑 Manual shutdown requested via !shutdown_bot.")
         await self.bot.close()
 
