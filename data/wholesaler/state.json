@@ -127,18 +127,7 @@
     },
     "1348601552083882108:172847414791766016": {
       "owner_id": "172847414791766016",
-      "lots": [
-        {
-          "lot_id": "fixer-20260405-3babe3",
-          "gun_name": "M6 Fusion",
-          "gun_level": "M",
-          "unit_cost": 2000,
-          "restriction": "basic",
-          "weapon_type": "pistol",
-          "gun_category": "Power",
-          "qty_remaining": 1
-        }
-      ],
+      "lots": [],
       "employees": [],
       "store_name": "Liberty Arms",
       "store_type": "standard"

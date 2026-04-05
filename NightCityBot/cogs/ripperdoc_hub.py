@@ -540,6 +540,18 @@ class SellSetupView(SafeView):
         stock_select.callback = self._on_stock_select
         self.add_item(stock_select)
 
+    def _status_content(self) -> str:
+        parts = []
+        if self.selected_patient:
+            parts.append(f"Patient: **{self.selected_patient.display_name}** ✓")
+        if self.selected_character:
+            parts.append(f"Character: **{self.selected_character['name']}** ✓")
+        if self.selected_group_idx is not None:
+            parts.append(f"Item: **{self.groups[self.selected_group_idx]['name']}** ✓")
+        if not parts:
+            return "Select a patient, character, and item, then press Continue."
+        return " — ".join(parts)
+
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
             await respond_ephemeral(interaction, "This menu isn't for you.")
@@ -596,7 +608,7 @@ class SellSetupView(SafeView):
         self._characters = characters
         self.add_item(char_select)
         await interaction.response.edit_message(
-            content=f"Patient: **{self.selected_patient.display_name}** ✓ — Now select their character.",
+            content=self._status_content(),
             view=self,
         )
 
@@ -606,17 +618,20 @@ class SellSetupView(SafeView):
             if ch["character_id"] == char_id:
                 self.selected_character = ch
                 break
-        if self.selected_character:
-            await respond_ephemeral(interaction, 
-                f"Character: **{self.selected_character['name']}** ✓")
-        else:
+        if not self.selected_character:
             await respond_ephemeral(interaction, "Character not found.")
+            return
+        await interaction.response.edit_message(
+            content=self._status_content(),
+            view=self,
+        )
 
     async def _on_stock_select(self, interaction: discord.Interaction):
         self.selected_group_idx = int(interaction.data["values"][0])
-        item_name = self.groups[self.selected_group_idx]["name"]
-        await respond_ephemeral(interaction, 
-            f"Item: **{item_name}** ✓")
+        await interaction.response.edit_message(
+            content=self._status_content(),
+            view=self,
+        )
 
     @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=3)
     async def continue_btn(self, interaction: discord.Interaction,

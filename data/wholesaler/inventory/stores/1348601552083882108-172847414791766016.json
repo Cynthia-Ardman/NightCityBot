@@ -1,18 +1,7 @@
 {
   "store_id": "1348601552083882108:172847414791766016",
   "owner_id": "172847414791766016",
-  "lots": [
-    {
-      "lot_id": "fixer-20260405-3babe3",
-      "gun_name": "M6 Fusion",
-      "gun_level": "M",
-      "unit_cost": 2000,
-      "restriction": "basic",
-      "weapon_type": "pistol",
-      "gun_category": "Power",
-      "qty_remaining": 1
-    }
-  ],
+  "lots": [],
   "controlled_buyers": [],
-  "updated_at": "2026-04-05T01:46:38.454435+00:00"
+  "updated_at": "2026-04-05T02:07:56.619037+00:00"
 }

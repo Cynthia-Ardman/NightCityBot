@@ -476,6 +476,7 @@ class GunSellSetupView(SafeView):
         self.selected_lot_idx: Optional[int] = None
         self.selected_character: Optional[dict] = None
         self._character_select: Optional[discord.ui.Select] = None
+        self._stock_select: Optional[discord.ui.Select] = None
 
         self.truncated = len(lots) > 25
         options = []
@@ -491,7 +492,21 @@ class GunSellSetupView(SafeView):
             row=2,
         )
         stock_select.callback = self._on_stock_select
+        self._stock_select = stock_select
         self.add_item(stock_select)
+
+    def _status_content(self) -> str:
+        parts = []
+        if self.selected_customer:
+            parts.append(f"Customer: **{self.selected_customer.display_name}** ✓")
+        if self.selected_character:
+            parts.append(f"Character: **{self.selected_character['name']}** ✓")
+        if self.selected_lot_idx is not None:
+            lot = self.lots[self.selected_lot_idx]
+            parts.append(f"Gun: **{lot['gun_name']}** ✓")
+        if not parts:
+            return "Select a customer, character, and gun, then press Continue."
+        return " — ".join(parts)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
@@ -549,7 +564,7 @@ class GunSellSetupView(SafeView):
         self._characters = characters
         self.add_item(char_select)
         await interaction.response.edit_message(
-            content=f"Customer: **{self.selected_customer.display_name}** ✓ — Now select their character.",
+            content=self._status_content(),
             view=self,
         )
 
@@ -559,17 +574,20 @@ class GunSellSetupView(SafeView):
             if ch["character_id"] == char_id:
                 self.selected_character = ch
                 break
-        if self.selected_character:
-            await respond_ephemeral(interaction, 
-                f"Character: **{self.selected_character['name']}** ✓")
-        else:
+        if not self.selected_character:
             await respond_ephemeral(interaction, "Character not found.")
+            return
+        await interaction.response.edit_message(
+            content=self._status_content(),
+            view=self,
+        )
 
     async def _on_stock_select(self, interaction: discord.Interaction):
         self.selected_lot_idx = int(interaction.data["values"][0])
-        lot = self.lots[self.selected_lot_idx]
-        await respond_ephemeral(interaction, 
-            f"Gun: **{lot['gun_name']}** ✓")
+        await interaction.response.edit_message(
+            content=self._status_content(),
+            view=self,
+        )
 
     @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=3)
     async def continue_btn(self, interaction: discord.Interaction,
