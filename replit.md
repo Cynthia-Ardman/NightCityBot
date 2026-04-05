@@ -13,7 +13,7 @@ A Discord bot for NCRP (Cyberpunk-themed RP server) managing economy, roleplay u
 
 ## Data Storage
 
-Operational state is persisted to **PostgreSQL** via normalized tables (25 tables total, including `characters` and `item_history`). The legacy `json_store` key-value table remains for backward compatibility. File-based JSON storage is retained for per-member balance backups and wholesaler local fallback.
+Operational state is persisted to **PostgreSQL** via normalized tables (29 tables total, including `characters`, `item_history`, `cw_shop_state`, `fixer_event`, `store_inventory`, and `shop_permitted_roles`). The legacy `json_store` key-value table remains for backward compatibility. File-based JSON storage is retained for per-member balance backups and wholesaler local fallback.
 
 ### `bot_config` table — runtime-editable economy constants
 
@@ -33,11 +33,13 @@ All hardcoded dollar amounts (baseline living cost, housing/business/trauma rent
 | `cyberware_weekly` | Cyberware | Append-only list of weekly processing results |
 | `thread_map` | DMHandler | DM user ID → forum thread ID map |
 | `system_status` | SystemControl | Enable/disable flags for each subsystem |
-| `wholesaler_state` | Wholesaler | Full assembled wholesaler state (lots, stores, settings) |
-| `wholesaler_tx` | Wholesaler | Append-only transaction log |
+| `wholesaler_state` | Wholesaler | Full assembled wholesaler state (lots, stores, settings) — **legacy, migrated to typed tables** |
+| `wholesaler_tx` | Wholesaler | Append-only transaction log — **legacy, migrated to typed tables** |
+| `cw_shop_state` | Cyberware | **Legacy key, auto-migrated to `cw_shop_state` table on first load** |
+| `fixer_event` | Economy | **Legacy key, auto-migrated to `fixer_event` table on first load** |
 | `open_log_history_YYYY_MM` | Economy | Monthly archive of open_log before reset |
 
-DB helpers: `NightCityBot/utils/db.py` — `get_pool()`, `db_load(key, default, seed_path)`, `db_save(key, value)`, `close_pool()`. On first `db_load` for a key not yet in DB, seeds automatically from the legacy JSON file on disk (one-time migration).
+DB helpers: `NightCityBot/utils/db.py` — `get_pool()`, `db_load(key, default, seed_path)`, `db_save(key, value)`, `close_pool()`. On first `db_load` for a key not yet in DB, seeds automatically from the legacy JSON file on disk (one-time migration). Typed helpers `cw_shop_state_load/save` and `fixer_event_load/save` replace `db_load`/`db_save` usage for those keys and auto-migrate from `json_store` on first access. Wholesaler tables use promoted typed columns (`weapon_type`, `restriction`, `store_name`, `balance`, `item_name`, `qty`, `cost`, etc.) alongside the `data` JSONB fallback. Join tables `store_inventory` and `shop_permitted_roles` normalize nested arrays.
 
 `pi_delete_item(item_id, *, expected_owner_id=None)` — accepts an optional `expected_owner_id` kwarg; when provided, the SQL uses `AND owner_id = $2` as a TOCTOU guard so a stale caller cannot delete another player's item. All player-facing callers (give, sell-to-store) pass the current user's ID; admin callers (fixer remove) pass the target player's ID.
 

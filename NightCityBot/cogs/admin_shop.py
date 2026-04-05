@@ -22,7 +22,7 @@ from NightCityBot.utils.db import (
     cw_catalog_get_all,
     cw_catalog_upsert_many,
     gun_catalog_get_all,
-    db_save,
+    cw_shop_state_save,
 )
 from NightCityBot.utils.inline_helpers import collect_text_input
 from NightCityBot.utils.panel_context import PanelContext
@@ -248,7 +248,7 @@ class AdminShopMenuView(SafeView):
             async with cw_cog.lock:
                 cw_state = await cw_cog._load_state()
                 cw_state["sheet_url"] = url
-                db_ok = await db_save("cw_shop_state", cw_state)
+                db_ok = await cw_shop_state_save(cw_state)
                 file_ok = await helpers.save_json_file(cw_cog.state_file, cw_state)
             if db_ok:
                 await interaction.edit_original_response(content="✅ Cyberware sheet URL updated and saved.")

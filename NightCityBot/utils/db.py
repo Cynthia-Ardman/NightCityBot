@@ -307,7 +307,26 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
             updated_at  TIMESTAMPTZ DEFAULT NOW()
         )
         """,
-        # ── Wholesaler ───────────────────────────────────────────────────────
+        # ── Cyberware shop state (dedicated table replacing json_store blob) ─
+        """
+        CREATE TABLE IF NOT EXISTS cw_shop_state (
+            id          SERIAL PRIMARY KEY,
+            sheet_url   TEXT NOT NULL DEFAULT '',
+            items_count INT NOT NULL DEFAULT 0,
+            settings    JSONB NOT NULL DEFAULT '{}',
+            updated_at  TIMESTAMPTZ DEFAULT NOW()
+        )
+        """,
+        # ── Fixer event state (dedicated table replacing json_store blob) ──
+        """
+        CREATE TABLE IF NOT EXISTS fixer_event (
+            id          SERIAL PRIMARY KEY,
+            started_at  TIMESTAMPTZ NOT NULL,
+            expires_at  TIMESTAMPTZ NOT NULL,
+            updated_at  TIMESTAMPTZ DEFAULT NOW()
+        )
+        """,
+        # ── Wholesaler ───────────────────────────────────────────────────
         """
         CREATE TABLE IF NOT EXISTS wholesale_lots (
             lot_id          TEXT PRIMARY KEY,
@@ -320,6 +339,13 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         )
         """,
         """
+        ALTER TABLE wholesale_lots
+            ADD COLUMN IF NOT EXISTS weapon_type      TEXT NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS restriction      TEXT NOT NULL DEFAULT 'basic',
+            ADD COLUMN IF NOT EXISTS description      TEXT NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS effectiveness_raw TEXT NOT NULL DEFAULT ''
+        """,
+        """
         CREATE TABLE IF NOT EXISTS wholesaler_stores (
             store_id    TEXT PRIMARY KEY,
             owner_id    TEXT,
@@ -328,11 +354,53 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         )
         """,
         """
+        ALTER TABLE wholesaler_stores
+            ADD COLUMN IF NOT EXISTS store_name   TEXT NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS balance      INT NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS total_sales  INT NOT NULL DEFAULT 0
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS store_inventory (
+            id          SERIAL PRIMARY KEY,
+            store_id    TEXT NOT NULL,
+            lot_id      TEXT NOT NULL DEFAULT '',
+            gun_name    TEXT NOT NULL DEFAULT '',
+            gun_level   TEXT NOT NULL DEFAULT '',
+            unit_cost   INT NOT NULL DEFAULT 0,
+            qty         INT NOT NULL DEFAULT 0,
+            item_ids    TEXT[] NOT NULL DEFAULT '{}',
+            restriction TEXT NOT NULL DEFAULT 'basic',
+            weapon_type TEXT NOT NULL DEFAULT '',
+            created_at  TIMESTAMPTZ DEFAULT NOW()
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_store_inventory_store_id
+            ON store_inventory (store_id)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS wholesaler_shops (
             shop_key    TEXT PRIMARY KEY,
             data        JSONB NOT NULL DEFAULT '{}',
             updated_at  TIMESTAMPTZ DEFAULT NOW()
         )
+        """,
+        """
+        ALTER TABLE wholesaler_shops
+            ADD COLUMN IF NOT EXISTS channel_id TEXT,
+            ADD COLUMN IF NOT EXISTS category   TEXT NOT NULL DEFAULT ''
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS shop_permitted_roles (
+            id          SERIAL PRIMARY KEY,
+            shop_key    TEXT NOT NULL,
+            role_id     TEXT NOT NULL,
+            UNIQUE (shop_key, role_id)
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_shop_permitted_roles_shop_key
+            ON shop_permitted_roles (shop_key)
         """,
         """
         CREATE TABLE IF NOT EXISTS wholesaler_pending_payouts (
@@ -351,6 +419,12 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         )
         """,
         """
+        ALTER TABLE wholesaler_settings
+            ADD COLUMN IF NOT EXISTS master_sheet_url  TEXT NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS restock_config    JSONB NOT NULL DEFAULT '{}',
+            ADD COLUMN IF NOT EXISTS restock_type_lots JSONB NOT NULL DEFAULT '{}'
+        """,
+        """
         CREATE TABLE IF NOT EXISTS wholesaler_transactions (
             tx_id       TEXT PRIMARY KEY,
             tx_type     TEXT NOT NULL DEFAULT '',
@@ -361,6 +435,15 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
             data        JSONB NOT NULL DEFAULT '{}',
             created_at  TIMESTAMPTZ DEFAULT NOW()
         )
+        """,
+        """
+        ALTER TABLE wholesaler_transactions
+            ADD COLUMN IF NOT EXISTS item_name  TEXT NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS qty        INT NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS cost       INT NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS buyer_id   TEXT,
+            ADD COLUMN IF NOT EXISTS seller_id  TEXT,
+            ADD COLUMN IF NOT EXISTS notes      TEXT NOT NULL DEFAULT ''
         """,
         # ── Bot configuration (editable monetary constants) ───────────────
         """
@@ -549,14 +632,155 @@ async def _migrate_all(pool: asyncpg.Pool) -> None:
     await _migrate_cyberware_weekly(pool)
     await _migrate_dm_threads(pool)
     await _migrate_wholesaler(pool)
+    await _backfill_wholesaler_typed_columns(pool)
+
+
+async def _backfill_wholesaler_typed_columns(pool: asyncpg.Pool) -> None:
+    """One-time backfill: extract promoted fields from existing JSONB data columns."""
+    try:
+        async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
+            async with conn.transaction():
+                await conn.execute("""
+                    UPDATE wholesale_lots SET
+                        weapon_type = COALESCE(data->>'weapon_type', ''),
+                        restriction = COALESCE(data->>'restriction', 'basic'),
+                        description = COALESCE(data->>'description', ''),
+                        effectiveness_raw = COALESCE(data->>'effectiveness_raw', '')
+                    WHERE weapon_type = '' AND restriction = 'basic'
+                          AND description = '' AND effectiveness_raw = ''
+                          AND (data->>'weapon_type' IS NOT NULL
+                               OR data->>'restriction' IS NOT NULL
+                               OR data->>'description' IS NOT NULL
+                               OR data->>'effectiveness_raw' IS NOT NULL)
+                """)
+                await conn.execute("""
+                    UPDATE wholesaler_stores SET
+                        store_name = COALESCE(data->>'store_name', ''),
+                        balance = COALESCE((data->>'balance')::int, 0),
+                        total_sales = COALESCE((data->>'total_sales')::int, 0)
+                    WHERE store_name = '' AND balance = 0 AND total_sales = 0
+                          AND (data->>'store_name' IS NOT NULL
+                               OR data->>'balance' IS NOT NULL
+                               OR data->>'total_sales' IS NOT NULL)
+                """)
+                await conn.execute("""
+                    UPDATE wholesaler_shops SET
+                        channel_id = data->>'channel_id',
+                        category = COALESCE(data->>'category', '')
+                    WHERE channel_id IS NULL AND category = ''
+                          AND (data->>'channel_id' IS NOT NULL
+                               OR data->>'category' IS NOT NULL)
+                """)
+                await conn.execute("""
+                    UPDATE wholesaler_transactions SET
+                        item_name = COALESCE(
+                            data->>'gun_name',
+                            data->>'item_name', ''),
+                        qty = COALESCE(
+                            (data->>'quantity')::int,
+                            (data->>'qty')::int, 0),
+                        cost = COALESCE(
+                            (data->>'unit_cost')::int,
+                            (data->>'cost')::int,
+                            (data->>'total_cost')::int, 0),
+                        buyer_id = data->>'buyer_id',
+                        seller_id = data->>'seller_id',
+                        notes = COALESCE(
+                            data->>'notes',
+                            data->>'error_details', '')
+                    WHERE item_name = '' AND qty = 0 AND cost = 0
+                          AND buyer_id IS NULL AND seller_id IS NULL
+                          AND notes = ''
+                          AND (data->>'gun_name' IS NOT NULL
+                               OR data->>'item_name' IS NOT NULL
+                               OR data->>'quantity' IS NOT NULL
+                               OR data->>'buyer_id' IS NOT NULL
+                               OR data->>'seller_id' IS NOT NULL)
+                """)
+                await conn.execute("""
+                    UPDATE wholesaler_settings SET
+                        master_sheet_url = COALESCE(value->>'master_sheet_url', ''),
+                        restock_config = COALESCE(value->'restock', '{}'::jsonb),
+                        restock_type_lots = COALESCE(value->'restock_type_lots', '{}'::jsonb)
+                    WHERE master_sheet_url = ''
+                          AND restock_config = '{}'::jsonb
+                          AND restock_type_lots = '{}'::jsonb
+                          AND (value->>'master_sheet_url' IS NOT NULL
+                               OR value->'restock' IS NOT NULL
+                               OR value->'restock_type_lots' IS NOT NULL)
+                """)
+                inv_count = await conn.fetchval("SELECT COUNT(*) FROM store_inventory")
+                if inv_count == 0:
+                    stores = await conn.fetch(
+                        "SELECT store_id, data FROM wholesaler_stores WHERE data::text LIKE '%lots%'"
+                    )
+                    for store_row in stores:
+                        data = store_row["data"]
+                        if isinstance(data, str):
+                            data = json.loads(data)
+                        if not isinstance(data, dict):
+                            continue
+                        for lot in data.get("lots", []):
+                            if not isinstance(lot, dict):
+                                continue
+                            await conn.execute(
+                                "INSERT INTO store_inventory"
+                                " (store_id, lot_id, gun_name, gun_level, unit_cost,"
+                                "  qty, item_ids, restriction, weapon_type)"
+                                " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                                store_row["store_id"],
+                                str(lot.get("lot_id", "")),
+                                str(lot.get("gun_name", "")),
+                                str(lot.get("gun_level", "")),
+                                int(lot.get("unit_cost", 0)),
+                                int(lot.get("qty_available", lot.get("qty", 0))),
+                                list(lot.get("item_ids", [])),
+                                str(lot.get("restriction", "basic")),
+                                str(lot.get("weapon_type", "")),
+                            )
+                roles_count = await conn.fetchval("SELECT COUNT(*) FROM shop_permitted_roles")
+                if roles_count == 0:
+                    shops = await conn.fetch(
+                        "SELECT shop_key, data FROM wholesaler_shops WHERE data::text LIKE '%permitted_roles%'"
+                    )
+                    for shop_row in shops:
+                        data = shop_row["data"]
+                        if isinstance(data, str):
+                            data = json.loads(data)
+                        if not isinstance(data, dict):
+                            continue
+                        for role_id in data.get("permitted_roles", []):
+                            await conn.execute(
+                                "INSERT INTO shop_permitted_roles (shop_key, role_id) "
+                                "VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                                shop_row["shop_key"], str(role_id),
+                            )
+    except Exception:
+        logger.error("_backfill_wholesaler_typed_columns failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
 # Legacy json_store helpers (kept for migration seeding; do not use in new code)
 # ---------------------------------------------------------------------------
 
+_NORMALIZED_KEYS = frozenset({
+    "cw_shop_state", "fixer_event",
+    "wholesaler_state", "wholesaler_tx",
+})
+
+
 async def db_load(key: str, default=None, seed_path: Path | str | None = None):
-    """Load a JSONB blob from json_store. Use typed helpers for new code."""
+    """Load a JSONB blob from json_store.
+
+    .. deprecated::
+        For keys ``cw_shop_state``, ``fixer_event``, ``wholesaler_state``,
+        and ``wholesaler_tx`` use the dedicated typed helpers instead
+        (``cw_shop_state_load``, ``fixer_event_load``, ``wh_*`` helpers).
+    """
+    if key in _NORMALIZED_KEYS:
+        logger.warning(
+            "db_load called with normalized key '%s' — use typed helper instead", key
+        )
     try:
         pool = await get_pool()
         row = await pool.fetchrow("SELECT value FROM json_store WHERE key = $1", key)
@@ -582,7 +806,16 @@ async def db_load(key: str, default=None, seed_path: Path | str | None = None):
 
 
 async def db_save(key: str, value) -> bool:
-    """Persist a JSON-serialisable value under key in json_store."""
+    """Persist a JSON-serialisable value under key in json_store.
+
+    .. deprecated::
+        For keys ``cw_shop_state``, ``fixer_event``, ``wholesaler_state``,
+        and ``wholesaler_tx`` use the dedicated typed helpers instead.
+    """
+    if key in _NORMALIZED_KEYS:
+        logger.warning(
+            "db_save called with normalized key '%s' — use typed helper instead", key
+        )
     try:
         pool = await get_pool()
         serialized = json.dumps(value)
@@ -602,6 +835,143 @@ async def db_save(key: str, value) -> bool:
         return True
     except Exception:
         logger.error("db_save failed for key '%s'", key, exc_info=True)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Cyberware shop state (dedicated table)
+# ---------------------------------------------------------------------------
+
+async def cw_shop_state_load() -> dict[str, Any]:
+    """Load the cyberware shop state from its dedicated table.
+
+    Falls back to json_store legacy key on first access and migrates it.
+    """
+    try:
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            "SELECT sheet_url, items_count, settings FROM cw_shop_state WHERE id = 1"
+        )
+        if row:
+            settings = row["settings"]
+            if isinstance(settings, str):
+                settings = json.loads(settings)
+            return {
+                "sheet_url": row["sheet_url"],
+                "items_count": row["items_count"],
+                **(settings or {}),
+            }
+        legacy = await pool.fetchrow(
+            "SELECT value FROM json_store WHERE key = 'cw_shop_state'"
+        )
+        if legacy:
+            val = legacy["value"]
+            state = json.loads(val) if isinstance(val, str) else (val or {})
+            if isinstance(state, dict) and state:
+                await cw_shop_state_save(state)
+                logger.info("Migrated cw_shop_state from json_store to dedicated table")
+                return state
+        return {}
+    except Exception:
+        logger.error("cw_shop_state_load failed", exc_info=True)
+        return {}
+
+
+async def cw_shop_state_save(state: dict[str, Any]) -> bool:
+    """Persist the cyberware shop state to its dedicated table."""
+    try:
+        pool = await get_pool()
+        sheet_url = str(state.get("sheet_url", ""))
+        items_count = int(state.get("items_count", 0))
+        extra = {k: v for k, v in state.items() if k not in ("sheet_url", "items_count")}
+        serialized = json.dumps(extra)
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO cw_shop_state (id, sheet_url, items_count, settings, updated_at)
+                VALUES (1, $1, $2, $3::jsonb, NOW())
+                ON CONFLICT (id) DO UPDATE
+                    SET sheet_url = EXCLUDED.sheet_url,
+                        items_count = EXCLUDED.items_count,
+                        settings = EXCLUDED.settings,
+                        updated_at = NOW()
+                """,
+                sheet_url, items_count, serialized,
+            ),
+            label="cw_shop_state_save",
+        )
+        return True
+    except Exception:
+        logger.error("cw_shop_state_save failed", exc_info=True)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Fixer event state (dedicated table)
+# ---------------------------------------------------------------------------
+
+async def fixer_event_load() -> dict[str, str] | None:
+    """Load the current fixer event from its dedicated table.
+
+    Falls back to json_store legacy key on first access and migrates it.
+    Returns a dict with 'started_at' and 'expires_at' ISO strings, or None.
+    """
+    try:
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            "SELECT started_at, expires_at FROM fixer_event ORDER BY id DESC LIMIT 1"
+        )
+        if row:
+            return {
+                "started_at": row["started_at"].isoformat(),
+                "expires_at": row["expires_at"].isoformat(),
+            }
+        legacy = await pool.fetchrow(
+            "SELECT value FROM json_store WHERE key = 'fixer_event'"
+        )
+        if legacy:
+            val = legacy["value"]
+            data = json.loads(val) if isinstance(val, str) else (val or {})
+            if isinstance(data, dict) and data.get("started_at") and data.get("expires_at"):
+                await fixer_event_save(data)
+                logger.info("Migrated fixer_event from json_store to dedicated table")
+                return data
+        return None
+    except Exception:
+        logger.error("fixer_event_load failed", exc_info=True)
+        return None
+
+
+async def fixer_event_save(data: dict[str, str] | None) -> bool:
+    """Save or clear the fixer event state.
+
+    Pass None or empty dict to clear the event.
+    """
+    try:
+        pool = await get_pool()
+        if not data:
+            await _with_retry(
+                lambda: pool.execute("DELETE FROM fixer_event"),
+                label="fixer_event_clear",
+            )
+            return True
+        started_at = datetime.fromisoformat(data["started_at"])
+        expires_at = datetime.fromisoformat(data["expires_at"])
+
+        async def _do():
+            async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
+                async with conn.transaction():
+                    await conn.execute("DELETE FROM fixer_event")
+                    await conn.execute(
+                        "INSERT INTO fixer_event (started_at, expires_at, updated_at) "
+                        "VALUES ($1, $2, NOW())",
+                        started_at, expires_at,
+                    )
+
+        await _with_retry(_do, label="fixer_event_save")
+        return True
+    except Exception:
+        logger.error("fixer_event_save failed", exc_info=True)
         return False
 
 
@@ -1014,7 +1384,6 @@ async def _migrate_wholesaler(pool: asyncpg.Pool) -> None:
         if has_data > 0:
             return
 
-        # Migrate wholesaler_state blob
         state_row = await pool.fetchrow("SELECT value FROM json_store WHERE key = 'wholesaler_state'")
         if state_row:
             raw = state_row["value"]
@@ -1022,7 +1391,6 @@ async def _migrate_wholesaler(pool: asyncpg.Pool) -> None:
             if isinstance(state, dict):
                 async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                     async with conn.transaction():
-                        # wholesale_lots
                         for lot in state.get("wholesale_lots", []):
                             if not isinstance(lot, dict):
                                 continue
@@ -1030,44 +1398,88 @@ async def _migrate_wholesaler(pool: asyncpg.Pool) -> None:
                             if not lot_id:
                                 continue
                             extra = {k: v for k, v in lot.items()
-                                     if k not in ("lot_id", "gun_name", "gun_level", "unit_cost", "qty_available")}
+                                     if k not in _WH_LOT_COLUMNS}
                             await conn.execute(
                                 """
-                                INSERT INTO wholesale_lots (lot_id, gun_name, gun_level, unit_cost, qty_available, data)
-                                VALUES ($1, $2, $3, $4, $5, $6::jsonb) ON CONFLICT DO NOTHING
+                                INSERT INTO wholesale_lots
+                                    (lot_id, gun_name, gun_level, unit_cost, qty_available,
+                                     weapon_type, restriction, description, effectiveness_raw, data)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+                                ON CONFLICT DO NOTHING
                                 """,
                                 lot_id,
                                 str(lot.get("gun_name", "")),
                                 str(lot.get("gun_level", "")),
                                 int(lot.get("unit_cost", 0)),
                                 int(lot.get("qty_available", 0)),
+                                str(lot.get("weapon_type", "")),
+                                str(lot.get("restriction", "basic")),
+                                str(lot.get("description", "")),
+                                str(lot.get("effectiveness_raw", "")),
                                 json.dumps(extra),
                             )
-                        # stores
                         for store_id, store in state.get("stores", {}).items():
                             if not isinstance(store, dict):
                                 continue
                             owner_id = store.get("owner_id")
-                            extra = {k: v for k, v in store.items() if k != "owner_id"}
+                            extra = {k: v for k, v in store.items()
+                                     if k not in _WH_STORE_COLUMNS and k != "lots"}
                             await conn.execute(
                                 """
-                                INSERT INTO wholesaler_stores (store_id, owner_id, data)
-                                VALUES ($1, $2, $3::jsonb) ON CONFLICT DO NOTHING
+                                INSERT INTO wholesaler_stores
+                                    (store_id, owner_id, store_name, balance, total_sales, data)
+                                VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+                                ON CONFLICT DO NOTHING
                                 """,
                                 str(store_id),
                                 str(owner_id) if owner_id is not None else None,
+                                str(store.get("store_name", "")),
+                                int(store.get("balance", 0)),
+                                int(store.get("total_sales", 0)),
                                 json.dumps(extra),
                             )
-                        # shop_registry
+                            for lot in store.get("lots", []):
+                                if not isinstance(lot, dict):
+                                    continue
+                                await conn.execute(
+                                    """
+                                    INSERT INTO store_inventory
+                                        (store_id, lot_id, gun_name, gun_level, unit_cost,
+                                         qty, item_ids, restriction, weapon_type)
+                                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                                    """,
+                                    str(store_id),
+                                    str(lot.get("lot_id", "")),
+                                    str(lot.get("gun_name", "")),
+                                    str(lot.get("gun_level", "")),
+                                    int(lot.get("unit_cost", 0)),
+                                    int(lot.get("qty_available", lot.get("qty", 0))),
+                                    list(lot.get("item_ids", [])),
+                                    str(lot.get("restriction", "basic")),
+                                    str(lot.get("weapon_type", "")),
+                                )
                         for shop_key, shop_data in state.get("shop_registry", {}).items():
+                            channel_id = None
+                            category = ""
+                            roles = []
+                            if isinstance(shop_data, dict):
+                                channel_id = str(shop_data.get("channel_id", "")) or None
+                                category = str(shop_data.get("category", ""))
+                                roles = shop_data.get("permitted_roles", [])
                             await conn.execute(
                                 """
-                                INSERT INTO wholesaler_shops (shop_key, data)
-                                VALUES ($1, $2::jsonb) ON CONFLICT DO NOTHING
+                                INSERT INTO wholesaler_shops (shop_key, channel_id, category, data)
+                                VALUES ($1, $2, $3, $4::jsonb)
+                                ON CONFLICT DO NOTHING
                                 """,
-                                str(shop_key), json.dumps(shop_data),
+                                str(shop_key), channel_id, category, json.dumps(shop_data),
                             )
-                        # pending_payouts
+                            for role_id in roles:
+                                await conn.execute(
+                                    "INSERT INTO shop_permitted_roles (shop_key, role_id) "
+                                    "VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                                    str(shop_key), str(role_id),
+                                )
                         for payout in state.get("pending_payouts", []):
                             if not isinstance(payout, dict):
                                 continue
@@ -1080,19 +1492,22 @@ async def _migrate_wholesaler(pool: asyncpg.Pool) -> None:
                                 int(payout.get("amount", 0)),
                                 str(payout.get("reason", "")),
                             )
-                        # settings
                         settings = state.get("settings", {})
                         if settings:
+                            master_url = str(settings.get("master_sheet_url", ""))
+                            restock_cfg = json.dumps(settings.get("restock", {}))
+                            restock_tl = json.dumps(settings.get("restock_type_lots", {}))
                             await conn.execute(
                                 """
-                                INSERT INTO wholesaler_settings (key, value)
-                                VALUES ('main', $1::jsonb) ON CONFLICT DO NOTHING
+                                INSERT INTO wholesaler_settings
+                                    (key, value, master_sheet_url, restock_config, restock_type_lots)
+                                VALUES ('main', $1::jsonb, $2, $3::jsonb, $4::jsonb)
+                                ON CONFLICT DO NOTHING
                                 """,
-                                json.dumps(settings),
+                                json.dumps(settings), master_url, restock_cfg, restock_tl,
                             )
                 logger.info("Migrated wholesaler_state into typed tables")
 
-        # Migrate wholesaler_tx blob
         tx_row = await pool.fetchrow("SELECT value FROM json_store WHERE key = 'wholesaler_tx'")
         if tx_row:
             raw = tx_row["value"]
@@ -1109,11 +1524,18 @@ async def _migrate_wholesaler(pool: asyncpg.Pool) -> None:
                                 continue
                             ts_str = tx.get("timestamp")
                             ts = datetime.fromisoformat(ts_str) if ts_str else datetime.now(timezone.utc)
+                            item_name = str(tx.get("gun_name", tx.get("item_name", "")))
+                            qty = int(tx.get("quantity", tx.get("qty", 0)))
+                            cost = int(tx.get("unit_cost", tx.get("cost", tx.get("total_cost", 0))))
+                            buyer_id = str(tx.get("buyer_id", "")) or None
+                            seller_id_val = str(tx.get("seller_id", "")) or None
+                            notes = str(tx.get("notes", tx.get("error_details", "")))
                             await conn.execute(
                                 """
                                 INSERT INTO wholesaler_transactions
-                                    (tx_id, tx_type, ts, status, actor_id, lot_id, data)
-                                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+                                    (tx_id, tx_type, ts, status, actor_id, lot_id,
+                                     item_name, qty, cost, buyer_id, seller_id, notes, data)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
                                 ON CONFLICT DO NOTHING
                                 """,
                                 tx_id,
@@ -1122,6 +1544,12 @@ async def _migrate_wholesaler(pool: asyncpg.Pool) -> None:
                                 str(tx.get("status", "SUCCESS")),
                                 str(tx.get("seller_id", tx.get("buyer_id", tx.get("actor_id", "")))) or None,
                                 tx.get("lot_id"),
+                                item_name,
+                                qty,
+                                cost,
+                                buyer_id,
+                                seller_id_val,
+                                notes,
                                 json.dumps(tx),
                             )
                             imported += 1
@@ -1715,11 +2143,19 @@ async def dm_thread_delete(user_id: str) -> bool:
 # Wholesaler helpers
 # ---------------------------------------------------------------------------
 
+_WH_LOT_COLUMNS = ("lot_id", "gun_name", "gun_level", "unit_cost", "qty_available",
+                    "weapon_type", "restriction", "description", "effectiveness_raw")
+
+
 async def wh_lots_get_all() -> list[dict]:
-    """Return all wholesale lots."""
+    """Return all wholesale lots using dedicated columns with JSONB fallback."""
     try:
         pool = await get_pool()
-        rows = await pool.fetch("SELECT lot_id, gun_name, gun_level, unit_cost, qty_available, data FROM wholesale_lots")
+        rows = await pool.fetch(
+            "SELECT lot_id, gun_name, gun_level, unit_cost, qty_available, "
+            "weapon_type, restriction, description, effectiveness_raw, data "
+            "FROM wholesale_lots"
+        )
         result = []
         for row in rows:
             extra = json.loads(row["data"]) if isinstance(row["data"], str) else (row["data"] or {})
@@ -1729,7 +2165,11 @@ async def wh_lots_get_all() -> list[dict]:
                 "gun_level": row["gun_level"],
                 "unit_cost": row["unit_cost"],
                 "qty_available": row["qty_available"],
-                **extra,
+                "weapon_type": row["weapon_type"] or extra.get("weapon_type", ""),
+                "restriction": row["restriction"] if row["restriction"] != "basic" else extra.get("restriction", "basic"),
+                "description": row["description"] or extra.get("description", ""),
+                "effectiveness_raw": row["effectiveness_raw"] or extra.get("effectiveness_raw", ""),
+                **{k: v for k, v in extra.items() if k not in _WH_LOT_COLUMNS},
             }
             result.append(lot)
         return result
@@ -1739,7 +2179,7 @@ async def wh_lots_get_all() -> list[dict]:
 
 
 async def wh_lots_replace_all(lots: list[dict]) -> bool:
-    """Atomically replace all wholesale lots."""
+    """Atomically replace all wholesale lots using dedicated columns."""
     try:
         pool = await get_pool()
 
@@ -1754,17 +2194,23 @@ async def wh_lots_replace_all(lots: list[dict]) -> bool:
                         if not lot_id:
                             continue
                         extra = {k: v for k, v in lot.items()
-                                 if k not in ("lot_id", "gun_name", "gun_level", "unit_cost", "qty_available")}
+                                 if k not in _WH_LOT_COLUMNS}
                         await conn.execute(
                             """
-                            INSERT INTO wholesale_lots (lot_id, gun_name, gun_level, unit_cost, qty_available, data)
-                            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+                            INSERT INTO wholesale_lots
+                                (lot_id, gun_name, gun_level, unit_cost, qty_available,
+                                 weapon_type, restriction, description, effectiveness_raw, data)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
                             """,
                             lot_id,
                             str(lot.get("gun_name", "")),
                             str(lot.get("gun_level", "")),
                             int(lot.get("unit_cost", 0)),
                             int(lot.get("qty_available", 0)),
+                            str(lot.get("weapon_type", "")),
+                            str(lot.get("restriction", "basic")),
+                            str(lot.get("description", "")),
+                            str(lot.get("effectiveness_raw", "")),
                             json.dumps(extra),
                         )
 
@@ -1775,15 +2221,48 @@ async def wh_lots_replace_all(lots: list[dict]) -> bool:
         return False
 
 
+_WH_STORE_COLUMNS = ("store_id", "owner_id", "store_name", "balance", "total_sales")
+
+
 async def wh_stores_get_all() -> dict[str, dict]:
     """Return all wholesaler stores as {store_id: store_dict}."""
     try:
         pool = await get_pool()
-        rows = await pool.fetch("SELECT store_id, owner_id, data FROM wholesaler_stores")
+        rows = await pool.fetch(
+            "SELECT store_id, owner_id, store_name, balance, total_sales, data "
+            "FROM wholesaler_stores"
+        )
         result = {}
         for row in rows:
             extra = json.loads(row["data"]) if isinstance(row["data"], str) else (row["data"] or {})
-            store = {"owner_id": row["owner_id"], **extra}
+            inv_rows = await pool.fetch(
+                "SELECT lot_id, gun_name, gun_level, unit_cost, qty, item_ids, restriction, weapon_type "
+                "FROM store_inventory WHERE store_id = $1",
+                row["store_id"],
+            )
+            lots = []
+            for ir in inv_rows:
+                lots.append({
+                    "lot_id": ir["lot_id"],
+                    "gun_name": ir["gun_name"],
+                    "gun_level": ir["gun_level"],
+                    "unit_cost": ir["unit_cost"],
+                    "qty_available": ir["qty"],
+                    "item_ids": list(ir["item_ids"] or []),
+                    "restriction": ir["restriction"],
+                    "weapon_type": ir["weapon_type"],
+                })
+            store = {
+                "owner_id": row["owner_id"],
+                "store_name": row["store_name"] or extra.get("store_name", ""),
+                "balance": row["balance"] if row["balance"] != 0 else int(extra.get("balance", 0)),
+                "total_sales": row["total_sales"] if row["total_sales"] != 0 else int(extra.get("total_sales", 0)),
+                **{k: v for k, v in extra.items() if k not in _WH_STORE_COLUMNS},
+            }
+            if lots:
+                store["lots"] = lots
+            elif "lots" in extra:
+                store["lots"] = extra["lots"]
             result[row["store_id"]] = store
         return result
     except Exception:
@@ -1792,28 +2271,54 @@ async def wh_stores_get_all() -> dict[str, dict]:
 
 
 async def wh_stores_replace_all(stores: dict[str, dict]) -> bool:
-    """Atomically replace all wholesaler stores."""
+    """Atomically replace all wholesaler stores and their inventory."""
     try:
         pool = await get_pool()
 
         async def _do():
             async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                 async with conn.transaction():
+                    await conn.execute("DELETE FROM store_inventory")
                     await conn.execute("DELETE FROM wholesaler_stores")
                     for store_id, store in stores.items():
                         if not isinstance(store, dict):
                             continue
                         owner_id = store.get("owner_id")
-                        extra = {k: v for k, v in store.items() if k != "owner_id"}
+                        extra = {k: v for k, v in store.items()
+                                 if k not in _WH_STORE_COLUMNS and k != "lots"}
                         await conn.execute(
                             """
-                            INSERT INTO wholesaler_stores (store_id, owner_id, data)
-                            VALUES ($1, $2, $3::jsonb)
+                            INSERT INTO wholesaler_stores
+                                (store_id, owner_id, store_name, balance, total_sales, data)
+                            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
                             """,
                             str(store_id),
                             str(owner_id) if owner_id is not None else None,
+                            str(store.get("store_name", "")),
+                            int(store.get("balance", 0)),
+                            int(store.get("total_sales", 0)),
                             json.dumps(extra),
                         )
+                        for lot in store.get("lots", []):
+                            if not isinstance(lot, dict):
+                                continue
+                            await conn.execute(
+                                """
+                                INSERT INTO store_inventory
+                                    (store_id, lot_id, gun_name, gun_level, unit_cost,
+                                     qty, item_ids, restriction, weapon_type)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                                """,
+                                str(store_id),
+                                str(lot.get("lot_id", "")),
+                                str(lot.get("gun_name", "")),
+                                str(lot.get("gun_level", "")),
+                                int(lot.get("unit_cost", 0)),
+                                int(lot.get("qty_available", lot.get("qty", 0))),
+                                list(lot.get("item_ids", [])),
+                                str(lot.get("restriction", "basic")),
+                                str(lot.get("weapon_type", "")),
+                            )
 
         await _with_retry(_do, label="wh_stores_replace_all")
         return True
@@ -1823,14 +2328,37 @@ async def wh_stores_replace_all(stores: dict[str, dict]) -> bool:
 
 
 async def wh_shops_get_all() -> dict[str, Any]:
-    """Return all wholesaler shops (shop registry) as {shop_key: data_dict}."""
+    """Return all wholesaler shops (shop registry) as {shop_key: owner_id_or_data}.
+
+    For shops stored as simple owner-id mappings, returns the owner ID directly.
+    For shops with extended data, returns a dict with channel_id, category, etc.
+    """
     try:
         pool = await get_pool()
-        rows = await pool.fetch("SELECT shop_key, data FROM wholesaler_shops")
+        rows = await pool.fetch(
+            "SELECT shop_key, channel_id, category, data FROM wholesaler_shops"
+        )
+        roles_rows = await pool.fetch(
+            "SELECT shop_key, role_id FROM shop_permitted_roles ORDER BY shop_key"
+        )
+        roles_map: dict[str, list[str]] = {}
+        for rr in roles_rows:
+            roles_map.setdefault(rr["shop_key"], []).append(rr["role_id"])
+
         result = {}
         for row in rows:
             data = json.loads(row["data"]) if isinstance(row["data"], str) else (row["data"] or {})
-            result[row["shop_key"]] = data
+            if isinstance(data, (int, float, str)):
+                result[row["shop_key"]] = data
+            else:
+                if row["channel_id"]:
+                    data["channel_id"] = row["channel_id"]
+                if row["category"]:
+                    data["category"] = row["category"]
+                roles = roles_map.get(row["shop_key"])
+                if roles:
+                    data["permitted_roles"] = roles
+                result[row["shop_key"]] = data if data else data
         return result
     except Exception:
         logger.error("wh_shops_get_all failed", exc_info=True)
@@ -1845,12 +2373,29 @@ async def wh_shops_replace_all(shops: dict[str, Any]) -> bool:
         async def _do():
             async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                 async with conn.transaction():
+                    await conn.execute("DELETE FROM shop_permitted_roles")
                     await conn.execute("DELETE FROM wholesaler_shops")
                     for shop_key, data in shops.items():
+                        channel_id = None
+                        category = ""
+                        roles = []
+                        if isinstance(data, dict):
+                            channel_id = str(data.get("channel_id", "")) or None
+                            category = str(data.get("category", ""))
+                            roles = data.get("permitted_roles", [])
                         await conn.execute(
-                            "INSERT INTO wholesaler_shops (shop_key, data) VALUES ($1, $2::jsonb)",
-                            str(shop_key), json.dumps(data),
+                            """
+                            INSERT INTO wholesaler_shops (shop_key, channel_id, category, data)
+                            VALUES ($1, $2, $3, $4::jsonb)
+                            """,
+                            str(shop_key), channel_id, category, json.dumps(data),
                         )
+                        for role_id in roles:
+                            await conn.execute(
+                                "INSERT INTO shop_permitted_roles (shop_key, role_id) "
+                                "VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                                str(shop_key), str(role_id),
+                            )
 
         await _with_retry(_do, label="wh_shops_replace_all")
         return True
@@ -1924,13 +2469,28 @@ async def wh_pending_payouts_clear() -> bool:
 
 
 async def wh_settings_get() -> dict:
-    """Return the wholesaler settings dict."""
+    """Return the wholesaler settings dict from typed columns + legacy value."""
     try:
         pool = await get_pool()
-        row = await pool.fetchrow("SELECT value FROM wholesaler_settings WHERE key = 'main'")
+        row = await pool.fetchrow(
+            "SELECT value, master_sheet_url, restock_config, restock_type_lots "
+            "FROM wholesaler_settings WHERE key = 'main'"
+        )
         if row:
-            val = row["value"]
-            return json.loads(val) if isinstance(val, str) else (val or {})
+            val = json.loads(row["value"]) if isinstance(row["value"], str) else (row["value"] or {})
+            if row["master_sheet_url"]:
+                val["master_sheet_url"] = row["master_sheet_url"]
+            rc = row["restock_config"]
+            if rc:
+                rc = json.loads(rc) if isinstance(rc, str) else rc
+                if rc:
+                    val.setdefault("restock", {}).update(rc)
+            rtl = row["restock_type_lots"]
+            if rtl:
+                rtl = json.loads(rtl) if isinstance(rtl, str) else rtl
+                if rtl:
+                    val["restock_type_lots"] = rtl
+            return val
         return {}
     except Exception:
         logger.error("wh_settings_get failed", exc_info=True)
@@ -1938,17 +2498,27 @@ async def wh_settings_get() -> dict:
 
 
 async def wh_settings_save(settings: dict) -> bool:
-    """Persist the wholesaler settings dict."""
+    """Persist the wholesaler settings dict with typed columns."""
     try:
         pool = await get_pool()
+        master_sheet_url = str(settings.get("master_sheet_url", ""))
+        restock_config = json.dumps(settings.get("restock", {}))
+        restock_type_lots = json.dumps(settings.get("restock_type_lots", {}))
         serialized = json.dumps(settings)
         await _with_retry(
             lambda: pool.execute(
                 """
-                INSERT INTO wholesaler_settings (key, value, updated_at) VALUES ('main', $1::jsonb, NOW())
-                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                INSERT INTO wholesaler_settings
+                    (key, value, master_sheet_url, restock_config, restock_type_lots, updated_at)
+                VALUES ('main', $1::jsonb, $2, $3::jsonb, $4::jsonb, NOW())
+                ON CONFLICT (key) DO UPDATE
+                    SET value = EXCLUDED.value,
+                        master_sheet_url = EXCLUDED.master_sheet_url,
+                        restock_config = EXCLUDED.restock_config,
+                        restock_type_lots = EXCLUDED.restock_type_lots,
+                        updated_at = NOW()
                 """,
-                serialized,
+                serialized, master_sheet_url, restock_config, restock_type_lots,
             ),
             label="wh_settings_save",
         )
@@ -1959,7 +2529,7 @@ async def wh_settings_save(settings: dict) -> bool:
 
 
 async def wh_tx_append(tx: dict) -> bool:
-    """Append a single wholesaler transaction record."""
+    """Append a single wholesaler transaction record with promoted columns."""
     try:
         pool = await get_pool()
         tx_id = tx.get("tx_id")
@@ -1969,12 +2539,20 @@ async def wh_tx_append(tx: dict) -> bool:
         ts_str = tx.get("timestamp")
         ts = datetime.fromisoformat(ts_str) if ts_str else datetime.now(timezone.utc)
         actor = str(tx.get("seller_id", tx.get("buyer_id", tx.get("actor_id", "")))) or None
+        item_name = str(tx.get("gun_name", tx.get("item_name", "")))
+        qty = int(tx.get("quantity", tx.get("qty", 0)))
+        cost = int(tx.get("unit_cost", tx.get("cost", tx.get("total_cost", 0))))
+        buyer_id = str(tx.get("buyer_id", "")) or None
+        seller_id = str(tx.get("seller_id", "")) or None
+        notes = str(tx.get("notes", tx.get("error_details", "")))
         serialized = json.dumps(tx)
         await _with_retry(
             lambda: pool.execute(
                 """
-                INSERT INTO wholesaler_transactions (tx_id, tx_type, ts, status, actor_id, lot_id, data)
-                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+                INSERT INTO wholesaler_transactions
+                    (tx_id, tx_type, ts, status, actor_id, lot_id,
+                     item_name, qty, cost, buyer_id, seller_id, notes, data)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
                 ON CONFLICT (tx_id) DO NOTHING
                 """,
                 tx_id,
@@ -1983,6 +2561,12 @@ async def wh_tx_append(tx: dict) -> bool:
                 str(tx.get("status", "SUCCESS")),
                 actor,
                 tx.get("lot_id"),
+                item_name,
+                qty,
+                cost,
+                buyer_id,
+                seller_id,
+                notes,
                 serialized,
             ),
             label="wh_tx_append",
@@ -1994,19 +2578,36 @@ async def wh_tx_append(tx: dict) -> bool:
 
 
 async def wh_tx_get_all() -> list[dict]:
-    """Return all wholesaler transactions (oldest first)."""
+    """Return all wholesaler transactions (oldest first) from typed columns."""
     try:
         pool = await get_pool()
         rows = await pool.fetch(
-            "SELECT data FROM wholesaler_transactions ORDER BY ts"
+            "SELECT tx_id, tx_type, ts, status, actor_id, lot_id, "
+            "item_name, qty, cost, buyer_id, seller_id, notes, data "
+            "FROM wholesaler_transactions ORDER BY ts"
         )
         result = []
         for row in rows:
             val = row["data"]
             if isinstance(val, str):
-                result.append(json.loads(val))
+                base = json.loads(val)
             elif isinstance(val, dict):
-                result.append(val)
+                base = val
+            else:
+                base = {}
+            if row["item_name"]:
+                base["item_name"] = row["item_name"]
+            if row["qty"]:
+                base["qty"] = row["qty"]
+            if row["cost"]:
+                base["cost"] = row["cost"]
+            if row["buyer_id"]:
+                base["buyer_id"] = row["buyer_id"]
+            if row["seller_id"]:
+                base["seller_id"] = row["seller_id"]
+            if row["notes"]:
+                base["notes"] = row["notes"]
+            result.append(base)
         return result
     except Exception:
         logger.error("wh_tx_get_all failed", exc_info=True)
@@ -2137,6 +2738,7 @@ async def migrate_json_store_blobs(pool: asyncpg.Pool | None = None) -> dict[str
         "cyberware_status", "cyberware_log", "cyberware_last_run", "cyberware_weekly",
         "system_status", "wholesaler_lots", "wholesaler_stores", "wholesaler_shops",
         "wholesaler_settings", "wholesaler_state", "thread_map",
+        "cw_shop_state", "fixer_event",
     }
 
     for row in rows:
@@ -2195,6 +2797,10 @@ async def _mig_dispatch(pool: asyncpg.Pool, key: str, data) -> dict:
         return await _mig_wholesaler_state(pool, data)
     if key == "thread_map":
         return await _mig_thread_map(pool, data)
+    if key == "cw_shop_state":
+        return await _mig_cw_shop_state(pool, data)
+    if key == "fixer_event":
+        return await _mig_fixer_event(pool, data)
     return _mig_result("(unhandled)", 0, 0, 0)
 
 
@@ -2422,6 +3028,55 @@ async def _mig_system_status(pool: asyncpg.Pool, data) -> dict:
     return _mig_result(target, found, inserted, errors)
 
 
+async def _mig_cw_shop_state(pool: asyncpg.Pool, data) -> dict:
+    target = "cw_shop_state"
+    if not isinstance(data, dict):
+        return _mig_result(target, 0, 0, 1)
+    found = 1
+    inserted = errors = 0
+    try:
+        existing = await pool.fetchval("SELECT COUNT(*) FROM cw_shop_state WHERE id = 1")
+        if existing:
+            return _mig_result(target, found, 0, 0)
+        sheet_url = str(data.get("sheet_url", ""))
+        items_count = int(data.get("items_count", 0))
+        extra = {k: v for k, v in data.items() if k not in ("sheet_url", "items_count")}
+        await pool.execute(
+            "INSERT INTO cw_shop_state (id, sheet_url, items_count, settings, updated_at)"
+            " VALUES (1, $1, $2, $3::jsonb, NOW()) ON CONFLICT (id) DO NOTHING",
+            sheet_url, items_count, json.dumps(extra),
+        )
+        inserted = 1
+    except Exception:
+        errors = 1
+        logger.warning("_mig_cw_shop_state: error", exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
+async def _mig_fixer_event(pool: asyncpg.Pool, data) -> dict:
+    target = "fixer_event"
+    if not isinstance(data, dict) or not data.get("started_at") or not data.get("expires_at"):
+        return _mig_result(target, 0, 0, 0)
+    found = 1
+    inserted = errors = 0
+    try:
+        existing = await pool.fetchval("SELECT COUNT(*) FROM fixer_event")
+        if existing:
+            return _mig_result(target, found, 0, 0)
+        started_at = datetime.fromisoformat(data["started_at"])
+        expires_at = datetime.fromisoformat(data["expires_at"])
+        await pool.execute(
+            "INSERT INTO fixer_event (started_at, expires_at, updated_at)"
+            " VALUES ($1, $2, NOW())",
+            started_at, expires_at,
+        )
+        inserted = 1
+    except Exception:
+        errors = 1
+        logger.warning("_mig_fixer_event: error", exc_info=True)
+    return _mig_result(target, found, inserted, errors)
+
+
 async def _mig_wholesaler_lots(pool: asyncpg.Pool, data) -> dict:
     target = "wholesale_lots"
     if not isinstance(data, list):
@@ -2437,12 +3092,17 @@ async def _mig_wholesaler_lots(pool: asyncpg.Pool, data) -> dict:
             found += 1
             try:
                 extra = {k: v for k, v in lot.items()
-                         if k not in ("lot_id", "gun_name", "gun_level", "unit_cost", "qty_available")}
+                         if k not in _WH_LOT_COLUMNS}
                 res = await conn.execute(
-                    "INSERT INTO wholesale_lots (lot_id, gun_name, gun_level, unit_cost, qty_available, data)"
-                    " VALUES ($1, $2, $3, $4, $5, $6::jsonb) ON CONFLICT DO NOTHING",
+                    "INSERT INTO wholesale_lots"
+                    " (lot_id, gun_name, gun_level, unit_cost, qty_available,"
+                    "  weapon_type, restriction, description, effectiveness_raw, data)"
+                    " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)"
+                    " ON CONFLICT DO NOTHING",
                     lot_id, str(lot.get("gun_name", "")), str(lot.get("gun_level", "")),
                     int(lot.get("unit_cost", 0)), int(lot.get("qty_available", 0)),
+                    str(lot.get("weapon_type", "")), str(lot.get("restriction", "basic")),
+                    str(lot.get("description", "")), str(lot.get("effectiveness_raw", "")),
                     json.dumps(extra),
                 )
                 inserted += _count_inserted(res)
@@ -2464,13 +3124,37 @@ async def _mig_wholesaler_stores(pool: asyncpg.Pool, data) -> dict:
             found += 1
             try:
                 owner_id = store.get("owner_id")
-                extra = {k: v for k, v in store.items() if k != "owner_id"}
+                extra = {k: v for k, v in store.items()
+                         if k not in _WH_STORE_COLUMNS and k != "lots"}
                 res = await conn.execute(
-                    "INSERT INTO wholesaler_stores (store_id, owner_id, data)"
-                    " VALUES ($1, $2, $3::jsonb) ON CONFLICT DO NOTHING",
-                    str(store_id), str(owner_id) if owner_id is not None else None, json.dumps(extra),
+                    "INSERT INTO wholesaler_stores"
+                    " (store_id, owner_id, store_name, balance, total_sales, data)"
+                    " VALUES ($1, $2, $3, $4, $5, $6::jsonb)"
+                    " ON CONFLICT DO NOTHING",
+                    str(store_id), str(owner_id) if owner_id is not None else None,
+                    str(store.get("store_name", "")),
+                    int(store.get("balance", 0)), int(store.get("total_sales", 0)),
+                    json.dumps(extra),
                 )
                 inserted += _count_inserted(res)
+                for lot in store.get("lots", []):
+                    if not isinstance(lot, dict):
+                        continue
+                    await conn.execute(
+                        "INSERT INTO store_inventory"
+                        " (store_id, lot_id, gun_name, gun_level, unit_cost,"
+                        "  qty, item_ids, restriction, weapon_type)"
+                        " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                        str(store_id),
+                        str(lot.get("lot_id", "")),
+                        str(lot.get("gun_name", "")),
+                        str(lot.get("gun_level", "")),
+                        int(lot.get("unit_cost", 0)),
+                        int(lot.get("qty_available", lot.get("qty", 0))),
+                        list(lot.get("item_ids", [])),
+                        str(lot.get("restriction", "basic")),
+                        str(lot.get("weapon_type", "")),
+                    )
             except Exception:
                 errors += 1
                 logger.warning("_mig_wholesaler_stores: row error store=%s", store_id, exc_info=True)
@@ -2486,12 +3170,25 @@ async def _mig_wholesaler_shops(pool: asyncpg.Pool, data) -> dict:
         for shop_key, shop_data in data.items():
             found += 1
             try:
+                channel_id = None
+                category = ""
+                roles = []
+                if isinstance(shop_data, dict):
+                    channel_id = str(shop_data.get("channel_id", "")) or None
+                    category = str(shop_data.get("category", ""))
+                    roles = shop_data.get("permitted_roles", [])
                 res = await conn.execute(
-                    "INSERT INTO wholesaler_shops (shop_key, data)"
-                    " VALUES ($1, $2::jsonb) ON CONFLICT DO NOTHING",
-                    str(shop_key), json.dumps(shop_data),
+                    "INSERT INTO wholesaler_shops (shop_key, channel_id, category, data)"
+                    " VALUES ($1, $2, $3, $4::jsonb) ON CONFLICT DO NOTHING",
+                    str(shop_key), channel_id, category, json.dumps(shop_data),
                 )
                 inserted += _count_inserted(res)
+                for role_id in roles:
+                    await conn.execute(
+                        "INSERT INTO shop_permitted_roles (shop_key, role_id) "
+                        "VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                        str(shop_key), str(role_id),
+                    )
             except Exception:
                 errors += 1
                 logger.warning("_mig_wholesaler_shops: row error shop=%s", shop_key, exc_info=True)
@@ -2505,10 +3202,15 @@ async def _mig_wholesaler_settings(pool: asyncpg.Pool, data) -> dict:
     found = 1
     inserted = errors = 0
     try:
+        master_url = str(data.get("master_sheet_url", ""))
+        restock_cfg = json.dumps(data.get("restock", {}))
+        restock_tl = json.dumps(data.get("restock_type_lots", {}))
         res = await pool.execute(
-            "INSERT INTO wholesaler_settings (key, value)"
-            " VALUES ('main', $1::jsonb) ON CONFLICT DO NOTHING",
-            json.dumps(data),
+            "INSERT INTO wholesaler_settings"
+            " (key, value, master_sheet_url, restock_config, restock_type_lots)"
+            " VALUES ('main', $1::jsonb, $2, $3::jsonb, $4::jsonb)"
+            " ON CONFLICT DO NOTHING",
+            json.dumps(data), master_url, restock_cfg, restock_tl,
         )
         inserted += _count_inserted(res)
     except Exception:

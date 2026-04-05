@@ -21,7 +21,7 @@ from NightCityBot.utils.db import (
     rent_run_get_last, rent_run_record,
     warn_db_failure,
     ResourceLockManager,
-    db_load, db_save,
+    fixer_event_load, fixer_event_save,
 )
 
 safe_filename = helpers.safe_filename
@@ -84,7 +84,7 @@ class Economy(commands.Cog):
     async def _restore_event_state(self) -> None:
         """Restore fixer event timers from the database after a restart."""
         try:
-            data = await db_load("fixer_event")
+            data = await fixer_event_load()
             if data:
                 started = data.get("started_at")
                 expires = data.get("expires_at")
@@ -97,7 +97,7 @@ class Economy(commands.Cog):
                         self.event_expires_at = expires_dt
                         logger.info("Restored active fixer event (expires %s).", expires_dt)
                     else:
-                        await db_save("fixer_event", None)
+                        await fixer_event_save(None)
                         logger.info("Cleared expired fixer event from DB.")
         except Exception:
             logger.warning("Failed to restore fixer event state.", exc_info=True)
@@ -409,7 +409,7 @@ class Economy(commands.Cog):
         self.event_started_at = now
         self.event_expires_at = now + timedelta(hours=4)
         async with self._event_lock:
-            await db_save("fixer_event", {
+            await fixer_event_save({
                 "started_at": self.event_started_at.isoformat(),
                 "expires_at": self.event_expires_at.isoformat(),
             })

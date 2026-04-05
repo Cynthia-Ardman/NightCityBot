@@ -34,9 +34,8 @@ from NightCityBot.utils.db import (
     cw_catalog_delete_one,
     pi_add_item,
     ResourceLockManager,
-    db_save,
-    db_load,
-    DB_LOAD_FAILED,
+    cw_shop_state_load,
+    cw_shop_state_save,
 )
 from NightCityBot.utils.permissions import is_ripperdoc, is_fixer
 
@@ -110,19 +109,13 @@ class CyberwareShop(commands.Cog):
         except Exception:
             logger.warning("cyberware_catalog startup populate failed (non-fatal)", exc_info=True)
 
-    _DB_STATE_KEY = "cw_shop_state"
-
     async def _load_state(self) -> dict[str, Any]:
         default = {"sheet_url": "", "items_count": 0}
-        state = await db_load(
-            self._DB_STATE_KEY,
-            default=None,
-            seed_path=self.state_file,
-        )
-        if state is DB_LOAD_FAILED or state is None:
+        state = await cw_shop_state_load()
+        if not state:
             file_state = await helpers.load_json_file(self.state_file, default=default)
-            if state is None and isinstance(file_state, dict) and file_state != default:
-                await db_save(self._DB_STATE_KEY, file_state)
+            if isinstance(file_state, dict) and file_state != default:
+                await cw_shop_state_save(file_state)
             state = file_state
         if not isinstance(state, dict):
             state = default
@@ -136,7 +129,7 @@ class CyberwareShop(commands.Cog):
             for key in self._PROTECTED_KEYS:
                 if key in existing and key not in state:
                     state[key] = existing[key]
-        db_ok = await db_save(self._DB_STATE_KEY, state)
+        db_ok = await cw_shop_state_save(state)
         file_ok = await helpers.save_json_file(self.state_file, state)
         return db_ok or file_ok
 

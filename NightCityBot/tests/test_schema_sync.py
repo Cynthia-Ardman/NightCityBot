@@ -32,6 +32,10 @@ EXPECTED_TABLES = [
     "player_inventory",
     "pending_transfers",
     "item_history",
+    "cw_shop_state",
+    "fixer_event",
+    "store_inventory",
+    "shop_permitted_roles",
 ]
 
 

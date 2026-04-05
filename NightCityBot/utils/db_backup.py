@@ -43,6 +43,10 @@ ALL_TABLES = [
     "pending_transfers",
     "item_history",
     "characters",
+    "cw_shop_state",
+    "fixer_event",
+    "store_inventory",
+    "shop_permitted_roles",
 ]
 
 

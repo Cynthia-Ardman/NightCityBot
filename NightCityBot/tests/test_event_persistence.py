@@ -28,7 +28,7 @@ class TestRestoreEventState:
         expires = now + timedelta(hours=3)
         data = {"started_at": started.isoformat(), "expires_at": expires.isoformat()}
 
-        with patch("NightCityBot.cogs.economy.db_load", new_callable=AsyncMock, return_value=data):
+        with patch("NightCityBot.cogs.economy.fixer_event_load", new_callable=AsyncMock, return_value=data):
             with patch("NightCityBot.cogs.economy.helpers.get_tz_now", return_value=now):
                 asyncio.run(econ._restore_event_state())
 
@@ -42,25 +42,25 @@ class TestRestoreEventState:
         expires = now - timedelta(hours=1)
         data = {"started_at": started.isoformat(), "expires_at": expires.isoformat()}
 
-        with patch("NightCityBot.cogs.economy.db_load", new_callable=AsyncMock, return_value=data) as mock_load:
-            with patch("NightCityBot.cogs.economy.db_save", new_callable=AsyncMock) as mock_save:
+        with patch("NightCityBot.cogs.economy.fixer_event_load", new_callable=AsyncMock, return_value=data):
+            with patch("NightCityBot.cogs.economy.fixer_event_save", new_callable=AsyncMock) as mock_save:
                 with patch("NightCityBot.cogs.economy.helpers.get_tz_now", return_value=now):
                     asyncio.run(econ._restore_event_state())
 
         assert econ.event_started_at is None
         assert econ.event_expires_at is None
-        mock_save.assert_called_once_with("fixer_event", None)
+        mock_save.assert_called_once_with(None)
 
     def test_restore_no_data_no_op(self):
         econ = _make_economy()
-        with patch("NightCityBot.cogs.economy.db_load", new_callable=AsyncMock, return_value=None):
+        with patch("NightCityBot.cogs.economy.fixer_event_load", new_callable=AsyncMock, return_value=None):
             asyncio.run(econ._restore_event_state())
         assert econ.event_started_at is None
         assert econ.event_expires_at is None
 
     def test_restore_handles_exception(self):
         econ = _make_economy()
-        with patch("NightCityBot.cogs.economy.db_load", new_callable=AsyncMock, side_effect=Exception("DB down")):
+        with patch("NightCityBot.cogs.economy.fixer_event_load", new_callable=AsyncMock, side_effect=Exception("DB down")):
             asyncio.run(econ._restore_event_state())
         assert econ.event_started_at is None
         assert econ.event_expires_at is None
@@ -87,12 +87,12 @@ class TestEventStartSavesToDB:
         now = datetime.now(ZoneInfo("US/Eastern"))
 
         with patch("NightCityBot.cogs.economy.helpers.get_tz_now", return_value=now):
-            with patch("NightCityBot.cogs.economy.db_save", new_callable=AsyncMock) as mock_save:
+            with patch("NightCityBot.cogs.economy.fixer_event_save", new_callable=AsyncMock) as mock_save:
                 asyncio.run(econ.event_start.callback(econ, ctx))
 
         assert econ.event_started_at == now
         assert econ.event_expires_at == now + timedelta(hours=4)
-        mock_save.assert_called_once_with("fixer_event", {
+        mock_save.assert_called_once_with({
             "started_at": now.isoformat(),
             "expires_at": (now + timedelta(hours=4)).isoformat(),
         })
@@ -132,7 +132,7 @@ class TestCWStateDBPersistence:
     def test_load_state_from_db(self, tmp_path):
         cog = self._make_cw_cog(tmp_path)
         db_state = {"sheet_url": "https://example.com/sheet", "items_count": 5}
-        with patch("NightCityBot.cogs.cyberware_shop.db_load", new_callable=AsyncMock, return_value=db_state):
+        with patch("NightCityBot.cogs.cyberware_shop.cw_shop_state_load", new_callable=AsyncMock, return_value=db_state):
             result = asyncio.run(cog._load_state())
         assert result["sheet_url"] == "https://example.com/sheet"
 
@@ -141,8 +141,8 @@ class TestCWStateDBPersistence:
         file_state = {"sheet_url": "https://file-url.com/sheet", "items_count": 3}
         import json
         cog.state_file.write_text(json.dumps(file_state))
-        with patch("NightCityBot.cogs.cyberware_shop.db_load", new_callable=AsyncMock, return_value=None):
-            with patch("NightCityBot.cogs.cyberware_shop.db_save", new_callable=AsyncMock) as mock_save:
+        with patch("NightCityBot.cogs.cyberware_shop.cw_shop_state_load", new_callable=AsyncMock, return_value={}):
+            with patch("NightCityBot.cogs.cyberware_shop.cw_shop_state_save", new_callable=AsyncMock) as mock_save:
                 result = asyncio.run(cog._load_state())
         assert result["sheet_url"] == "https://file-url.com/sheet"
         mock_save.assert_called_once()
@@ -150,33 +150,31 @@ class TestCWStateDBPersistence:
     def test_save_state_writes_to_db_and_file(self, tmp_path):
         cog = self._make_cw_cog(tmp_path)
         state = {"sheet_url": "https://new-url.com", "items_count": 10}
-        with patch("NightCityBot.cogs.cyberware_shop.db_save", new_callable=AsyncMock, return_value=True) as mock_save:
+        with patch("NightCityBot.cogs.cyberware_shop.cw_shop_state_save", new_callable=AsyncMock, return_value=True) as mock_save:
             result = asyncio.run(cog._save_state(state))
         assert result is True
-        mock_save.assert_called_once_with("cw_shop_state", state)
+        mock_save.assert_called_once_with(state)
         import json
         saved = json.loads(cog.state_file.read_text())
         assert saved["sheet_url"] == "https://new-url.com"
 
     def test_load_state_empty_db_empty_file_returns_default(self, tmp_path):
         cog = self._make_cw_cog(tmp_path)
-        with patch("NightCityBot.cogs.cyberware_shop.db_load", new_callable=AsyncMock, return_value=None):
+        with patch("NightCityBot.cogs.cyberware_shop.cw_shop_state_load", new_callable=AsyncMock, return_value={}):
             result = asyncio.run(cog._load_state())
         assert result == {"sheet_url": "", "items_count": 0}
 
     def test_load_state_db_failure_falls_back_to_file(self, tmp_path):
-        from NightCityBot.utils.db import DB_LOAD_FAILED
         cog = self._make_cw_cog(tmp_path)
         file_state = {"sheet_url": "https://fallback.com/sheet", "items_count": 7}
         import json
         cog.state_file.write_text(json.dumps(file_state))
-        with patch("NightCityBot.cogs.cyberware_shop.db_load", new_callable=AsyncMock, return_value=DB_LOAD_FAILED):
+        with patch("NightCityBot.cogs.cyberware_shop.cw_shop_state_load", new_callable=AsyncMock, return_value={}):
             result = asyncio.run(cog._load_state())
         assert result["sheet_url"] == "https://fallback.com/sheet"
 
     def test_load_state_db_failure_no_file_returns_default(self, tmp_path):
-        from NightCityBot.utils.db import DB_LOAD_FAILED
         cog = self._make_cw_cog(tmp_path)
-        with patch("NightCityBot.cogs.cyberware_shop.db_load", new_callable=AsyncMock, return_value=DB_LOAD_FAILED):
+        with patch("NightCityBot.cogs.cyberware_shop.cw_shop_state_load", new_callable=AsyncMock, return_value={}):
             result = asyncio.run(cog._load_state())
         assert result == {"sheet_url": "", "items_count": 0}
