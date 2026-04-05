@@ -378,6 +378,15 @@ class PlayerHubView(SafeView):
         except (discord.Forbidden, discord.HTTPException) as e:
             await send_ephemeral(interaction, f"❌ Could not assign LOA role: {e}")
             return
+        log_ch = interaction.guild.get_channel(config.NIGHTCITYBOT_LOG_CHANNEL_ID)
+        if log_ch:
+            try:
+                await log_ch.send(
+                    f"🏖️ **Start LOA** — {interaction.user.display_name} ({interaction.user.id}) "
+                    "started Leave of Absence."
+                )
+            except Exception:
+                pass
         await send_ephemeral(interaction, "✅ You are now on LOA.")
 
     @discord.ui.button(label="End LOA", style=discord.ButtonStyle.secondary, emoji="🔙", row=2, custom_id="player_hub:end_loa")
@@ -405,6 +414,15 @@ class PlayerHubView(SafeView):
         except (discord.Forbidden, discord.HTTPException) as e:
             await send_ephemeral(interaction, f"❌ Could not remove LOA role: {e}")
             return
+        log_ch = interaction.guild.get_channel(config.NIGHTCITYBOT_LOG_CHANNEL_ID)
+        if log_ch:
+            try:
+                await log_ch.send(
+                    f"🔙 **End LOA** — {interaction.user.display_name} ({interaction.user.id}) "
+                    "ended Leave of Absence."
+                )
+            except Exception:
+                pass
         await send_ephemeral(interaction, "✅ Your LOA has ended.")
 
     @discord.ui.button(label="Attend", style=discord.ButtonStyle.success, emoji="📋", row=3, custom_id="player_hub:attend")
@@ -500,6 +518,15 @@ class PlayerHubView(SafeView):
                     "✅ Attendance logged! "
                     f"⚠️ Balance update failed — please contact an admin if your ${reward} reward is missing.")
                 return
+        log_ch = interaction.guild.get_channel(config.NIGHTCITYBOT_LOG_CHANNEL_ID)
+        if log_ch:
+            try:
+                await log_ch.send(
+                    f"📋 **Attend** — {interaction.user.display_name} ({interaction.user.id}) "
+                    f"logged attendance and received **${reward}**."
+                )
+            except Exception:
+                pass
         await send_ephemeral(interaction, f"✅ Attendance logged! You received ${reward}.")
 
     @discord.ui.button(label="Open Shop", style=discord.ButtonStyle.success, emoji="🏪", row=3, custom_id="player_hub:open_shop")
@@ -599,6 +626,16 @@ class PlayerHubView(SafeView):
         else:
             await send_ephemeral(interaction, 
                 f"✅ Business opening logged! ({open_count_total} this month)")
+        log_ch = interaction.guild.get_channel(config.NIGHTCITYBOT_LOG_CHANNEL_ID)
+        if log_ch:
+            reward_str = f" — earned **${reward}**" if reward > 0 else ""
+            try:
+                await log_ch.send(
+                    f"🏪 **Open Shop** — {interaction.user.display_name} ({interaction.user.id}) "
+                    f"logged business opening #{open_count_total} this month{reward_str}."
+                )
+            except Exception:
+                pass
 
     @discord.ui.button(label="View Due", style=discord.ButtonStyle.secondary, emoji="💸", row=3, custom_id="player_hub:due")
     async def view_due(self, interaction: discord.Interaction, button: discord.ui.Button):
