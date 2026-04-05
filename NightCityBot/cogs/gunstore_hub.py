@@ -307,7 +307,7 @@ def _build_black_market_lots(catalog: list[dict]) -> list[dict]:
 class GunBuySelect(SafeView):
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context, lots: list, guns_cog,
                  *, black_market: bool = False):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.lots = lots
@@ -467,7 +467,7 @@ GUN_APPROVALS_CHANNEL_ID = config.GUN_APPROVALS_CHANNEL_ID
 class GunSellSetupView(SafeView):
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context,
                  lots: list, store_id: str):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.lots = lots
@@ -686,7 +686,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
         if not fixer_ok:
             return
 
-    confirm_view = GunDMConfirmView(recipient_id=customer.id, timeout=60)
+    confirm_view = GunDMConfirmView(recipient_id=customer.id, timeout=300)
     try:
         dm_msg = await customer.send(
             f"**{ctx.author.display_name}** wants to sell you **{gun_name}** "
@@ -1049,7 +1049,7 @@ async def _request_fixer_approval(cog, interaction, ctx, customer, gun_name, lot
 
 class InlineApproveView(SafeView):
     def __init__(self, cog, ctx, guns_cog, store_id, customer, character_id=None, character_name=None):
-        super().__init__(timeout=30)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.guns_cog = guns_cog
@@ -1121,7 +1121,7 @@ def _remove_character_approval(approved_list: list, character_id: str) -> bool:
 
 class _ApproveBuyerView(SafeView):
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context, approve: bool = True):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.approve = approve
@@ -1242,7 +1242,7 @@ class _ApproveBuyerView(SafeView):
 
 class _UnapproveCharacterView(SafeView):
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context, approved: list, store_id: str):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.store_id = store_id
@@ -1318,7 +1318,7 @@ class _UnapproveCharacterView(SafeView):
 
 class _ManageEmployeesView(SafeView):
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 
@@ -1389,7 +1389,7 @@ class _GunEmployeeDMConfirmView(SafeView):
 
 class _EmployeePickerView(SafeView):
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context, add: bool = True):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.add = add
@@ -1435,7 +1435,7 @@ class _EmployeePickerView(SafeView):
                 self.stop()
                 return
             store_name = store.get("store_name") or f"{self.ctx.author.display_name}'s Gun Store"
-            dm_view = _GunEmployeeDMConfirmView(user.id, timeout=60)
+            dm_view = _GunEmployeeDMConfirmView(user.id, timeout=300)
             try:
                 dm_msg = await user.send(
                     f"📋 **{self.ctx.author.display_name}** wants to hire you as an employee at **{store_name}**.\n"
@@ -1519,7 +1519,7 @@ class _EmployeePickerView(SafeView):
 
 class _StorePickerForAction(SafeView):
     def __init__(self, cog, ctx, stores: list, action: str = "sell"):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.stores = {sid: s for sid, s in stores}
@@ -1551,7 +1551,7 @@ class _StorePickerForAction(SafeView):
 
 class _ManageBuyersView(SafeView):
     def __init__(self, cog, ctx):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 
@@ -1629,7 +1629,7 @@ class _ManageBuyersView(SafeView):
 
 class _ManageGunStoreView(SafeView):
     def __init__(self, cog, ctx):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 
@@ -1771,7 +1771,7 @@ class _GunTransferDMConfirmView(SafeView):
 
 class _GunTransferOwnerView(SafeView):
     def __init__(self, cog, ctx):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 
@@ -1813,7 +1813,7 @@ class _GunTransferOwnerView(SafeView):
             await send_ephemeral(interaction, "You don't have a store to transfer.")
             return
         store_name = store.get("store_name") or "Gun Store"
-        confirm_view = _GunTransferDMConfirmView(new_owner.id, timeout=120)
+        confirm_view = _GunTransferDMConfirmView(new_owner.id, timeout=300)
         try:
             dm = await new_owner.send(
                 f"🔄 **{self.ctx.author.display_name}** wants to transfer **{store_name}** to you.\n"
@@ -1875,7 +1875,7 @@ class _GunTransferOwnerView(SafeView):
 
 class _GunCloseConfirmView(SafeView):
     def __init__(self, cog, ctx):
-        super().__init__(timeout=30)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 

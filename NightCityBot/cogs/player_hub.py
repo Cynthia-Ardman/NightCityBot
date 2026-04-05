@@ -267,7 +267,7 @@ def _build_inventory_embed(
 
 class InventoryCharFilterView(SafeView):
     def __init__(self, cog, ctx, items, inv_cog, char_names: list[str]):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.items = items
@@ -648,7 +648,7 @@ class PlayerHubView(SafeView):
 
 class ManageInventoryView(SafeView):
     def __init__(self, user_id: int):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self._user_id = user_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -798,7 +798,7 @@ class ManageInventoryView(SafeView):
 
 class ManageCharactersMenuView(SafeView):
     def __init__(self, user_id: int):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self._user_id = user_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -819,7 +819,7 @@ class ManageCharactersMenuView(SafeView):
             return m.author.id == interaction.user.id and m.channel.id == interaction.channel.id
 
         try:
-            msg = await bot.wait_for("message", check=check, timeout=60)
+            msg = await bot.wait_for("message", check=check, timeout=300)
         except asyncio.TimeoutError:
             await send_ephemeral(interaction, "⏰ Character creation timed out.")
             return
@@ -904,7 +904,7 @@ class ManageCharactersMenuView(SafeView):
 
 class ManageBusinessesView(SafeView):
     def __init__(self, user_id: int):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self._user_id = user_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -1011,7 +1011,7 @@ class ManageBusinessesView(SafeView):
 
 class ManageCharactersView(SafeView):
     def __init__(self, cog: PlayerHubCog, ctx: commands.Context):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 
@@ -1045,7 +1045,7 @@ class ManageCharactersView(SafeView):
 
 class DeactivateCharacterView(SafeView):
     def __init__(self, cog: PlayerHubCog, ctx: commands.Context, chars: list[dict]):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.chars = chars
@@ -1107,7 +1107,7 @@ class DeactivateCharacterView(SafeView):
 
 class ReactivateCharacterView(SafeView):
     def __init__(self, cog: PlayerHubCog, ctx: commands.Context, chars: list[dict]):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.chars = chars
@@ -1191,7 +1191,7 @@ class TradeConfirmView(SafeView):
 
 class TradeSetupView(SafeView):
     def __init__(self, cog: PlayerHubCog, ctx: commands.Context, all_groups: list):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.all_groups = all_groups
@@ -1402,7 +1402,7 @@ async def _process_trade(cog, interaction, buyer, group, buyer_character, price,
 
     if buyer.id != interaction.user.id:
         price_str = f"**${price:,}**" if price > 0 else "**free**"
-        confirm_view = TradeConfirmView(recipient_id=buyer.id, timeout=60)
+        confirm_view = TradeConfirmView(recipient_id=buyer.id, timeout=300)
         try:
             dm_msg = await buyer.send(
                 f"**{interaction.user.display_name}** wants to trade you **{item_name}** "
@@ -1616,7 +1616,7 @@ async def _process_trade(cog, interaction, buyer, group, buyer_character, price,
 
 class GiveSetupView(SafeView):
     def __init__(self, cog: PlayerHubCog, ctx: commands.Context, all_groups: list):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.all_groups = all_groups
@@ -1778,7 +1778,7 @@ class GiveSetupView(SafeView):
 
 class _SenderCharSelectView(SafeView):
     def __init__(self, author_id: int, characters: list):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.author_id = author_id
         self.selected_name: Optional[str] = None
         options = [
@@ -1852,7 +1852,7 @@ async def _process_give(cog, interaction, target, group, receiver_character, sen
             "Do you accept this item?"
         )
 
-    confirm_view = GiveConfirmView(recipient_id=target.id, timeout=120)
+    confirm_view = GiveConfirmView(recipient_id=target.id, timeout=300)
     try:
         dm_msg = await target.send(dm_description, view=confirm_view)
     except (discord.Forbidden, discord.HTTPException):
@@ -2047,7 +2047,7 @@ class GiveConfirmView(SafeView):
 
 class SellToStoreSetupView(SafeView):
     def __init__(self, cog: PlayerHubCog, ctx: commands.Context, all_groups: list, seller_chars: list | None = None, store_entries: list | None = None):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.all_groups = all_groups
@@ -2291,7 +2291,7 @@ async def _process_sell_to_store(cog, interaction, store_owner, group, seller_ch
             return
 
     price_str = f"**${price:,}**" if price > 0 else "**free**"
-    confirm_view = StoreBuyConfirmView(recipient_id=store_owner.id, timeout=60)
+    confirm_view = StoreBuyConfirmView(recipient_id=store_owner.id, timeout=300)
     try:
         dm_msg = await store_owner.send(
             f"**{interaction.user.display_name}** wants to sell you **{item_name}** "

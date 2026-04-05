@@ -692,7 +692,7 @@ class TestTradeConfirmInteractionCheck:
 
     def test_wrong_user_rejected(self):
         async def _test():
-            view = TradeConfirmView(recipient_id=200, timeout=60)
+            view = TradeConfirmView(recipient_id=200, timeout=300)
             inter = _make_interaction(user_id=999)
             result = await view.interaction_check(inter)
             assert result is False
@@ -700,7 +700,7 @@ class TestTradeConfirmInteractionCheck:
 
     def test_correct_user_accepted(self):
         async def _test():
-            view = TradeConfirmView(recipient_id=200, timeout=60)
+            view = TradeConfirmView(recipient_id=200, timeout=300)
             inter = _make_interaction(user_id=200)
             result = await view.interaction_check(inter)
             assert result is True
@@ -712,7 +712,7 @@ class TestDMConfirmInteractionCheck:
 
     def test_wrong_user_rejected(self):
         async def _test():
-            view = DMConfirmView(recipient_id=400, timeout=60)
+            view = DMConfirmView(recipient_id=400, timeout=300)
             inter = _make_interaction(user_id=999)
             result = await view.interaction_check(inter)
             assert result is False
@@ -720,7 +720,7 @@ class TestDMConfirmInteractionCheck:
 
     def test_correct_user_accepted(self):
         async def _test():
-            view = DMConfirmView(recipient_id=400, timeout=60)
+            view = DMConfirmView(recipient_id=400, timeout=300)
             inter = _make_interaction(user_id=400)
             result = await view.interaction_check(inter)
             assert result is True
@@ -732,7 +732,7 @@ class TestGunDMConfirmInteractionCheck:
 
     def test_wrong_user_rejected(self):
         async def _test():
-            view = GunDMConfirmView(recipient_id=500, timeout=60)
+            view = GunDMConfirmView(recipient_id=500, timeout=300)
             inter = _make_interaction(user_id=999)
             result = await view.interaction_check(inter)
             assert result is False
@@ -740,7 +740,7 @@ class TestGunDMConfirmInteractionCheck:
 
     def test_correct_user_accepted(self):
         async def _test():
-            view = GunDMConfirmView(recipient_id=500, timeout=60)
+            view = GunDMConfirmView(recipient_id=500, timeout=300)
             inter = _make_interaction(user_id=500)
             result = await view.interaction_check(inter)
             assert result is True

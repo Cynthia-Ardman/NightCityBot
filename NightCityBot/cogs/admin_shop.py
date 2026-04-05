@@ -298,7 +298,7 @@ class AdminShopMenuView(SafeView):
 
 class PlayerInvPickerView(SafeView):
     def __init__(self, cog: "AdminShopCog", ctx: commands.Context):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 
@@ -338,7 +338,7 @@ class PlayerInvPickerView(SafeView):
 
 class ItemHistorySourceView(SafeView):
     def __init__(self, cog, ctx):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 
@@ -369,7 +369,7 @@ class ItemHistorySourceView(SafeView):
 
 class ItemHistoryPlayerPickerView(SafeView):
     def __init__(self, cog, ctx):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 
@@ -410,7 +410,7 @@ class ItemHistoryPlayerPickerView(SafeView):
 
 class ItemHistoryStorePickerView(SafeView):
     def __init__(self, cog, ctx):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 
@@ -468,7 +468,7 @@ class ItemHistoryStorePickerView(SafeView):
 
 class ItemHistoryItemPickerView(SafeView):
     def __init__(self, cog, ctx, options: list, owner_name: str):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.owner_name = owner_name
@@ -689,7 +689,7 @@ async def _inline_restock_cw(cog, interaction, text, catalog):
 
 class WholesaleClearConfirmView(SafeView):
     def __init__(self, cog: "AdminShopCog", ctx: commands.Context, target: str = "guns"):
-        super().__init__(timeout=30)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.target = target

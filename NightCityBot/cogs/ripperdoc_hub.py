@@ -302,7 +302,7 @@ class RipperdocMenuView(SafeView):
 
 class _CheckupPatientSelectView(SafeView):
     def __init__(self, ripperdoc_id: int):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self._ripperdoc_id = ripperdoc_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -370,7 +370,7 @@ class _CheckupPatientSelectView(SafeView):
 
 class WholesaleBuySelect(SafeView):
     def __init__(self, cog: "RipperdocHub", ctx: commands.Context, lots: list, cw_cog):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.lots = lots
@@ -514,7 +514,7 @@ class SellSetupView(SafeView):
     def __init__(self, cog: "RipperdocHub", ctx: commands.Context,
                  groups: list[dict], *, mode: str = "sell",
                  store_id: str = "", inv_owner_id: int = 0):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.groups = groups
@@ -713,7 +713,7 @@ async def _process_cw_sell(cog, interaction, ctx, patient, group, character, pri
         state = await cw_cog._load_state()
         owner_id = _get_rd_owner_id(state, store_id, owner_id)
 
-    confirm_view = DMConfirmView(recipient_id=patient.id, timeout=60)
+    confirm_view = DMConfirmView(recipient_id=patient.id, timeout=300)
     try:
         dm_msg = await patient.send(
             f"**{ctx.author.display_name}** wants to sell you **{item_name}** "
@@ -924,7 +924,7 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
         owner_id = _get_rd_owner_id(state, store_id, owner_id)
 
     price_text = f" for **${price:,}**" if price > 0 else " (free install)"
-    confirm_view = DMConfirmView(recipient_id=patient.id, timeout=60)
+    confirm_view = DMConfirmView(recipient_id=patient.id, timeout=300)
     try:
         dm_msg = await patient.send(
             f"**{ctx.author.display_name}** wants to install **{item_name}** on "
@@ -1063,7 +1063,7 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
 
 class _RDStorePickerForAction(SafeView):
     def __init__(self, cog, ctx, stores: list, *, action: str = "sell", cw_cog=None):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.stores = {sid: s for sid, s in stores}
@@ -1114,7 +1114,7 @@ class _RDStorePickerForAction(SafeView):
 
 class _RDManageEmployeesView(SafeView):
     def __init__(self, cog, ctx):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 
@@ -1198,7 +1198,7 @@ class _EmployeeDMConfirmView(SafeView):
 
 class _RDAddEmployeeView(SafeView):
     def __init__(self, cog, ctx):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 
@@ -1234,7 +1234,7 @@ class _RDAddEmployeeView(SafeView):
             self.stop()
             return
         store_name = store.get("store_name") or f"{self.ctx.author.display_name}'s Ripperdoc"
-        dm_view = _EmployeeDMConfirmView(new_emp.id, timeout=60)
+        dm_view = _EmployeeDMConfirmView(new_emp.id, timeout=300)
         try:
             dm_msg = await new_emp.send(
                 f"📋 **{self.ctx.author.display_name}** wants to hire you as an employee at **{store_name}**.\n"
@@ -1281,7 +1281,7 @@ class _RDAddEmployeeView(SafeView):
 
 class _RDRemoveEmployeeView(SafeView):
     def __init__(self, cog, ctx, options):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         select = discord.ui.Select(placeholder="Select employee to remove…", options=options, row=0)
@@ -1334,7 +1334,7 @@ class _RDRemoveEmployeeView(SafeView):
 
 class _ManageRDStoreView(SafeView):
     def __init__(self, cog, ctx):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 
@@ -1488,7 +1488,7 @@ class _RDTransferDMConfirmView(SafeView):
 
 class _RDTransferOwnerView(SafeView):
     def __init__(self, cog, ctx):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 
@@ -1530,7 +1530,7 @@ class _RDTransferOwnerView(SafeView):
             await send_ephemeral(interaction, "You don't have a store to transfer.")
             return
         store_name = store.get("store_name") or "Ripperdoc Store"
-        confirm_view = _RDTransferDMConfirmView(new_owner.id, timeout=120)
+        confirm_view = _RDTransferDMConfirmView(new_owner.id, timeout=300)
         try:
             dm = await new_owner.send(
                 f"🔄 **{self.ctx.author.display_name}** wants to transfer **{store_name}** to you.\n"
@@ -1598,7 +1598,7 @@ class _RDTransferOwnerView(SafeView):
 
 class _RDCloseConfirmView(SafeView):
     def __init__(self, cog, ctx):
-        super().__init__(timeout=30)
+        super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
 
