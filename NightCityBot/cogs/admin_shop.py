@@ -348,6 +348,42 @@ class AdminShopMenuView(SafeView):
                 except Exception:
                     pass
 
+    @discord.ui.button(label="Perm Overwrites", style=discord.ButtonStyle.secondary, emoji="🔐", row=4, custom_id="admin_shop:perm_overwrites")
+    async def perm_overwrites(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        if not guild:
+            await send_ephemeral(interaction, "Could not resolve the server.")
+            return
+        channels = sorted(guild.channels, key=lambda c: (c.position, c.name))
+        total = 0
+        per_channel = []
+        for ch in channels:
+            count = len(ch.overwrites)
+            total += count
+            if count > 0:
+                kind = "📁" if isinstance(ch, discord.CategoryChannel) else "#"
+                per_channel.append((count, kind, ch.name, ch.id))
+        per_channel.sort(key=lambda x: -x[0])
+        lines = [
+            f"**Server total: {total} permission overwrites**",
+            f"Channels with overwrites: {len(per_channel)} / {len(channels)}",
+            "",
+        ]
+        top = per_channel[:30]
+        for count, kind, name, cid in top:
+            lines.append(f"`{count:>3}` {kind} **{name}**")
+        if len(per_channel) > 30:
+            rest = sum(c for c, *_ in per_channel[30:])
+            lines.append(f"… and {len(per_channel) - 30} more channels ({rest} overwrites)")
+        embed = discord.Embed(
+            title="🔐 Permission Overwrites Audit",
+            description="\n".join(lines),
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text="Discord template limit: 500 total overwrites across all channels")
+        await send_ephemeral(interaction, embed=embed)
+
 
 class PlayerInvPickerView(SafeView):
     def __init__(self, cog: "AdminShopCog", ctx: commands.Context):
