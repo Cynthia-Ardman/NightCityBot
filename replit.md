@@ -39,7 +39,7 @@ All hardcoded dollar amounts (baseline living cost, housing/business/trauma rent
 | `fixer_event` | Economy | **Legacy key, auto-migrated to `fixer_event` table on first load** |
 | `open_log_history_YYYY_MM` | Economy | Monthly archive of open_log before reset |
 
-DB helpers: `NightCityBot/utils/db.py` — `get_pool()`, `db_load(key, default, seed_path)`, `db_save(key, value)`, `close_pool()`. On first `db_load` for a key not yet in DB, seeds automatically from the legacy JSON file on disk (one-time migration). Typed helpers `cw_shop_state_load/save` and `fixer_event_load/save` replace `db_load`/`db_save` usage for those keys and auto-migrate from `json_store` on first access. Wholesaler tables use promoted typed columns (`weapon_type`, `restriction`, `store_name`, `balance`, `item_name`, `qty`, `cost`, etc.) alongside the `data` JSONB fallback. Join tables `store_inventory` and `shop_permitted_roles` normalize nested arrays.
+DB helpers: `NightCityBot/utils/db.py` — `get_pool()`, `db_load(key, default, seed_path)`, `db_save(key, value)`, `close_pool()`, `open_log_delete_today(user_id, opened_at)` (rollback helper for failed open_shop rewards). On first `db_load` for a key not yet in DB, seeds automatically from the legacy JSON file on disk (one-time migration). Typed helpers `cw_shop_state_load/save` and `fixer_event_load/save` replace `db_load`/`db_save` usage for those keys and auto-migrate from `json_store` on first access. Wholesaler tables use promoted typed columns (`weapon_type`, `restriction`, `store_name`, `balance`, `item_name`, `qty`, `cost`, etc.) alongside the `data` JSONB fallback. Join tables `store_inventory` and `shop_permitted_roles` normalize nested arrays.
 
 `pi_delete_item(item_id, *, expected_owner_id=None)` — accepts an optional `expected_owner_id` kwarg; when provided, the SQL uses `AND owner_id = $2` as a TOCTOU guard so a stale caller cannot delete another player's item. All player-facing callers (give, sell-to-store) pass the current user's ID; admin callers (fixer remove) pass the target player's ID.
 
@@ -57,7 +57,11 @@ Item field propagation convention: gun attributes use three distinct fields — 
 
 Ripperdoc inventory lock convention: all load-mutate-save of ripperdoc inventory must use `async with cw_cog._locks.acquire(str(owner_id))`. This applies in `cyberware_shop.py`, `ripperdoc_hub.py`, `fixer_hub.py`, and `player_hub.py` (give-to-ripperdoc path).
 
-Save-result checking convention: every call to `_save_state()` or `_save_inventory()` after a payment has been taken must check the boolean return value. If `False`, the flow must refund the buyer (and reverse seller credit if applicable), send the user an error message, and `return`. This is enforced in: `gunstore_hub.py` (wholesale buy + sell), `ripperdoc_hub.py` (wholesale buy + sell + install), `fixer_hub.py` (add-to-store flows).
+Save-result checking convention: every call to `_save_state()` or `_save_inventory()` after a payment has been taken must check the boolean return value. If `False`, the flow must refund the buyer (and reverse seller credit if applicable), send the user an error message, and `return`. This is enforced in: `gunstore_hub.py` (wholesale buy + sell), `ripperdoc_hub.py` (wholesale buy + sell + install), `fixer_hub.py` (add-to-store flows), `cyberware_shop.py` (wholesale buy).
+
+Refund failure safety net: when a compensating refund (via `update_balance`) also fails, a `pt_create` pending transfer record is created as a fallback so admins can resolve manually. This is enforced in: `gunstore_hub.py` (gun sale pi_add_item failure), `fixer_hub.py` (store-add gun/CW save failure). Refund failures are logged at CRITICAL level.
+
+Open shop rollback convention: if the business reward balance update fails after `open_log_add` has committed the opening, `open_log_delete_today` removes the log entry so the player can retry. If the rollback itself fails, the old behavior (warn + admin contact) is used as fallback.
 
 Active-character guard: `get_character_by_name(discord_user_id, name, *, active_only=False)` accepts an `active_only` kwarg. When `True`, the query adds `AND status = 'active'`. Trade and give flows in `player_hub.py` pass `active_only=True` before transferring items, preventing delivery to deactivated characters between confirmation and transfer.
 
@@ -223,10 +227,24 @@ All sell/trade operations with another player now send a DM to the buyer/patient
 - Existing `test_player_inventory.py` updated for DM confirmation flow compatibility (51 tests)
 
 ### Audit log channels
-- `CYBERWARE_LOG_CHANNEL_ID` — cyberware shop events
-- `GUN_LOG_CHANNEL_ID` — gun shop events
+- `CYBERWARE_LOG_CHANNEL_ID` — cyberware shop events (ripperdoc hub actions)
+- `GUN_LOG_CHANNEL_ID` — gun shop events (gunstore hub actions)
 - `GEAR_MISC_LOG_CHANNEL_ID` — player inventory trades/gives
-- `NIGHTCITYBOT_LOG_CHANNEL_ID` — system alerts (pending transfers, admin actions)
+- `NIGHTCITYBOT_LOG_CHANNEL_ID` — system alerts (pending transfers, admin actions, fixer hub actions)
+
+### Panel success logging
+All 23 panel actions across all hubs send audit log messages to the appropriate log channel on success:
+- **Player Hub** (4): Attend, Open Shop, Start LOA, End LOA
+- **Gun Store Hub** (6): Create Store, Change Store Name, Add Employee, Remove Employee, Approve Buyer, Unapprove Buyer
+- **Ripperdoc Hub** (4): Create Store, Change Store Name, Add Employee, Remove Employee
+- **Fixer Hub** (6): Start LOA, End LOA, Store-Add Gun, Store-Add CW, Store-Remove Gun, Store-Remove CW
+- **Admin Shop** (3): Set Gun Sheet, Set CW Sheet, Reload Sheets
+
+All log sends are wrapped in try/except so failures never block the user action.
+
+### Admin Shop — Seed Features
+- **Seed Ripperdoc Stores** — 💉 button in admin panel row 0. Seeds empty ripperdoc stores with random catalog items, DMs owners, records `ih_record_event` audit trail.
+- **Seed Gun Shops** — 🔫 button in admin panel row 1. Seeds empty gun stores with 10 random `gun_catalog` items (1–3 qty each), skips non-empty stores, DMs owners with summary, records `ih_record_event` for each item, posts audit embed to log channel.
 
 ## Google Drive Database Backups (Task #15)
 
