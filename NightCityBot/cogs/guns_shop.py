@@ -643,6 +643,43 @@ class GunsShopCog(commands.Cog):
             await gun_catalog_upsert_many(guns)
         return guns
 
+    async def _load_stores_from_files(self, store_file, store_inventory_dir) -> dict[str, Any]:
+        stores: dict[str, Any] = {}
+        store_state = await helpers.load_json_file(store_file, default={})
+        legacy_stores = store_state.get("stores", {})
+        if isinstance(legacy_stores, dict):
+            for store_id, payload in legacy_stores.items():
+                if not isinstance(payload, dict):
+                    continue
+                stores[str(store_id)] = {
+                    "owner_id": payload.get("owner_id"),
+                    "store_name": payload.get("store_name", ""),
+                    "lots": payload.get("lots", []) if isinstance(payload.get("lots"), list) else [],
+                    "controlled_buyers": payload.get("controlled_buyers", []),
+                    "employees": payload.get("employees", []),
+                    "balance": payload.get("balance", 0),
+                    "total_sales": payload.get("total_sales", 0),
+                }
+        sid = Path(store_inventory_dir)
+        if sid.exists():
+            for store_file_path in sorted(sid.glob("*.json")):
+                payload = await helpers.load_json_file(store_file_path, default={})
+                if not isinstance(payload, dict):
+                    continue
+                s_id = str(payload.get("store_id") or store_file_path.stem)
+                lots_list = payload.get("lots", [])
+                if isinstance(lots_list, list):
+                    stores[s_id] = {
+                        "owner_id": payload.get("owner_id"),
+                        "store_name": payload.get("store_name", ""),
+                        "lots": lots_list,
+                        "controlled_buyers": payload.get("controlled_buyers", []),
+                        "employees": payload.get("employees", []),
+                        "balance": payload.get("balance", 0),
+                        "total_sales": payload.get("total_sales", 0),
+                    }
+        return stores
+
     async def _load_state(self) -> dict[str, Any]:
         wholesale_file = getattr(self, "wholesale_inventory_file", self.state_file)
         store_file = getattr(self, "store_state_file", self.state_file)
@@ -655,10 +692,25 @@ class GunsShopCog(commands.Cog):
 
         if lots or stores_db or shops_db:
             json_state = await helpers.load_json_file(self.state_file, default={})
+            stores_merged = stores_db
+            shops_merged = shops_db
+            if not stores_db:
+                file_stores = await self._load_stores_from_files(store_file, store_inventory_dir)
+                if file_stores:
+                    stores_merged = file_stores
+                    logger.info(
+                        "_load_state: DB stores empty, recovered %d store(s) from JSON files",
+                        len(file_stores),
+                    )
+            if not shops_merged:
+                store_state = await helpers.load_json_file(store_file, default={})
+                legacy_registry = store_state.get("shop_registry", {})
+                if isinstance(legacy_registry, dict) and legacy_registry:
+                    shops_merged = legacy_registry
             state = {
                 "wholesale_lots": lots,
-                "stores": stores_db,
-                "shop_registry": shops_db,
+                "stores": stores_merged,
+                "shop_registry": shops_merged,
                 "pending_payouts": json_state.get("pending_payouts", []),
                 "settings": settings_db,
                 "transactions": 0,

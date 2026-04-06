@@ -361,18 +361,23 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         """,
         """
         CREATE TABLE IF NOT EXISTS store_inventory (
-            id          SERIAL PRIMARY KEY,
-            store_id    TEXT NOT NULL,
-            lot_id      TEXT NOT NULL DEFAULT '',
-            gun_name    TEXT NOT NULL DEFAULT '',
-            gun_level   TEXT NOT NULL DEFAULT '',
-            unit_cost   INT NOT NULL DEFAULT 0,
-            qty         INT NOT NULL DEFAULT 0,
-            item_ids    TEXT[] NOT NULL DEFAULT '{}',
-            restriction TEXT NOT NULL DEFAULT 'basic',
-            weapon_type TEXT NOT NULL DEFAULT '',
-            created_at  TIMESTAMPTZ DEFAULT NOW()
+            id           SERIAL PRIMARY KEY,
+            store_id     TEXT NOT NULL,
+            lot_id       TEXT NOT NULL DEFAULT '',
+            gun_name     TEXT NOT NULL DEFAULT '',
+            gun_level    TEXT NOT NULL DEFAULT '',
+            unit_cost    INT NOT NULL DEFAULT 0,
+            qty          INT NOT NULL DEFAULT 0,
+            item_ids     TEXT[] NOT NULL DEFAULT '{}',
+            restriction  TEXT NOT NULL DEFAULT 'basic',
+            weapon_type  TEXT NOT NULL DEFAULT '',
+            gun_category TEXT NOT NULL DEFAULT '',
+            created_at   TIMESTAMPTZ DEFAULT NOW()
         )
+        """,
+        """
+        ALTER TABLE store_inventory
+            ADD COLUMN IF NOT EXISTS gun_category TEXT NOT NULL DEFAULT ''
         """,
         """
         CREATE INDEX IF NOT EXISTS idx_store_inventory_store_id
