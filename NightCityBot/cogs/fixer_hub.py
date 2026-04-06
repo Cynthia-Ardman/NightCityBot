@@ -1933,18 +1933,25 @@ class StoreOwnerPickerView(SafeView):
                 store_title = f"{owner.display_name}'s Ripperdoc Stock"
             inventory = await cw_cog._load_inventory(owner.id)
             if inventory:
+                from NightCityBot.utils.helpers import format_cw_lines_grouped
                 groups = cw_cog._grouped_inventory(inventory)
-                lines = []
-                for i, g in enumerate(groups[:25], 1):
-                    count_str = f" × {g['count']}" if g['count'] > 1 else ""
-                    price_str = f"${g['price_paid']:,}" if g.get('price_paid') else "—"
-                    lines.append(f"`{i}.` **{g['name']}**{count_str} — {price_str}")
+                store_lots = []
+                for g in groups:
+                    sample = g["items"][0] if g.get("items") else {}
+                    store_lots.append({
+                        "item_name": g["name"],
+                        "cwp": sample.get("cwp", ""),
+                        "slot": sample.get("slot", ""),
+                        "unit_cost": int(g.get("price_paid") or 0),
+                        "qty_available": g["count"],
+                    })
+                lines = format_cw_lines_grouped(store_lots, max_items=30)
                 embed = discord.Embed(
                     title=f"💉 {store_title}",
-                    description="\n".join(lines),
+                    description="\n".join(lines) if lines else "Empty",
                     color=discord.Color.purple(),
                 )
-                embed.set_footer(text=f"{len(inventory)} item(s) in {len(groups)} slot(s)")
+                embed.set_footer(text=f"{len(inventory)} item(s) total")
             else:
                 embed = discord.Embed(
                     title=f"💉 {store_title}",
