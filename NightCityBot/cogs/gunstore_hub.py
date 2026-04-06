@@ -1240,6 +1240,17 @@ class _ApproveBuyerView(SafeView):
             await guns_cog._save_state(state)
 
         action = "added to" if self.approve else "removed from"
+        log_ch = await self.cog._log_channel()
+        if log_ch:
+            emoji = "✅" if self.approve else "❌"
+            try:
+                await log_ch.send(
+                    f"{emoji} **Controlled Buyer {'Approved' if self.approve else 'Removed'}** — "
+                    f"**{char_name}** ({self._selected_user.display_name}) {action} "
+                    f"{self.ctx.author.display_name}'s buyer list."
+                )
+            except Exception:
+                pass
         await send_ephemeral(interaction, 
             f"**{char_name}** ({self._selected_user.display_name}) {action} your controlled-buyer list.")
         self.stop()
@@ -1316,6 +1327,15 @@ class _UnapproveCharacterView(SafeView):
                 label = f"**{entry_name}**"
             await guns_cog._save_state(state)
 
+        log_ch = await self.cog._log_channel()
+        if log_ch:
+            try:
+                await log_ch.send(
+                    f"❌ **Controlled Buyer Unapproved** — {label} "
+                    f"removed from {self.ctx.author.display_name}'s buyer list."
+                )
+            except Exception:
+                pass
         await send_ephemeral(interaction, 
             f"{label} removed from your controlled-buyer list.")
         self.stop()
@@ -1484,6 +1504,15 @@ class _EmployeePickerView(SafeView):
                     await user.add_roles(emp_role, reason=f"Hired as gun store employee at {store_name}")
                 except discord.Forbidden:
                     pass
+            log_ch = await self.cog._log_channel()
+            if log_ch:
+                try:
+                    await log_ch.send(
+                        f"➕ **Gun Store Employee Added** — {user.display_name} ({user.id}) "
+                        f"hired at **{store_name}** by {self.ctx.author.display_name}."
+                    )
+                except Exception:
+                    pass
             await send_ephemeral(interaction, 
                 f"✅ **{user.display_name}** accepted and has been added as employee at **{store_name}**.")
         else:
@@ -1517,6 +1546,15 @@ class _EmployeePickerView(SafeView):
                         await user.remove_roles(emp_role, reason="Removed as gun store employee")
                     except discord.Forbidden:
                         pass
+            log_ch = await self.cog._log_channel()
+            if log_ch:
+                try:
+                    await log_ch.send(
+                        f"➖ **Gun Store Employee Removed** — {user.display_name} ({user.id}) "
+                        f"removed from **{store_name}** by {self.ctx.author.display_name}."
+                    )
+                except Exception:
+                    pass
             await send_ephemeral(interaction, 
                 f"{user.display_name} removed as employee from **{store_name}**.")
         self.stop()
@@ -1690,6 +1728,15 @@ class _ManageGunStoreView(SafeView):
                         await member.add_roles(owner_role, reason="Created gun store")
                     except discord.Forbidden:
                         pass
+        log_ch = await cog._log_channel()
+        if log_ch:
+            try:
+                await log_ch.send(
+                    f"🏪 **Gun Store Created** — {interaction.user.display_name} ({interaction.user.id}) "
+                    f"created store **{name}**."
+                )
+            except Exception:
+                pass
         await send_ephemeral(interaction, f"✅ Store **{name}** created!")
 
     @discord.ui.button(label="Change Store Name", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
@@ -1726,6 +1773,16 @@ class _ManageGunStoreView(SafeView):
             store.setdefault("store_type", "standard")
             store["store_name"] = name
             await guns_cog._save_state(state)
+        log_ch = await cog._log_channel()
+        if log_ch:
+            old_label = f" (was **{current_name}**)" if current_name else ""
+            try:
+                await log_ch.send(
+                    f"✏️ **Gun Store Renamed** — {interaction.user.display_name} ({interaction.user.id}) "
+                    f"renamed store to **{name}**{old_label}."
+                )
+            except Exception:
+                pass
         await send_ephemeral(interaction, f"Store name changed to **{name}**.")
 
     @discord.ui.button(label="Transfer Ownership", style=discord.ButtonStyle.primary, emoji="🔄", row=1)

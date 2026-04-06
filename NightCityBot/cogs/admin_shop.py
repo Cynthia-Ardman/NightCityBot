@@ -235,6 +235,17 @@ class AdminShopMenuView(SafeView):
             latest.setdefault("settings", {})["master_sheet_url"] = normalized
             await guns_cog._save_state(latest)
         await interaction.edit_original_response(content="✅ Gun sheet URL updated.")
+        cog = interaction.client.get_cog("AdminShop")
+        if cog:
+            log_ch = await cog._audit_channel()
+            if log_ch:
+                try:
+                    await log_ch.send(
+                        f"🔫 **Admin: Gun Sheet URL Updated** — {interaction.user.display_name} ({interaction.user.id}) "
+                        f"set gun catalog URL."
+                    )
+                except Exception:
+                    pass
 
     @discord.ui.button(label="Set CW Sheet", style=discord.ButtonStyle.secondary, emoji="💉", row=4, custom_id="admin_shop:set_cw_sheet")
     async def set_cw_sheet(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -271,6 +282,17 @@ class AdminShopMenuView(SafeView):
                 file_ok = await helpers.save_json_file(cw_cog.state_file, cw_state)
             if db_ok:
                 await interaction.edit_original_response(content="✅ Cyberware sheet URL updated and saved.")
+                cog = interaction.client.get_cog("AdminShop")
+                if cog:
+                    log_ch = await cog._audit_channel()
+                    if log_ch:
+                        try:
+                            await log_ch.send(
+                                f"💉 **Admin: CW Sheet URL Updated** — {interaction.user.display_name} ({interaction.user.id}) "
+                                f"set cyberware catalog URL."
+                            )
+                        except Exception:
+                            pass
             elif file_ok:
                 await interaction.edit_original_response(content="⚠️ URL saved to file only — database write failed. It may not survive a full rebuild.")
             else:
@@ -313,6 +335,17 @@ class AdminShopMenuView(SafeView):
         else:
             results.append("💉 Cyberware system unavailable")
         await send_ephemeral(interaction, "\n".join(results))
+        cog = interaction.client.get_cog("AdminShop")
+        if cog:
+            log_ch = await cog._audit_channel()
+            if log_ch:
+                try:
+                    await log_ch.send(
+                        f"🔄 **Admin: Sheets Reloaded** — {interaction.user.display_name} ({interaction.user.id}) "
+                        f"reloaded catalogs.\n" + "\n".join(results)
+                    )
+                except Exception:
+                    pass
 
 
 class PlayerInvPickerView(SafeView):

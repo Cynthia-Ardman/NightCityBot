@@ -1548,6 +1548,15 @@ class LOAPickerView(SafeView):
             except (discord.Forbidden, discord.HTTPException) as e:
                 await send_ephemeral(interaction, f"❌ Could not assign LOA role: {e}")
                 return
+            log_ch = await _audit_channel(self.cog.bot)
+            if log_ch:
+                try:
+                    await log_ch.send(
+                        f"🏖️ **Fixer: Start LOA** — {interaction.user.display_name} put "
+                        f"**{member.display_name}** ({member.id}) on LOA."
+                    )
+                except Exception:
+                    pass
             await send_ephemeral(interaction, 
                 f"✅ {member.display_name} is now on LOA.")
         else:
@@ -1560,6 +1569,15 @@ class LOAPickerView(SafeView):
             except (discord.Forbidden, discord.HTTPException) as e:
                 await send_ephemeral(interaction, f"❌ Could not remove LOA role: {e}")
                 return
+            log_ch = await _audit_channel(self.cog.bot)
+            if log_ch:
+                try:
+                    await log_ch.send(
+                        f"🔚 **Fixer: End LOA** — {interaction.user.display_name} took "
+                        f"**{member.display_name}** ({member.id}) off LOA."
+                    )
+                except Exception:
+                    pass
             await send_ephemeral(interaction, 
                 f"✅ {member.display_name}'s LOA has ended.")
         self.stop()
@@ -2237,6 +2255,15 @@ async def _process_store_add_gun(cog, interaction, owner, text):
         await send_ephemeral(interaction, 
             f"❌ Failed to save store inventory. Funds have been refunded.")
         return
+    log_ch = await _audit_channel(cog.bot)
+    if log_ch:
+        try:
+            await log_ch.send(
+                f"📥 **Fixer: Store Gun Added** — {interaction.user.display_name} added "
+                f"**{gun_name}** ×{qty} at ${cost:,} [{restriction}] to {owner.display_name}'s store."
+            )
+        except Exception:
+            pass
     await send_ephemeral(interaction, 
         f"Added **{gun_name}** ×{qty} at ${cost:,} [{restriction}] [{power_level}/{gun_category}] ({GUN_CLASS_DISPLAY_NAMES.get(gun_class, gun_class)}) to {owner.display_name}'s store.")
 
@@ -2376,6 +2403,15 @@ async def _process_store_add_cw(cog, interaction, owner, text):
         await send_ephemeral(interaction, 
             f"❌ Failed to save clinic inventory. Funds have been refunded.")
         return
+    log_ch = await _audit_channel(cog.bot)
+    if log_ch:
+        try:
+            await log_ch.send(
+                f"📥 **Fixer: Store CW Added** — {interaction.user.display_name} added "
+                f"**{item_name}** ×{qty} at ${cost:,} (CWP:{cwp}, {slot_raw}) to {owner.display_name}'s Ripperdoc store."
+            )
+        except Exception:
+            pass
     await send_ephemeral(interaction, 
         f"Added **{item_name}** ×{qty} at ${cost:,} (CWP:{cwp}, {slot_raw}) to {owner.display_name}'s Ripperdoc store.")
 
@@ -2404,6 +2440,15 @@ async def _process_store_remove_gun(cog, interaction, owner, lot_id):
         removed = int(lot.get("qty_remaining", 0))
         store["lots"].remove(lot)
         await guns_cog._save_state(state)
+    log_ch = await _audit_channel(cog.bot)
+    if log_ch:
+        try:
+            await log_ch.send(
+                f"🗑️ **Fixer: Store Gun Removed** — {interaction.user.display_name} removed "
+                f"**{gun_name}** ×{removed} from {owner.display_name}'s store."
+            )
+        except Exception:
+            pass
     await send_ephemeral(interaction, 
         f"Removed **{gun_name}** ×{removed} from {owner.display_name}'s store.")
 
@@ -2422,6 +2467,15 @@ async def _process_store_remove_cw(cog, interaction, owner, item_id):
         item_name = item.get("name", "?")
         inventory.remove(item)
         await cw_cog._save_inventory(owner.id, inventory)
+    log_ch = await _audit_channel(cog.bot)
+    if log_ch:
+        try:
+            await log_ch.send(
+                f"🗑️ **Fixer: Store CW Removed** — {interaction.user.display_name} removed "
+                f"**{item_name}** from {owner.display_name}'s Ripperdoc store."
+            )
+        except Exception:
+            pass
     await send_ephemeral(interaction, 
         f"Removed **{item_name}** from {owner.display_name}'s Ripperdoc store.")
 

@@ -1290,6 +1290,15 @@ class _RDAddEmployeeView(SafeView):
                 await new_emp.add_roles(emp_role, reason=f"Hired as ripperdoc employee at {store_name}")
             except discord.Forbidden:
                 pass
+        log_ch = await self.cog._log_channel()
+        if log_ch:
+            try:
+                await log_ch.send(
+                    f"➕ **Ripperdoc Employee Added** — {new_emp.display_name} ({new_emp.id}) "
+                    f"hired at **{store_name}** by {self.ctx.author.display_name}."
+                )
+            except Exception:
+                pass
         await send_ephemeral(interaction, 
             f"✅ **{new_emp.display_name}** accepted and has been added as employee at **{store_name}**.")
         self.stop()
@@ -1331,6 +1340,15 @@ class _RDRemoveEmployeeView(SafeView):
                 await send_ephemeral(interaction, "Employee not found.")
                 self.stop()
                 return
+        log_ch = await self.cog._log_channel()
+        if log_ch:
+            try:
+                await log_ch.send(
+                    f"➖ **Ripperdoc Employee Removed** — <@{emp_id}> "
+                    f"removed by {self.ctx.author.display_name}."
+                )
+            except Exception:
+                pass
         if not still_employed_elsewhere and interaction.guild:
             emp_role = interaction.guild.get_role(config.RIPPERDOC_EMPLOYEE_ROLE_ID)
             if emp_role:
@@ -1398,6 +1416,15 @@ class _ManageRDStoreView(SafeView):
                     await member.add_roles(owner_role, reason="Created ripperdoc store")
                 except discord.Forbidden:
                     pass
+        log_ch = await self.cog._log_channel()
+        if log_ch:
+            try:
+                await log_ch.send(
+                    f"🏪 **Ripperdoc Store Created** — {interaction.user.display_name} ({interaction.user.id}) "
+                    f"created store **{name}**."
+                )
+            except Exception:
+                pass
         await send_ephemeral(interaction, f"✅ Store **{name}** created!")
 
     @discord.ui.button(label="Change Store Name", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
@@ -1430,6 +1457,16 @@ class _ManageRDStoreView(SafeView):
             store = stores.setdefault(store_id, {"owner_id": interaction.user.id, "employees": []})
             store["store_name"] = name
             await cw_cog._save_state(state)
+        log_ch = await self.cog._log_channel()
+        if log_ch:
+            old_label = f" (was **{current_name}**)" if current_name else ""
+            try:
+                await log_ch.send(
+                    f"✏️ **Ripperdoc Store Renamed** — {interaction.user.display_name} ({interaction.user.id}) "
+                    f"renamed store to **{name}**{old_label}."
+                )
+            except Exception:
+                pass
         await send_ephemeral(interaction, f"Store name changed to **{name}**.")
 
     @discord.ui.button(label="My Stock", style=discord.ButtonStyle.secondary, emoji="📦", row=0)
