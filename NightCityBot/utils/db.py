@@ -2253,13 +2253,13 @@ async def wh_stores_get_all() -> dict[str, dict]:
         for row in rows:
             extra = json.loads(row["data"]) if isinstance(row["data"], str) else (row["data"] or {})
             inv_rows = await pool.fetch(
-                "SELECT lot_id, gun_name, gun_level, unit_cost, qty, item_ids, restriction, weapon_type "
+                "SELECT lot_id, gun_name, gun_level, unit_cost, qty, item_ids, restriction, weapon_type, gun_category "
                 "FROM store_inventory WHERE store_id = $1",
                 row["store_id"],
             )
             lots = []
             for ir in inv_rows:
-                lots.append({
+                lot_dict = {
                     "lot_id": ir["lot_id"],
                     "gun_name": ir["gun_name"],
                     "gun_level": ir["gun_level"],
@@ -2268,7 +2268,10 @@ async def wh_stores_get_all() -> dict[str, dict]:
                     "item_ids": list(ir["item_ids"] or []),
                     "restriction": ir["restriction"],
                     "weapon_type": ir["weapon_type"],
-                })
+                }
+                if ir["gun_category"]:
+                    lot_dict["gun_category"] = ir["gun_category"]
+                lots.append(lot_dict)
             store = {
                 "owner_id": row["owner_id"],
                 "store_name": row["store_name"] or extra.get("store_name", ""),
@@ -2326,8 +2329,8 @@ async def wh_stores_replace_all(stores: dict[str, dict]) -> bool:
                                 """
                                 INSERT INTO store_inventory
                                     (store_id, lot_id, gun_name, gun_level, unit_cost,
-                                     qty, item_ids, restriction, weapon_type)
-                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                                     qty, item_ids, restriction, weapon_type, gun_category)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                                 """,
                                 str(store_id),
                                 str(lot.get("lot_id", "")),
@@ -2338,6 +2341,7 @@ async def wh_stores_replace_all(stores: dict[str, dict]) -> bool:
                                 list(lot.get("item_ids", [])),
                                 str(lot.get("restriction", "basic")),
                                 str(lot.get("weapon_type", "")),
+                                str(lot.get("gun_category", "")),
                             )
 
         await _with_retry(_do, label="wh_stores_replace_all")
