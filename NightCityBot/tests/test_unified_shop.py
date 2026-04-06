@@ -1347,7 +1347,7 @@ class TestAdminWholesaleButtons:
             inter = _make_interaction()
             inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
             inter.channel_id = 123
-            btn = _find_button(view, "Restock CW Wholesale")
+            btn = _find_button(view, "Restock Cyberware WH")
             await btn.callback(inter)
             inter.response.send_message.assert_called_once()
             msg = inter.response.send_message.call_args[0][0]
@@ -1362,7 +1362,7 @@ class TestAdminWholesaleButtons:
             view = AdminShopMenuView()
             inter = _make_interaction()
             inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            btn = _find_button(view, "Restock CW Wholesale")
+            btn = _find_button(view, "Restock Cyberware WH")
             await btn.callback(inter)
             msg = inter.response.send_message.call_args[0][0]
             assert "empty" in msg.lower()
@@ -1375,7 +1375,7 @@ class TestAdminWholesaleButtons:
             view = AdminShopMenuView()
             inter = _make_interaction()
             inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            btn = _find_button(view, "Clear CW Wholesale")
+            btn = _find_button(view, "Clear Cyberware WH")
             await btn.callback(inter)
             inter.followup.send.assert_called_once()
             msg = inter.followup.send.call_args[0][0]
