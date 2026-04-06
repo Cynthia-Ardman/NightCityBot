@@ -764,7 +764,7 @@ async def _inline_restock_cw(cog, interaction, text, catalog):
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-async def _seed_ripperdoc_stores(cog, interaction: discord.Interaction):
+async def _seed_ripperdoc_stores(cog, interaction: discord.Interaction, *, target_store_id: str = "__all_empty__"):
     cw_cog = cog.bot.cogs.get("CyberwareShop")
     if not cw_cog:
         await send_ephemeral(interaction, "❌ Cyberware system unavailable.")
@@ -780,6 +780,8 @@ async def _seed_ripperdoc_stores(cog, interaction: discord.Interaction):
         await send_ephemeral(interaction, f"❌ Cyberware catalog only has {len(catalog)} valid items — need at least 10 to seed stores.")
         return
 
+    all_empty = target_store_id == "__all_empty__"
+
     async with cw_cog.lock:
         state = await cw_cog._load_state()
         stores = state.get("ripperdoc_stores", {})
@@ -788,16 +790,24 @@ async def _seed_ripperdoc_stores(cog, interaction: discord.Interaction):
             await send_ephemeral(interaction, "❌ No ripperdoc stores are registered.")
             return
 
+        if not all_empty and target_store_id not in stores:
+            await send_ephemeral(interaction, "❌ Store not found.")
+            return
+
         seeded_summary: list[str] = []
         now_iso = datetime.now(timezone.utc).isoformat()
 
-        for store_id, store_info in stores.items():
+        stores_to_seed = stores.items() if all_empty else [(target_store_id, stores[target_store_id])]
+
+        for store_id, store_info in stores_to_seed:
             owner_id = store_info.get("owner_id")
             if not owner_id:
                 continue
             inventory = await cw_cog._load_inventory(owner_id)
-            if inventory:
+            if all_empty and inventory:
                 continue
+            if not all_empty and inventory:
+                await cw_cog._save_inventory(owner_id, [])
 
             chosen = random.sample(catalog, 10)
             new_items = []
@@ -960,7 +970,51 @@ class _StoreManagementMenuView(SafeView):
             view = _SeedGunStorePickerView(cog, self.admin_id, options)
             await send_ephemeral(interaction, "🔫 **Seed Gun Stores** — Pick a store to seed (replaces existing stock):", view=view)
         else:
-            await _seed_ripperdoc_stores(cog, interaction)
+            cw_cog = interaction.client.get_cog("CyberwareShop")
+            if not cw_cog:
+                await send_ephemeral(interaction, "❌ Cyberware system unavailable.")
+                return
+            state = await cw_cog._load_state()
+            stores = state.get("ripperdoc_stores", {})
+            if not stores:
+                await send_ephemeral(interaction, "❌ No ripperdoc stores are registered.")
+                return
+            guild = interaction.guild
+            options = []
+            for store_id, store_info in stores.items():
+                owner_id = store_info.get("owner_id")
+                if not owner_id:
+                    continue
+                store_name = store_info.get("store_name") or f"Store {store_id}"
+                owner_name = ""
+                if guild:
+                    try:
+                        m = guild.get_member(int(owner_id))
+                        if m:
+                            owner_name = m.display_name
+                    except (ValueError, TypeError):
+                        pass
+                inventory = await cw_cog._load_inventory(owner_id)
+                has_stock = bool(inventory)
+                status = "📦 Has stock" if has_stock else "🔲 Empty"
+                options.append(discord.SelectOption(
+                    label=store_name[:100],
+                    value=store_id,
+                    description=f"{owner_name} — {status}"[:100] if owner_name else status,
+                ))
+                if len(options) >= 24:
+                    break
+            if not options:
+                await send_ephemeral(interaction, "❌ No ripperdoc stores found.")
+                return
+            options.insert(0, discord.SelectOption(
+                label="All Empty Stores",
+                value="__all_empty__",
+                description="Seed only stores with no stock",
+                emoji="📋",
+            ))
+            view = _SeedRipperdocStorePickerView(cog, self.admin_id, options)
+            await send_ephemeral(interaction, "💉 **Seed Ripperdoc Stores** — Pick a store to seed (replaces existing stock):", view=view)
 
     @discord.ui.button(label="Manage Employees", style=discord.ButtonStyle.secondary, emoji="👥", row=1)
     async def manage_employees(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1590,6 +1644,27 @@ class _SeedGunStorePickerView(SafeView):
         choice = interaction.data["values"][0]
         await interaction.response.defer(ephemeral=True)
         await _seed_gun_stores(self.cog, interaction, target_store_id=choice)
+
+
+class _SeedRipperdocStorePickerView(SafeView):
+    def __init__(self, cog, admin_id: int, options: list):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.admin_id = admin_id
+        select = discord.ui.Select(placeholder="Choose a store…", options=options, row=0)
+        select.callback = self._on_select
+        self.add_item(select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.admin_id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    async def _on_select(self, interaction: discord.Interaction):
+        choice = interaction.data["values"][0]
+        await interaction.response.defer(ephemeral=True)
+        await _seed_ripperdoc_stores(self.cog, interaction, target_store_id=choice)
 
 
 async def _seed_gun_stores(cog, interaction: discord.Interaction, *, target_store_id: str = "__all_empty__"):
