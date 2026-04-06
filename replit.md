@@ -94,6 +94,10 @@ Admin command: `!db_health` — shows DB ping, write-failure count, and pool sta
 
 `scripts/post-merge.sh` runs automatically after task agent merges to install dependencies. Configured via `.replit` `[postMerge]` section.
 
+## Naming conventions (user-facing text)
+
+All user-facing messages, button labels, embed titles, and audit logs use full words: "Cyberware" (never "CW"), "Gun Wholesaler" (not just "Wholesaler" when referring to guns specifically). The fixer panel's top-level "Wholesaler" button is the exception since it covers both gun and cyberware wholesale as a combined category. Internal variable names, DB keys, and code-level references still use the `cw_` prefix.
+
 ## Config cleanup notes
 
 Removed dead constants: `TICKET_INDEX_FILE`, `WHOLESALER_RESTOCK_SCHEDULE`, `FIXER_ROLE_NAME` (only the ID is used).
@@ -206,7 +210,7 @@ Consolidates separate command sets into interactive hub commands with Discord UI
 ### New Cogs
 - `NightCityBot/cogs/ripperdoc_hub.py` — `/ripperdoc` interactive panel. Layout: row0=[Buy Wholesale, Wholesale List], row1=[Sell/Install to Patient], row2=[Manage Store, Manage Employees]. Manage Store submenu (`_ManageRDStoreView`): Create Store, Change Store Name (shows current name), My Stock, Transfer Ownership (DM confirmation to receiver), Close Store. Store data stored in CyberwareShop state as `ripperdoc_stores: {store_id: {owner_id, employees, store_name}}`. Store ID format: `"rd:{guild_id}:{owner_id}"`. Owner role (`RIPPERDOC_OWNER_ROLE_ID`) required for wholesale, manage store/employees. Employee role (`RIPPERDOC_EMPLOYEE_ROLE_ID`) can sell/install from assigned store only. Money goes to store owner. Dual-role users see a store picker. 1-store limit per player. DM confirmation flow for ownership transfer (`_RDTransferDMConfirmView`).
 - `NightCityBot/cogs/gunstore_hub.py` — `/gunstore` interactive panel. Layout: row0=[Buy Wholesale, Wholesale List], row1=[Sell to Customer, My Store Inventory], row2=[Manage Store, Manage Employees, Manage Buyers]. Manage Store submenu (`_ManageGunStoreView`): Create Store, Change Store Name (shows current name), Transfer Ownership (DM confirmation), Close Store. Manage Buyers submenu (`_ManageBuyersView`): Approve Buyer, Unapprove Buyer, Approved Buyers list. Store owners can nickname their store (`store_name` in store data). Owners can add/remove employees. Employees can sell from mapped store and manage buyers, but CANNOT buy wholesale or manage store. Manage Store header shows "⚙️ Manage Store — {Name}". Money goes to store owner. Dual-role users see a store picker. 1-store limit per player. DM confirmation flow for ownership transfer (`_GunTransferDMConfirmView`).
-- `NightCityBot/cogs/admin_shop.py` — `/admin` admin panel (Add/Remove/Reassign/History/Inventory); alias `!admin_shop` still works
+- `NightCityBot/cogs/admin_shop.py` — `/admin` admin panel (Add/Remove/Reassign/History/Inventory/Seed/Wholesale/Sheets/Perm Overwrites); alias `!admin_shop` still works
 - `NightCityBot/cogs/fixer_hub.py` — `/fixer` Fixer management panel with three-tier menu (Player/Store/Wholesaler sub-menus for inventory, items, LOA, store stock, wholesale management). No Done buttons — sub-views replace the ephemeral message in-place. Store dropdown shows store_name as label with owner name as description.
 - `NightCityBot/cogs/player_hub.py` — `/player` Player hub for viewing inventory, trading items, and giving items (replaces individual `!trade`, `!inv_give` commands in help)
 
@@ -239,14 +243,17 @@ All 23 panel actions across all hubs send audit log messages to the appropriate 
 - **Player Hub** (4): Attend, Open Shop, Start LOA, End LOA
 - **Gun Store Hub** (6): Create Store, Change Store Name, Add Employee, Remove Employee, Approve Buyer, Unapprove Buyer
 - **Ripperdoc Hub** (4): Create Store, Change Store Name, Add Employee, Remove Employee
-- **Fixer Hub** (6): Start LOA, End LOA, Store-Add Gun, Store-Add CW, Store-Remove Gun, Store-Remove CW
-- **Admin Shop** (3): Set Gun Sheet, Set CW Sheet, Reload Sheets
+- **Fixer Hub** (6): Start LOA, End LOA, Store-Add Gun, Store-Add Cyberware, Store-Remove Gun, Store-Remove Cyberware
+- **Admin Shop** (3): Set Gun Sheet, Set Cyberware Sheet, Reload Sheets
 
 All log sends are wrapped in try/except so failures never block the user action.
 
 ### Admin Shop — Seed Features
 - **Seed Ripperdoc Stores** — 💉 button in admin panel row 0. Seeds empty ripperdoc stores with random catalog items, DMs owners, records `ih_record_event` audit trail.
-- **Seed Gun Shops** — 🔫 button in admin panel row 1. Seeds empty gun stores with 10 random `gun_catalog` items (1–3 qty each), skips non-empty stores, DMs owners with summary, records `ih_record_event` for each item, posts audit embed to log channel.
+- **Seed Gun Shops** — 🔫 button in admin panel row 1. Seeds empty gun stores with 10 random `gun_catalog` items (1–3 qty each, `status=live` only, ~70% basic / ~20% controlled / ~10% restricted via `_pick_guns_by_restriction`), skips stores with actual stock remaining (sold-out lots with qty=0 are treated as empty), DMs owners with summary, records `ih_record_event` for each item, posts audit embed to log channel. Lots use `qty_available` key to match the DB column name used by `wh_stores_replace_all`.
+
+### Admin Shop — Permission Overwrites Audit
+- **Perm Overwrites** — 🔐 button in admin panel row 4. Scans all server channels and reports total permission overwrite count, channels sorted by overwrite count (top 30 shown), with footer showing Discord's 500 overwrite limit for server templates.
 
 ## Google Drive Database Backups (Task #15)
 
