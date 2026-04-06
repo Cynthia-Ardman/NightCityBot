@@ -1012,8 +1012,8 @@ async def _admin_create_store(interaction: discord.Interaction, owner: discord.M
                     content=f"❌ {owner.display_name} already owns a gun store (**{existing['store_name']}**).",
                     view=None)
                 return
-            from NightCityBot.cogs.gunstore_hub import _is_black_market_owner
-            st = "black_market" if _is_black_market_owner(owner.id) else "standard"
+            bm_ids = getattr(config, "BLACK_MARKET_OWNER_IDS", set())
+            st = "black_market" if owner.id in bm_ids else "standard"
             stores = state.setdefault("stores", {})
             entry = stores.setdefault(store_id, {})
             entry.setdefault("owner_id", owner.id)
