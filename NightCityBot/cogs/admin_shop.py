@@ -217,6 +217,12 @@ class AdminShopMenuView(SafeView):
             "⚠️ This will clear **all** gun wholesale lots. Are you sure?",
             view=confirm_view)
 
+    @discord.ui.button(label="Create Store", style=discord.ButtonStyle.success, emoji="🏪", row=2, custom_id="admin_shop:create_store")
+    async def create_store(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        view = _CreateStoreTypeView(interaction.user.id)
+        await send_ephemeral(interaction, "🏪 **Create Store** — What type of store?", view=view)
+
     @discord.ui.button(label="Restock Cyberware WH", style=discord.ButtonStyle.primary, emoji="💉", row=3, custom_id="admin_shop:restock_cw")
     async def restock_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("AdminShop")
@@ -933,6 +939,181 @@ async def _seed_ripperdoc_stores(cog, interaction: discord.Interaction):
         embed.add_field(name="Details", value=summary_text[:1024], inline=False)
         embed.set_footer(text="NightCityBot Audit Log")
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+
+class _CreateStoreTypeView(SafeView):
+    def __init__(self, admin_id: int):
+        super().__init__(timeout=300)
+        self.admin_id = admin_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.admin_id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.button(label="Gun Store", style=discord.ButtonStyle.primary, emoji="🔫", row=0)
+    async def gun_store(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        view = _CreateStoreOwnerSelect(self.admin_id, store_type="gun")
+        await send_ephemeral(interaction, "🔫 **Create Gun Store** — Select the owner:", view=view)
+
+    @discord.ui.button(label="Ripperdoc Store", style=discord.ButtonStyle.primary, emoji="💉", row=0)
+    async def ripperdoc_store(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        view = _CreateStoreOwnerSelect(self.admin_id, store_type="ripperdoc")
+        await send_ephemeral(interaction, "💉 **Create Ripperdoc Store** — Select the owner:", view=view)
+
+
+class _CreateStoreOwnerSelect(SafeView):
+    def __init__(self, admin_id: int, store_type: str):
+        super().__init__(timeout=300)
+        self.admin_id = admin_id
+        self.store_type = store_type
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.admin_id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose the store owner…", row=0)
+    async def owner_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        member = select.values[0] if select.values else None
+        if not member:
+            await respond_ephemeral(interaction, "No member selected.")
+            return
+        guild = interaction.guild
+        if guild and not isinstance(member, discord.Member):
+            member = guild.get_member(member.id)
+        if not member or not isinstance(member, discord.Member):
+            await respond_ephemeral(interaction, "Could not resolve that member in this server.")
+            return
+        if member.bot:
+            await respond_ephemeral(interaction, "Cannot create a store for a bot.")
+            return
+
+        await respond_ephemeral(interaction,
+            f"📝 **Enter a name** for {member.display_name}'s "
+            f"{'Gun' if self.store_type == 'gun' else 'Ripperdoc'} Store:\n"
+            f"Type `cancel` to abort.")
+        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+        if text is None or text.strip().lower() == "cancel":
+            await interaction.edit_original_response(content="❌ Cancelled.", view=None)
+            return
+        store_name = text.strip()[:100]
+        if not store_name:
+            await interaction.edit_original_response(content="❌ Store name cannot be empty.", view=None)
+            return
+
+        await _admin_create_store(interaction, member, self.store_type, store_name)
+
+
+async def _admin_create_store(interaction: discord.Interaction, owner: discord.Member, store_type: str, store_name: str):
+    guild = interaction.guild
+    if not guild:
+        await interaction.edit_original_response(content="❌ Must be used in a server.", view=None)
+        return
+
+    if store_type == "gun":
+        guns_cog = interaction.client.get_cog("GunsShopCog")
+        if not guns_cog:
+            await interaction.edit_original_response(content="❌ Gun shop system unavailable.", view=None)
+            return
+        store_id = guns_cog._store_id(guild.id, owner.id)
+        async with guns_cog.lock:
+            state = await guns_cog._load_state()
+            existing = state.get("stores", {}).get(store_id)
+            if existing and existing.get("store_name"):
+                await interaction.edit_original_response(
+                    content=f"❌ {owner.display_name} already owns a gun store (**{existing['store_name']}**).",
+                    view=None)
+                return
+            from NightCityBot.cogs.gunstore_hub import _is_black_market_owner
+            st = "black_market" if _is_black_market_owner(owner.id) else "standard"
+            stores = state.setdefault("stores", {})
+            entry = stores.setdefault(store_id, {})
+            entry.setdefault("owner_id", owner.id)
+            entry.setdefault("lots", [])
+            entry.setdefault("controlled_buyers", [])
+            entry.setdefault("employees", [])
+            entry.setdefault("store_type", st)
+            entry["store_name"] = store_name
+            saved = await guns_cog._save_state(state)
+        if not saved:
+            await interaction.edit_original_response(content="❌ Failed to save store data.", view=None)
+            return
+        owner_role = guild.get_role(config.GUN_STORE_OWNER_ROLE_ID) if hasattr(config, "GUN_STORE_OWNER_ROLE_ID") and config.GUN_STORE_OWNER_ROLE_ID else None
+        if not owner_role and hasattr(config, "WHOLESALER_STORE_ROLE_IDS") and config.WHOLESALER_STORE_ROLE_IDS:
+            owner_role = guild.get_role(config.WHOLESALER_STORE_ROLE_IDS)
+        if owner_role:
+            try:
+                await owner.add_roles(owner_role, reason=f"Admin created gun store: {store_name}")
+            except Exception:
+                pass
+        emoji = "🔫"
+        type_label = "Gun Store"
+    else:
+        cw_cog = interaction.client.get_cog("CyberwareShop")
+        if not cw_cog:
+            await interaction.edit_original_response(content="❌ Cyberware system unavailable.", view=None)
+            return
+        store_id = f"rd:{guild.id}:{owner.id}"
+        async with cw_cog.lock:
+            state = await cw_cog._load_state()
+            existing = state.get("ripperdoc_stores", {}).get(store_id)
+            if existing and existing.get("store_name"):
+                await interaction.edit_original_response(
+                    content=f"❌ {owner.display_name} already owns a ripperdoc store (**{existing['store_name']}**).",
+                    view=None)
+                return
+            state.setdefault("ripperdoc_stores", {})[store_id] = {
+                "owner_id": owner.id,
+                "employees": [],
+                "store_name": store_name,
+            }
+            saved = await cw_cog._save_state(state)
+        if not saved:
+            await interaction.edit_original_response(content="❌ Failed to save store data.", view=None)
+            return
+        owner_role = guild.get_role(config.RIPPERDOC_OWNER_ROLE_ID) if hasattr(config, "RIPPERDOC_OWNER_ROLE_ID") and config.RIPPERDOC_OWNER_ROLE_ID else None
+        if owner_role:
+            try:
+                await owner.add_roles(owner_role, reason=f"Admin created ripperdoc store: {store_name}")
+            except Exception:
+                pass
+        emoji = "💉"
+        type_label = "Ripperdoc Store"
+
+    await interaction.edit_original_response(
+        content=f"✅ Created **{store_name}** ({type_label}) for {owner.mention}.",
+        view=None)
+
+    try:
+        await owner.send(
+            f"{emoji} **Your {type_label.lower()} has been created!**\n\n"
+            f"An admin set up **{store_name}** for you.\n"
+            f"Head to your {'Gun Store' if store_type == 'gun' else 'Ripperdoc'} Hub to manage it.")
+    except Exception:
+        pass
+
+    cog = interaction.client.get_cog("AdminShop")
+    if cog:
+        log_ch = await cog._audit_channel()
+        if log_ch:
+            embed = discord.Embed(
+                title=f"{emoji} Admin: {type_label} Created",
+                color=discord.Color.green(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.add_field(name="Admin", value=interaction.user.mention, inline=True)
+            embed.add_field(name="Owner", value=owner.mention, inline=True)
+            embed.add_field(name="Store Name", value=store_name, inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
+            try:
+                await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            except Exception:
+                pass
 
 
 class _SeedGunStorePickerView(SafeView):
