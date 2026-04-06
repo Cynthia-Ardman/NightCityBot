@@ -22,6 +22,7 @@ from NightCityBot.utils.db import (
     pi_update_character,
     ih_record_event,
     ih_get_history,
+    pt_create,
 )
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active, get_character_by_name
 from NightCityBot.utils.permissions import is_fixer
@@ -2247,11 +2248,24 @@ async def _process_store_add_gun(cog, interaction, owner, text):
         saved = await guns_cog._save_state(state)
     if not saved and cost > 0:
         ub = getattr(cog.bot, "unbelievaboat", None)
+        refund_ok = False
         if ub:
-            await ub.update_balance(
+            refund_ok = await ub.update_balance(
                 owner.id, {"cash": cash_deducted, "bank": bank_deducted},
                 reason=f"Fixer store-add gun refund: save failed for {gun_name} x{qty}"
             )
+        if not refund_ok:
+            logger.critical(
+                "fixer store-add gun: refund ALSO failed — owner=%s amount=%s gun=%s",
+                owner.id, cost * qty, gun_name,
+            )
+            await pt_create({
+                "seller_id": str(interaction.user.id),
+                "buyer_id": str(owner.id),
+                "item_id": str(uuid.uuid4()),
+                "amount": cost * qty,
+                "reason": f"Fixer store-add gun refund failed: {gun_name} x{qty}",
+            })
         await send_ephemeral(interaction, 
             f"❌ Failed to save store inventory. Funds have been refunded.")
         return
@@ -2395,11 +2409,24 @@ async def _process_store_add_cw(cog, interaction, owner, text):
         saved = await cw_cog._save_inventory(owner.id, inventory)
     if not saved and cost > 0:
         ub = getattr(cog.bot, "unbelievaboat", None)
+        refund_ok = False
         if ub:
-            await ub.update_balance(
+            refund_ok = await ub.update_balance(
                 owner.id, {"cash": cash_deducted, "bank": bank_deducted},
                 reason=f"Fixer store-add CW refund: save failed for {item_name} x{qty}"
             )
+        if not refund_ok:
+            logger.critical(
+                "fixer store-add CW: refund ALSO failed — owner=%s amount=%s item=%s",
+                owner.id, cost * qty, item_name,
+            )
+            await pt_create({
+                "seller_id": str(interaction.user.id),
+                "buyer_id": str(owner.id),
+                "item_id": str(uuid.uuid4()),
+                "amount": cost * qty,
+                "reason": f"Fixer store-add CW refund failed: {item_name} x{qty}",
+            })
         await send_ephemeral(interaction, 
             f"❌ Failed to save clinic inventory. Funds have been refunded.")
         return

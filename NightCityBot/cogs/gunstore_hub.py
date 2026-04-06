@@ -879,13 +879,26 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
             else:
                 logger.error("gunstore sell: could not restore item_id=%s — store not found for store_id=%s", item_id, store_id)
         if price > 0:
-            await cog.unbelievaboat.update_balance(
+            refund_ok = await cog.unbelievaboat.update_balance(
                 customer.id, {"cash": cash_ded, "bank": bank_ded}, reason="Gun sale refund — item grant failed"
             )
+            seller_refund_ok = True
             if seller_credited:
-                await cog.unbelievaboat.update_balance(
+                seller_refund_ok = await cog.unbelievaboat.update_balance(
                     owner_id, {"bank": -price}, reason="Gun sale refund — item grant failed"
                 )
+            if not refund_ok or not seller_refund_ok:
+                logger.critical(
+                    "gunstore sell: refund ALSO failed — customer=%s owner=%s amount=%s gun=%s",
+                    customer.id, owner_id, price, gun_name,
+                )
+                await pt_create({
+                    "seller_id": str(owner_id),
+                    "buyer_id": str(customer.id),
+                    "item_id": item_id,
+                    "amount": price,
+                    "reason": f"Gun sale refund failed: {gun_name}",
+                })
         await send_ephemeral(interaction,
             f"⚠️ Failed to add **{gun_name}** to {customer.display_name}'s inventory. "
             "Payment has been refunded. Please contact an admin."

@@ -458,15 +458,37 @@ class CyberwareShop(commands.Cog):
             current_lot["qty_available"] = int(current_lot["qty_available"]) - qty
             now_iso = self._now_iso()
             inventory = await self._load_inventory(ctx.author.id)
+            new_items = []
             for _ in range(qty):
-                inventory.append({
+                new_item = {
                     "item_id": str(uuid.uuid4()),
                     "name": lot["item_name"],
                     "price_paid": unit_price,
                     "purchased_at": now_iso,
-                })
-            await self._save_inventory(ctx.author.id, inventory)
-            await self._save_state(state)
+                }
+                inventory.append(new_item)
+                new_items.append(new_item)
+            inv_ok = await self._save_inventory(ctx.author.id, inventory)
+            state_ok = await self._save_state(state)
+            if not inv_ok or not state_ok:
+                current_lot["qty_available"] = int(current_lot["qty_available"]) + qty
+                for ni in new_items:
+                    if ni in inventory:
+                        inventory.remove(ni)
+                if not inv_ok:
+                    await self._save_inventory(ctx.author.id, inventory)
+                if not state_ok:
+                    await self._save_state(state)
+                await self.unbelievaboat.update_balance(
+                    ctx.author.id,
+                    {"cash": cash_deduct, "bank": bank_deduct},
+                    reason=f"Cyberware buy refund (save failed): {lot['item_name']}",
+                )
+                await ctx.send(
+                    f"❌ Failed to save your purchase of **{lot['item_name']}**. "
+                    "Your payment has been refunded."
+                )
+                return
 
             tx = {
                 "tx_id": str(uuid.uuid4()),

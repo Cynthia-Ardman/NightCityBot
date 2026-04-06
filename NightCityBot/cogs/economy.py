@@ -14,7 +14,7 @@ from NightCityBot.utils import config_loader as _cfg
 from NightCityBot.utils import helpers
 from NightCityBot.utils.db import (
     attendance_get_user, attendance_append,
-    open_log_exists_today, open_log_count_month, open_log_add,
+    open_log_exists_today, open_log_count_month, open_log_add, open_log_delete_today,
     last_payment_get, last_payment_set, last_payment_get_with_ts,
     payment_label_set, payment_label_get_ts, payment_labels_cleanup,
     payment_labels_any_this_month,
@@ -492,14 +492,20 @@ class Economy(commands.Cog):
                 ctx.author.id, {"cash": reward}, reason="Business activity reward"
             )
             if not ok:
-                await warn_db_failure(
-                    self.bot, "update_balance",
-                    f"user {user_id} — business reward ${reward} not credited",
-                )
-                await ctx.send(
-                    f"✅ Business opening logged! ({open_count_total} this month) "
-                    "⚠️ Balance update failed — please contact an admin if your reward is missing."
-                )
+                rolled_back = await open_log_delete_today(user_id, now)
+                if rolled_back:
+                    await ctx.send(
+                        "❌ Balance update failed — your opening was **not** recorded so you can try again later."
+                    )
+                else:
+                    await warn_db_failure(
+                        self.bot, "update_balance",
+                        f"user {user_id} — business reward ${reward} not credited AND rollback failed",
+                    )
+                    await ctx.send(
+                        f"✅ Business opening logged! ({open_count_total} this month) "
+                        "⚠️ Balance update failed — please contact an admin if your reward is missing."
+                    )
             else:
                 await ctx.send(
                     f"✅ Business opening logged! You earned ${reward}. ({open_count_total} this month)"

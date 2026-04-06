@@ -1613,6 +1613,23 @@ async def open_log_add(user_id: str, opened_at: datetime) -> bool:
         return False
 
 
+async def open_log_delete_today(user_id: str, opened_at: datetime) -> bool:
+    """Remove a business opening event for the given date (used for rollback on reward failure)."""
+    try:
+        pool = await get_pool()
+        await _with_retry(
+            lambda: pool.execute(
+                "DELETE FROM business_open_log WHERE user_id = $1 AND opened_at::date = $2::date",
+                user_id, opened_at,
+            ),
+            label="open_log_delete_today",
+        )
+        return True
+    except Exception:
+        logger.error("open_log_delete_today failed for user '%s'", user_id, exc_info=True)
+        return False
+
+
 async def open_log_get_user_month(user_id: str, year: int, month: int) -> list[datetime]:
     """Return all opening datetimes for a user in the given month."""
     try:
