@@ -1156,18 +1156,19 @@ class _AdminAddEmployeeSelect(SafeView):
 
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a member…", row=0)
     async def member_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        await interaction.response.defer(ephemeral=True)
         member = select.values[0] if select.values else None
         if not member:
-            await respond_ephemeral(interaction, "No member selected.")
+            await send_ephemeral(interaction, "No member selected.")
             return
         guild = interaction.guild
         if guild and not isinstance(member, discord.Member):
             member = guild.get_member(member.id)
         if not member or not isinstance(member, discord.Member):
-            await respond_ephemeral(interaction, "Could not resolve that member in this server.")
+            await send_ephemeral(interaction, "Could not resolve that member in this server.")
             return
         if member.bot:
-            await respond_ephemeral(interaction, "Cannot add a bot as an employee.")
+            await send_ephemeral(interaction, "Cannot add a bot as an employee.")
             return
         await _admin_add_employee(interaction, self.store_id, self.store_type, member)
 
@@ -1251,7 +1252,10 @@ async def _admin_add_employee(interaction: discord.Interaction, store_id: str, s
         except Exception:
             pass
 
-    await send_ephemeral(interaction, f"✅ Added **{member.display_name}** as an employee at **{store_name}**.")
+    try:
+        await send_ephemeral(interaction, f"✅ Added **{member.display_name}** as an employee at **{store_name}**.")
+    except discord.NotFound:
+        pass
 
     admin_cog = interaction.client.get_cog("AdminShop")
     if admin_cog:
@@ -1329,7 +1333,10 @@ async def _admin_remove_employee(interaction: discord.Interaction, store_id: str
 
     member = guild.get_member(emp_id)
     emp_display = member.display_name if member else str(emp_id)
-    await send_ephemeral(interaction, f"✅ Removed **{emp_display}** from **{store_name}**.")
+    try:
+        await send_ephemeral(interaction, f"✅ Removed **{emp_display}** from **{store_name}**.")
+    except discord.NotFound:
+        pass
 
     admin_cog = interaction.client.get_cog("AdminShop")
     if admin_cog:
