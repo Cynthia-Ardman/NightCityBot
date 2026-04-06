@@ -903,9 +903,12 @@ async def _seed_gun_stores(cog, interaction: discord.Interaction):
         await send_ephemeral(interaction, "❌ Gun catalog is empty. Set a sheet and reload first.")
         return
 
-    catalog = [g for g in catalog if g.get("gun_name")]
+    catalog = [
+        g for g in catalog
+        if g.get("gun_name") and str(g.get("status", "live")).strip().lower() == "live"
+    ]
     if len(catalog) < 10:
-        await send_ephemeral(interaction, f"❌ Gun catalog only has {len(catalog)} valid items — need at least 10 to seed stores.")
+        await send_ephemeral(interaction, f"❌ Gun catalog only has {len(catalog)} live items — need at least 10 to seed stores.")
         return
 
     async with guns_cog.lock:
@@ -928,7 +931,7 @@ async def _seed_gun_stores(cog, interaction: discord.Interaction):
             if has_stock:
                 continue
 
-            chosen = random.sample(catalog, min(10, len(catalog)))
+            chosen = _pick_guns_by_restriction(catalog, 10)
             new_lots = []
             gun_names = []
             all_item_ids = []
@@ -945,7 +948,7 @@ async def _seed_gun_stores(cog, interaction: discord.Interaction):
                     "weapon_type": gun.get("weapon_type", ""),
                     "gun_category": gun.get("gun_category", ""),
                     "unit_cost": cost,
-                    "qty_remaining": qty,
+                    "qty_available": qty,
                     "restriction": restriction,
                     "item_ids": item_ids,
                 })
