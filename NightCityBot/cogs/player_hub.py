@@ -11,7 +11,7 @@ import discord
 from discord.ext import commands
 
 import config
-from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral
+from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral, log_panel_failure
 from NightCityBot.utils.player_inventory import (
     query_player_inventory as pi_get_by_owner,
     get_player_item as pi_get_item,

@@ -120,6 +120,33 @@ async def view_on_error(
     await _safe_respond(interaction, _USER_ERROR_MSG)
 
 
+async def log_panel_failure(
+    bot,
+    channel_id_attr: str,
+    action: str,
+    user: discord.User,
+    reason: str,
+) -> None:
+    try:
+        ch_id = getattr(bot, channel_id_attr, None) or int(
+            getattr(__import__("config"), channel_id_attr, 0)
+        )
+        if not ch_id:
+            return
+        ch = bot.get_channel(ch_id)
+        if ch is None:
+            try:
+                ch = await bot.fetch_channel(ch_id)
+            except Exception:
+                return
+        await ch.send(
+            f"⚠️ **Panel Failure** — {user.display_name} ({user.id}) "
+            f"tried **{action}** → {reason}"
+        )
+    except Exception:
+        logger.debug("log_panel_failure failed", exc_info=True)
+
+
 class SafeView(discord.ui.View):
     async def on_error(self, interaction, error, item):
         await view_on_error(self, interaction, error, item)

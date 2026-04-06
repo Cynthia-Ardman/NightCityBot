@@ -14,7 +14,7 @@ import discord
 from discord.ext import commands
 
 import config
-from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral
+from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral, log_panel_failure
 from NightCityBot.utils.db import (
     cw_catalog_get_all,
     pi_add_item,
@@ -118,6 +118,7 @@ class RipperdocMenuView(SafeView):
         if any(r.id == config.RIPPERDOC_ROLE_ID for r in member.roles):
             return True
         await respond_ephemeral(interaction, "This panel is for Ripperdocs only.")
+        await log_panel_failure(interaction.client, "CYBERWARE_LOG_CHANNEL_ID", "Ripperdoc Panel", interaction.user, "Missing ripperdoc role")
         return False
 
     @discord.ui.button(label="Buy from Wholesale", style=discord.ButtonStyle.primary, emoji="🛒", row=0, custom_id="ripperdoc:buy_wholesale")
@@ -126,6 +127,7 @@ class RipperdocMenuView(SafeView):
         if member and _is_ripperdoc_employee(member) and not _is_ripperdoc_owner(member):
             await respond_ephemeral(interaction, 
                 "Only Ripperdoc Owners can buy from wholesale.")
+            await log_panel_failure(interaction.client, "CYBERWARE_LOG_CHANNEL_ID", "Buy CW Wholesale", interaction.user, "Employee tried to buy wholesale (owner-only)")
             return
         await interaction.response.defer(ephemeral=True)
         cw_cog = interaction.client.get_cog("CyberwareShop")

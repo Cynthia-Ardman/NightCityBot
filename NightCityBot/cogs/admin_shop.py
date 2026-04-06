@@ -14,7 +14,7 @@ import discord
 from discord.ext import commands
 
 import config
-from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral
+from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral, log_panel_failure
 from NightCityBot.utils import helpers
 from NightCityBot.utils.db import (
     pi_get_by_owner,
@@ -62,6 +62,7 @@ class AdminShopMenuView(SafeView):
             return False
         if not (any(r.id == config.FIXER_ROLE_ID for r in member.roles) or member.guild_permissions.administrator):
             await respond_ephemeral(interaction, "This panel is for Admins / Fixers only.")
+            await log_panel_failure(interaction.client, "NIGHTCITYBOT_LOG_CHANNEL_ID", "Admin Panel", interaction.user, "Missing admin/fixer role")
             return False
         return True
 

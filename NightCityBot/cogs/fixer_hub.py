@@ -12,7 +12,7 @@ import discord
 from discord.ext import commands
 
 import config
-from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral
+from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral, log_panel_failure
 from NightCityBot.utils.db import (
     pi_add_item,
     pi_get_item,
@@ -76,6 +76,7 @@ class FixerTopView(SafeView):
             return False
         if not (any(r.id == config.FIXER_ROLE_ID for r in member.roles) or member.guild_permissions.administrator):
             await respond_ephemeral(interaction, "This panel is for Fixers only.")
+            await log_panel_failure(interaction.client, "NIGHTCITYBOT_LOG_CHANNEL_ID", "Fixer Panel", interaction.user, "Missing fixer role")
             return False
         return True
 

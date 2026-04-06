@@ -16,7 +16,7 @@ import discord
 from discord.ext import commands
 
 import config
-from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral
+from NightCityBot.utils.interaction_safety import SafeView, send_ephemeral, respond_ephemeral, log_panel_failure
 from NightCityBot.utils.db import (
     pi_add_item,
     ih_record_event,
@@ -35,6 +35,9 @@ GUN_STORE_EMPLOYEE_ROLE_ID = config.GUN_STORE_EMPLOYEE_ROLE_ID
 def _is_store_owner_member(member: discord.Member) -> bool:
     raw = config.WHOLESALER_STORE_ROLE_IDS
     store_ids = {int(raw)} if isinstance(raw, (int, float, str)) and str(raw).strip().isdigit() else {int(x) for x in raw}
+    gun_owner_id = getattr(config, "GUN_STORE_OWNER_ROLE_ID", None)
+    if gun_owner_id:
+        store_ids.add(int(gun_owner_id))
     return any(r.id in store_ids for r in member.roles)
 
 
@@ -124,6 +127,7 @@ class GunstoreMenuView(SafeView):
         if _is_store_owner_member(member) or _is_employee_member(member) or member.guild_permissions.administrator:
             return True
         await respond_ephemeral(interaction, "This panel is for Store Owners and Employees only.")
+        await log_panel_failure(interaction.client, "GUN_LOG_CHANNEL_ID", "Gun Store Panel", interaction.user, "Missing store owner/employee role")
         return False
 
     @discord.ui.button(label="Buy from Wholesale", style=discord.ButtonStyle.primary, emoji="🛒", row=0, custom_id="gunstore:buy_wholesale")
@@ -132,6 +136,7 @@ class GunstoreMenuView(SafeView):
         if member and _is_employee_member(member) and not _is_store_owner_member(member):
             await respond_ephemeral(interaction, 
                 "Only Store Owners can buy from wholesale.")
+            await log_panel_failure(interaction.client, "GUN_LOG_CHANNEL_ID", "Buy Wholesale", interaction.user, "Employee tried to buy wholesale (owner-only)")
             return
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("GunstoreHub")
@@ -241,6 +246,7 @@ class GunstoreMenuView(SafeView):
         if member and _is_employee_member(member) and not _is_store_owner_member(member):
             await respond_ephemeral(interaction, 
                 "Only Store Owners can manage their store.")
+            await log_panel_failure(interaction.client, "GUN_LOG_CHANNEL_ID", "Manage Gun Store", interaction.user, "Employee tried to manage store (owner-only)")
             return
         cog = interaction.client.get_cog("GunstoreHub")
         guns_cog = cog._guns_cog() if cog else None
@@ -265,6 +271,7 @@ class GunstoreMenuView(SafeView):
         if member and _is_employee_member(member) and not _is_store_owner_member(member):
             await respond_ephemeral(interaction, 
                 "Only Store Owners can manage employees.")
+            await log_panel_failure(interaction.client, "GUN_LOG_CHANNEL_ID", "Manage Employees", interaction.user, "Employee tried to manage employees (owner-only)")
             return
         cog = interaction.client.get_cog("GunstoreHub")
         ctx = PanelContext(interaction)
@@ -747,6 +754,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
         )
         if not ok_debit:
             await send_ephemeral(interaction, f"Payment failed for {customer.display_name}. Sale cancelled.")
+            await log_panel_failure(interaction.client, "GUN_LOG_CHANNEL_ID", "Gun Sale", interaction.user, f"Payment failed for {customer.display_name} buying {gun_name} at ${price:,}")
             return
         ok_credit = await cog.unbelievaboat.update_balance(
             owner_id,
@@ -782,6 +790,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                         owner_id, {"bank": -price}, reason="Gun sale refund"
                     )
             await send_ephemeral(interaction, "Store not found. Refunded.")
+            await log_panel_failure(interaction.client, "GUN_LOG_CHANNEL_ID", "Gun Sale", interaction.user, f"Store disappeared mid-sale for {gun_name} — refunded ${price:,}")
             return
         lot_id = lot.get("lot_id")
         target_lot = None
@@ -826,6 +835,7 @@ async def _process_gun_sell(cog, interaction, ctx, customer, lot, store_id, char
                     owner_id, {"bank": -price}, reason="Gun sale refund — save failed"
                 )
         await send_ephemeral(interaction, "⚠️ Sale failed (save error). Payment has been refunded.")
+        await log_panel_failure(interaction.client, "GUN_LOG_CHANNEL_ID", "Gun Sale", interaction.user, f"Save failed for {gun_name} sale to {customer.display_name} — refunded ${price:,}")
         return
 
     pi_payload = {
