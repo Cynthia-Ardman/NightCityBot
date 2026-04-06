@@ -483,8 +483,8 @@ class Admin(commands.Cog):
         embed = discord.Embed(
             title="🔫 NCRP Bot — Gun Shop Guide",
             description=(
-                "The corporate wholesaler stocks guns every week. "
-                "Store owners buy from the wholesaler, then sell to players at their own markup.\n\n"
+                "The corporate gun wholesaler stocks guns every week. "
+                "Store owners buy from the gun wholesaler, then sell to players at their own markup.\n\n"
                 f"**Head to <#{config.GUN_HUB_CHANNEL_ID}>** to use the interactive hub — buy, sell, and view stock all from one place."
             ),
             color=discord.Color.orange(),
@@ -519,7 +519,7 @@ class Admin(commands.Cog):
             value=(
                 "- Wholesale stock refreshes **weekly** — buy before it's gone.\n"
                 "- You set your own sale prices — wholesale cost is your floor.\n"
-                "- Restriction levels carry over from the wholesaler.\n"
+                "- Restriction levels carry over from the gun wholesaler.\n"
                 f"- Admin tools are available in <#{config.ADMIN_HUB_CHANNEL_ID}>."
             ),
             inline=False,

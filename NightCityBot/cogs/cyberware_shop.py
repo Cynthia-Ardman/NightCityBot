@@ -372,7 +372,7 @@ class CyberwareShop(commands.Cog):
 
         if not all_ordered:
             await ctx.send(
-                "❌ No cyberware is available from the wholesaler this week. "
+                "❌ No cyberware is available from the cyberware wholesaler this week. "
                 "Ask an admin to run `!cw_wh_restock`."
             )
             return

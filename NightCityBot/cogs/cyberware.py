@@ -136,11 +136,11 @@ class CyberwareManager(commands.Cog):
             if notify_user:
                 try:
                     if refreshed is None:
-                        await notify_user.send("❌ Weekly wholesaler refresh errored.")
+                        await notify_user.send("❌ Weekly gun wholesaler refresh errored.")
                     elif refreshed:
-                        await notify_user.send("📦 Weekly wholesaler refresh complete.")
+                        await notify_user.send("📦 Weekly gun wholesaler refresh complete.")
                     else:
-                        await notify_user.send("⚠️ Weekly wholesaler refresh skipped/failed.")
+                        await notify_user.send("⚠️ Weekly gun wholesaler refresh skipped/failed.")
                 except Exception:
                     logger.warning("Suppressed exception", exc_info=True)
 
