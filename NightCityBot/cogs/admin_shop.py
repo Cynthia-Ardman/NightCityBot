@@ -100,7 +100,50 @@ class AdminShopMenuView(SafeView):
         if not cog:
             await send_ephemeral(interaction, "❌ Admin shop system unavailable.")
             return
-        await _seed_gun_stores(cog, interaction)
+        guns_cog = interaction.client.get_cog("GunsShopCog")
+        if not guns_cog:
+            await send_ephemeral(interaction, "❌ Gun shop system unavailable.")
+            return
+        state = await guns_cog._load_state()
+        stores = state.get("stores", {})
+        if not stores:
+            await send_ephemeral(interaction, "❌ No gun stores are registered.")
+            return
+        guild = interaction.guild
+        options = []
+        for store_id, store_info in stores.items():
+            owner_id = store_info.get("owner_id")
+            if not owner_id:
+                continue
+            store_name = store_info.get("store_name") or f"Store {store_id}"
+            owner_name = ""
+            if guild:
+                try:
+                    m = guild.get_member(int(owner_id))
+                    if m:
+                        owner_name = m.display_name
+                except (ValueError, TypeError):
+                    pass
+            has_stock = any(int(l.get("qty_remaining", 0)) > 0 for l in store_info.get("lots", []))
+            status = "📦 Has stock" if has_stock else "🔲 Empty"
+            options.append(discord.SelectOption(
+                label=store_name[:100],
+                value=store_id,
+                description=f"{owner_name} — {status}"[:100] if owner_name else status,
+            ))
+            if len(options) >= 24:
+                break
+        if not options:
+            await send_ephemeral(interaction, "❌ No gun stores found.")
+            return
+        options.insert(0, discord.SelectOption(
+            label="All Empty Stores",
+            value="__all_empty__",
+            description="Seed only stores with no stock",
+            emoji="📋",
+        ))
+        view = _SeedGunStorePickerView(cog, interaction.user.id, options)
+        await send_ephemeral(interaction, "🔫 **Seed Gun Stores** — Pick a store to seed (replaces existing stock):", view=view)
 
     @discord.ui.button(label="Wholesale Stock", style=discord.ButtonStyle.secondary, emoji="🏭", row=1, custom_id="admin_shop:wholesale_stock")
     async def wholesale_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -892,7 +935,28 @@ async def _seed_ripperdoc_stores(cog, interaction: discord.Interaction):
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-async def _seed_gun_stores(cog, interaction: discord.Interaction):
+class _SeedGunStorePickerView(SafeView):
+    def __init__(self, cog, admin_id: int, options: list):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.admin_id = admin_id
+        select = discord.ui.Select(placeholder="Choose a store…", options=options, row=0)
+        select.callback = self._on_select
+        self.add_item(select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.admin_id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    async def _on_select(self, interaction: discord.Interaction):
+        choice = interaction.data["values"][0]
+        await interaction.response.defer(ephemeral=True)
+        await _seed_gun_stores(self.cog, interaction, target_store_id=choice)
+
+
+async def _seed_gun_stores(cog, interaction: discord.Interaction, *, target_store_id: str = "__all_empty__"):
     guns_cog = cog.bot.cogs.get("GunsShopCog")
     if not guns_cog:
         await send_ephemeral(interaction, "❌ Gun shop system unavailable.")
@@ -911,6 +975,8 @@ async def _seed_gun_stores(cog, interaction: discord.Interaction):
         await send_ephemeral(interaction, f"❌ Gun catalog only has {len(catalog)} live items — need at least 10 to seed stores.")
         return
 
+    all_empty = target_store_id == "__all_empty__"
+
     async with guns_cog.lock:
         state = await guns_cog._load_state()
         stores = state.get("stores", {})
@@ -920,16 +986,19 @@ async def _seed_gun_stores(cog, interaction: discord.Interaction):
             return
 
         seeded_summary: list[str] = []
-        now_iso = datetime.now(timezone.utc).isoformat()
 
         for store_id, store_info in stores.items():
+            if not all_empty and store_id != target_store_id:
+                continue
             owner_id = store_info.get("owner_id")
             if not owner_id:
                 continue
-            existing_lots = store_info.get("lots", [])
-            has_stock = any(int(l.get("qty_remaining", l.get("qty_available", 0))) > 0 for l in existing_lots)
-            if has_stock:
-                continue
+            if all_empty:
+                has_stock = any(int(l.get("qty_remaining", 0)) > 0 for l in store_info.get("lots", []))
+                if has_stock:
+                    continue
+
+            store_info["lots"] = []
 
             chosen = _pick_guns_by_restriction(catalog, 10)
             new_lots = []
@@ -948,7 +1017,7 @@ async def _seed_gun_stores(cog, interaction: discord.Interaction):
                     "weapon_type": gun.get("weapon_type", ""),
                     "gun_category": gun.get("gun_category", ""),
                     "unit_cost": cost,
-                    "qty_available": qty,
+                    "qty_remaining": qty,
                     "restriction": restriction,
                     "item_ids": item_ids,
                 })
@@ -958,7 +1027,7 @@ async def _seed_gun_stores(cog, interaction: discord.Interaction):
 
             if not new_lots:
                 continue
-            store_info.setdefault("lots", []).extend(new_lots)
+            store_info["lots"] = new_lots
 
             store_name = store_info.get("store_name") or f"Store {store_id}"
             items_list = ", ".join(gun_names)
@@ -972,8 +1041,9 @@ async def _seed_gun_stores(cog, interaction: discord.Interaction):
                         member = await guild.fetch_member(int(owner_id))
                     if member:
                         item_list_dm = "\n".join(f"• {n}" for n in gun_names)
+                        action = "restocked" if not all_empty else "stocked"
                         await member.send(
-                            f"🔫 **Your gun store has been stocked!**\n\n"
+                            f"🔫 **Your gun store has been {action}!**\n\n"
                             f"An admin seeded **{store_name}** with {len(new_lots)} starter guns:\n"
                             f"{item_list_dm}\n\n"
                             f"Head to your Gun Store Hub to check your inventory."
@@ -997,7 +1067,10 @@ async def _seed_gun_stores(cog, interaction: discord.Interaction):
         await guns_cog._save_state(state)
 
     if not seeded_summary:
-        await send_ephemeral(interaction, "✅ All gun stores already have inventory — nothing to seed.")
+        if all_empty:
+            await send_ephemeral(interaction, "✅ All gun stores already have inventory — nothing to seed.")
+        else:
+            await send_ephemeral(interaction, "❌ Could not find that store to seed.")
         return
 
     summary_text = "\n".join(seeded_summary)
@@ -1016,6 +1089,8 @@ async def _seed_gun_stores(cog, interaction: discord.Interaction):
         embed.add_field(name="Admin", value=f"{interaction.user.mention}", inline=False)
         embed.add_field(name="Stores Seeded", value=str(len(seeded_summary)), inline=True)
         embed.add_field(name="Items Per Store", value="10 types", inline=True)
+        mode = "specific store" if not all_empty else "all empty stores"
+        embed.add_field(name="Mode", value=mode, inline=True)
         embed.add_field(name="Details", value=summary_text[:1024], inline=False)
         embed.set_footer(text="NightCityBot Audit Log")
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())

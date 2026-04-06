@@ -250,7 +250,7 @@ All log sends are wrapped in try/except so failures never block the user action.
 
 ### Admin Shop — Seed Features
 - **Seed Ripperdoc Stores** — 💉 button in admin panel row 0. Seeds empty ripperdoc stores with random catalog items, DMs owners, records `ih_record_event` audit trail.
-- **Seed Gun Shops** — 🔫 button in admin panel row 1. Seeds empty gun stores with 10 random `gun_catalog` items (1–3 qty each, `status=live` only, ~70% basic / ~20% controlled / ~10% restricted via `_pick_guns_by_restriction`), skips stores with actual stock remaining (sold-out lots with qty=0 are treated as empty), DMs owners with summary, records `ih_record_event` for each item, posts audit embed to log channel. Lots use `qty_available` key to match the DB column name used by `wh_stores_replace_all`.
+- **Seed Gun Shops** — 🔫 button in admin panel row 1. Opens a dropdown listing all gun stores (with stock status shown). Selecting a specific store clears its existing stock and re-seeds with 10 fresh random guns. "All Empty Stores" option seeds only stores with no stock. Uses `status=live` catalog filter, ~70% basic / ~20% controlled / ~10% restricted via `_pick_guns_by_restriction`, 1–3 qty each. Store lots use `qty_remaining` key (matching gunstore_hub convention). DMs owners, records `ih_record_event`, posts audit embed.
 
 ### Admin Shop — Permission Overwrites Audit
 - **Perm Overwrites** — 🔐 button in admin panel row 4. Scans all server channels and reports total permission overwrite count, channels sorted by overwrite count (top 30 shown), with footer showing Discord's 500 overwrite limit for server templates.
