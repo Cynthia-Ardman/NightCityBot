@@ -2264,7 +2264,7 @@ async def wh_stores_get_all() -> dict[str, dict]:
                     "gun_name": ir["gun_name"],
                     "gun_level": ir["gun_level"],
                     "unit_cost": ir["unit_cost"],
-                    "qty_available": ir["qty"],
+                    "qty_remaining": ir["qty"],
                     "item_ids": list(ir["item_ids"] or []),
                     "restriction": ir["restriction"],
                     "weapon_type": ir["weapon_type"],
@@ -2319,6 +2319,9 @@ async def wh_stores_replace_all(stores: dict[str, dict]) -> bool:
                         for lot in store.get("lots", []):
                             if not isinstance(lot, dict):
                                 continue
+                            qty_val = lot.get("qty_remaining",
+                                        lot.get("qty_available",
+                                        lot.get("qty", 0)))
                             await conn.execute(
                                 """
                                 INSERT INTO store_inventory
@@ -2331,7 +2334,7 @@ async def wh_stores_replace_all(stores: dict[str, dict]) -> bool:
                                 str(lot.get("gun_name", "")),
                                 str(lot.get("gun_level", "")),
                                 int(lot.get("unit_cost", 0)),
-                                int(lot.get("qty_available", lot.get("qty", 0))),
+                                int(qty_val),
                                 list(lot.get("item_ids", [])),
                                 str(lot.get("restriction", "basic")),
                                 str(lot.get("weapon_type", "")),
