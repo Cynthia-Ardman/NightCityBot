@@ -19,6 +19,7 @@ from NightCityBot.utils import helpers
 from NightCityBot.utils.db import (
     pi_get_by_owner,
     ih_get_history,
+    ih_record_event,
     cw_catalog_get_all,
     cw_catalog_upsert_many,
     gun_catalog_get_all,
@@ -90,6 +91,15 @@ class AdminShopMenuView(SafeView):
             await send_ephemeral(interaction, "❌ Admin shop system unavailable.")
             return
         await _seed_ripperdoc_stores(cog, interaction)
+
+    @discord.ui.button(label="Seed Gun Shops", style=discord.ButtonStyle.success, emoji="🔫", row=1, custom_id="admin_shop:seed_gun_shops")
+    async def seed_gun_shops(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("AdminShop")
+        if not cog:
+            await send_ephemeral(interaction, "❌ Admin shop system unavailable.")
+            return
+        await _seed_gun_stores(cog, interaction)
 
     @discord.ui.button(label="Wholesale Stock", style=discord.ButtonStyle.secondary, emoji="🏭", row=1, custom_id="admin_shop:wholesale_stock")
     async def wholesale_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -755,6 +765,23 @@ async def _seed_ripperdoc_stores(cog, interaction: discord.Interaction):
             items_list = ", ".join(item_names)
             seeded_summary.append(f"**{store_name}** (owner <@{owner_id}>): {len(new_items)} items\n> {items_list}")
 
+            guild = interaction.guild
+            if guild:
+                try:
+                    member = guild.get_member(int(owner_id))
+                    if member is None:
+                        member = await guild.fetch_member(int(owner_id))
+                    if member:
+                        item_list_dm = "\n".join(f"• {n}" for n in item_names)
+                        await member.send(
+                            f"🌱 **Your ripperdoc store has been stocked!**\n\n"
+                            f"An admin seeded **{store_name}** with {len(new_items)} starter items:\n"
+                            f"{item_list_dm}\n\n"
+                            f"Head to your Ripperdoc Hub to check your inventory."
+                        )
+                except Exception:
+                    pass
+
             for seeded_item in new_items:
                 tx = {
                     "tx_id": str(uuid.uuid4()),
@@ -790,6 +817,131 @@ async def _seed_ripperdoc_stores(cog, interaction: discord.Interaction):
         embed.add_field(name="Admin", value=f"{interaction.user.mention}", inline=False)
         embed.add_field(name="Stores Seeded", value=str(len(seeded_summary)), inline=True)
         embed.add_field(name="Items Per Store", value="10", inline=True)
+        embed.add_field(name="Details", value=summary_text[:1024], inline=False)
+        embed.set_footer(text="NightCityBot Audit Log")
+        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+
+async def _seed_gun_stores(cog, interaction: discord.Interaction):
+    guns_cog = cog.bot.cogs.get("GunsShopCog")
+    if not guns_cog:
+        await send_ephemeral(interaction, "❌ Gun shop system unavailable.")
+        return
+
+    catalog = await gun_catalog_get_all()
+    if not catalog:
+        await send_ephemeral(interaction, "❌ Gun catalog is empty. Set a sheet and reload first.")
+        return
+
+    catalog = [g for g in catalog if g.get("gun_name")]
+    if len(catalog) < 10:
+        await send_ephemeral(interaction, f"❌ Gun catalog only has {len(catalog)} valid items — need at least 10 to seed stores.")
+        return
+
+    async with guns_cog.lock:
+        state = await guns_cog._load_state()
+        stores = state.get("stores", {})
+
+        if not stores:
+            await send_ephemeral(interaction, "❌ No gun stores are registered.")
+            return
+
+        seeded_summary: list[str] = []
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        for store_id, store_info in stores.items():
+            owner_id = store_info.get("owner_id")
+            if not owner_id:
+                continue
+            existing_lots = store_info.get("lots", [])
+            if existing_lots:
+                continue
+
+            chosen = random.sample(catalog, min(10, len(catalog)))
+            new_lots = []
+            gun_names = []
+            all_item_ids = []
+            for gun in chosen:
+                qty = random.randint(1, 3)
+                cost = gun.get("price", 0) or 0
+                restriction = gun.get("restriction", "basic")
+                lot_id = f"seed-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
+                item_ids = [str(uuid.uuid4()) for _ in range(qty)]
+                new_lots.append({
+                    "lot_id": lot_id,
+                    "gun_name": gun["gun_name"],
+                    "gun_level": gun.get("gun_level", "L"),
+                    "weapon_type": gun.get("weapon_type", ""),
+                    "gun_category": gun.get("gun_category", ""),
+                    "unit_cost": cost,
+                    "qty_remaining": qty,
+                    "restriction": restriction,
+                    "item_ids": item_ids,
+                })
+                r_tag = f" [{restriction}]" if restriction != "basic" else ""
+                gun_names.append(f"{gun['gun_name']}{r_tag} ×{qty}")
+                all_item_ids.extend([(iid, gun["gun_name"], gun.get("gun_level"), lot_id) for iid in item_ids])
+
+            if not new_lots:
+                continue
+            store_info.setdefault("lots", []).extend(new_lots)
+
+            store_name = store_info.get("store_name") or f"Store {store_id}"
+            items_list = ", ".join(gun_names)
+            seeded_summary.append(f"**{store_name}** (owner <@{owner_id}>): {len(new_lots)} gun types\n> {items_list}")
+
+            guild = interaction.guild
+            if guild:
+                try:
+                    member = guild.get_member(int(owner_id))
+                    if member is None:
+                        member = await guild.fetch_member(int(owner_id))
+                    if member:
+                        item_list_dm = "\n".join(f"• {n}" for n in gun_names)
+                        await member.send(
+                            f"🔫 **Your gun store has been stocked!**\n\n"
+                            f"An admin seeded **{store_name}** with {len(new_lots)} starter guns:\n"
+                            f"{item_list_dm}\n\n"
+                            f"Head to your Gun Store Hub to check your inventory."
+                        )
+                except Exception:
+                    pass
+
+            for item_id, gun_name, gun_level, lot_id in all_item_ids:
+                await ih_record_event(
+                    item_id, "admin_seed",
+                    actor_id=str(interaction.user.id),
+                    price=0,
+                    metadata={
+                        "gun_name": gun_name,
+                        "gun_level": gun_level,
+                        "lot_id": lot_id,
+                        "store_id": store_id,
+                    },
+                )
+
+        await guns_cog._save_state(state)
+
+    if not seeded_summary:
+        await send_ephemeral(interaction, "✅ All gun stores already have inventory — nothing to seed.")
+        return
+
+    summary_text = "\n".join(seeded_summary)
+    msg = f"🔫 **Seeded {len(seeded_summary)} gun store(s):**\n{summary_text}"
+    if len(msg) > 1900:
+        msg = msg[:1900] + "\n…(truncated)"
+    await send_ephemeral(interaction, msg)
+
+    log_ch = await cog._audit_channel()
+    if log_ch:
+        embed = discord.Embed(
+            title="🔫 Admin: Gun Stores Seeded",
+            color=discord.Color.dark_gold(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        embed.add_field(name="Admin", value=f"{interaction.user.mention}", inline=False)
+        embed.add_field(name="Stores Seeded", value=str(len(seeded_summary)), inline=True)
+        embed.add_field(name="Items Per Store", value="10 types", inline=True)
         embed.add_field(name="Details", value=summary_text[:1024], inline=False)
         embed.set_footer(text="NightCityBot Audit Log")
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
@@ -927,6 +1079,11 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
         embed.add_field(
             name="📦 Player Inventory",
             value="Browse any player's current inventory by selecting their name.",
+            inline=False,
+        )
+        embed.add_field(
+            name="🌱 Seed Ripperdoc Stores / 🔫 Seed Gun Shops",
+            value="Fill empty stores with 10 random starter items from the catalog. Stores that already have stock are skipped. Owners receive a DM notification.",
             inline=False,
         )
         embed.add_field(
