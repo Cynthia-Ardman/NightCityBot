@@ -500,7 +500,7 @@ class WholesaleBuySelect(SafeView):
         log_ch = await self.cog._log_channel()
         if log_ch:
             embed = discord.Embed(
-                title="🛒 CW Wholesale Purchase",
+                title="🛒 Cyberware Wholesale Purchase",
                 color=discord.Color.teal(),
                 timestamp=datetime.now(timezone.utc),
             )

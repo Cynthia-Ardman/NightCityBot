@@ -127,13 +127,13 @@ class AdminShopMenuView(SafeView):
             cw_lots = state.get("cw_wholesale_lots", [])
             available = [l for l in cw_lots if int(l.get("qty_available", 0)) > 0]
             if available:
-                lines.append("\n**💉 CW Wholesale:**")
+                lines.append("\n**💉 Cyberware Wholesale:**")
                 for i, lot in enumerate(available[:15], 1):
                     lines.append(
                         f"`{i}.` **{lot['item_name']}** — ${int(lot['unit_cost']):,} × {lot['qty_available']}"
                     )
             else:
-                lines.append("**💉 CW Wholesale:** Empty")
+                lines.append("**💉 Cyberware Wholesale:** Empty")
         if not lines:
             await send_ephemeral(interaction, "No wholesale systems available.")
             return
@@ -174,15 +174,15 @@ class AdminShopMenuView(SafeView):
             "⚠️ This will clear **all** gun wholesale lots. Are you sure?",
             view=confirm_view)
 
-    @discord.ui.button(label="Restock CW Wholesale", style=discord.ButtonStyle.primary, emoji="💉", row=3, custom_id="admin_shop:restock_cw")
+    @discord.ui.button(label="Restock Cyberware WH", style=discord.ButtonStyle.primary, emoji="💉", row=3, custom_id="admin_shop:restock_cw")
     async def restock_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("AdminShop")
         catalog = await cw_catalog_get_all()
         if not catalog:
-            await respond_ephemeral(interaction, "❌ CW catalog is empty. Set a sheet and reload first.")
+            await respond_ephemeral(interaction, "❌ Cyberware catalog is empty. Set a sheet and reload first.")
             return
         await respond_ephemeral(interaction, 
-            f"📦 **CW catalog has {len(catalog)} items.**\n"
+            f"📦 **Cyberware catalog has {len(catalog)} items.**\n"
             f"How many unique items to stock, and max qty per item?\n"
             f"**Enter:** `total_items, max_qty`\n"
             f"Example: `5, 3` — stocks 5 random items, up to 3 each\n"
@@ -193,7 +193,7 @@ class AdminShopMenuView(SafeView):
             return
         await _inline_restock_cw(cog, interaction, text, catalog)
 
-    @discord.ui.button(label="Clear CW Wholesale", style=discord.ButtonStyle.danger, emoji="🧹", row=3, custom_id="admin_shop:clear_cw_wholesale")
+    @discord.ui.button(label="Clear Cyberware WH", style=discord.ButtonStyle.danger, emoji="🧹", row=3, custom_id="admin_shop:clear_cw_wholesale")
     async def clear_cw_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("AdminShop")
@@ -248,7 +248,7 @@ class AdminShopMenuView(SafeView):
                 except Exception:
                     pass
 
-    @discord.ui.button(label="Set CW Sheet", style=discord.ButtonStyle.secondary, emoji="💉", row=4, custom_id="admin_shop:set_cw_sheet")
+    @discord.ui.button(label="Set Cyberware Sheet", style=discord.ButtonStyle.secondary, emoji="💉", row=4, custom_id="admin_shop:set_cw_sheet")
     async def set_cw_sheet(self, interaction: discord.Interaction, button: discord.ui.Button):
         logger.info("set_cw_sheet: clicked by %s", interaction.user.id)
         cw_cog = interaction.client.get_cog("CyberwareShop")
@@ -289,7 +289,7 @@ class AdminShopMenuView(SafeView):
                     if log_ch:
                         try:
                             await log_ch.send(
-                                f"💉 **Admin: CW Sheet URL Updated** — {interaction.user.display_name} ({interaction.user.id}) "
+                                f"💉 **Admin: Cyberware Sheet URL Updated** — {interaction.user.display_name} ({interaction.user.id}) "
                                 f"set cyberware catalog URL."
                             )
                         except Exception:
@@ -322,17 +322,17 @@ class AdminShopMenuView(SafeView):
                 cw_state = await cw_cog._load_state()
                 sheet_url = str(cw_state.get("sheet_url", "")).strip()
                 if not sheet_url:
-                    results.append("💉 CW catalog — no sheet URL configured")
+                    results.append("💉 Cyberware catalog — no sheet URL configured")
                 else:
                     await download_sheet(sheet_url, cw_cog.sheet_cache_path)
                     items = parse_cyberware_sheet(cw_cog.sheet_cache_path)
                     if items:
                         await cw_catalog_upsert_many(items)
                         await cw_cog._save_catalog(items)
-                    results.append(f"💉 CW catalog reloaded — **{len(items)}** item(s)")
+                    results.append(f"💉 Cyberware catalog reloaded — **{len(items)}** item(s)")
             except Exception as e:
                 logger.warning("CW sheet reload failed", exc_info=True)
-                results.append(f"💉 CW catalog reload failed: {e}")
+                results.append(f"💉 Cyberware catalog reload failed: {e}")
         else:
             results.append("💉 Cyberware system unavailable")
         await send_ephemeral(interaction, "\n".join(results))
@@ -759,12 +759,12 @@ async def _inline_restock_cw(cog, interaction, text, catalog):
         await cw_cog._save_state(state)
     summary = "\n".join(stocked)
     await interaction.edit_original_response(
-        content=f"✅ Restocked **{len(stocked)}** CW items:\n{summary}",
+        content=f"✅ Restocked **{len(stocked)}** cyberware items:\n{summary}",
     )
     log_ch = await cog._audit_channel()
     if log_ch:
         embed = discord.Embed(
-            title="📥 Admin: CW Wholesale Restocked",
+            title="📥 Admin: Cyberware Wholesale Restocked",
             color=discord.Color.teal(),
             timestamp=datetime.now(timezone.utc),
         )
@@ -784,12 +784,12 @@ async def _seed_ripperdoc_stores(cog, interaction: discord.Interaction):
 
     catalog = await cw_catalog_get_all()
     if not catalog:
-        await send_ephemeral(interaction, "❌ CW catalog is empty. Set a sheet and reload first.")
+        await send_ephemeral(interaction, "❌ Cyberware catalog is empty. Set a sheet and reload first.")
         return
 
     catalog = [item for item in catalog if item.get("name")]
     if len(catalog) < 10:
-        await send_ephemeral(interaction, f"❌ CW catalog only has {len(catalog)} valid items — need at least 10 to seed stores.")
+        await send_ephemeral(interaction, f"❌ Cyberware catalog only has {len(catalog)} valid items — need at least 10 to seed stores.")
         return
 
     async with cw_cog.lock:
@@ -1049,7 +1049,7 @@ class WholesaleClearConfirmView(SafeView):
                 state = await cw_cog._load_state()
                 state["cw_wholesale_lots"] = []
                 await cw_cog._save_state(state)
-            label = "CW"
+            label = "Cyberware"
         else:
             guns_cog = self.cog.bot.cogs.get("GunsShopCog")
             if not guns_cog:
@@ -1124,12 +1124,12 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
                 "Choose an admin action below.\n\n"
                 "**Item History** — Browse a player/store item's audit trail\n"
                 "**Player Inventory** — Browse a player's items\n"
-                "**Wholesale Stock** — View gun + CW wholesale inventory\n"
+                "**Wholesale Stock** — View gun + cyberware wholesale inventory\n"
                 "**Restock Wholesale** — Add guns to wholesale\n"
                 "**Clear Gun WH** — Remove all gun wholesale lots\n"
-                "**Restock CW** — Stock random CW from catalog\n"
-                "**Clear CW WH** — Remove all CW wholesale lots\n"
-                "**Set Gun/CW Sheet** — Set Google Sheet URL for catalogs\n"
+                "**Restock Cyberware** — Stock random cyberware from catalog\n"
+                "**Clear Cyberware WH** — Remove all cyberware wholesale lots\n"
+                "**Set Gun/Cyberware Sheet** — Set Google Sheet URL for catalogs\n"
                 "**Reload Sheets** — Re-download and refresh both catalogs"
             ),
             color=discord.Color.orange(),
@@ -1166,17 +1166,17 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
             inline=False,
         )
         embed.add_field(
-            name="📥 Restock Gun / 💉 Restock CW Wholesale",
+            name="📥 Restock Gun / 💉 Restock Cyberware Wholesale",
             value="Randomly populate the wholesale market with new lots pulled from the master catalogs (Google Sheets).",
             inline=False,
         )
         embed.add_field(
-            name="🗑️ Clear Gun / 🧹 Clear CW Wholesale",
+            name="🗑️ Clear Gun / 🧹 Clear Cyberware Wholesale",
             value="Wipe all current wholesale lots. Useful before a fresh restock.",
             inline=False,
         )
         embed.add_field(
-            name="🔫 Set Gun Sheet / 💉 Set CW Sheet",
+            name="🔫 Set Gun Sheet / 💉 Set Cyberware Sheet",
             value="Update the Google Sheets URL that the bot reads gun or cyberware catalogs from.",
             inline=False,
         )

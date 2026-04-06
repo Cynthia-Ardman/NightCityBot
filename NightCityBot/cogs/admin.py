@@ -347,9 +347,9 @@ class Admin(commands.Cog):
                 "\n".join([
                     "`!checkup @user` – remove the checkup role after an exam (also on ripperdoc panel).",
                     "`!weeks_without_checkup @user` – weeks since last checkup.",
-                    "`!give_checkup_role` – assign the checkup role to all CW users.",
-                    "`!checkup_report` – list checkup/meds status for all CW users.",
-                    "`!cyberware_status` – current week status for all CW users.",
+                    "`!give_checkup_role` – assign the checkup role to all cyberware users.",
+                    "`!checkup_report` – list checkup/meds status for all cyberware users.",
+                    "`!cyberware_status` – current week status for all cyberware users.",
                     "`!collect_cyberware` – collect cyberware medication fees.",
                     "`!manual_cyberware_log` – manually log a cyberware transaction.",
                 ]),

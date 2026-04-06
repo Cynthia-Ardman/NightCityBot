@@ -792,11 +792,11 @@ async def _process_wh_add_cw(cog, interaction, text, msg=None):
             "qty_available": qty,
         })
         await cw_cog._save_state(state)
-    await _reply(f"Added CW **{item_name}** ×{qty} at ${cost:,} (CWP:{cwp}, {slot_raw}) to wholesale.")
+    await _reply(f"Added cyberware **{item_name}** ×{qty} at ${cost:,} (CWP:{cwp}, {slot_raw}) to wholesale.")
     log_ch = await _audit_channel(cog.bot)
     if log_ch:
         embed = discord.Embed(
-            title="📥 Fixer: CW Wholesale Restocked",
+            title="📥 Fixer: Cyberware Wholesale Restocked",
             color=discord.Color.teal(),
             timestamp=datetime.now(timezone.utc),
         )
@@ -905,7 +905,7 @@ async def _process_wh_remove_lot(cog, interaction, lot_id, remove_qty=None):
                 lot["qty_available"] = available - removed
             await cw_cog._save_state(state)
 
-    label = "Gun" if found_in == "gun" else "CW"
+    label = "Gun" if found_in == "gun" else "Cyberware"
     await send_ephemeral(interaction, 
         content=f"Removed **{item_name}** ×{removed} from {label} wholesale.")
     log_ch = await _audit_channel(cog.bot)
@@ -1616,7 +1616,7 @@ class WHRemoveCWPickerView(SafeView):
         self.cog = cog
         self.ctx = ctx
         select = discord.ui.Select(
-            placeholder="Choose a CW lot to remove…",
+            placeholder="Choose a cyberware lot to remove…",
             options=options,
             row=0,
         )
@@ -2442,7 +2442,7 @@ async def _process_store_add_cw(cog, interaction, owner, text):
     if log_ch:
         try:
             await log_ch.send(
-                f"📥 **Fixer: Store CW Added** — {interaction.user.display_name} added "
+                f"📥 **Fixer: Store Cyberware Added** — {interaction.user.display_name} added "
                 f"**{item_name}** ×{qty} at ${cost:,} (CWP:{cwp}, {slot_raw}) to {owner.display_name}'s Ripperdoc store."
             )
         except Exception:
@@ -2506,7 +2506,7 @@ async def _process_store_remove_cw(cog, interaction, owner, item_id):
     if log_ch:
         try:
             await log_ch.send(
-                f"🗑️ **Fixer: Store CW Removed** — {interaction.user.display_name} removed "
+                f"🗑️ **Fixer: Store Cyberware Removed** — {interaction.user.display_name} removed "
                 f"**{item_name}** from {owner.display_name}'s Ripperdoc store."
             )
         except Exception:
