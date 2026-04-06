@@ -248,12 +248,12 @@ All 23 panel actions across all hubs send audit log messages to the appropriate 
 
 All log sends are wrapped in try/except so failures never block the user action.
 
-### Admin Shop — Create Store
-- **Create Store** — 🏪 button in admin panel row 2. Lets admins create a gun store or ripperdoc store for any server member. Flow: pick Gun/Ripperdoc → pick owner via user select → type store name. Creates the store in the appropriate cog state, assigns the owner role (GUN_STORE_OWNER_ROLE_ID or RIPPERDOC_OWNER_ROLE_ID), DMs the owner, and posts audit log. Blocks if the user already owns a store of that type.
-
-### Admin Shop — Seed Features
-- **Seed Ripperdoc Stores** — 💉 button in admin panel row 0. Seeds empty ripperdoc stores with random catalog items, DMs owners, records `ih_record_event` audit trail.
-- **Seed Gun Shops** — 🔫 button in admin panel row 1. Opens a dropdown listing all gun stores (with stock status shown). Selecting a specific store clears its existing stock and re-seeds with 10 fresh random guns. "All Empty Stores" option seeds only stores with no stock. Uses `status=live` catalog filter, ~70% basic / ~20% controlled / ~10% restricted via `_pick_guns_by_restriction`, 1–3 qty each. Store lots use `qty_remaining` key (matching gunstore_hub convention). DMs owners, records `ih_record_event`, posts audit embed. DB layer (`wh_stores_replace_all`) accepts both `qty_remaining` and `qty_available` for the qty column; `wh_stores_get_all` returns `qty_remaining` for store lots.
+### Admin Shop — Manage Stores
+- **Manage Stores** — 🏪 button in admin panel row 1. Consolidated hub for all store management. Flow: pick Gun/Ripperdoc type → management menu with:
+  - **Create Store** — Pick owner via user select → type store name. Creates store in cog state, assigns owner role, posts audit log. Black market owners auto-detected via `config.BLACK_MARKET_OWNER_IDS`.
+  - **Seed Stores** — Gun: dropdown picker to seed specific or all empty stores. Ripperdoc: seeds all empty stores automatically. Uses `status=live` catalog filter, records `ih_record_event`, posts audit embed.
+  - **Manage Employees** — Pick a store → Add Employee (user select, grants role), Remove Employee (dropdown of current employees, removes role if not employed elsewhere), View Employees (list). 25-employee limit enforced.
+  - **Change Store Name** — Pick a store → enter new name. Posts audit log with old/new name.
 
 ### Admin Shop — Permission Overwrites Audit
 - **Perm Overwrites** — 🔐 button in admin panel row 4. Scans all server channels and reports total permission overwrite count, channels sorted by overwrite count (top 30 shown), with footer showing Discord's 500 overwrite limit for server templates.

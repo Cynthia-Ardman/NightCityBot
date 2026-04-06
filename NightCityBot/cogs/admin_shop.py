@@ -84,66 +84,11 @@ class AdminShopMenuView(SafeView):
         view = PlayerInvPickerView(cog, ctx)
         await send_ephemeral(interaction, "Select a player to view their inventory:", view=view)
 
-    @discord.ui.button(label="Seed Ripperdoc Stores", style=discord.ButtonStyle.success, emoji="🌱", row=1, custom_id="admin_shop:seed_ripperdoc")
-    async def seed_ripperdoc(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Manage Stores", style=discord.ButtonStyle.success, emoji="🏪", row=1, custom_id="admin_shop:manage_stores")
+    async def manage_stores(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        cog = interaction.client.get_cog("AdminShop")
-        if not cog:
-            await send_ephemeral(interaction, "❌ Admin shop system unavailable.")
-            return
-        await _seed_ripperdoc_stores(cog, interaction)
-
-    @discord.ui.button(label="Seed Gun Shops", style=discord.ButtonStyle.success, emoji="🔫", row=1, custom_id="admin_shop:seed_gun_shops")
-    async def seed_gun_shops(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        cog = interaction.client.get_cog("AdminShop")
-        if not cog:
-            await send_ephemeral(interaction, "❌ Admin shop system unavailable.")
-            return
-        guns_cog = interaction.client.get_cog("GunsShopCog")
-        if not guns_cog:
-            await send_ephemeral(interaction, "❌ Gun shop system unavailable.")
-            return
-        state = await guns_cog._load_state()
-        stores = state.get("stores", {})
-        if not stores:
-            await send_ephemeral(interaction, "❌ No gun stores are registered.")
-            return
-        guild = interaction.guild
-        options = []
-        for store_id, store_info in stores.items():
-            owner_id = store_info.get("owner_id")
-            if not owner_id:
-                continue
-            store_name = store_info.get("store_name") or f"Store {store_id}"
-            owner_name = ""
-            if guild:
-                try:
-                    m = guild.get_member(int(owner_id))
-                    if m:
-                        owner_name = m.display_name
-                except (ValueError, TypeError):
-                    pass
-            has_stock = any(int(l.get("qty_remaining", 0)) > 0 for l in store_info.get("lots", []))
-            status = "📦 Has stock" if has_stock else "🔲 Empty"
-            options.append(discord.SelectOption(
-                label=store_name[:100],
-                value=store_id,
-                description=f"{owner_name} — {status}"[:100] if owner_name else status,
-            ))
-            if len(options) >= 24:
-                break
-        if not options:
-            await send_ephemeral(interaction, "❌ No gun stores found.")
-            return
-        options.insert(0, discord.SelectOption(
-            label="All Empty Stores",
-            value="__all_empty__",
-            description="Seed only stores with no stock",
-            emoji="📋",
-        ))
-        view = _SeedGunStorePickerView(cog, interaction.user.id, options)
-        await send_ephemeral(interaction, "🔫 **Seed Gun Stores** — Pick a store to seed (replaces existing stock):", view=view)
+        view = _ManageStoresTypeView(interaction.user.id)
+        await send_ephemeral(interaction, "🏪 **Manage Stores** — Which type?", view=view)
 
     @discord.ui.button(label="Wholesale Stock", style=discord.ButtonStyle.secondary, emoji="🏭", row=1, custom_id="admin_shop:wholesale_stock")
     async def wholesale_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -216,12 +161,6 @@ class AdminShopMenuView(SafeView):
         await send_ephemeral(interaction, 
             "⚠️ This will clear **all** gun wholesale lots. Are you sure?",
             view=confirm_view)
-
-    @discord.ui.button(label="Create Store", style=discord.ButtonStyle.success, emoji="🏪", row=2, custom_id="admin_shop:create_store")
-    async def create_store(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        view = _CreateStoreTypeView(interaction.user.id)
-        await send_ephemeral(interaction, "🏪 **Create Store** — What type of store?", view=view)
 
     @discord.ui.button(label="Restock Cyberware WH", style=discord.ButtonStyle.primary, emoji="💉", row=3, custom_id="admin_shop:restock_cw")
     async def restock_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -924,7 +863,7 @@ async def _seed_ripperdoc_stores(cog, interaction: discord.Interaction):
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-class _CreateStoreTypeView(SafeView):
+class _ManageStoresTypeView(SafeView):
     def __init__(self, admin_id: int):
         super().__init__(timeout=300)
         self.admin_id = admin_id
@@ -935,20 +874,554 @@ class _CreateStoreTypeView(SafeView):
             return False
         return True
 
-    @discord.ui.button(label="Gun Store", style=discord.ButtonStyle.primary, emoji="🔫", row=0)
-    async def gun_store(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Gun Stores", style=discord.ButtonStyle.primary, emoji="🔫", row=0)
+    async def gun_stores(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        view = _CreateStoreOwnerSelect(self.admin_id, store_type="gun")
-        await send_ephemeral(interaction, "🔫 **Create Gun Store** — Select the owner:", view=view)
+        view = _StoreManagementMenuView(self.admin_id, store_type="gun")
+        await send_ephemeral(interaction, "🔫 **Gun Store Management**", view=view)
 
-    @discord.ui.button(label="Ripperdoc Store", style=discord.ButtonStyle.primary, emoji="💉", row=0)
-    async def ripperdoc_store(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Ripperdoc Stores", style=discord.ButtonStyle.primary, emoji="💉", row=0)
+    async def ripperdoc_stores(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        view = _CreateStoreOwnerSelect(self.admin_id, store_type="ripperdoc")
-        await send_ephemeral(interaction, "💉 **Create Ripperdoc Store** — Select the owner:", view=view)
+        view = _StoreManagementMenuView(self.admin_id, store_type="ripperdoc")
+        await send_ephemeral(interaction, "💉 **Ripperdoc Store Management**", view=view)
 
 
-class _CreateStoreOwnerSelect(SafeView):
+class _StoreManagementMenuView(SafeView):
+    def __init__(self, admin_id: int, store_type: str):
+        super().__init__(timeout=300)
+        self.admin_id = admin_id
+        self.store_type = store_type
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.admin_id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.button(label="Create Store", style=discord.ButtonStyle.success, emoji="➕", row=0)
+    async def create_store(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        view = _AdminCreateStoreOwnerSelect(self.admin_id, self.store_type)
+        emoji = "🔫" if self.store_type == "gun" else "💉"
+        label = "Gun" if self.store_type == "gun" else "Ripperdoc"
+        await send_ephemeral(interaction, f"{emoji} **Create {label} Store** — Select the owner:", view=view)
+
+    @discord.ui.button(label="Seed Stores", style=discord.ButtonStyle.primary, emoji="🌱", row=0)
+    async def seed_stores(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("AdminShop")
+        if not cog:
+            await send_ephemeral(interaction, "❌ Admin shop system unavailable.")
+            return
+        if self.store_type == "gun":
+            guns_cog = interaction.client.get_cog("GunsShopCog")
+            if not guns_cog:
+                await send_ephemeral(interaction, "❌ Gun shop system unavailable.")
+                return
+            state = await guns_cog._load_state()
+            stores = state.get("stores", {})
+            if not stores:
+                await send_ephemeral(interaction, "❌ No gun stores are registered.")
+                return
+            guild = interaction.guild
+            options = []
+            for store_id, store_info in stores.items():
+                owner_id = store_info.get("owner_id")
+                if not owner_id:
+                    continue
+                store_name = store_info.get("store_name") or f"Store {store_id}"
+                owner_name = ""
+                if guild:
+                    try:
+                        m = guild.get_member(int(owner_id))
+                        if m:
+                            owner_name = m.display_name
+                    except (ValueError, TypeError):
+                        pass
+                has_stock = any(int(l.get("qty_remaining", 0)) > 0 for l in store_info.get("lots", []))
+                status = "📦 Has stock" if has_stock else "🔲 Empty"
+                options.append(discord.SelectOption(
+                    label=store_name[:100],
+                    value=store_id,
+                    description=f"{owner_name} — {status}"[:100] if owner_name else status,
+                ))
+                if len(options) >= 24:
+                    break
+            if not options:
+                await send_ephemeral(interaction, "❌ No gun stores found.")
+                return
+            options.insert(0, discord.SelectOption(
+                label="All Empty Stores",
+                value="__all_empty__",
+                description="Seed only stores with no stock",
+                emoji="📋",
+            ))
+            view = _SeedGunStorePickerView(cog, self.admin_id, options)
+            await send_ephemeral(interaction, "🔫 **Seed Gun Stores** — Pick a store to seed (replaces existing stock):", view=view)
+        else:
+            await _seed_ripperdoc_stores(cog, interaction)
+
+    @discord.ui.button(label="Manage Employees", style=discord.ButtonStyle.secondary, emoji="👥", row=1)
+    async def manage_employees(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        options = await _build_store_options(interaction, self.store_type)
+        if not options:
+            await send_ephemeral(interaction, "❌ No stores found.")
+            return
+        view = _AdminStorePickerView(self.admin_id, options, action="employees", store_type=self.store_type)
+        emoji = "🔫" if self.store_type == "gun" else "💉"
+        await send_ephemeral(interaction, f"{emoji} **Manage Employees** — Select a store:", view=view)
+
+    @discord.ui.button(label="Change Store Name", style=discord.ButtonStyle.secondary, emoji="✏️", row=1)
+    async def change_name(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        options = await _build_store_options(interaction, self.store_type)
+        if not options:
+            await send_ephemeral(interaction, "❌ No stores found.")
+            return
+        view = _AdminStorePickerView(self.admin_id, options, action="rename", store_type=self.store_type)
+        emoji = "🔫" if self.store_type == "gun" else "💉"
+        await send_ephemeral(interaction, f"{emoji} **Change Store Name** — Select a store:", view=view)
+
+
+async def _build_store_options(interaction: discord.Interaction, store_type: str) -> list:
+    guild = interaction.guild
+    options = []
+    if store_type == "gun":
+        guns_cog = interaction.client.get_cog("GunsShopCog")
+        if not guns_cog:
+            return []
+        state = await guns_cog._load_state()
+        stores = state.get("stores", {})
+        for store_id, store_info in stores.items():
+            owner_id = store_info.get("owner_id")
+            if not owner_id:
+                continue
+            store_name = store_info.get("store_name") or f"Store {store_id}"
+            owner_name = ""
+            if guild:
+                try:
+                    m = guild.get_member(int(owner_id))
+                    if m:
+                        owner_name = m.display_name
+                except (ValueError, TypeError):
+                    pass
+            emp_count = len(store_info.get("employees", []))
+            desc = f"{owner_name} — {emp_count} employee(s)" if owner_name else f"{emp_count} employee(s)"
+            options.append(discord.SelectOption(
+                label=store_name[:100],
+                value=store_id,
+                description=desc[:100],
+            ))
+            if len(options) >= 25:
+                break
+    else:
+        cw_cog = interaction.client.get_cog("CyberwareShop")
+        if not cw_cog:
+            return []
+        state = await cw_cog._load_state()
+        stores = state.get("ripperdoc_stores", {})
+        for store_id, store_info in stores.items():
+            owner_id = store_info.get("owner_id")
+            if not owner_id:
+                continue
+            store_name = store_info.get("store_name") or f"Store {store_id}"
+            owner_name = ""
+            if guild:
+                try:
+                    m = guild.get_member(int(owner_id))
+                    if m:
+                        owner_name = m.display_name
+                except (ValueError, TypeError):
+                    pass
+            emp_count = len(store_info.get("employees", []))
+            desc = f"{owner_name} — {emp_count} employee(s)" if owner_name else f"{emp_count} employee(s)"
+            options.append(discord.SelectOption(
+                label=store_name[:100],
+                value=store_id,
+                description=desc[:100],
+            ))
+            if len(options) >= 25:
+                break
+    return options
+
+
+class _AdminStorePickerView(SafeView):
+    def __init__(self, admin_id: int, options: list, action: str, store_type: str):
+        super().__init__(timeout=300)
+        self.admin_id = admin_id
+        self.action = action
+        self.store_type = store_type
+        select = discord.ui.Select(placeholder="Choose a store…", options=options, row=0)
+        select.callback = self._on_select
+        self.add_item(select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.admin_id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    async def _on_select(self, interaction: discord.Interaction):
+        store_id = interaction.data["values"][0]
+        await interaction.response.defer(ephemeral=True)
+        if self.action == "employees":
+            view = _AdminEmployeeActionView(self.admin_id, store_id, self.store_type)
+            await send_ephemeral(interaction, "👥 **Manage Employees** — What would you like to do?", view=view)
+        elif self.action == "rename":
+            await _admin_rename_store(interaction, store_id, self.store_type)
+
+
+class _AdminEmployeeActionView(SafeView):
+    def __init__(self, admin_id: int, store_id: str, store_type: str):
+        super().__init__(timeout=300)
+        self.admin_id = admin_id
+        self.store_id = store_id
+        self.store_type = store_type
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.admin_id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.button(label="Add Employee", style=discord.ButtonStyle.success, emoji="➕", row=0)
+    async def add_employee(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        view = _AdminAddEmployeeSelect(self.admin_id, self.store_id, self.store_type)
+        await send_ephemeral(interaction, "👤 **Add Employee** — Select a member:", view=view)
+
+    @discord.ui.button(label="Remove Employee", style=discord.ButtonStyle.danger, emoji="➖", row=0)
+    async def remove_employee(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        employees = await _get_store_employees(interaction, self.store_id, self.store_type)
+        if not employees:
+            await send_ephemeral(interaction, "This store has no employees.")
+            return
+        guild = interaction.guild
+        options = []
+        for emp_id in employees[:25]:
+            name = str(emp_id)
+            if guild:
+                m = guild.get_member(int(emp_id))
+                if m:
+                    name = m.display_name
+            options.append(discord.SelectOption(label=name[:100], value=str(emp_id)))
+        view = _AdminRemoveEmployeeSelect(self.admin_id, self.store_id, self.store_type, options)
+        await send_ephemeral(interaction, "👤 **Remove Employee** — Select who to remove:", view=view)
+
+    @discord.ui.button(label="View Employees", style=discord.ButtonStyle.secondary, emoji="📋", row=0)
+    async def view_employees(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        employees = await _get_store_employees(interaction, self.store_id, self.store_type)
+        if not employees:
+            await send_ephemeral(interaction, "This store has no employees.")
+            return
+        lines = [f"• <@{eid}>" for eid in employees]
+        await send_ephemeral(interaction,
+            f"👥 **Employees** ({len(employees)}):\n" + "\n".join(lines),
+            allowed_mentions=discord.AllowedMentions.none())
+
+
+async def _get_store_employees(interaction: discord.Interaction, store_id: str, store_type: str) -> list:
+    if store_type == "gun":
+        cog = interaction.client.get_cog("GunsShopCog")
+        if not cog:
+            return []
+        state = await cog._load_state()
+        store = state.get("stores", {}).get(store_id, {})
+        return store.get("employees", [])
+    else:
+        cog = interaction.client.get_cog("CyberwareShop")
+        if not cog:
+            return []
+        state = await cog._load_state()
+        store = state.get("ripperdoc_stores", {}).get(store_id, {})
+        return store.get("employees", [])
+
+
+class _AdminAddEmployeeSelect(SafeView):
+    def __init__(self, admin_id: int, store_id: str, store_type: str):
+        super().__init__(timeout=300)
+        self.admin_id = admin_id
+        self.store_id = store_id
+        self.store_type = store_type
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.admin_id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a member…", row=0)
+    async def member_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        member = select.values[0] if select.values else None
+        if not member:
+            await respond_ephemeral(interaction, "No member selected.")
+            return
+        guild = interaction.guild
+        if guild and not isinstance(member, discord.Member):
+            member = guild.get_member(member.id)
+        if not member or not isinstance(member, discord.Member):
+            await respond_ephemeral(interaction, "Could not resolve that member in this server.")
+            return
+        if member.bot:
+            await respond_ephemeral(interaction, "Cannot add a bot as an employee.")
+            return
+        await _admin_add_employee(interaction, self.store_id, self.store_type, member)
+
+
+class _AdminRemoveEmployeeSelect(SafeView):
+    def __init__(self, admin_id: int, store_id: str, store_type: str, options: list):
+        super().__init__(timeout=300)
+        self.admin_id = admin_id
+        self.store_id = store_id
+        self.store_type = store_type
+        select = discord.ui.Select(placeholder="Choose an employee…", options=options, row=0)
+        select.callback = self._on_select
+        self.add_item(select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.admin_id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    async def _on_select(self, interaction: discord.Interaction):
+        emp_id = int(interaction.data["values"][0])
+        await interaction.response.defer(ephemeral=True)
+        await _admin_remove_employee(interaction, self.store_id, self.store_type, emp_id)
+
+
+async def _admin_add_employee(interaction: discord.Interaction, store_id: str, store_type: str, member: discord.Member):
+    guild = interaction.guild
+    if not guild:
+        await send_ephemeral(interaction, "❌ Must be used in a server.")
+        return
+
+    if store_type == "gun":
+        cog = interaction.client.get_cog("GunsShopCog")
+        if not cog:
+            await send_ephemeral(interaction, "❌ Gun shop system unavailable.")
+            return
+        async with cog.lock:
+            state = await cog._load_state()
+            store = state.get("stores", {}).get(store_id)
+            if not store:
+                await send_ephemeral(interaction, "❌ Store not found.")
+                return
+            employees = store.setdefault("employees", [])
+            if member.id in employees:
+                await send_ephemeral(interaction, f"❌ {member.display_name} is already an employee.")
+                return
+            if len(employees) >= 25:
+                await send_ephemeral(interaction, "❌ Store has reached the 25-employee limit.")
+                return
+            employees.append(member.id)
+            await cog._save_state(state)
+        emp_role = guild.get_role(config.GUN_STORE_EMPLOYEE_ROLE_ID) if hasattr(config, "GUN_STORE_EMPLOYEE_ROLE_ID") and config.GUN_STORE_EMPLOYEE_ROLE_ID else None
+        store_name = store.get("store_name", store_id)
+    else:
+        cog = interaction.client.get_cog("CyberwareShop")
+        if not cog:
+            await send_ephemeral(interaction, "❌ Cyberware system unavailable.")
+            return
+        async with cog.lock:
+            state = await cog._load_state()
+            store = state.get("ripperdoc_stores", {}).get(store_id)
+            if not store:
+                await send_ephemeral(interaction, "❌ Store not found.")
+                return
+            employees = store.setdefault("employees", [])
+            if member.id in employees:
+                await send_ephemeral(interaction, f"❌ {member.display_name} is already an employee.")
+                return
+            if len(employees) >= 25:
+                await send_ephemeral(interaction, "❌ Store has reached the 25-employee limit.")
+                return
+            employees.append(member.id)
+            await cog._save_state(state)
+        emp_role = guild.get_role(config.RIPPERDOC_EMPLOYEE_ROLE_ID) if hasattr(config, "RIPPERDOC_EMPLOYEE_ROLE_ID") and config.RIPPERDOC_EMPLOYEE_ROLE_ID else None
+        store_name = store.get("store_name", store_id)
+
+    if emp_role:
+        try:
+            await member.add_roles(emp_role, reason=f"Admin added employee to {store_name}")
+        except Exception:
+            pass
+
+    await send_ephemeral(interaction, f"✅ Added **{member.display_name}** as an employee at **{store_name}**.")
+
+    admin_cog = interaction.client.get_cog("AdminShop")
+    if admin_cog:
+        log_ch = await admin_cog._audit_channel()
+        if log_ch:
+            embed = discord.Embed(
+                title="👥 Admin: Employee Added",
+                color=discord.Color.blue(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.add_field(name="Admin", value=interaction.user.mention, inline=True)
+            embed.add_field(name="Employee", value=member.mention, inline=True)
+            embed.add_field(name="Store", value=store_name, inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
+            try:
+                await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            except Exception:
+                pass
+
+
+async def _admin_remove_employee(interaction: discord.Interaction, store_id: str, store_type: str, emp_id: int):
+    guild = interaction.guild
+    if not guild:
+        await send_ephemeral(interaction, "❌ Must be used in a server.")
+        return
+
+    if store_type == "gun":
+        cog = interaction.client.get_cog("GunsShopCog")
+        if not cog:
+            await send_ephemeral(interaction, "❌ Gun shop system unavailable.")
+            return
+        async with cog.lock:
+            state = await cog._load_state()
+            store = state.get("stores", {}).get(store_id)
+            if not store:
+                await send_ephemeral(interaction, "❌ Store not found.")
+                return
+            employees = store.get("employees", [])
+            if emp_id not in employees:
+                await send_ephemeral(interaction, "❌ That user is not an employee.")
+                return
+            employees.remove(emp_id)
+            await cog._save_state(state)
+        emp_role = guild.get_role(config.GUN_STORE_EMPLOYEE_ROLE_ID) if hasattr(config, "GUN_STORE_EMPLOYEE_ROLE_ID") and config.GUN_STORE_EMPLOYEE_ROLE_ID else None
+        still_employed = any(emp_id in s.get("employees", []) for s in state.get("stores", {}).values())
+        store_name = store.get("store_name", store_id)
+    else:
+        cog = interaction.client.get_cog("CyberwareShop")
+        if not cog:
+            await send_ephemeral(interaction, "❌ Cyberware system unavailable.")
+            return
+        async with cog.lock:
+            state = await cog._load_state()
+            store = state.get("ripperdoc_stores", {}).get(store_id)
+            if not store:
+                await send_ephemeral(interaction, "❌ Store not found.")
+                return
+            employees = store.get("employees", [])
+            if emp_id not in employees:
+                await send_ephemeral(interaction, "❌ That user is not an employee.")
+                return
+            employees.remove(emp_id)
+            await cog._save_state(state)
+        emp_role = guild.get_role(config.RIPPERDOC_EMPLOYEE_ROLE_ID) if hasattr(config, "RIPPERDOC_EMPLOYEE_ROLE_ID") and config.RIPPERDOC_EMPLOYEE_ROLE_ID else None
+        still_employed = any(emp_id in s.get("employees", []) for sid, s in state.get("ripperdoc_stores", {}).items())
+        store_name = store.get("store_name", store_id)
+
+    if emp_role and not still_employed:
+        member = guild.get_member(emp_id)
+        if member:
+            try:
+                await member.remove_roles(emp_role, reason=f"Admin removed employee from {store_name}")
+            except Exception:
+                pass
+
+    member = guild.get_member(emp_id)
+    emp_display = member.display_name if member else str(emp_id)
+    await send_ephemeral(interaction, f"✅ Removed **{emp_display}** from **{store_name}**.")
+
+    admin_cog = interaction.client.get_cog("AdminShop")
+    if admin_cog:
+        log_ch = await admin_cog._audit_channel()
+        if log_ch:
+            embed = discord.Embed(
+                title="👥 Admin: Employee Removed",
+                color=discord.Color.red(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.add_field(name="Admin", value=interaction.user.mention, inline=True)
+            embed.add_field(name="Employee", value=f"<@{emp_id}>", inline=True)
+            embed.add_field(name="Store", value=store_name, inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
+            try:
+                await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            except Exception:
+                pass
+
+
+async def _admin_rename_store(interaction: discord.Interaction, store_id: str, store_type: str):
+    if store_type == "gun":
+        cog = interaction.client.get_cog("GunsShopCog")
+        if not cog:
+            await send_ephemeral(interaction, "❌ Gun shop system unavailable.")
+            return
+        state = await cog._load_state()
+        store = state.get("stores", {}).get(store_id, {})
+    else:
+        cog = interaction.client.get_cog("CyberwareShop")
+        if not cog:
+            await send_ephemeral(interaction, "❌ Cyberware system unavailable.")
+            return
+        state = await cog._load_state()
+        store = state.get("ripperdoc_stores", {}).get(store_id, {})
+
+    old_name = store.get("store_name", store_id)
+    await send_ephemeral(interaction,
+        f"✏️ Current name: **{old_name}**\n"
+        f"Enter a new name (or `cancel` to abort):")
+    text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
+    if text is None or text.strip().lower() == "cancel":
+        await interaction.edit_original_response(content="❌ Cancelled.", view=None)
+        return
+    new_name = text.strip()[:100]
+    if not new_name:
+        await interaction.edit_original_response(content="❌ Store name cannot be empty.", view=None)
+        return
+
+    if store_type == "gun":
+        async with cog.lock:
+            state = await cog._load_state()
+            s = state.get("stores", {}).get(store_id)
+            if not s:
+                await interaction.edit_original_response(content="❌ Store not found.", view=None)
+                return
+            s["store_name"] = new_name
+            await cog._save_state(state)
+    else:
+        async with cog.lock:
+            state = await cog._load_state()
+            s = state.get("ripperdoc_stores", {}).get(store_id)
+            if not s:
+                await interaction.edit_original_response(content="❌ Store not found.", view=None)
+                return
+            s["store_name"] = new_name
+            await cog._save_state(state)
+
+    await interaction.edit_original_response(
+        content=f"✅ Renamed **{old_name}** → **{new_name}**.",
+        view=None)
+
+    admin_cog = interaction.client.get_cog("AdminShop")
+    if admin_cog:
+        log_ch = await admin_cog._audit_channel()
+        if log_ch:
+            embed = discord.Embed(
+                title="✏️ Admin: Store Renamed",
+                color=discord.Color.gold(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            embed.add_field(name="Admin", value=interaction.user.mention, inline=True)
+            embed.add_field(name="Old Name", value=old_name, inline=True)
+            embed.add_field(name="New Name", value=new_name, inline=True)
+            embed.set_footer(text="NightCityBot Audit Log")
+            try:
+                await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            except Exception:
+                pass
+
+
+class _AdminCreateStoreOwnerSelect(SafeView):
     def __init__(self, admin_id: int, store_type: str):
         super().__init__(timeout=300)
         self.admin_id = admin_id
