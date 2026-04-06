@@ -924,7 +924,8 @@ async def _seed_gun_stores(cog, interaction: discord.Interaction):
             if not owner_id:
                 continue
             existing_lots = store_info.get("lots", [])
-            if existing_lots:
+            has_stock = any(int(l.get("qty_remaining", l.get("qty_available", 0))) > 0 for l in existing_lots)
+            if has_stock:
                 continue
 
             chosen = random.sample(catalog, min(10, len(catalog)))
