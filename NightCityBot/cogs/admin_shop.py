@@ -884,23 +884,6 @@ async def _seed_ripperdoc_stores(cog, interaction: discord.Interaction):
             items_list = ", ".join(item_names)
             seeded_summary.append(f"**{store_name}** (owner <@{owner_id}>): {len(new_items)} items\n> {items_list}")
 
-            guild = interaction.guild
-            if guild:
-                try:
-                    member = guild.get_member(int(owner_id))
-                    if member is None:
-                        member = await guild.fetch_member(int(owner_id))
-                    if member:
-                        item_list_dm = "\n".join(f"• {n}" for n in item_names)
-                        await member.send(
-                            f"🌱 **Your ripperdoc store has been stocked!**\n\n"
-                            f"An admin seeded **{store_name}** with {len(new_items)} starter items:\n"
-                            f"{item_list_dm}\n\n"
-                            f"Head to your Ripperdoc Hub to check your inventory."
-                        )
-                except Exception:
-                    pass
-
             for seeded_item in new_items:
                 tx = {
                     "tx_id": str(uuid.uuid4()),
@@ -1089,14 +1072,6 @@ async def _admin_create_store(interaction: discord.Interaction, owner: discord.M
         content=f"✅ Created **{store_name}** ({type_label}) for {owner.mention}.",
         view=None)
 
-    try:
-        await owner.send(
-            f"{emoji} **Your {type_label.lower()} has been created!**\n\n"
-            f"An admin set up **{store_name}** for you.\n"
-            f"Head to your {'Gun Store' if store_type == 'gun' else 'Ripperdoc'} Hub to manage it.")
-    except Exception:
-        pass
-
     cog = interaction.client.get_cog("AdminShop")
     if cog:
         log_ch = await cog._audit_channel()
@@ -1213,24 +1188,6 @@ async def _seed_gun_stores(cog, interaction: discord.Interaction, *, target_stor
             store_name = store_info.get("store_name") or f"Store {store_id}"
             items_list = ", ".join(gun_names)
             seeded_summary.append(f"**{store_name}** (owner <@{owner_id}>): {len(new_lots)} gun types\n> {items_list}")
-
-            guild = interaction.guild
-            if guild:
-                try:
-                    member = guild.get_member(int(owner_id))
-                    if member is None:
-                        member = await guild.fetch_member(int(owner_id))
-                    if member:
-                        item_list_dm = "\n".join(f"• {n}" for n in gun_names)
-                        action = "restocked" if not all_empty else "stocked"
-                        await member.send(
-                            f"🔫 **Your gun store has been {action}!**\n\n"
-                            f"An admin seeded **{store_name}** with {len(new_lots)} starter guns:\n"
-                            f"{item_list_dm}\n\n"
-                            f"Head to your Gun Store Hub to check your inventory."
-                        )
-                except Exception:
-                    pass
 
             for item_id, gun_name, gun_level, lot_id in all_item_ids:
                 await ih_record_event(
