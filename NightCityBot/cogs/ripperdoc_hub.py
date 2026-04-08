@@ -4,8 +4,6 @@ Consolidates the separate cw_* command set into a single interactive hub
 with Discord dropdowns, buttons, and inline component flows.
 """
 import logging
-import math
-import random
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -1500,8 +1498,7 @@ class _ManageRDStoreView(SafeView):
             "This will:\n"
             "• Remove all employees\n"
             "• Delete the store name\n"
-            "• Return a random 20% of cyberware inventory to wholesale at 75% of original price\n"
-            "• Delete the remaining inventory\n\n"
+            "• Clear all inventory\n\n"
             "**This action cannot be undone.**",
             view=view)
 
@@ -1667,20 +1664,8 @@ class _RDCloseConfirmView(SafeView):
                 return
             store_name = store.get("store_name") or "Ripperdoc Store"
             inventory = await cw_cog._load_inventory(self.ctx.author.id)
-            returned_items = []
+            cleared_count = len(inventory) if inventory else 0
             if inventory:
-                return_count = max(1, math.ceil(len(inventory) * 0.2))
-                to_return = random.sample(inventory, min(return_count, len(inventory)))
-                wh_lots = state.setdefault("cw_wholesale_lots", [])
-                for item in to_return:
-                    new_lot = {
-                        "lot_id": str(uuid.uuid4()),
-                        "item_name": item.get("name", "Unknown"),
-                        "unit_cost": int(int(item.get("price_paid", 0)) * 0.75),
-                        "qty_available": 1,
-                    }
-                    wh_lots.append(new_lot)
-                    returned_items.append(new_lot)
                 await cw_cog._save_inventory(self.ctx.author.id, [])
             await cw_cog._save_state(state)
 
@@ -1712,12 +1697,7 @@ class _RDCloseConfirmView(SafeView):
 
         summary = f"✅ **{store_name}** has been closed.\n"
         summary += f"• {len(employees)} employee(s) disassociated\n"
-        summary += f"• {len(inventory)} item(s) in store\n"
-        if returned_items:
-            returned_names = [f"**{l['item_name']}** @ ${l['unit_cost']:,}" for l in returned_items]
-            summary += f"• {len(returned_items)} item(s) returned to wholesale:\n  " + "\n  ".join(returned_names)
-        else:
-            summary += "• No items returned to wholesale"
+        summary += f"• {cleared_count} item(s) cleared from inventory"
         await send_ephemeral(interaction, summary)
 
         log_ch = await self.cog._log_channel()
@@ -1729,8 +1709,7 @@ class _RDCloseConfirmView(SafeView):
             )
             embed.add_field(name="Store", value=store_name, inline=False)
             embed.add_field(name="Owner", value=f"{self.ctx.author.mention}", inline=False)
-            embed.add_field(name="Items Returned", value=str(len(returned_items)), inline=True)
-            embed.add_field(name="Items Deleted", value=str(max(0, len(inventory) - len(returned_items))), inline=True)
+            embed.add_field(name="Items Cleared", value=str(cleared_count), inline=True)
             embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
         self.stop()

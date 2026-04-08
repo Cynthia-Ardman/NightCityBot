@@ -6,7 +6,6 @@ with Discord dropdowns, buttons, and inline component flows.
 import asyncio
 import logging
 import math
-import random
 import re
 import uuid
 from datetime import datetime, timezone
@@ -1817,8 +1816,7 @@ class _ManageGunStoreView(SafeView):
             "This will:\n"
             "• Remove all employees\n"
             "• Delete the store name\n"
-            "• Return a random 20% of inventory to wholesale at 75% of original price\n"
-            "• Delete the remaining inventory\n\n"
+            "• Clear all inventory\n\n"
             "**This action cannot be undone.**",
             view=view)
 
@@ -1978,22 +1976,6 @@ class _GunCloseConfirmView(SafeView):
                 return
             store_name = store.get("store_name") or "Gun Store"
             lots = [l for l in store.get("lots", []) if int(l.get("qty_remaining", 0)) > 0]
-            returned_lots = []
-            if lots:
-                return_count = max(1, math.ceil(len(lots) * 0.2))
-                to_return = random.sample(lots, min(return_count, len(lots)))
-                wh_lots = state.setdefault("wholesale_lots", [])
-                for lot in to_return:
-                    new_lot = {
-                        "lot_id": str(uuid.uuid4()),
-                        "gun_name": lot["gun_name"],
-                        "gun_level": lot.get("gun_level", "?"),
-                        "restriction": lot.get("restriction", "basic"),
-                        "unit_cost": int(int(lot.get("unit_cost", 0)) * 0.75),
-                        "qty_available": int(lot.get("qty_remaining", 0)),
-                    }
-                    wh_lots.append(new_lot)
-                    returned_lots.append(new_lot)
             await guns_cog._save_state(state)
 
         employees = store.get("employees", [])
@@ -2023,12 +2005,7 @@ class _GunCloseConfirmView(SafeView):
 
         summary = f"✅ **{store_name}** has been closed.\n"
         summary += f"• {len(employees)} employee(s) disassociated\n"
-        summary += f"• {len(lots)} lot(s) in store\n"
-        if returned_lots:
-            returned_names = [f"**{l['gun_name']}** ×{l['qty_available']} @ ${l['unit_cost']:,}" for l in returned_lots]
-            summary += f"• {len(returned_lots)} lot(s) returned to wholesale:\n  " + "\n  ".join(returned_names)
-        else:
-            summary += "• No items returned to wholesale"
+        summary += f"• {len(lots)} lot(s) cleared from inventory"
         await send_ephemeral(interaction, summary)
 
         log_ch = await self.cog._log_channel()
@@ -2040,8 +2017,7 @@ class _GunCloseConfirmView(SafeView):
             )
             embed.add_field(name="Store", value=store_name, inline=False)
             embed.add_field(name="Owner", value=f"{self.ctx.author.mention}", inline=False)
-            embed.add_field(name="Items Returned", value=str(len(returned_lots)), inline=True)
-            embed.add_field(name="Items Deleted", value=str(max(0, len(lots) - len(returned_lots))), inline=True)
+            embed.add_field(name="Items Cleared", value=str(len(lots)), inline=True)
             embed.set_footer(text="NightCityBot Audit Log")
             await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
         self.stop()
