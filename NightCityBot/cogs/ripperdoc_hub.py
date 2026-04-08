@@ -226,28 +226,33 @@ class RipperdocMenuView(SafeView):
     async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         catalog = await cw_catalog_get_all()
-        lots = [
-            {
-                "lot_id": f"cat-{item['name']}",
-                "item_name": item["name"],
-                "unit_cost": int(item.get("price", 0)),
-                "cwp": item.get("cwp", ""),
-                "slot": item.get("slot", ""),
-                "qty_available": 99,
-            }
-            for item in catalog
-        ]
+        lots = _build_cw_catalog_lots(catalog)
         if not lots:
             await send_ephemeral(interaction, "No cyberware available in the catalog.")
             return
         from NightCityBot.utils.helpers import format_cw_lines_grouped
-        lines = format_cw_lines_grouped(lots, max_items=30, show_sold_out=False)
-        embed = discord.Embed(
-            title="🔩 Cyberware Catalog",
-            description="\n".join(lines) if lines else "Empty",
-            color=discord.Color.teal(),
-        )
-        await send_ephemeral(interaction, embed=embed)
+        lines = format_cw_lines_grouped(lots, max_items=len(lots), show_sold_out=False)
+        text = "\n".join(lines) if lines else "Empty"
+        if len(text) <= 4096:
+            embed = discord.Embed(
+                title="🔩 Cyberware Catalog",
+                description=text,
+                color=discord.Color.teal(),
+            )
+            await send_ephemeral(interaction, embed=embed)
+        else:
+            mid = len(lines) // 2
+            embed1 = discord.Embed(
+                title="🔩 Cyberware Catalog (1/2)",
+                description="\n".join(lines[:mid]),
+                color=discord.Color.teal(),
+            )
+            embed2 = discord.Embed(
+                title="🔩 Cyberware Catalog (2/2)",
+                description="\n".join(lines[mid:]),
+                color=discord.Color.teal(),
+            )
+            await send_ephemeral(interaction, embeds=[embed1, embed2])
 
     @discord.ui.button(label="Manage Store", style=discord.ButtonStyle.danger, emoji="⚙️", row=2, custom_id="ripperdoc:manage_store")
     async def manage_store(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -390,22 +395,51 @@ def _build_cw_catalog_lots(catalog: list[dict]) -> list[dict]:
 
 
 class WholesaleBuySelect(SafeView):
-    def __init__(self, cog: "RipperdocHub", ctx: commands.Context, lots: list, cw_cog):
+    PAGE_SIZE = 25
+
+    def __init__(self, cog: "RipperdocHub", ctx: commands.Context, lots: list, cw_cog, *, page: int = 0):
         super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.lots = lots
         self.cw_cog = cw_cog
+        self.page = page
+        self._build_page()
+
+    def _build_page(self):
+        self.clear_items()
+        start = self.page * self.PAGE_SIZE
+        page_lots = self.lots[start:start + self.PAGE_SIZE]
         options = []
-        for i, lot in enumerate(lots[:25]):
+        for i, lot in enumerate(page_lots):
             label = f"{lot['item_name']} — ${int(lot['unit_cost']):,} (×{lot['qty_available']})"
             options.append(discord.SelectOption(
                 label=label[:100],
-                value=str(i),
+                value=str(start + i),
             ))
-        self.select = discord.ui.Select(placeholder="Choose an item...", options=options)
+        total_pages = max(1, (len(self.lots) + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        placeholder = f"Choose an item... (page {self.page + 1}/{total_pages})" if total_pages > 1 else "Choose an item..."
+        self.select = discord.ui.Select(placeholder=placeholder, options=options)
         self.select.callback = self.on_select
         self.add_item(self.select)
+        if total_pages > 1:
+            prev_btn = discord.ui.Button(label="◀ Prev", style=discord.ButtonStyle.secondary, row=1, disabled=self.page == 0)
+            prev_btn.callback = self._prev_page
+            self.add_item(prev_btn)
+            next_btn = discord.ui.Button(label="Next ▶", style=discord.ButtonStyle.secondary, row=1, disabled=self.page >= total_pages - 1)
+            next_btn.callback = self._next_page
+            self.add_item(next_btn)
+
+    async def _prev_page(self, interaction: discord.Interaction):
+        self.page = max(0, self.page - 1)
+        self._build_page()
+        await interaction.response.edit_message(view=self)
+
+    async def _next_page(self, interaction: discord.Interaction):
+        total_pages = max(1, (len(self.lots) + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        self.page = min(total_pages - 1, self.page + 1)
+        self._build_page()
+        await interaction.response.edit_message(view=self)
 
     async def on_select(self, interaction: discord.Interaction):
         idx = int(self.select.values[0])
@@ -1785,8 +1819,8 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
             title="💉 Ripperdoc Shop",
             description=(
                 "Welcome, Ripperdoc. Choose an action below.\n\n"
-                "**Buy from Wholesale** — Purchase cyberware from this week's wholesale *(owners only)*\n"
-                "**Wholesale List** — Browse this week's wholesale catalog\n"
+                "**Buy from Wholesale** — Purchase cyberware from the full catalog *(owners only)*\n"
+                "**Wholesale List** — Browse the full cyberware catalog\n"
                 "**Sell to Patient** — Sell cyberware to a patient (DM confirmation)\n"
                 "**Install on Patient** — Install cyberware on a patient (consumes item)\n"
                 "**Manage Store** — Create/rename store, view stock, transfer or close *(owners only)*\n"
@@ -1808,7 +1842,7 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
         )
         embed.add_field(
             name="🛒 Buy from Wholesale",
-            value="Purchase cyberware lots from this week's wholesale catalog to add to your clinic stock. *(Owners only)*",
+            value="Purchase cyberware from the full catalog to add to your clinic stock. *(Owners only)*",
             inline=False,
         )
         embed.add_field(

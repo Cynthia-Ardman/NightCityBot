@@ -177,13 +177,28 @@ class GunstoreMenuView(SafeView):
             await send_ephemeral(interaction, "No guns available in the catalog.")
             return
         from NightCityBot.utils.helpers import format_gun_lines_grouped
-        lines = format_gun_lines_grouped(lots, qty_key="qty_available", max_items=30)
-        embed = discord.Embed(
-            title="🔫 Gun Catalog",
-            description="\n".join(lines),
-            color=discord.Color.dark_gold(),
-        )
-        await send_ephemeral(interaction, embed=embed)
+        lines = format_gun_lines_grouped(lots, qty_key="qty_available", max_items=len(lots))
+        text = "\n".join(lines)
+        if len(text) <= 4096:
+            embed = discord.Embed(
+                title="🔫 Gun Catalog",
+                description=text,
+                color=discord.Color.dark_gold(),
+            )
+            await send_ephemeral(interaction, embed=embed)
+        else:
+            mid = len(lines) // 2
+            embed1 = discord.Embed(
+                title="🔫 Gun Catalog (1/2)",
+                description="\n".join(lines[:mid]),
+                color=discord.Color.dark_gold(),
+            )
+            embed2 = discord.Embed(
+                title="🔫 Gun Catalog (2/2)",
+                description="\n".join(lines[mid:]),
+                color=discord.Color.dark_gold(),
+            )
+            await send_ephemeral(interaction, embeds=[embed1, embed2])
 
     @discord.ui.button(label="Sell to Customer", style=discord.ButtonStyle.success, emoji="🔫", row=1, custom_id="gunstore:sell_customer")
     async def sell_to_customer(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -324,23 +339,52 @@ def _build_black_market_lots(catalog: list[dict]) -> list[dict]:
 
 
 class GunBuySelect(SafeView):
+    PAGE_SIZE = 25
+
     def __init__(self, cog: "GunstoreHub", ctx: commands.Context, lots: list, guns_cog,
-                 *, black_market: bool = False):
+                 *, black_market: bool = False, page: int = 0):
         super().__init__(timeout=300)
         self.cog = cog
         self.ctx = ctx
         self.lots = lots
         self.guns_cog = guns_cog
         self.black_market = black_market
+        self.page = page
+        self._build_page()
+
+    def _build_page(self):
+        self.clear_items()
+        start = self.page * self.PAGE_SIZE
+        page_lots = self.lots[start:start + self.PAGE_SIZE]
         options = []
-        for i, lot in enumerate(lots[:25]):
+        for i, lot in enumerate(page_lots):
             r = lot.get("restriction", "basic")
             r_tag = f" [{r.title()}]" if r != "basic" else ""
             label = f"{lot['gun_name']}{r_tag} — ${int(lot['unit_cost']):,} (×{lot['qty_available']})"
-            options.append(discord.SelectOption(label=label[:100], value=str(i)))
-        self.select = discord.ui.Select(placeholder="Choose a gun...", options=options)
+            options.append(discord.SelectOption(label=label[:100], value=str(start + i)))
+        total_pages = max(1, (len(self.lots) + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        placeholder = f"Choose a gun... (page {self.page + 1}/{total_pages})" if total_pages > 1 else "Choose a gun..."
+        self.select = discord.ui.Select(placeholder=placeholder, options=options)
         self.select.callback = self.on_select
         self.add_item(self.select)
+        if total_pages > 1:
+            prev_btn = discord.ui.Button(label="◀ Prev", style=discord.ButtonStyle.secondary, row=1, disabled=self.page == 0)
+            prev_btn.callback = self._prev_page
+            self.add_item(prev_btn)
+            next_btn = discord.ui.Button(label="Next ▶", style=discord.ButtonStyle.secondary, row=1, disabled=self.page >= total_pages - 1)
+            next_btn.callback = self._next_page
+            self.add_item(next_btn)
+
+    async def _prev_page(self, interaction: discord.Interaction):
+        self.page = max(0, self.page - 1)
+        self._build_page()
+        await interaction.response.edit_message(view=self)
+
+    async def _next_page(self, interaction: discord.Interaction):
+        total_pages = max(1, (len(self.lots) + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        self.page = min(total_pages - 1, self.page + 1)
+        self._build_page()
+        await interaction.response.edit_message(view=self)
 
     async def on_select(self, interaction: discord.Interaction):
         idx = int(self.select.values[0])
