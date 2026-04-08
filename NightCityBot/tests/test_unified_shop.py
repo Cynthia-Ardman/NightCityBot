@@ -36,7 +36,6 @@ from NightCityBot.cogs.admin_shop import (
     AdminShopCog,
     AdminShopMenuView,
     PlayerInvPickerView as AdminPlayerInvPickerView,
-    WholesaleClearConfirmView,
 )
 from NightCityBot.cogs.ripperdoc_hub import (
     SellSetupView,
@@ -1282,157 +1281,40 @@ class TestPiAddItemFailureCompensation:
         _run(run())
 
 
-class TestAdminWholesaleButtons:
-    def test_wholesale_stock_button_exists(self):
+class TestAdminWholesaleButtonsRemoved:
+    def test_wholesale_stock_button_removed(self):
         async def run():
             view = AdminShopMenuView()
-            btn = _find_button(view, "Wholesale Stock")
-            assert btn is not None
-
+            labels = [getattr(c, "label", "") for c in view.children]
+            assert "Wholesale Stock" not in labels
         _run(run())
 
-    @patch("NightCityBot.cogs.admin_shop.gun_catalog_get_all", new_callable=AsyncMock)
-    def test_restock_button_starts_inline_flow(self, mock_catalog, monkeypatch):
-        monkeypatch.setattr("NightCityBot.cogs.admin_shop.collect_text_input", AsyncMock(return_value=None))
-        mock_catalog.return_value = [{"gun_name": "Militech M-76e", "price": 5000, "restriction": "basic"}]
-
+    def test_restock_gun_wholesale_button_removed(self):
         async def run():
-            cog = _make_admin_cog()
             view = AdminShopMenuView()
-            inter = _make_interaction()
-            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            inter.channel_id = 123
-            btn = _find_button(view, "Restock Gun Wholesale")
-            await btn.callback(inter)
-            inter.response.send_message.assert_called_once()
-
+            labels = [getattr(c, "label", "") for c in view.children]
+            assert "Restock Gun Wholesale" not in labels
         _run(run())
 
-    @patch("NightCityBot.cogs.admin_shop.gun_catalog_get_all", new_callable=AsyncMock, return_value=[])
-    def test_restock_gun_empty_catalog(self, mock_catalog):
+    def test_clear_gun_wholesale_button_removed(self):
         async def run():
-            cog = _make_admin_cog()
             view = AdminShopMenuView()
-            inter = _make_interaction()
-            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            btn = _find_button(view, "Restock Gun Wholesale")
-            await btn.callback(inter)
-            msg = inter.response.send_message.call_args[0][0]
-            assert "empty" in msg.lower()
-
+            labels = [getattr(c, "label", "") for c in view.children]
+            assert "Clear Gun Wholesale" not in labels
         _run(run())
 
-    def test_clear_gun_button_sends_confirm(self):
+    def test_restock_cw_button_removed(self):
         async def run():
-            cog = _make_admin_cog()
             view = AdminShopMenuView()
-            inter = _make_interaction()
-            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            btn = _find_button(view, "Clear Gun Wholesale")
-            await btn.callback(inter)
-            inter.followup.send.assert_called_once()
-            msg = inter.followup.send.call_args[0][0]
-            assert "clear" in msg.lower()
-
+            labels = [getattr(c, "label", "") for c in view.children]
+            assert "Restock Cyberware WH" not in labels
         _run(run())
 
-    @patch("NightCityBot.cogs.admin_shop.cw_catalog_get_all", new_callable=AsyncMock)
-    def test_restock_cw_button_starts_inline_flow(self, mock_catalog, monkeypatch):
-        monkeypatch.setattr("NightCityBot.cogs.admin_shop.collect_text_input", AsyncMock(return_value=None))
-        mock_catalog.return_value = [{"name": "Neural Link", "price": 5000}]
-
+    def test_clear_cw_wholesale_button_removed(self):
         async def run():
-            cog = _make_admin_cog()
             view = AdminShopMenuView()
-            inter = _make_interaction()
-            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            inter.channel_id = 123
-            btn = _find_button(view, "Restock Cyberware WH")
-            await btn.callback(inter)
-            inter.response.send_message.assert_called_once()
-            msg = inter.response.send_message.call_args[0][0]
-            assert "total_items" in msg
-
-        _run(run())
-
-    @patch("NightCityBot.cogs.admin_shop.cw_catalog_get_all", new_callable=AsyncMock, return_value=[])
-    def test_restock_cw_empty_catalog(self, mock_catalog):
-        async def run():
-            cog = _make_admin_cog()
-            view = AdminShopMenuView()
-            inter = _make_interaction()
-            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            btn = _find_button(view, "Restock Cyberware WH")
-            await btn.callback(inter)
-            msg = inter.response.send_message.call_args[0][0]
-            assert "empty" in msg.lower()
-
-        _run(run())
-
-    def test_clear_cw_button_sends_confirm(self):
-        async def run():
-            cog = _make_admin_cog()
-            view = AdminShopMenuView()
-            inter = _make_interaction()
-            inter.client.get_cog = MagicMock(side_effect=lambda n: cog if n == "AdminShop" else None)
-            btn = _find_button(view, "Clear Cyberware WH")
-            await btn.callback(inter)
-            inter.followup.send.assert_called_once()
-            msg = inter.followup.send.call_args[0][0]
-            assert "cyberware" in msg.lower()
-
-        _run(run())
-
-
-class TestWholesaleClearConfirm:
-    def test_confirm_clears_gun_lots(self):
-        async def run():
-            cog = _make_admin_cog()
-            ctx = _ctx()
-            guns_cog = MagicMock()
-            guns_cog.lock = asyncio.Lock()
-            guns_cog._load_state = AsyncMock(return_value={"wholesale_lots": [{"gun_name": "AK"}]})
-            guns_cog._save_state = AsyncMock()
-            cog.bot.cogs = {"GunsShopCog": guns_cog}
-
-            view = WholesaleClearConfirmView(cog, ctx, target="guns")
-            inter = _make_interaction()
-            btn = _find_button(view, "Confirm Clear")
-            await btn.callback(inter)
-            saved = guns_cog._save_state.call_args[0][0]
-            assert saved["wholesale_lots"] == []
-
-        _run(run())
-
-    def test_confirm_clears_cw_lots(self):
-        async def run():
-            cog = _make_admin_cog()
-            ctx = _ctx()
-            cw_cog = MagicMock()
-            cw_cog.lock = asyncio.Lock()
-            cw_cog._load_state = AsyncMock(return_value={"cw_wholesale_lots": [{"item_name": "Optics"}]})
-            cw_cog._save_state = AsyncMock()
-            cog.bot.cogs = {"CyberwareShop": cw_cog}
-
-            view = WholesaleClearConfirmView(cog, ctx, target="cw")
-            inter = _make_interaction()
-            btn = _find_button(view, "Confirm Clear")
-            await btn.callback(inter)
-            saved = cw_cog._save_state.call_args[0][0]
-            assert saved["cw_wholesale_lots"] == []
-
-        _run(run())
-
-    def test_cancel_does_nothing(self):
-        async def run():
-            cog = _make_admin_cog()
-            ctx = _ctx()
-            view = WholesaleClearConfirmView(cog, ctx, target="guns")
-            inter = _make_interaction()
-            btn = _find_button(view, "Cancel")
-            await btn.callback(inter)
-            inter.response.edit_message.assert_called_once()
-
+            labels = [getattr(c, "label", "") for c in view.children]
+            assert "Clear Cyberware WH" not in labels
         _run(run())
 
 

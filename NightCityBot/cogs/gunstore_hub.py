@@ -160,10 +160,10 @@ class GunstoreMenuView(SafeView):
             view = GunBuySelect(cog, ctx, lots, guns_cog, black_market=True)
             await send_ephemeral(interaction, "🏴 **Black Market** — select a gun to buy:", view=view)
         else:
-            state = await guns_cog._load_state()
-            lots = [l for l in state.get("wholesale_lots", []) if int(l.get("qty_available", 0)) > 0]
+            catalog = await gun_catalog_get_all()
+            lots = _build_catalog_lots(catalog)
             if not lots:
-                await send_ephemeral(interaction, "No wholesale stock available.")
+                await send_ephemeral(interaction, "No guns available in the catalog.")
                 return
             ctx = PanelContext(interaction)
             view = GunBuySelect(cog, ctx, lots, guns_cog)
@@ -172,21 +172,15 @@ class GunstoreMenuView(SafeView):
     @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=0, custom_id="gunstore:wholesale_list")
     async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        cog = interaction.client.get_cog("GunstoreHub")
-        guns_cog = cog._guns_cog() if cog else None
-        if not guns_cog:
-            await send_ephemeral(interaction, "Gun shop system unavailable.")
-            return
-        state = await guns_cog._load_state()
-        lots = state.get("wholesale_lots", [])
-        available = [l for l in lots if int(l.get("qty_available", 0)) > 0]
-        if not available:
-            await send_ephemeral(interaction, "No wholesale stock available.")
+        catalog = await gun_catalog_get_all()
+        lots = _build_catalog_lots(catalog)
+        if not lots:
+            await send_ephemeral(interaction, "No guns available in the catalog.")
             return
         from NightCityBot.utils.helpers import format_gun_lines_grouped
-        lines = format_gun_lines_grouped(available, qty_key="qty_available", max_items=30)
+        lines = format_gun_lines_grouped(lots, qty_key="qty_available", max_items=30)
         embed = discord.Embed(
-            title="🔫 Gun Wholesale",
+            title="🔫 Gun Catalog",
             description="\n".join(lines),
             color=discord.Color.dark_gold(),
         )
@@ -288,11 +282,30 @@ class GunstoreMenuView(SafeView):
             "📝 **Manage Buyers** — choose an action:", view=view)
 
 
+def _build_catalog_lots(catalog: list[dict]) -> list[dict]:
+    lots = []
+    for entry in catalog:
+        if str(entry.get("status", "")).strip().lower() != "live":
+            continue
+        lots.append({
+            "lot_id": f"cat-{entry['gun_name']}",
+            "gun_name": entry["gun_name"],
+            "gun_level": entry.get("gun_level", "L"),
+            "weapon_type": entry.get("weapon_type", ""),
+            "gun_category": entry.get("gun_category", ""),
+            "unit_cost": int(entry.get("price", 0)),
+            "qty_available": 99,
+            "restriction": entry.get("restriction", "basic"),
+        })
+    lots.sort(key=lambda l: l["gun_name"])
+    return lots
+
+
 def _build_black_market_lots(catalog: list[dict]) -> list[dict]:
     multiplier = config.BLACK_MARKET_PRICE_MULTIPLIER
     lots = []
     for entry in catalog:
-        if entry.get("status") != "live":
+        if str(entry.get("status", "")).strip().lower() != "live":
             continue
         if entry.get("restriction") not in ("controlled", "restricted"):
             continue
@@ -350,11 +363,6 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty, *, black_m
     if qty < 1:
         await send_ephemeral(interaction, "Quantity must be at least 1.")
         return
-    if qty > int(lot.get("qty_available", 0)):
-        await send_ephemeral(interaction, 
-            f"Only {lot['qty_available']} available.")
-        return
-
     unit_cost = int(lot["unit_cost"])
     total = unit_cost * qty
     member = ctx.author
@@ -383,23 +391,6 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty, *, black_m
 
     async with guns_cog.lock:
         state = await guns_cog._load_state()
-
-        if not black_market:
-            lots_list = state.get("wholesale_lots", [])
-            target_lot = None
-            for l in lots_list:
-                if l.get("lot_id") == lot.get("lot_id"):
-                    target_lot = l
-                    break
-            if not target_lot or int(target_lot.get("qty_available", 0)) < qty:
-                await cog.unbelievaboat.update_balance(
-                    member.id,
-                    {"cash": cash_deduct, "bank": bank_deduct},
-                    reason="Gun wholesale refund — stock depleted",
-                )
-                await send_ephemeral(interaction, "Stock depleted. Refunded.")
-                return
-            target_lot["qty_available"] = int(target_lot["qty_available"]) - qty
 
         store_id = guns_cog._store_id(ctx.guild.id, member.id)
         default_type = "black_market" if black_market else "standard"

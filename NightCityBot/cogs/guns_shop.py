@@ -26,7 +26,7 @@ from urllib.parse import urlparse, parse_qs
 
 import aiohttp
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 from openpyxl import load_workbook
 
 import config
@@ -137,7 +137,6 @@ class GunsShopCog(commands.Cog):
         self._locks = ResourceLockManager()
         self.lock = self._locks.pin("state")
         self._startup_audit_sent = False
-        self.weekly_sunday_restock.start()
 
     def _resolve_data_path(self, configured_path: Any, default_relative: str) -> Path:
         if configured_path is None:
@@ -214,21 +213,6 @@ class GunsShopCog(commands.Cog):
         if not store_inventory_dir.exists():
             return []
         return sorted(store_inventory_dir.glob("*.json"))
-
-    def cog_unload(self):
-        self.weekly_sunday_restock.cancel()
-
-    @tasks.loop(hours=1)
-    async def weekly_sunday_restock(self) -> None:
-        """Automatically refresh wholesaler stock every Sunday (UTC)."""
-        now = datetime.now(timezone.utc)
-        if now.weekday() != 6:
-            return
-        await self._auto_restock_if_due(now, trigger="SCHEDULED")
-
-    @weekly_sunday_restock.before_loop
-    async def before_weekly_sunday_restock(self) -> None:
-        await self.bot.wait_until_ready()
 
     @staticmethod
     def _now_iso() -> str:
@@ -1338,54 +1322,4 @@ class GunsShopCog(commands.Cog):
             await self._audit_embed_send(_denied_embed)
             return False
 
-    async def auto_refresh_weekly_after_cyberware(self) -> bool:
-        """Auto-restock once per week, called by cyberware weekly process."""
-        return await self._auto_restock_if_due(datetime.now(timezone.utc), trigger="CYBERWARE")
-
-    async def _auto_restock_if_due(self, now: datetime, trigger: str) -> bool:
-        """Run one weekly restock if we have not yet refreshed this Sunday."""
-        control = self.bot.get_cog("SystemControl")
-        if control and not control.is_enabled("gun_shop"):
-            return False
-        try:
-            guns = await self._load_master_guns()
-        except Exception:
-            logger.exception("Auto wholesaler refresh failed during sheet read")
-            return False
-
-        guns = [g for g in guns if str(g.get("status", "live")).strip().lower() == "live"]
-        if not guns:
-            return False
-
-        sunday_key = now.strftime("%Y-%m-%d")
-        async with self.lock:
-            state = await self._load_state()
-            settings = state.setdefault("settings", {})
-            last_key = str(settings.get("last_auto_restock_sunday", ""))
-            if last_key == sunday_key:
-                return True
-
-            # Legacy key fallback to avoid duplicate restock in the same week.
-            legacy_week_key = now.strftime("%Y-W%U")
-            if str(settings.get("last_auto_restock_week", "")) == legacy_week_key:
-                settings["last_auto_restock_sunday"] = sunday_key
-                await self._save_state(state)
-                return True
-
-            cfg = self._resolve_restock_settings(state)
-            rng = random.Random()
-            lots, _level_totals = self._generate_restock_lots(guns, cfg, rng)
-
-            state["wholesale_lots"] = lots
-            settings["last_auto_restock_sunday"] = sunday_key
-            settings["last_auto_restock_week"] = legacy_week_key
-            saved = await self._save_state(state)
-            if not saved:
-                logger.error("Auto restock save failed trigger=%s", trigger)
-            await gun_catalog_sync_qty_from_lots(lots)
-
-        await self._audit_send(
-            f"[WHOLESALE_AUTO_RESTOCK] trigger={trigger} lots={len(lots)} sunday={sunday_key}"
-        )
-        return True
 

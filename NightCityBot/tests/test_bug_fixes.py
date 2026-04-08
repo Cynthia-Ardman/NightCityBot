@@ -181,39 +181,26 @@ class TestEventLockExists:
                 assert isinstance(eco._event_lock, asyncio.Lock)
 
 
-class TestCWWholesaleBuyDuplicateName:
-    def test_selects_correct_lot_by_lot_id(self):
+class TestCWCatalogBuyFlow:
+    def test_catalog_buy_adds_to_inventory(self):
         async def run():
             from NightCityBot.cogs.ripperdoc_hub import WholesaleBuySelect
-            from NightCityBot.utils.interaction_safety import SafeView
 
-            depleted_lot = {
-                "lot_id": "lot-depleted",
-                "item_name": "test",
-                "unit_cost": 100,
-                "qty_available": 0,
-            }
-            active_lot = {
-                "lot_id": "lot-active",
-                "item_name": "test",
-                "unit_cost": 1,
-                "qty_available": 100,
+            catalog_lot = {
+                "lot_id": "cat-Neural Link",
+                "item_name": "Neural Link",
+                "unit_cost": 5000,
+                "qty_available": 99,
             }
 
             cw_cog = MagicMock()
             cw_cog._locks = MagicMock()
             lock = asyncio.Lock()
-            cw_cog._locks.pin = MagicMock(return_value=lock)
-            cw_cog._load_state = AsyncMock(return_value={
-                "cw_wholesale_lots": [depleted_lot, active_lot],
-            })
-            saved_states = []
-            async def fake_save(s):
-                saved_states.append(s)
-                return True
-            cw_cog._save_state = AsyncMock(side_effect=fake_save)
+            cw_cog._locks.acquire = MagicMock(return_value=lock)
             cw_cog._load_inventory = AsyncMock(return_value=[])
+            saved_inventories = []
             async def fake_save_inv(uid, inv):
+                saved_inventories.append(inv)
                 return True
             cw_cog._save_inventory = AsyncMock(side_effect=fake_save_inv)
 
@@ -227,7 +214,7 @@ class TestCWWholesaleBuyDuplicateName:
             ctx.author = MagicMock()
             ctx.author.id = 12345
 
-            view = WholesaleBuySelect(cog, ctx, [active_lot], cw_cog)
+            view = WholesaleBuySelect(cog, ctx, [catalog_lot], cw_cog)
 
             inter = MagicMock(spec=discord.Interaction)
             inter.user = MagicMock()
@@ -247,11 +234,8 @@ class TestCWWholesaleBuyDuplicateName:
                 inter.data = {"values": ["0"]}
                 await view.on_select(inter)
 
-            assert len(saved_states) == 1
-            lots_after = saved_states[0]["cw_wholesale_lots"]
-            active_after = next(l for l in lots_after if l["lot_id"] == "lot-active")
-            depleted_after = next(l for l in lots_after if l["lot_id"] == "lot-depleted")
-            assert active_after["qty_available"] == 99
-            assert depleted_after["qty_available"] == 0
+            assert len(saved_inventories) == 1
+            assert len(saved_inventories[0]) == 1
+            assert saved_inventories[0][0]["name"] == "Neural Link"
 
         _run(run())

@@ -126,46 +126,6 @@ class CyberwareManager(commands.Cog):
                 )
             except Exception:
                 logger.warning("Suppressed exception", exc_info=True)
-        wholesaler = self.bot.get_cog("GunsShopCog")
-        if wholesaler and hasattr(wholesaler, "auto_refresh_weekly_after_cyberware"):
-            try:
-                refreshed = await wholesaler.auto_refresh_weekly_after_cyberware()
-            except Exception:
-                refreshed = None
-                logger.exception("auto_refresh_weekly_after_cyberware errored during weekly process")
-            if notify_user:
-                try:
-                    if refreshed is None:
-                        await notify_user.send("❌ Weekly gun wholesaler refresh errored.")
-                    elif refreshed:
-                        await notify_user.send("📦 Weekly gun wholesaler refresh complete.")
-                    else:
-                        await notify_user.send("⚠️ Weekly gun wholesaler refresh skipped/failed.")
-                except Exception:
-                    logger.warning("Suppressed exception", exc_info=True)
-
-        cw_shop = self.bot.get_cog("CyberwareShop")
-        if cw_shop and hasattr(cw_shop, "auto_cw_restock_if_due"):
-            try:
-                cw_refreshed = await cw_shop.auto_cw_restock_if_due(
-                    datetime.now(timezone.utc)
-                )
-                if notify_user:
-                    try:
-                        await notify_user.send(
-                            "🔩 Weekly cyberware wholesale rotation complete."
-                            if cw_refreshed
-                            else "⚠️ Weekly cyberware wholesale rotation skipped/failed."
-                        )
-                    except Exception:
-                        logger.warning("Suppressed exception", exc_info=True)
-            except Exception:
-                logger.exception("auto_cw_restock_if_due errored during weekly process")
-                if notify_user:
-                    try:
-                        await notify_user.send("❌ Weekly cyberware wholesale rotation errored.")
-                    except Exception:
-                        logger.warning("Suppressed exception", exc_info=True)
 
     async def process_week(
         self,

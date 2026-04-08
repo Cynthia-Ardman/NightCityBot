@@ -346,13 +346,15 @@ class TestCwWhListGrouped:
 
     def test_cw_wh_list_grouped_by_slot(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
-        lots = [
-            {"item_name": "Kiroshi Mk.I", "qty_available": 3, "unit_cost": 2000, "lot_id": "a", "cwp": 7, "slot": "ocular system"},
-            {"item_name": "Neural Link",  "qty_available": 5, "unit_cost": 5000, "lot_id": "b", "cwp": 14, "slot": "neural"},
-            {"item_name": "Subdermal",    "qty_available": 0, "unit_cost": 1000, "lot_id": "c", "cwp": 2, "slot": "integumentary system"},
+        catalog_items = [
+            {"name": "Kiroshi Mk.I", "price": 2000, "cwp": 7, "slot": "ocular system"},
+            {"name": "Neural Link",  "price": 5000, "cwp": 14, "slot": "neural"},
+            {"name": "Subdermal",    "price": 1000, "cwp": 2, "slot": "integumentary system"},
         ]
-        state = {"cw_wholesale_lots": lots, "settings": {"last_cw_restock_sunday": "2026-04-05"}}
-        cog._load_state = AsyncMock(return_value=state)
+        monkeypatch.setattr(
+            "NightCityBot.cogs.cyberware_shop.cw_catalog_get_all",
+            AsyncMock(return_value=catalog_items),
+        )
         ctx = MagicMock()
         ctx.guild = MagicMock()
         ctx.send = AsyncMock()
@@ -367,24 +369,29 @@ class TestCwWhListGrouped:
 
     def test_cw_wh_list_empty(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
-        cog._load_state = AsyncMock(return_value={"cw_wholesale_lots": []})
+        monkeypatch.setattr(
+            "NightCityBot.cogs.cyberware_shop.cw_catalog_get_all",
+            AsyncMock(return_value=[]),
+        )
         ctx = MagicMock()
         ctx.guild = MagicMock()
         ctx.send = AsyncMock()
         _run(cog.cw_wh_list.callback(cog, ctx))
         msg = ctx.send.call_args[0][0]
-        assert "No cyberware wholesale stock" in msg
+        assert "No cyberware available in the catalog" in msg
 
     def test_cw_wh_list_and_buy_row_consistency(self, tmp_path, monkeypatch):
         """Row N in !cw_wh_list must map to same item in !cw_buy N."""
         cog = _make_cog(tmp_path, monkeypatch)
-        lots = [
-            {"item_name": "Zetatech Link", "qty_available": 2, "unit_cost": 9000, "lot_id": "z", "cwp": 14, "slot": "neural"},
-            {"item_name": "Kiroshi Mk.I",  "qty_available": 3, "unit_cost": 2000, "lot_id": "k", "cwp": 7, "slot": "ocular system"},
-            {"item_name": "Arm Blade",     "qty_available": 1, "unit_cost": 4000, "lot_id": "a", "cwp": 5, "slot": "arms & arm attachments"},
+        catalog_items = [
+            {"name": "Zetatech Link", "price": 9000, "cwp": 14, "slot": "neural"},
+            {"name": "Kiroshi Mk.I",  "price": 2000, "cwp": 7, "slot": "ocular system"},
+            {"name": "Arm Blade",     "price": 4000, "cwp": 5, "slot": "arms & arm attachments"},
         ]
-        state = {"cw_wholesale_lots": lots, "settings": {"last_cw_restock_sunday": "2026-04-05"}}
-        cog._load_state = AsyncMock(return_value=state)
+        monkeypatch.setattr(
+            "NightCityBot.cogs.cyberware_shop.cw_catalog_get_all",
+            AsyncMock(return_value=catalog_items),
+        )
         ctx = MagicMock()
         ctx.guild = MagicMock()
         ctx.send = AsyncMock()
@@ -396,6 +403,17 @@ class TestCwWhListGrouped:
             if line.startswith("`") and "**" in line:
                 name = line.split("**")[1]
                 displayed.append(name)
+        lots = [
+            {
+                "lot_id": f"cat-{item['name']}",
+                "item_name": item["name"],
+                "unit_cost": int(item.get("price", 0)),
+                "cwp": item.get("cwp", ""),
+                "slot": item.get("slot", ""),
+                "qty_available": 99,
+            }
+            for item in catalog_items
+        ]
         buy_ordered = cog._slot_ordered_lots(lots)
         buy_names = [l["item_name"] for l in buy_ordered]
         assert displayed == buy_names

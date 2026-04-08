@@ -249,39 +249,6 @@ class CyberwareShop(commands.Cog):
                 return lot
         return None
 
-    async def auto_cw_restock_if_due(self, now: datetime) -> bool:
-        control = self.bot.get_cog("SystemControl")
-        if control and not control.is_enabled("cyberware_shop"):
-            return False
-        catalog = await self._load_catalog()
-        if not catalog:
-            logger.warning("auto_cw_restock_if_due: catalog is empty, skipping")
-            return False
-
-        restock_date = now.strftime("%Y-%m-%d")
-        async with self.lock:
-            state = await self._load_state()
-            settings = state.setdefault("settings", {})
-            if str(settings.get("last_cw_restock_sunday", "")) == restock_date:
-                return True
-            cfg = self._resolve_cw_restock_settings(state)
-            rng = random.Random()
-            lots = self._generate_cw_lots(catalog, cfg, rng)
-            state["cw_wholesale_lots"] = lots
-            settings["last_cw_restock_sunday"] = restock_date
-            saved = await self._save_state(state)
-            if not saved:
-                logger.error("auto_cw_restock_if_due: save failed")
-
-        logger.info("auto_cw_restock_if_due: rotated %d CW lots for %s", len(lots), restock_date)
-        log_ch = await self._log_channel()
-        if log_ch:
-            await log_ch.send(
-                f"📦 [CW_AUTO_RESTOCK] {len(lots)} items rotated for week of {restock_date}",
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
-        return True
-
     @staticmethod
     def _sorted_lots(lots: list[dict]) -> list[dict]:
         return sorted(lots, key=lambda l: l["item_name"])
@@ -352,7 +319,7 @@ class CyberwareShop(commands.Cog):
     @commands.command(name="cw_buy")
     @is_ripperdoc()
     async def cw_buy(self, ctx: commands.Context, lot_number: int, qty: int = 1) -> None:
-        """Purchase cyberware from this week's wholesale by lot number.
+        """Purchase cyberware from the catalog by lot number.
 
         Usage: !cw_buy <lot_number> [qty=1]
         Use !cw_wh_list to see the numbered list.
@@ -366,14 +333,23 @@ class CyberwareShop(commands.Cog):
             await ctx.send("❌ qty must be at least 1.")
             return
 
-        state = await self._load_state()
-        lots = state.get("cw_wholesale_lots", [])
+        catalog = await cw_catalog_get_all()
+        lots = [
+            {
+                "lot_id": f"cat-{item['name']}",
+                "item_name": item["name"],
+                "unit_cost": int(item.get("price", 0)),
+                "cwp": item.get("cwp", ""),
+                "slot": item.get("slot", ""),
+                "qty_available": 99,
+            }
+            for item in catalog
+        ]
         all_ordered = self._slot_ordered_lots(lots)
 
         if not all_ordered:
             await ctx.send(
-                "❌ No cyberware is available from the cyberware wholesaler this week. "
-                "Ask an admin to run `!cw_wh_restock`."
+                "❌ No cyberware is available in the catalog."
             )
             return
 
@@ -385,18 +361,6 @@ class CyberwareShop(commands.Cog):
             return
 
         lot = all_ordered[lot_number - 1]
-        if int(lot.get("qty_available", 0)) <= 0:
-            await ctx.send(
-                f"❌ Lot **{lot_number}** (`{lot['item_name']}`) is sold out this week."
-            )
-            return
-
-        if qty > int(lot.get("qty_available", 0)):
-            await ctx.send(
-                f"❌ Only **{lot['qty_available']}** unit(s) of `{lot['item_name']}` available."
-            )
-            return
-
         unit_price = int(lot["unit_cost"])
         total_price = unit_price * qty
 
@@ -419,43 +383,13 @@ class CyberwareShop(commands.Cog):
         ok = await self.unbelievaboat.update_balance(
             ctx.author.id,
             {"cash": -cash_deduct, "bank": -bank_deduct},
-            reason=f"Cyberware wholesale buy ×{qty}: {lot['item_name']}",
+            reason=f"Cyberware catalog buy ×{qty}: {lot['item_name']}",
         )
         if not ok:
             await ctx.send("❌ Balance update failed. Please try again.")
             return
 
         async with self.lock:
-            state = await self._load_state()
-            lots2 = state.get("cw_wholesale_lots", [])
-            all2 = self._slot_ordered_lots(lots2)
-
-            if lot_number < 1 or lot_number > len(all2):
-                await self.unbelievaboat.update_balance(
-                    ctx.author.id,
-                    {"cash": cash_deduct, "bank": bank_deduct},
-                    reason=f"Cyberware buy refund (lot disappeared): {lot['item_name']}",
-                )
-                await ctx.send(
-                    "❌ The wholesale list changed while processing. "
-                    "Your payment has been refunded."
-                )
-                return
-
-            current_lot = all2[lot_number - 1]
-            if current_lot["item_name"] != lot["item_name"] or int(current_lot.get("qty_available", 0)) < qty:
-                await self.unbelievaboat.update_balance(
-                    ctx.author.id,
-                    {"cash": cash_deduct, "bank": bank_deduct},
-                    reason=f"Cyberware buy refund (sold out): {lot['item_name']}",
-                )
-                await ctx.send(
-                    f"❌ **{lot['item_name']}** sold out while processing. "
-                    "Your payment has been refunded."
-                )
-                return
-
-            current_lot["qty_available"] = int(current_lot["qty_available"]) - qty
             now_iso = self._now_iso()
             inventory = await self._load_inventory(ctx.author.id)
             new_items = []
@@ -469,16 +403,10 @@ class CyberwareShop(commands.Cog):
                 inventory.append(new_item)
                 new_items.append(new_item)
             inv_ok = await self._save_inventory(ctx.author.id, inventory)
-            state_ok = await self._save_state(state)
-            if not inv_ok or not state_ok:
-                current_lot["qty_available"] = int(current_lot["qty_available"]) + qty
+            if not inv_ok:
                 for ni in new_items:
                     if ni in inventory:
                         inventory.remove(ni)
-                if not inv_ok:
-                    await self._save_inventory(ctx.author.id, inventory)
-                if not state_ok:
-                    await self._save_state(state)
                 await self.unbelievaboat.update_balance(
                     ctx.author.id,
                     {"cash": cash_deduct, "bank": bank_deduct},
@@ -1029,37 +957,43 @@ class CyberwareShop(commands.Cog):
     @commands.command(name="cw_wh_list", aliases=["cw_wholesale", "cw_stock"])
     @commands.check_any(is_ripperdoc(), is_fixer(), commands.has_permissions(administrator=True))
     async def cw_wh_list(self, ctx: commands.Context) -> None:
-        """Show this week's cyberware available from the wholesaler."""
+        """Show the full cyberware catalog available for purchase."""
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in the server.")
             return
-        state = await self._load_state()
-        lots = state.get("cw_wholesale_lots", [])
+        catalog = await cw_catalog_get_all()
+        lots = [
+            {
+                "lot_id": f"cat-{item['name']}",
+                "item_name": item["name"],
+                "unit_cost": int(item.get("price", 0)),
+                "cwp": item.get("cwp", ""),
+                "slot": item.get("slot", ""),
+                "qty_available": 99,
+            }
+            for item in catalog
+        ]
         if not lots:
             await ctx.send(
-                "⚠️ No cyberware wholesale stock this week. "
-                "Ask an admin to run `!cw_wh_restock`."
+                "⚠️ No cyberware available in the catalog. "
+                "Ask an admin to set and reload the cyberware sheet."
             )
             return
 
         from NightCityBot.utils.helpers import format_cw_lines_grouped
 
-        settings = state.get("settings", {})
-        sunday_key = str(settings.get("last_cw_restock_sunday", "unknown"))
-        available_count = sum(1 for l in lots if int(l.get("qty_available", 0)) > 0)
-
-        lines = format_cw_lines_grouped(lots, show_sold_out=True)
+        lines = format_cw_lines_grouped(lots, show_sold_out=False)
 
         page_size = 20
         pages = [lines[i: i + page_size] for i in range(0, len(lines), page_size)]
         for page_num, page in enumerate(pages, 1):
             embed = discord.Embed(
-                title=f"🔩 Cyberware Wholesale — Week of {sunday_key} ({page_num}/{len(pages)})",
+                title=f"🔩 Cyberware Catalog ({page_num}/{len(pages)})",
                 description="\n".join(page),
                 color=discord.Color.teal(),
             )
             embed.set_footer(
-                text=f"{available_count} of {len(lots)} items available | Use !cw_buy <lot#> [qty]"
+                text=f"{len(lots)} items available | Use !cw_buy <lot#> [qty]"
             )
             await ctx.send(embed=embed)
 

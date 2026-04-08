@@ -144,14 +144,14 @@ class RipperdocMenuView(SafeView):
                     "❌ You don't have an initialized ripperdoc store. "
                     "Please set up your store first before buying from wholesale.")
                 return
-        lots = state.get("cw_wholesale_lots", [])
-        available = [l for l in lots if int(l.get("qty_available", 0)) > 0]
-        if not available:
-            await send_ephemeral(interaction, "No wholesale stock available this week.")
+        catalog = await cw_catalog_get_all()
+        lots = _build_cw_catalog_lots(catalog)
+        if not lots:
+            await send_ephemeral(interaction, "No cyberware available in the catalog.")
             return
         cog = interaction.client.get_cog("RipperdocHub")
         ctx = PanelContext(interaction)
-        view = WholesaleBuySelect(cog, ctx, available, cw_cog)
+        view = WholesaleBuySelect(cog, ctx, lots, cw_cog)
         await send_ephemeral(interaction, "Select an item to buy:", view=view)
 
     @discord.ui.button(label="Sell to Patient", style=discord.ButtonStyle.success, emoji="💉", row=1, custom_id="ripperdoc:sell_patient")
@@ -227,19 +227,25 @@ class RipperdocMenuView(SafeView):
     @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=0, custom_id="ripperdoc:wholesale_list")
     async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        cw_cog = interaction.client.get_cog("CyberwareShop")
-        if not cw_cog:
-            await send_ephemeral(interaction, "Cyberware system unavailable.")
-            return
-        state = await cw_cog._load_state()
-        lots = state.get("cw_wholesale_lots", [])
+        catalog = await cw_catalog_get_all()
+        lots = [
+            {
+                "lot_id": f"cat-{item['name']}",
+                "item_name": item["name"],
+                "unit_cost": int(item.get("price", 0)),
+                "cwp": item.get("cwp", ""),
+                "slot": item.get("slot", ""),
+                "qty_available": 99,
+            }
+            for item in catalog
+        ]
         if not lots:
-            await send_ephemeral(interaction, "No wholesale stock this week.")
+            await send_ephemeral(interaction, "No cyberware available in the catalog.")
             return
         from NightCityBot.utils.helpers import format_cw_lines_grouped
-        lines = format_cw_lines_grouped(lots, max_items=30, show_sold_out=True)
+        lines = format_cw_lines_grouped(lots, max_items=30, show_sold_out=False)
         embed = discord.Embed(
-            title="🔩 Cyberware Wholesale",
+            title="🔩 Cyberware Catalog",
             description="\n".join(lines) if lines else "Empty",
             color=discord.Color.teal(),
         )
@@ -370,6 +376,21 @@ class _CheckupPatientSelectView(SafeView):
         self.stop()
 
 
+def _build_cw_catalog_lots(catalog: list[dict]) -> list[dict]:
+    lots = []
+    for item in catalog:
+        lots.append({
+            "lot_id": f"cat-{item['name']}",
+            "item_name": item["name"],
+            "unit_cost": int(item.get("price", 0)),
+            "cwp": item.get("cwp", ""),
+            "slot": item.get("slot", ""),
+            "qty_available": 99,
+        })
+    lots.sort(key=lambda l: l["item_name"])
+    return lots
+
+
 class WholesaleBuySelect(SafeView):
     def __init__(self, cog: "RipperdocHub", ctx: commands.Context, lots: list, cw_cog):
         super().__init__(timeout=300)
@@ -427,40 +448,6 @@ class WholesaleBuySelect(SafeView):
         if not ok:
             await send_ephemeral(interaction, "Payment failed.")
             return
-
-        async with self.cw_cog._locks.pin("state"):
-            state = await self.cw_cog._load_state()
-            lots = state.get("cw_wholesale_lots", [])
-            target_lot = None
-            lot_id = lot.get("lot_id")
-            if lot_id:
-                for l in lots:
-                    if l.get("lot_id") == lot_id:
-                        target_lot = l
-                        break
-            if target_lot is None:
-                target_lot = self.cw_cog._lookup_lot(lots, lot["item_name"])
-            if not target_lot or int(target_lot.get("qty_available", 0)) < qty:
-                await self.cog.unbelievaboat.update_balance(
-                    member.id,
-                    {"cash": cash_deduct, "bank": bank_deduct},
-                    reason="CW wholesale buy refund — stock depleted",
-                )
-                await send_ephemeral(interaction, "Stock depleted. Refunded.")
-                return
-            target_lot["qty_available"] = int(target_lot["qty_available"]) - qty
-            save_ok = await self.cw_cog._save_state(state)
-            if not save_ok:
-                target_lot["qty_available"] = int(target_lot["qty_available"]) + qty
-                logger.error("cw wholesale buy: _save_state failed — refunding buyer=%s", member.id)
-                await self.cog.unbelievaboat.update_balance(
-                    member.id,
-                    {"cash": cash_deduct, "bank": bank_deduct},
-                    reason="CW wholesale refund — save failed",
-                )
-                await send_ephemeral(interaction, 
-                    "⚠️ Purchase failed (save error). Payment has been refunded. Please try again.")
-                return
 
         async with self.cw_cog._locks.acquire(str(member.id)):
             inventory = await self.cw_cog._load_inventory(member.id)

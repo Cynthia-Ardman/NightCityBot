@@ -41,7 +41,6 @@ from NightCityBot.cogs.gunstore_hub import (
 from NightCityBot.cogs.admin_shop import (
     AdminShopCog,
     AdminShopMenuView,
-    WholesaleClearConfirmView,
 )
 
 MOCK_CHARS_BUYER = [
@@ -654,36 +653,6 @@ class TestFlowG_GunstoreRestrictedSell:
             assert add_data["character_name"] == "Panam"
             assert add_data["name"] == "Tsunami Nekomata"
 
-        _run(_test())
-
-
-class TestWholesaleClearInteractionCheck:
-    """Verify WholesaleClearConfirmView now has interaction_check."""
-
-    def test_wrong_user_blocked(self):
-        async def _test():
-            bot = _make_bot()
-            cog = AdminShopCog.__new__(AdminShopCog)
-            cog.bot = bot
-            ctx = _make_ctx(author_id=100)
-            view = WholesaleClearConfirmView(cog, ctx, target="guns")
-
-            inter_wrong = _make_interaction(user_id=999)
-            result = await view.interaction_check(inter_wrong)
-            assert result is False
-        _run(_test())
-
-    def test_correct_user_allowed(self):
-        async def _test():
-            bot = _make_bot()
-            cog = AdminShopCog.__new__(AdminShopCog)
-            cog.bot = bot
-            ctx = _make_ctx(author_id=100)
-            view = WholesaleClearConfirmView(cog, ctx, target="guns")
-
-            inter_ok = _make_interaction(user_id=100)
-            result = await view.interaction_check(inter_ok)
-            assert result is True
         _run(_test())
 
 

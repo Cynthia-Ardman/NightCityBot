@@ -90,108 +90,7 @@ class AdminShopMenuView(SafeView):
         view = _ManageStoresTypeView(interaction.user.id)
         await send_ephemeral(interaction, "🏪 **Manage Stores** — Which type?", view=view)
 
-    @discord.ui.button(label="Wholesale Stock", style=discord.ButtonStyle.secondary, emoji="🏭", row=1, custom_id="admin_shop:wholesale_stock")
-    async def wholesale_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        guns_cog = interaction.client.get_cog("GunsShopCog")
-        cw_cog = interaction.client.get_cog("CyberwareShop")
-        lines = []
-        if guns_cog:
-            state = await guns_cog._load_state()
-            gun_lots = state.get("wholesale_lots", [])
-            available = [l for l in gun_lots if int(l.get("qty_available", 0)) > 0]
-            if available:
-                lines.append("**🔫 Gun Wholesale:**")
-                for i, lot in enumerate(available[:15], 1):
-                    r = lot.get("restriction", "basic")
-                    r_tag = f" [{r}]" if r != "basic" else ""
-                    lines.append(
-                        f"`{i}.` **{lot['gun_name']}**{r_tag} — ${int(lot['unit_cost']):,} × {lot['qty_available']}"
-                    )
-            else:
-                lines.append("**🔫 Gun Wholesale:** Empty")
-        if cw_cog:
-            state = await cw_cog._load_state()
-            cw_lots = state.get("cw_wholesale_lots", [])
-            available = [l for l in cw_lots if int(l.get("qty_available", 0)) > 0]
-            if available:
-                lines.append("\n**💉 Cyberware Wholesale:**")
-                for i, lot in enumerate(available[:15], 1):
-                    lines.append(
-                        f"`{i}.` **{lot['item_name']}** — ${int(lot['unit_cost']):,} × {lot['qty_available']}"
-                    )
-            else:
-                lines.append("**💉 Cyberware Wholesale:** Empty")
-        if not lines:
-            await send_ephemeral(interaction, "No wholesale systems available.")
-            return
-        embed = discord.Embed(
-            title="🏭 Wholesale Stock Overview",
-            description="\n".join(lines),
-            color=discord.Color.orange(),
-        )
-        await send_ephemeral(interaction, embed=embed)
-
-    @discord.ui.button(label="Restock Gun Wholesale", style=discord.ButtonStyle.primary, emoji="📥", row=2, custom_id="admin_shop:restock_wholesale")
-    async def restock_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cog = interaction.client.get_cog("AdminShop")
-        catalog = await gun_catalog_get_all()
-        if not catalog:
-            await respond_ephemeral(interaction, "❌ Gun catalog is empty. Set a sheet and reload first.")
-            return
-        await respond_ephemeral(interaction, 
-            f"📦 **Gun catalog has {len(catalog)} items.**\n"
-            f"How many unique items to stock, and max qty per item?\n"
-            f"Distribution: ~70% Basic, ~20% Controlled, ~10% Restricted\n"
-            f"**Enter:** `total_items, max_qty`\n"
-            f"Example: `10, 3` — stocks 10 random guns, up to 3 each\n"
-            f"Type `cancel` to abort.")
-        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
-        if text is None:
-            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
-            return
-        await _inline_restock_wholesale(cog, interaction, text, catalog)
-
-    @discord.ui.button(label="Clear Gun Wholesale", style=discord.ButtonStyle.danger, emoji="🗑️", row=2, custom_id="admin_shop:clear_wholesale")
-    async def clear_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        cog = interaction.client.get_cog("AdminShop")
-        ctx = PanelContext(interaction)
-        confirm_view = WholesaleClearConfirmView(cog, ctx, target="guns")
-        await send_ephemeral(interaction, 
-            "⚠️ This will clear **all** gun wholesale lots. Are you sure?",
-            view=confirm_view)
-
-    @discord.ui.button(label="Restock Cyberware WH", style=discord.ButtonStyle.primary, emoji="💉", row=3, custom_id="admin_shop:restock_cw")
-    async def restock_cw(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cog = interaction.client.get_cog("AdminShop")
-        catalog = await cw_catalog_get_all()
-        if not catalog:
-            await respond_ephemeral(interaction, "❌ Cyberware catalog is empty. Set a sheet and reload first.")
-            return
-        await respond_ephemeral(interaction, 
-            f"📦 **Cyberware catalog has {len(catalog)} items.**\n"
-            f"How many unique items to stock, and max qty per item?\n"
-            f"**Enter:** `total_items, max_qty`\n"
-            f"Example: `5, 3` — stocks 5 random items, up to 3 each\n"
-            f"Type `cancel` to abort.")
-        text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
-        if text is None:
-            await interaction.edit_original_response(content="⏰ Timed out or cancelled.")
-            return
-        await _inline_restock_cw(cog, interaction, text, catalog)
-
-    @discord.ui.button(label="Clear Cyberware WH", style=discord.ButtonStyle.danger, emoji="🧹", row=3, custom_id="admin_shop:clear_cw_wholesale")
-    async def clear_cw_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        cog = interaction.client.get_cog("AdminShop")
-        ctx = PanelContext(interaction)
-        confirm_view = WholesaleClearConfirmView(cog, ctx, target="cw")
-        await send_ephemeral(interaction, 
-            "⚠️ This will clear **all** cyberware wholesale lots. Are you sure?",
-            view=confirm_view)
-
-    @discord.ui.button(label="Set Gun Sheet", style=discord.ButtonStyle.secondary, emoji="🔫", row=4, custom_id="admin_shop:set_gun_sheet")
+    @discord.ui.button(label="Set Gun Sheet", style=discord.ButtonStyle.secondary, emoji="🔫", row=1, custom_id="admin_shop:set_gun_sheet")
     async def set_gun_sheet(self, interaction: discord.Interaction, button: discord.ui.Button):
         logger.info("set_gun_sheet: clicked by %s", interaction.user.id)
         guns_cog = interaction.client.get_cog("GunsShopCog")
@@ -236,7 +135,7 @@ class AdminShopMenuView(SafeView):
                 except Exception:
                     pass
 
-    @discord.ui.button(label="Set Cyberware Sheet", style=discord.ButtonStyle.secondary, emoji="💉", row=4, custom_id="admin_shop:set_cw_sheet")
+    @discord.ui.button(label="Set Cyberware Sheet", style=discord.ButtonStyle.secondary, emoji="💉", row=1, custom_id="admin_shop:set_cw_sheet")
     async def set_cw_sheet(self, interaction: discord.Interaction, button: discord.ui.Button):
         logger.info("set_cw_sheet: clicked by %s", interaction.user.id)
         cw_cog = interaction.client.get_cog("CyberwareShop")
@@ -290,7 +189,7 @@ class AdminShopMenuView(SafeView):
             logger.exception("set_cw_sheet: failed to save CW state")
             await interaction.edit_original_response(content="❌ Error saving sheet URL. Check logs.")
 
-    @discord.ui.button(label="Reload Sheets", style=discord.ButtonStyle.success, emoji="🔄", row=4, custom_id="admin_shop:reload_sheets")
+    @discord.ui.button(label="Reload Sheets", style=discord.ButtonStyle.success, emoji="🔄", row=2, custom_id="admin_shop:reload_sheets")
     async def reload_sheets(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         results = []
@@ -336,7 +235,7 @@ class AdminShopMenuView(SafeView):
                 except Exception:
                     pass
 
-    @discord.ui.button(label="Perm Overwrites", style=discord.ButtonStyle.secondary, emoji="🔐", row=4, custom_id="admin_shop:perm_overwrites")
+    @discord.ui.button(label="Perm Overwrites", style=discord.ButtonStyle.secondary, emoji="🔐", row=3, custom_id="admin_shop:perm_overwrites")
     async def perm_overwrites(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
@@ -632,136 +531,6 @@ def _pick_guns_by_restriction(catalog, total_items):
     if n_restricted:
         chosen.extend(random.sample(restricted, n_restricted))
     return chosen
-
-
-async def _inline_restock_wholesale(cog, interaction, text, catalog):
-    parts = [p.strip() for p in text.split(",")]
-    if len(parts) < 2:
-        await interaction.edit_original_response(
-            content="❌ Please provide: `total_items, max_qty`",
-        )
-        return
-    try:
-        total_items = int(parts[0])
-        max_qty = int(parts[1])
-    except ValueError:
-        await interaction.edit_original_response(content="Both values must be numbers.")
-        return
-    if total_items < 1:
-        await interaction.edit_original_response(content="Total items must be at least 1.")
-        return
-    if max_qty < 1:
-        await interaction.edit_original_response(content="Max qty must be at least 1.")
-        return
-    catalog = [g for g in catalog if str(g.get("status", "live")).strip().lower() == "live"]
-    if not catalog:
-        await interaction.edit_original_response(content="No live guns in catalog.")
-        return
-    total_items = min(total_items, len(catalog))
-    guns_cog = cog.bot.cogs.get("GunsShopCog")
-    if not guns_cog:
-        await interaction.edit_original_response(content="Gun shop system unavailable.")
-        return
-    chosen = _pick_guns_by_restriction(catalog, total_items)
-    async with guns_cog.lock:
-        state = await guns_cog._load_state()
-        lots = state.setdefault("wholesale_lots", [])
-        stocked = []
-        for gun in chosen:
-            qty = random.randint(1, max_qty)
-            cost = gun.get("price", 0) or 0
-            restriction = gun.get("restriction", "basic")
-            lot_id = f"admin-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
-            lots.append({
-                "lot_id": lot_id,
-                "gun_name": gun["gun_name"],
-                "gun_level": gun.get("gun_level", "L"),
-                "weapon_type": gun.get("weapon_type", ""),
-                "gun_category": gun.get("gun_category", ""),
-                "unit_cost": cost,
-                "qty_available": qty,
-                "restriction": restriction,
-            })
-            r_tag = f" [{restriction}]" if restriction != "basic" else ""
-            stocked.append(f"**{gun['gun_name']}**{r_tag} ×{qty} at ${cost:,}")
-        await guns_cog._save_state(state)
-    summary = "\n".join(stocked)
-    await interaction.edit_original_response(
-        content=f"✅ Restocked **{len(stocked)}** guns:\n{summary}",
-    )
-    log_ch = await cog._audit_channel()
-    if log_ch:
-        embed = discord.Embed(
-            title="📥 Admin: Gun Wholesale Restocked",
-            color=discord.Color.orange(),
-            timestamp=datetime.now(timezone.utc),
-        )
-        embed.add_field(name="Admin", value=f"{interaction.user.mention}", inline=False)
-        embed.add_field(name="Items", value=str(len(stocked)), inline=True)
-        embed.add_field(name="Max Qty", value=str(max_qty), inline=True)
-        embed.add_field(name="Details", value=summary[:1024], inline=False)
-        embed.set_footer(text="NightCityBot Audit Log")
-        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
-
-
-async def _inline_restock_cw(cog, interaction, text, catalog):
-    parts = [p.strip() for p in text.split(",")]
-    if len(parts) < 2:
-        await interaction.edit_original_response(
-            content="❌ Please provide: `total_items, max_qty`",
-        )
-        return
-    try:
-        total_items = int(parts[0])
-        max_qty = int(parts[1])
-    except ValueError:
-        await interaction.edit_original_response(content="Both values must be numbers.")
-        return
-    if total_items < 1:
-        await interaction.edit_original_response(content="Total items must be at least 1.")
-        return
-    if max_qty < 1:
-        await interaction.edit_original_response(content="Max qty must be at least 1.")
-        return
-    total_items = min(total_items, len(catalog))
-    cw_cog = cog.bot.cogs.get("CyberwareShop")
-    if not cw_cog:
-        await interaction.edit_original_response(content="Cyberware system unavailable.")
-        return
-    chosen = random.sample(catalog, total_items)
-    async with cw_cog.lock:
-        state = await cw_cog._load_state()
-        lots = state.setdefault("cw_wholesale_lots", [])
-        stocked = []
-        for item in chosen:
-            qty = random.randint(1, max_qty)
-            cost = item.get("price", 0) or 0
-            lot_id = f"admin-cw-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}"
-            lots.append({
-                "lot_id": lot_id,
-                "item_name": item["name"],
-                "unit_cost": cost,
-                "qty_available": qty,
-            })
-            stocked.append(f"**{item['name']}** ×{qty} at ${cost:,}")
-        await cw_cog._save_state(state)
-    summary = "\n".join(stocked)
-    await interaction.edit_original_response(
-        content=f"✅ Restocked **{len(stocked)}** cyberware items:\n{summary}",
-    )
-    log_ch = await cog._audit_channel()
-    if log_ch:
-        embed = discord.Embed(
-            title="📥 Admin: Cyberware Wholesale Restocked",
-            color=discord.Color.teal(),
-            timestamp=datetime.now(timezone.utc),
-        )
-        embed.add_field(name="Admin", value=f"{interaction.user.mention}", inline=False)
-        embed.add_field(name="Items", value=str(len(stocked)), inline=True)
-        embed.add_field(name="Max Qty", value=str(max_qty), inline=True)
-        embed.add_field(name="Details", value=summary[:1024], inline=False)
-        embed.set_footer(text="NightCityBot Audit Log")
-        await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
 async def _seed_ripperdoc_stores(cog, interaction: discord.Interaction, *, target_store_id: str = "__all_empty__"):
@@ -1789,66 +1558,6 @@ async def _seed_gun_stores(cog, interaction: discord.Interaction, *, target_stor
         await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
-class WholesaleClearConfirmView(SafeView):
-    def __init__(self, cog: "AdminShopCog", ctx: commands.Context, target: str = "guns"):
-        super().__init__(timeout=300)
-        self.cog = cog
-        self.ctx = ctx
-        self.target = target
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.ctx.author.id:
-            await respond_ephemeral(interaction, "This menu isn't for you.")
-            return False
-        return True
-
-    @discord.ui.button(label="Confirm Clear", style=discord.ButtonStyle.danger, emoji="⚠️")
-    async def confirm_clear(self, interaction: discord.Interaction, button: discord.ui.Button):
-        button.disabled = True
-        self.cancel_clear.disabled = True
-        await interaction.response.edit_message(view=self)
-        if self.target == "cw":
-            cw_cog = self.cog.bot.cogs.get("CyberwareShop")
-            if not cw_cog:
-                await interaction.edit_original_response(content="Cyberware system unavailable.", view=None)
-                self.stop()
-                return
-            async with cw_cog.lock:
-                state = await cw_cog._load_state()
-                state["cw_wholesale_lots"] = []
-                await cw_cog._save_state(state)
-            label = "Cyberware"
-        else:
-            guns_cog = self.cog.bot.cogs.get("GunsShopCog")
-            if not guns_cog:
-                await interaction.edit_original_response(content="Gun shop system unavailable.", view=None)
-                self.stop()
-                return
-            async with guns_cog.lock:
-                state = await guns_cog._load_state()
-                state["wholesale_lots"] = []
-                await guns_cog._save_state(state)
-            label = "Gun"
-
-        await interaction.edit_original_response(content=f"✅ All {label} wholesale lots cleared.", view=None)
-        log_ch = await self.cog._audit_channel()
-        if log_ch:
-            embed = discord.Embed(
-                title=f"🗑️ Admin: {label} Wholesale Cleared",
-                color=discord.Color.red(),
-                timestamp=datetime.now(timezone.utc),
-            )
-            embed.add_field(name="Admin", value=f"{self.ctx.author.mention}", inline=False)
-            embed.set_footer(text="NightCityBot Audit Log")
-            await log_ch.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
-        self.stop()
-
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌")
-    async def cancel_clear(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="Cancelled.", view=None)
-        self.stop()
-
-
 class AdminShopCog(commands.Cog, name="AdminShop"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -1892,13 +1601,10 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
                 "Choose an admin action below.\n\n"
                 "**Item History** — Browse a player/store item's audit trail\n"
                 "**Player Inventory** — Browse a player's items\n"
-                "**Wholesale Stock** — View gun + cyberware wholesale inventory\n"
-                "**Restock Wholesale** — Add guns to wholesale\n"
-                "**Clear Gun WH** — Remove all gun wholesale lots\n"
-                "**Restock Cyberware** — Stock random cyberware from catalog\n"
-                "**Clear Cyberware WH** — Remove all cyberware wholesale lots\n"
+                "**Manage Stores** — Seed stores with starter inventory\n"
                 "**Set Gun/Cyberware Sheet** — Set Google Sheet URL for catalogs\n"
-                "**Reload Sheets** — Re-download and refresh both catalogs"
+                "**Reload Sheets** — Re-download and refresh both catalogs\n"
+                "**Perm Overwrites** — Manage permission overwrites"
             ),
             color=discord.Color.orange(),
         )
@@ -1908,7 +1614,7 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
         embed = discord.Embed(
             title="📘 Admin Panel — How It Works",
             description=(
-                "This panel gives admins full control over the shop systems, wholesale markets, and item tracking. "
+                "This panel gives admins full control over the shop systems and item tracking. "
                 "All responses are private and **auto-delete after 5 minutes**."
             ),
             color=discord.Color.orange(),
@@ -1926,21 +1632,6 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
         embed.add_field(
             name="🌱 Seed Ripperdoc Stores / 🔫 Seed Gun Shops",
             value="Fill empty stores with 10 random starter items from the catalog. Stores that already have stock are skipped. Owners receive a DM notification.",
-            inline=False,
-        )
-        embed.add_field(
-            name="🏭 Wholesale Stock",
-            value="View all current gun and cyberware lots available in wholesale.",
-            inline=False,
-        )
-        embed.add_field(
-            name="📥 Restock Gun / 💉 Restock Cyberware Wholesale",
-            value="Randomly populate the wholesale market with new lots pulled from the master catalogs (Google Sheets).",
-            inline=False,
-        )
-        embed.add_field(
-            name="🗑️ Clear Gun / 🧹 Clear Cyberware Wholesale",
-            value="Wipe all current wholesale lots. Useful before a fresh restock.",
             inline=False,
         )
         embed.add_field(
