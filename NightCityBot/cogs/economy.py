@@ -134,7 +134,10 @@ class Economy(commands.Cog):
     @tasks.loop(hours=168)
     async def _cleanup_loop(self) -> None:
         """Weekly job: delete payment_labels rows older than 60 days."""
-        await payment_labels_cleanup(days=60)
+        try:
+            await payment_labels_cleanup(days=60)
+        except Exception:
+            logger.error("_cleanup_loop failed", exc_info=True)
 
     @_cleanup_loop.before_loop
     async def _before_cleanup_loop(self) -> None:

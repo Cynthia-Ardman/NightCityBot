@@ -979,16 +979,17 @@ class PlayerAddItemPickerView(SafeView):
 
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
     async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        await interaction.response.defer(ephemeral=True)
         user = select.values[0] if select.values else None
         member = await _resolve_user_select(self.ctx, user)
         if not member:
-            await respond_ephemeral(interaction, "Could not resolve member.")
+            await send_ephemeral(interaction, "Could not resolve member.")
             return
         self.selected_player = member
         self.selected_character = None
         characters = await get_active_characters(str(member.id))
         if not characters:
-            await respond_ephemeral(interaction, 
+            await send_ephemeral(interaction, 
                 f"❌ {member.display_name} has no active characters. "
                 "They must create a character before receiving items.")
             self.selected_player = None
@@ -1010,7 +1011,7 @@ class PlayerAddItemPickerView(SafeView):
         self._character_select = char_select
         self._characters = characters
         self.add_item(char_select)
-        await interaction.response.edit_message(
+        await interaction.edit_original_response(
             content=f"Player: **{member.display_name}** ✓ — Now select their character.",
             view=self,
         )

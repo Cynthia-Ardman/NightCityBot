@@ -83,49 +83,52 @@ class CyberwareManager(commands.Cog):
     @tasks.loop(time=time(hour=0, tzinfo=ZoneInfo(getattr(config, "TIMEZONE", "UTC"))))
     async def weekly_check(self):
         """Run every day and trigger processing each Monday."""
-        control = self.bot.get_cog("SystemControl")
-        if control and not control.is_enabled("cyberware"):
-            return
-        if get_tz_now().weekday() != 0:  # Monday
-            return
-        notify_user = None
-        user_id = getattr(config, "REPORT_USER_ID", 0)
-        if user_id:
-            notify_user = self.bot.get_user(user_id)
-            if notify_user is None:
+        try:
+            control = self.bot.get_cog("SystemControl")
+            if control and not control.is_enabled("cyberware"):
+                return
+            if get_tz_now().weekday() != 0:  # Monday
+                return
+            notify_user = None
+            user_id = getattr(config, "REPORT_USER_ID", 0)
+            if user_id:
+                notify_user = self.bot.get_user(user_id)
+                if notify_user is None:
+                    try:
+                        notify_user = await self.bot.fetch_user(user_id)
+                    except Exception:
+                        notify_user = None
+            if notify_user:
                 try:
-                    notify_user = await self.bot.fetch_user(user_id)
+                    await notify_user.send("🚦 Weekly cyberware processing starting...")
                 except Exception:
-                    notify_user = None
-        if notify_user:
-            try:
-                await notify_user.send("🚦 Weekly cyberware processing starting...")
-            except Exception:
-                logger.warning("Suppressed exception", exc_info=True)
-        logs: List[str] = []
-        results = await self.process_week(log=logs)
+                    logger.warning("Suppressed exception", exc_info=True)
+            logs: List[str] = []
+            results = await self.process_week(log=logs)
 
-        run_at = datetime.now(timezone.utc)
-        ok = await cyberware_weekly_add(
-            run_at=run_at,
-            checkup_ids=[str(x) for x in results.get("checkup", [])],
-            paid_ids=[str(x) for x in results.get("paid", [])],
-            unpaid_ids=[str(x) for x in results.get("unpaid", [])],
-        )
-        if not ok:
-            await warn_db_failure(
-                self.bot, "cyberware_weekly_add",
-                "weekly run results not persisted",
+            run_at = datetime.now(timezone.utc)
+            ok = await cyberware_weekly_add(
+                run_at=run_at,
+                checkup_ids=[str(x) for x in results.get("checkup", [])],
+                paid_ids=[str(x) for x in results.get("paid", [])],
+                unpaid_ids=[str(x) for x in results.get("unpaid", [])],
             )
-
-        summary = "\n".join(logs) if logs else "✅ No actions performed."
-        if notify_user:
-            try:
-                await notify_user.send(
-                    f"✅ Weekly cyberware processing complete:\n{summary}"
+            if not ok:
+                await warn_db_failure(
+                    self.bot, "cyberware_weekly_add",
+                    "weekly run results not persisted",
                 )
-            except Exception:
-                logger.warning("Suppressed exception", exc_info=True)
+
+            summary = "\n".join(logs) if logs else "✅ No actions performed."
+            if notify_user:
+                try:
+                    await notify_user.send(
+                        f"✅ Weekly cyberware processing complete:\n{summary}"
+                    )
+                except Exception:
+                    logger.warning("Suppressed exception", exc_info=True)
+        except Exception:
+            logger.error("weekly_check failed", exc_info=True)
 
     async def process_week(
         self,

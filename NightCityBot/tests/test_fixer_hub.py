@@ -1030,8 +1030,9 @@ class TestPickerUserSelectCallbacks:
             inter = _make_interaction()
             await select.callback(inter)
             assert view.selected_player is member
-            inter.response.edit_message.assert_called_once()
-            assert "TestPlayer" in inter.response.edit_message.call_args.kwargs["content"]
+            inter.response.defer.assert_called_once()
+            inter.edit_original_response.assert_called_once()
+            assert "TestPlayer" in inter.edit_original_response.call_args.kwargs["content"]
         _run(_test())
 
     def test_store_owner_picker_selects_member(self):

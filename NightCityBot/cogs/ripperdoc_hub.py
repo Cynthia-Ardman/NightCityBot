@@ -1067,6 +1067,55 @@ async def _process_cw_install(cog, interaction, ctx, patient, group, character, 
             await send_ephemeral(interaction, "⚠️ Install failed (save error). Payment has been refunded.")
             return
 
+    pi_payload = {
+        "item_id": item_id,
+        "owner_id": str(patient.id),
+        "character_name": character_name,
+        "character_id": character_id,
+        "item_type": "cyberware",
+        "name": item_name,
+        "restriction": "basic",
+        "description": "",
+        "price_paid": price,
+        "seller_id": str(ctx.author.id),
+        "seller_name": ctx.author.display_name,
+    }
+    if selected.get("cwp"):
+        pi_payload["cwp"] = selected["cwp"]
+    if selected.get("slot"):
+        pi_payload["slot"] = selected["slot"]
+    pi_ok = await pi_add_item(pi_payload)
+    if not pi_ok:
+        logger.error("cw install: pi_add_item failed — attempting compensation")
+        async with cw_cog._locks.acquire(str(owner_id)):
+            inv_restore = await cw_cog._load_inventory(owner_id)
+            restore_entry = {
+                "item_id": item_id,
+                "name": item_name,
+                "price_paid": price,
+                "purchased_at": datetime.now(timezone.utc).isoformat(),
+            }
+            if selected.get("cwp"):
+                restore_entry["cwp"] = selected["cwp"]
+            if selected.get("slot"):
+                restore_entry["slot"] = selected["slot"]
+            inv_restore.append(restore_entry)
+            await cw_cog._save_inventory(owner_id, inv_restore)
+            logger.info("cw install: restored item_id=%s to ripperdoc=%s stock", item_id, owner_id)
+        if price > 0:
+            await cog.unbelievaboat.update_balance(
+                patient.id, {"cash": cash_ded, "bank": bank_ded}, reason="CW install refund — item grant failed"
+            )
+            if seller_credited:
+                await cog.unbelievaboat.update_balance(
+                    owner_id, {"bank": -price}, reason="CW install refund — item grant failed"
+                )
+        await send_ephemeral(interaction,
+            f"⚠️ Failed to add **{item_name}** to {patient.display_name}'s inventory. "
+            "Payment has been refunded and item has been restored to stock. Please contact an admin."
+        )
+        return
+
     await ih_record_event(
         item_id, "cw_installed",
         actor_id=str(ctx.author.id),

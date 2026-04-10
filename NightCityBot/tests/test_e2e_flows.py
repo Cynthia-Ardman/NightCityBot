@@ -209,8 +209,9 @@ class TestFlowA_FixerAddItem:
             user_select._values = [target_member]
             await user_select.callback(inter3)
 
-            inter3.response.edit_message.assert_called_once()
-            edit_kwargs = inter3.response.edit_message.call_args[1]
+            inter3.response.defer.assert_called_once()
+            inter3.edit_original_response.assert_called_once()
+            edit_kwargs = inter3.edit_original_response.call_args[1]
             assert edit_kwargs["view"] is picker_view
 
             char_select = None
