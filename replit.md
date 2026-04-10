@@ -6,14 +6,14 @@ A Discord bot for NCRP (Cyberpunk-themed RP server) managing economy, roleplay u
 
 - **Entry point**: `NightCityBot/bot.py` — runs the Discord bot with Flask keep-alive server on port 5000
 - **Config**: `config.py` (root) — all IDs, paths, and secrets loaded from env vars
-- **Cogs**: `NightCityBot/cogs/` — modular command groups (economy, wholesaler, cyberware, etc.)
+- **Cogs**: `NightCityBot/cogs/` — modular command groups (economy, gun store, cyberware, etc.)
 - **Services**: `NightCityBot/services/` — UnbelievaBoat API wrapper, Trauma Team logic
 - **Utils**: `NightCityBot/utils/` — helpers, permissions, startup checks
 - **Tests**: `NightCityBot/tests/` — pytest suite (coverage floor: 63%)
 
 ## Data Storage
 
-Operational state is persisted to **PostgreSQL** via normalized tables (29 tables total, including `characters`, `item_history`, `cw_shop_state`, `fixer_event`, `store_inventory`, and `shop_permitted_roles`). The legacy `json_store` key-value table remains for backward compatibility. File-based JSON storage is retained for per-member balance backups and wholesaler local fallback.
+Operational state is persisted to **PostgreSQL** via normalized tables (29 tables total, including `characters`, `item_history`, `cw_shop_state`, `fixer_event`, `store_inventory`, and `shop_permitted_roles`). The legacy `json_store` key-value table remains for backward compatibility. File-based JSON storage is retained for per-member balance backups.
 
 ### `bot_config` table — runtime-editable economy constants
 
@@ -33,13 +33,11 @@ All hardcoded dollar amounts (baseline living cost, housing/business/trauma rent
 | `cyberware_weekly` | Cyberware | Append-only list of weekly processing results |
 | `thread_map` | DMHandler | DM user ID → forum thread ID map |
 | `system_status` | SystemControl | Enable/disable flags for each subsystem |
-| `wholesaler_state` | Wholesaler | Full assembled wholesaler state (lots, stores, settings) — **legacy, migrated to typed tables** |
-| `wholesaler_tx` | Wholesaler | Append-only transaction log — **legacy, migrated to typed tables** |
 | `cw_shop_state` | Cyberware | **Legacy key, auto-migrated to `cw_shop_state` table on first load** |
 | `fixer_event` | Economy | **Legacy key, auto-migrated to `fixer_event` table on first load** |
 | `open_log_history_YYYY_MM` | Economy | Monthly archive of open_log before reset |
 
-DB helpers: `NightCityBot/utils/db.py` — `get_pool()`, `db_load(key, default, seed_path)`, `db_save(key, value)`, `close_pool()`, `open_log_delete_today(user_id, opened_at)` (rollback helper for failed open_shop rewards). On first `db_load` for a key not yet in DB, seeds automatically from the legacy JSON file on disk (one-time migration). Typed helpers `cw_shop_state_load/save` and `fixer_event_load/save` replace `db_load`/`db_save` usage for those keys and auto-migrate from `json_store` on first access. Wholesaler tables use promoted typed columns (`weapon_type`, `restriction`, `store_name`, `balance`, `item_name`, `qty`, `cost`, etc.) alongside the `data` JSONB fallback. Join tables `store_inventory` and `shop_permitted_roles` normalize nested arrays.
+DB helpers: `NightCityBot/utils/db.py` — `get_pool()`, `db_load(key, default, seed_path)`, `db_save(key, value)`, `close_pool()`, `open_log_delete_today(user_id, opened_at)` (rollback helper for failed open_shop rewards). On first `db_load` for a key not yet in DB, seeds automatically from the legacy JSON file on disk (one-time migration). Typed helpers `cw_shop_state_load/save` and `fixer_event_load/save` replace `db_load`/`db_save` usage for those keys and auto-migrate from `json_store` on first access. Gun store tables use promoted typed columns (`weapon_type`, `restriction`, `store_name`, `balance`, `item_name`, `qty`, `cost`, etc.) alongside the `data` JSONB fallback. Join tables `store_inventory` and `shop_permitted_roles` normalize nested arrays.
 
 `pi_delete_item(item_id, *, expected_owner_id=None)` — accepts an optional `expected_owner_id` kwarg; when provided, the SQL uses `AND owner_id = $2` as a TOCTOU guard so a stale caller cannot delete another player's item. All player-facing callers (give, sell-to-store) pass the current user's ID; admin callers (fixer remove) pass the target player's ID.
 
@@ -49,17 +47,17 @@ Balance deduction convention: all payment flows must use the cash+bank split pat
 
 Partial failure refund convention: if money is deducted but item insertion fails (partial or total), refund the failed portion proportionally — `price * failed_qty` — using the same cash/bank split that was originally deducted. The store add flows refund fully and abort if `_save_state` or `_save_inventory` returns False.
 
-Panel failure logging convention: `log_panel_failure(bot, channel_id_attr, action, user, reason)` in `interaction_safety.py` sends a `⚠️ **Panel Failure**` message to the appropriate log channel when a user is denied access or a critical transaction fails. Wired into interaction_check denials (Gun Store, Ripperdoc, Fixer, Admin panels), owner-only action denials (wholesale buy, manage store/employees), and key transaction failures (payment failed, store disappeared, save error). The call is always fire-and-forget after the user has already been notified — never blocks the user flow. Channel routing: Gun Store → `GUN_LOG_CHANNEL_ID`, Ripperdoc → `CYBERWARE_LOG_CHANNEL_ID`, Fixer/Admin → `NIGHTCITYBOT_LOG_CHANNEL_ID`.
+Panel failure logging convention: `log_panel_failure(bot, channel_id_attr, action, user, reason)` in `interaction_safety.py` sends a `⚠️ **Panel Failure**` message to the appropriate log channel when a user is denied access or a critical transaction fails. Wired into interaction_check denials (Gun Store, Ripperdoc, Fixer, Admin panels), owner-only action denials (catalogue buy, manage store/employees), and key transaction failures (payment failed, store disappeared, save error). The call is always fire-and-forget after the user has already been notified — never blocks the user flow. Channel routing: Gun Store → `GUN_LOG_CHANNEL_ID`, Ripperdoc → `CYBERWARE_LOG_CHANNEL_ID`, Fixer/Admin → `NIGHTCITYBOT_LOG_CHANNEL_ID`.
 
 Inventory restore convention: when `pi_add_item` fails in a sell flow, the item must be restored to the store's stock (gun lot or ripperdoc inventory) before refunding money. `cyberware_shop.py` adds to player inventory first then removes from stock; hub sell flows (`gunstore_hub.py`, `ripperdoc_hub.py`) remove first and restore on failure.
 
-Item field propagation convention: gun attributes use three distinct fields — `gun_category` (damage type: Power/Smart/Tech), `weapon_type` (gun class: pistol/revolver/shotgun etc.), and `gun_level` (L/M/H, the power level). These must be carried through the entire chain — Google Sheet → catalog → wholesale lots → store lots → player inventory (as `power_level` low/medium/high, `weapon_subtype` from `gun_category`, `weapon_type` for gun class). All gun list display surfaces (wholesale list, store inventory, fixer stock view) group guns by `weapon_type` with section headers (▬▬ Pistols ▬▬ etc.) and use the format: `Name — [Restriction] · [Level] · [DamageType] — $Price × Qty`. Power level is displayed as full words (Low/Medium/High). Guns without a weapon_type appear in an "Other" section. Shared constants in `NightCityBot/utils/constants.py`: `VALID_GUN_CLASSES`, `GUN_CLASS_DISPLAY_NAMES`, `GUN_CLASS_ORDER`, `POWER_LEVEL_WORDS`. Shared formatter: `NightCityBot/utils/helpers.py::format_gun_lines_grouped()`. Fixer add flows (wholesale, store, player add-item) now collect `weapon_type` (gun class) interactively or inline. The `player_inventory` DB table includes a `weapon_type` column propagated through buy flows. Cyberware attributes (`cwp` integer, `slot` body location) must likewise propagate — Google Sheet → catalog → wholesale lots → ripperdoc inventory → player inventory. All cyberware list display surfaces (wholesale list, ripperdoc store inventory, fixer stock view, `!cw_inventory`, restock alert) group cyberware by `slot` with section headers (▬▬ Neural ▬▬ etc.) and use the format: `Name — [CWP: X] — $Price × Qty`. Cyberware has NO restriction tag. Slots follow a body-logical display order (Neural → Ocular → Auditory → Integumentary → Hands & Feet → Arms → Legs → Skeleton & Torso → Universal Muscular → Circulatory & Immune → Miscellaneous). Items without a recognized slot appear in an "Other" section. Player inventory cyberware uses the bracketed format: `Name — [CWP: X] · [Slot Name]`. Shared constants in `NightCityBot/utils/constants.py`: `CW_SLOT_ORDER`, `CW_SLOT_DISPLAY_NAMES`. Shared formatter: `NightCityBot/utils/helpers.py::format_cw_lines_grouped()`. All add flows (fixer wholesale add, fixer store add) collect these attributes interactively if not provided inline.
+Item field propagation convention: gun attributes use three distinct fields — `gun_category` (damage type: Power/Smart/Tech), `weapon_type` (gun class: pistol/revolver/shotgun etc.), and `gun_level` (L/M/H, the power level). These must be carried through the entire chain — Google Sheet → catalog → store lots → player inventory (as `power_level` low/medium/high, `weapon_subtype` from `gun_category`, `weapon_type` for gun class). All gun list display surfaces (store inventory, fixer stock view) group guns by `weapon_type` with section headers (▬▬ Pistols ▬▬ etc.) and use the format: `Name — [Restriction] · [Level] · [DamageType] — $Price × Qty`. Power level is displayed as full words (Low/Medium/High). Guns without a weapon_type appear in an "Other" section. Shared constants in `NightCityBot/utils/constants.py`: `VALID_GUN_CLASSES`, `GUN_CLASS_DISPLAY_NAMES`, `GUN_CLASS_ORDER`, `POWER_LEVEL_WORDS`. Shared formatter: `NightCityBot/utils/helpers.py::format_gun_lines_grouped()`. Fixer add flows (store, player add-item) now collect `weapon_type` (gun class) interactively or inline. The `player_inventory` DB table includes a `weapon_type` column propagated through buy flows. Cyberware attributes (`cwp` integer, `slot` body location) must likewise propagate — Google Sheet → catalog → ripperdoc inventory → player inventory. All cyberware list display surfaces (ripperdoc store inventory, fixer stock view, `!cw_inventory`) group cyberware by `slot` with section headers (▬▬ Neural ▬▬ etc.) and use the format: `Name — [CWP: X] — $Price × Qty`. Cyberware has NO restriction tag. Slots follow a body-logical display order (Neural → Ocular → Auditory → Integumentary → Hands & Feet → Arms → Legs → Skeleton & Torso → Universal Muscular → Circulatory & Immune → Miscellaneous). Items without a recognized slot appear in an "Other" section. Player inventory cyberware uses the bracketed format: `Name — [CWP: X] · [Slot Name]`. Shared constants in `NightCityBot/utils/constants.py`: `CW_SLOT_ORDER`, `CW_SLOT_DISPLAY_NAMES`. Shared formatter: `NightCityBot/utils/helpers.py::format_cw_lines_grouped()`. Fixer store add flows collect these attributes interactively if not provided inline.
 
 `pi_update_character(item_id, new_character, expected_owner_id=None, *, new_character_id=None)` — when `new_character_id` is provided, also sets `character_id` in the UPDATE. All callers that know the target character (reassign, trade, give) should look up and pass the `character_id` to keep the column in sync.
 
 Ripperdoc inventory lock convention: all load-mutate-save of ripperdoc inventory must use `async with cw_cog._locks.acquire(str(owner_id))`. This applies in `cyberware_shop.py`, `ripperdoc_hub.py`, `fixer_hub.py`, and `player_hub.py` (give-to-ripperdoc path).
 
-Save-result checking convention: every call to `_save_state()` or `_save_inventory()` after a payment has been taken must check the boolean return value. If `False`, the flow must refund the buyer (and reverse seller credit if applicable), send the user an error message, and `return`. This is enforced in: `gunstore_hub.py` (wholesale buy + sell), `ripperdoc_hub.py` (wholesale buy + sell + install), `fixer_hub.py` (add-to-store flows), `cyberware_shop.py` (wholesale buy).
+Save-result checking convention: every call to `_save_state()` or `_save_inventory()` after a payment has been taken must check the boolean return value. If `False`, the flow must refund the buyer (and reverse seller credit if applicable), send the user an error message, and `return`. This is enforced in: `gunstore_hub.py` (catalogue buy + sell), `ripperdoc_hub.py` (catalogue buy + sell + install), `fixer_hub.py` (add-to-store flows), `cyberware_shop.py` (catalogue buy).
 
 Refund failure safety net: when a compensating refund (via `update_balance`) also fails, a `pt_create` pending transfer record is created as a fallback so admins can resolve manually. This is enforced in: `gunstore_hub.py` (gun sale pi_add_item failure), `fixer_hub.py` (store-add gun/CW save failure). Refund failures are logged at CRITICAL level.
 
@@ -86,17 +84,13 @@ Admin command: `!db_health` — shows DB ping, write-failure count, and pool sta
 - `BALANCE_BACKUP_DIR/<member_id>.json` — per-member balance history
 - `CHARACTER_BACKUP_DIR/` — character thread archive files
 
-### Wholesaler data files (still written for audit reference)
-
-- `data/wholesaler/state.json`, `stores.json`, `inventory/wholesale.json`, `inventory/stores/<store_id>.json`, `transactions.json`
-
 ## Post-Merge Setup
 
 `scripts/post-merge.sh` runs automatically after task agent merges to install dependencies. Configured via `.replit` `[postMerge]` section.
 
 ## Naming conventions (user-facing text)
 
-All user-facing messages, button labels, embed titles, and audit logs use full words: "Cyberware" (never "CW"), "Gun Wholesaler" (not just "Wholesaler" when referring to guns specifically). The fixer panel's top-level "Wholesaler" button is the exception since it covers both gun and cyberware wholesale as a combined category. Internal variable names, DB keys, and code-level references still use the `cw_` prefix.
+All user-facing messages, button labels, embed titles, and audit logs use full words: "Cyberware" (never "CW"). Internal variable names, DB keys, and code-level references still use the `cw_` prefix.
 
 ## Config cleanup notes
 
@@ -128,25 +122,11 @@ All flows use the UserSelect + item Select + character Select + Continue → mod
 
 Blocking behavior: if a user (buyer/recipient/seller) has no active characters, the flow is blocked with an error message.
 
-## Wholesaler System Flow
-
-1. `!wh_restock` — downloads Google Sheet, generates random weapon lots, saves to `state.json` + `wholesale.json`
-2. `!wh_buy` — store owners buy lots from wholesaler, creates per-store files in `inventory/stores/`
-3. `!wh_sell` — store owners sell weapons to players (syntax: `!wh_sell @buyer "character_name" <lot_id> <qty> <price>`; `!sell` kept as alias)
-
-## Cyberware Shop & Weekly Wholesale
+## Cyberware Shop
 
 Two-table catalog system in PostgreSQL:
 - `cyberware_catalog` (name UNIQUE, price, updated_at) — full item list, populated by `!cw_setsheet`
-- Weekly wholesale lots stored in PostgreSQL via the cyberware shop cog (local file fallback in `data/cyberware_shop/state.json`)
-
-### Cyberware Wholesale Flow (mirrors gun wholesaler)
-
-1. Each Sunday (auto) or via `!cw_wh_restock`, 15 random items from the full catalog are selected with 1–3 qty each
-2. Ripperdocs use `!cw_wh_list` to see what's available this week (numbered lots)
-3. `!cw_buy <lot#> [qty]` — buy by lot number, first-come first-served
-4. Sold-out items show ~~strikethrough~~ in the list; race conditions auto-refund
-5. Auto-restock fires during the Sunday weekly cyberware process
+- Ripperdoc inventory stored per-owner in PostgreSQL
 
 ### Ripperdoc Inventory Flow
 
@@ -208,10 +188,10 @@ All inventory operations are handled through the interactive hubs:
 Consolidates separate command sets into interactive hub commands with Discord UI (dropdowns, buttons, inline text input), DM-confirmation trade flows, and a full per-item audit trail.
 
 ### New Cogs
-- `NightCityBot/cogs/ripperdoc_hub.py` — `/ripperdoc` interactive panel. Layout: row0=[Buy Wholesale, Wholesale List], row1=[Sell/Install to Patient], row2=[Manage Store, Manage Employees]. Manage Store submenu (`_ManageRDStoreView`): Create Store, Change Store Name (shows current name), My Stock, Transfer Ownership (DM confirmation to receiver), Close Store. Store data stored in CyberwareShop state as `ripperdoc_stores: {store_id: {owner_id, employees, store_name}}`. Store ID format: `"rd:{guild_id}:{owner_id}"`. Owner role (`RIPPERDOC_OWNER_ROLE_ID`) required for wholesale, manage store/employees. Employee role (`RIPPERDOC_EMPLOYEE_ROLE_ID`) can sell/install from assigned store only. Money goes to store owner. Dual-role users see a store picker. 1-store limit per player. DM confirmation flow for ownership transfer (`_RDTransferDMConfirmView`).
-- `NightCityBot/cogs/gunstore_hub.py` — `/gunstore` interactive panel. Layout: row0=[Buy Wholesale, Wholesale List], row1=[Sell to Customer, My Store Inventory], row2=[Manage Store, Manage Employees, Manage Buyers]. Manage Store submenu (`_ManageGunStoreView`): Create Store, Change Store Name (shows current name), Transfer Ownership (DM confirmation), Close Store. Manage Buyers submenu (`_ManageBuyersView`): Approve Buyer, Unapprove Buyer, Approved Buyers list. Store owners can nickname their store (`store_name` in store data). Owners can add/remove employees. Employees can sell from mapped store and manage buyers, but CANNOT buy wholesale or manage store. Manage Store header shows "⚙️ Manage Store — {Name}". Money goes to store owner. Dual-role users see a store picker. 1-store limit per player. DM confirmation flow for ownership transfer (`_GunTransferDMConfirmView`).
-- `NightCityBot/cogs/admin_shop.py` — `/admin` admin panel (Add/Remove/Reassign/History/Inventory/Seed/Wholesale/Sheets/Perm Overwrites); alias `!admin_shop` still works
-- `NightCityBot/cogs/fixer_hub.py` — `/fixer` Fixer management panel with three-tier menu (Player/Store/Wholesaler sub-menus for inventory, items, LOA, store stock, wholesale management). No Done buttons — sub-views replace the ephemeral message in-place. Store dropdown shows store_name as label with owner name as description.
+- `NightCityBot/cogs/ripperdoc_hub.py` — `/ripperdoc` interactive panel. Layout: row0=[Buy from Catalogue, Catalogue List], row1=[Sell/Install to Patient], row2=[Manage Store, Manage Employees]. Manage Store submenu (`_ManageRDStoreView`): Create Store, Change Store Name (shows current name), My Stock, Transfer Ownership (DM confirmation to receiver), Close Store. Store data stored in CyberwareShop state as `ripperdoc_stores: {store_id: {owner_id, employees, store_name}}`. Store ID format: `"rd:{guild_id}:{owner_id}"`. Owner role (`RIPPERDOC_OWNER_ROLE_ID`) required for catalogue buy, manage store/employees. Employee role (`RIPPERDOC_EMPLOYEE_ROLE_ID`) can sell/install from assigned store only. Money goes to store owner. Dual-role users see a store picker. 1-store limit per player. DM confirmation flow for ownership transfer (`_RDTransferDMConfirmView`).
+- `NightCityBot/cogs/gunstore_hub.py` — `/gunstore` interactive panel. Layout: row0=[Buy from Catalogue, Catalogue List], row1=[Sell to Customer, My Store Inventory], row2=[Manage Store, Manage Employees, Manage Buyers]. Manage Store submenu (`_ManageGunStoreView`): Create Store, Change Store Name (shows current name), Transfer Ownership (DM confirmation), Close Store. Manage Buyers submenu (`_ManageBuyersView`): Approve Buyer, Unapprove Buyer, Approved Buyers list. Store owners can nickname their store (`store_name` in store data). Owners can add/remove employees. Employees can sell from mapped store and manage buyers, but CANNOT buy from catalogue or manage store. Manage Store header shows "⚙️ Manage Store — {Name}". Money goes to store owner. Dual-role users see a store picker. 1-store limit per player. DM confirmation flow for ownership transfer (`_GunTransferDMConfirmView`).
+- `NightCityBot/cogs/admin_shop.py` — `/admin` admin panel (Add/Remove/Reassign/History/Inventory/Seed/Sheets/Perm Overwrites); alias `!admin_shop` still works
+- `NightCityBot/cogs/fixer_hub.py` — `/fixer` Fixer management panel with two-tier menu (Player/Store sub-menus for inventory, items, LOA, store stock). No Done buttons — sub-views replace the ephemeral message in-place. Store dropdown shows store_name as label with owner name as description.
 - `NightCityBot/cogs/player_hub.py` — `/player` Player hub for viewing inventory, trading items, and giving items (replaces individual `!trade`, `!inv_give` commands in help)
 
 All five hub commands are **hybrid commands** — they work as both `/slash` and `!prefix` commands. Panel responses are **ephemeral** (only visible to the invoker). Slash commands are synced automatically on bot startup via `tree.sync()` in `on_ready`.
@@ -219,14 +199,14 @@ All five hub commands are **hybrid commands** — they work as both `/slash` and
 ### Item History / Audit Trail
 Table: `item_history` (keyed by item UUID, stores event_type, actor_id, target_id, price, metadata JSONB, created_at)
 - `ih_record_event()` and `ih_get_history()` in `db.py`
-- Event types: `created`, `wholesale_buy`, `player_sale`, `traded`, `given`, `admin_add`, `admin_remove`, `admin_reassign`, `cw_wholesale_buy`, `cw_sold`, `cw_installed`
+- Event types: `created`, `catalogue_buy`, `player_sale`, `traded`, `given`, `admin_add`, `admin_remove`, `admin_reassign`, `cw_catalogue_buy`, `cw_sold`, `cw_installed`
 - `!item_history <uuid>` command for lookup
 
 ### DM Confirmation Flow
 All sell/trade operations with another player now send a DM to the buyer/patient with Accept/Decline buttons (5-minute timeout). Self-trades (same user, different characters) bypass DM confirmation.
 
 ### Legacy Fallback Commands
-`!cw_buy`, `!cw_sell`, `!cw_install`, and `!cw_inventory` are retained as fallbacks for cases exceeding the 25-item Discord dropdown limit. All gun wholesaler prefix commands have been fully removed.
+`!cw_buy`, `!cw_sell`, `!cw_install`, and `!cw_inventory` are retained as fallbacks for cases exceeding the 25-item Discord dropdown limit.
 
 ### Test Coverage
 - `NightCityBot/tests/test_unified_shop.py` — 56 tests covering all three new cogs, View interaction checks, button callbacks, DM confirm views, member resolution, log channels, timeouts, deprecation notices, cog registration
@@ -317,7 +297,7 @@ Convention: **never** call `followup.send(ephemeral=True)` or `response.send_mes
 All sell/install flow error and status messages (decline/timeout, balance failures, refund notices, out-of-stock, save errors) are sent as ephemeral messages via `send_ephemeral()` — never as public channel messages via `ctx.send()`.
 
 ### View Timeouts
-All interactive View timeouts across all hub cogs are standardized to **300 seconds (5 minutes)**. This applies to: sell/install setup views, DM confirmation views, employee hiring confirmations, store transfer confirmations, store close confirmations, manage views, buyer approval views, wholesale buy selects, and character creation text input. The only exception is the backup restore confirmation (`backup.py`) which stays at 30 seconds as a safety measure for that destructive operation. Discord interaction tokens last 15 minutes, so 5-minute view timeouts are safely within that window. The persistent hub panels (`GunstoreMenuView`, `RipperdocMenuView`, `PlayerMenuView`) use `timeout=None` (never expire).
+All interactive View timeouts across all hub cogs are standardized to **300 seconds (5 minutes)**. This applies to: sell/install setup views, DM confirmation views, employee hiring confirmations, store transfer confirmations, store close confirmations, manage views, buyer approval views, catalogue buy selects, and character creation text input. The only exception is the backup restore confirmation (`backup.py`) which stays at 30 seconds as a safety measure for that destructive operation. Discord interaction tokens last 15 minutes, so 5-minute view timeouts are safely within that window. The persistent hub panels (`GunstoreMenuView`, `RipperdocMenuView`, `PlayerMenuView`) use `timeout=None` (never expire).
 
 ### Inline Helpers (`utils/inline_helpers.py`)
 `collect_text_input(bot, channel_id, author_id)` — waits for a user's text message reply, auto-deletes it, supports cancel. Used by hub flows that replaced modals with inline text collection.
@@ -339,13 +319,8 @@ Each weapon lot has a `restriction` field (default: `basic`):
 
 Store owner commands: `!wh_approve @user`, `!wh_unapprove @user`, `!wh_approved`
 Admin commands:
-- `!wh_add` and `!store_add` accept optional restriction parameter (e.g., `!wh_add "Nue" M 1300 5 controlled`)
-- `!wh_remove <lot_id> [qty]` — remove a lot or reduce its quantity from the wholesaler
 - `!store_remove @owner <lot_id> [qty]` — remove a lot or reduce its quantity from a store
-
-Restrictions carry over from wholesaler to store when purchased via `!wh_buy`.
 
 ### Black Market Store Type
 
-Stores owned by users in `config.BLACK_MARKET_OWNER_IDS` (currently Shyzuki, Discord ID 352598809357975572) are treated as Black Market stores. When a Black Market owner uses "Buy from Wholesale" in `!gunstore`, the system queries `gun_catalog` for all `status='live'` weapons with `restriction` of `controlled` or `restricted` (no basic weapons). The purchase price is `ceil(price * BLACK_MARKET_PRICE_MULTIPLIER)` (default 1.5×). Black Market buys do not deduct from wholesale lots. Selling to customers still enforces controlled buyer list checks and restricted sale fixer-approval flows. Store data includes `store_type: "black_market"` for Black Market stores (default/absent = `"standard"`).
-Controlled buyers list is persisted per-store in `inventory/stores/<store_id>.json`.
+Stores owned by users in `config.BLACK_MARKET_OWNER_IDS` (currently Shyzuki, Discord ID 352598809357975572) are treated as Black Market stores. When a Black Market owner uses "Buy from Catalogue" in `!gunstore`, the system queries `gun_catalog` for all `status='live'` weapons with `restriction` of `controlled` or `restricted` (no basic weapons). The purchase price is `ceil(price * BLACK_MARKET_PRICE_MULTIPLIER)` (default 1.5×). Selling to customers still enforces controlled buyer list checks and restricted sale fixer-approval flows. Store data includes `store_type: "black_market"` for Black Market stores (default/absent = `"standard"`).

@@ -35,15 +35,6 @@ TIMEZONE = "America/Los_Angeles"  # or your preferred zone
 
 Configuration is verified automatically when the bot starts.
 
-Wholesaler-specific configuration:
-
-* `WHOLESALER_GOOGLE_SHEET_XLSX_URL` – optional Google Sheets export URL (XLSX). When set, the bot downloads fresh stock source data directly from the sheet before restocks/rechecks.
-* `WHOLESALER_XLSX_PATH` – local fallback XLSX path if Google export URL is not set.
-* `WHOLESALER_MASTER_SHEET_NAME` – source tab name (default `Master Gun List`).
-* `WHOLESALER_AUDIT_CHANNEL_ID` – channel where immutable sales receipts and payout alerts are posted.
-* `WHOLESALER_ADMIN_ROLE_IDS` / `WHOLESALER_STORE_ROLE_IDS` – comma-separated role IDs for command permissions.
-
-
 ## Running the bot
 
 Execute the entry point script:

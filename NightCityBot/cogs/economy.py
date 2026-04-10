@@ -116,15 +116,18 @@ class Economy(commands.Cog):
     )
     async def auto_rent_loop(self) -> None:
         """Fire rent collection automatically on the 1st of each calendar month."""
-        control = self.bot.get_cog("SystemControl")
-        if control and not control.is_enabled("auto_collect_rent"):
-            return
-        now = helpers.get_tz_now()
-        if now.day != 1:
-            return
-        if await self._auto_rent_ran_this_month():
-            return
-        await self._run_auto_rent(triggered_by="scheduler")
+        try:
+            control = self.bot.get_cog("SystemControl")
+            if control and not control.is_enabled("auto_collect_rent"):
+                return
+            now = helpers.get_tz_now()
+            if now.day != 1:
+                return
+            if await self._auto_rent_ran_this_month():
+                return
+            await self._run_auto_rent(triggered_by="scheduler")
+        except Exception:
+            logger.error("auto_rent_loop failed", exc_info=True)
 
     @auto_rent_loop.before_loop
     async def _before_auto_rent_loop(self) -> None:

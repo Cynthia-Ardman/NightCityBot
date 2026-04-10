@@ -99,8 +99,8 @@ Each hub is posted once by an admin using a hybrid command (e.g., `!player`). Th
 
 | Row | Button | What it does |
 |-----|--------|-------------|
-| 0 | **Buy from Wholesale** | Browse this week's gun rotation (or Black Market catalog if applicable), select a gun, pick quantity, pay from your balance. **Owner only** — employees cannot buy wholesale |
-| 0 | **Wholesale List** | View the current wholesale lots grouped by gun class (Pistols, Shotguns, etc.) with section headers. Format: `Name — [Restriction] · [Level] · [DamageType] — $Price × Qty`. Power level shown as full words (Low/Medium/High). Guns without a class appear under "Other" |
+| 0 | **Buy from Catalogue** | Browse the full gun catalogue (or Black Market catalogue if applicable), select a gun, pick quantity, pay from your balance. **Owner only** — employees cannot buy from catalogue |
+| 0 | **Catalogue List** | View the full gun catalogue grouped by gun class (Pistols, Shotguns, etc.) with section headers. Format: `Name — [Restriction] · [Level] · [DamageType] — $Price × Qty`. Power level shown as full words (Low/Medium/High). Guns without a class appear under "Other" |
 | 1 | **Sell to Customer** | Select a gun from your store stock -> select customer (user picker) -> select customer's character -> enter price -> customer gets DM to Accept/Decline -> payment processed -> item added to customer's inventory. Controlled/restricted items require per-character buyer approval |
 | 1 | **My Store Inventory** | View your store's current stock grouped by gun class with section headers. Format: `Name — [Restriction] · [Level] · [DamageType] — $Price × Qty` |
 | 2 | **Manage Store** | Create store, change name, transfer ownership, close store |
@@ -115,8 +115,8 @@ Each hub is posted once by an admin using a hybrid command (e.g., `!player`). Th
 
 | Row | Button | What it does |
 |-----|--------|-------------|
-| 0 | **Buy from Wholesale** | Browse this week's cyberware rotation, select an item, pick quantity, pay from your balance. **Owner only** |
-| 0 | **Wholesale List** | View the current CW wholesale lots grouped by slot with section headers (▬▬ Neural ▬▬ etc.). Format: `Name — [CWP: X] — $Price × Qty`. Sold-out items shown with strikethrough |
+| 0 | **Buy from Catalogue** | Browse the full cyberware catalogue, select an item, pick quantity, pay from your balance. **Owner only** |
+| 0 | **Catalogue List** | View the full cyberware catalogue grouped by slot with section headers (▬▬ Neural ▬▬ etc.). Format: `Name — [CWP: X] — $Price × Qty` |
 | 1 | **Sell to Patient** | Select item from your stock -> select patient -> select patient's character -> enter price -> patient gets DM to Accept/Decline -> payment processed -> item added to patient's inventory, removed from your stock |
 | 1 | **Install on Patient** | Same as sell but can be free (price = 0). Used for comped installs or staff-directed operations |
 | 2 | **Manage Store** | Create clinic, change name, view stock, transfer ownership, close clinic |
@@ -135,19 +135,12 @@ Top-level buttons open sub-menus:
 |--------|----------|
 | **Player** | View Inventory (pick a player), Add Item, Remove Item, Reassign Item, Start LOA (for a player), End LOA (for a player) |
 | **Store** | View Gun Store, View Ripperdoc Store (each opens a store picker, then a store action view with Add Item and Remove Item for that store) |
-| **Wholesaler** | View Stock, Add Gun, Add Cyberware, Remove Gun Lot, Remove CW Lot |
 
 **Add Item flow:** Select player (user picker) -> enter item name -> select item type (gun/cyberware/gear/misc) -> select restriction (basic/controlled/restricted) -> enter quantity -> select character -> enter custom cost (or 0 for free) -> player receives a DM with Accept/Decline buttons (5-minute timeout) -> payment deducted (cash first, then bank) -> items created with unique UUIDs. Gun items additionally require Power Level (low/medium/high) and Type (power/smart/tech). Cyberware items additionally require CWP (integer) and Slot (body location). If payment fails or items cannot be saved, the player is automatically refunded
-
-**Add Gun to Wholesale flow:** Enter `gun name, quantity, unit cost, restriction, power level, type, gun class` (e.g. `Militech Mk.31, 10, 5000, basic, medium, power, pistol`). Missing fields are prompted interactively. The lot is saved with the mapped gun_level (L/M/H), gun_category (Power/Smart/Tech), and weapon_type (gun class). Valid gun classes: pistol, revolver, submachine_gun, shotgun, assault_rifle, light_machine_gun, heavy_machine_gun, precision_rifle, sniper_rifle
-
-**Add Cyberware to Wholesale flow:** Enter `cyberware name, quantity, unit cost, cwp, slot` (e.g. `Neural Link, 10, 5000, 14, neural`). Missing fields are prompted interactively. The lot is saved with CWP (integer) and slot (body location)
 
 **Add Gun to Store flow:** (via Store sub-menu → select store → Add Item) Enter gun details inline (including gun class) → store owner receives a DM with Accept/Decline buttons (5-minute timeout) → payment deducted (cash first, then bank) → guns added to store stock with gun_level, gun_category, and weapon_type. Refunded automatically if store save fails
 
 **Add Cyberware to Store flow:** (via Store sub-menu → select store → Add Item) Enter cyberware details inline → Ripperdoc receives a DM with Accept/Decline buttons (5-minute timeout) → payment deducted → items added to clinic stock with CWP and slot. Refunded automatically if inventory save fails
-
-**View Stock:** (via Wholesaler sub-menu) Shows all gun and CW wholesale lots — guns grouped by gun class with section headers, using format `Name — [Restriction] · [Level] · [DamageType] — $Price × Qty`; cyberware grouped by slot with section headers (▬▬ Neural ▬▬ etc.), using format `Name — [CWP: X] — $Price × Qty`
 
 **Remove Item flow:** Select player -> see their inventory -> select item -> confirm removal
 
@@ -165,14 +158,9 @@ Top-level buttons open sub-menus:
 |-----|--------|-------------|
 | 0 | **Item History** | Look up the full audit trail for any item |
 | 0 | **Player Inventory** | View any player's inventory |
-| 1 | **Wholesale Stock** | View current gun and CW wholesale lots |
-| 2 | **Restock Gun Wholesale** | Force a fresh weekly gun rotation |
-| 2 | **Clear Gun Wholesale** | Remove all gun wholesale lots (with confirmation) |
-| 3 | **Restock CW Wholesale** | Force a fresh weekly cyberware rotation |
-| 3 | **Clear CW Wholesale** | Remove all CW wholesale lots (with confirmation) |
-| 4 | **Set Gun Sheet** | Set the Google Sheet URL for the gun catalog |
-| 4 | **Set CW Sheet** | Set the Google Sheet URL for the cyberware catalog |
-| 4 | **Reload Sheets** | Refresh both catalogs from their configured sheets |
+| 1 | **Set Gun Sheet** | Set the Google Sheet URL for the gun catalog |
+| 1 | **Set CW Sheet** | Set the Google Sheet URL for the cyberware catalog |
+| 1 | **Reload Sheets** | Refresh both catalogs from their configured sheets |
 
 ---
 
@@ -231,11 +219,11 @@ Characters live in the `characters` database table.
 
 ### Standard Stores
 
-**Supply chain:** Google Sheet (master gun list) -> Gun catalog DB table -> Weekly wholesale rotation -> Store owners buy from wholesale -> Store owners sell to players
+**Supply chain:** Google Sheet (master gun list) -> Gun catalog DB table -> Store owners buy from catalogue -> Store owners sell to players
 
-**Gun properties:** Each gun in the catalog includes a Power Level (low/medium/high, stored as `gun_level` L/M/H), a damage type (Power/Smart/Tech, stored as `gun_category`), and a gun class (pistol/revolver/shotgun etc., stored as `weapon_type`). These are carried through the entire chain — catalog → wholesale lots → store lots → player inventory (as `power_level`, `weapon_subtype`, and `weapon_type`). All list display surfaces group guns by `weapon_type` with section headers and use bracketed tag format: `Name — [Restriction] · [Level] · [DamageType] — $Price × Qty`. Player inventory shows full power level words (Low/Medium/High). Fixer add flows now collect gun class alongside damage type and power level.
+**Gun properties:** Each gun in the catalog includes a Power Level (low/medium/high, stored as `gun_level` L/M/H), a damage type (Power/Smart/Tech, stored as `gun_category`), and a gun class (pistol/revolver/shotgun etc., stored as `weapon_type`). These are carried through the entire chain — catalog → store lots → player inventory (as `power_level`, `weapon_subtype`, and `weapon_type`). All list display surfaces group guns by `weapon_type` with section headers and use bracketed tag format: `Name — [Restriction] · [Level] · [DamageType] — $Price × Qty`. Player inventory shows full power level words (Low/Medium/High). Fixer add flows now collect gun class alongside damage type and power level.
 
-**Weekly rotation:** Every Monday (triggered by the cyberware weekly process), a fresh set of guns is randomly selected from the catalog. Configurable settings control lot counts and quantity ranges per tier (L/M/H).
+**Full catalogue access:** The entire gun catalogue is always available to store owners — no weekly rotation or scarcity mechanics.
 
 **Store structure:** Each store is identified by `{guild_id}:{owner_id}`. Stores have: owner, lots (inventory), employees, controlled_buyers list, store_type (standard or black_market), and optional nickname.
 
@@ -252,12 +240,10 @@ Characters live in the `characters` database table.
 
 ### Black Market
 
-Designated operators (listed in `config.BLACK_MARKET_OWNER_IDS`) or stores with `store_type == "black_market"` get a different wholesale experience:
+Designated operators (listed in `config.BLACK_MARKET_OWNER_IDS`) or stores with `store_type == "black_market"` get a different catalogue experience:
 
-- Instead of the weekly rotation, they see the **full gun catalog** filtered to only controlled and restricted weapons
+- They see only **controlled and restricted** weapons (no basic weapons)
 - Prices are multiplied by `config.BLACK_MARKET_PRICE_MULTIPLIER`
-- Synthetic lots with high availability (99 per item) — no scarcity
-- Purchases do NOT decrement the normal wholesale lots
 - Logged as `black_market_buy` events
 
 ### Controlled-Weapon Approvals
@@ -274,7 +260,7 @@ Designated operators (listed in `config.BLACK_MARKET_OWNER_IDS`) or stores with 
 - **Employee role:** `GUN_STORE_EMPLOYEE_ROLE_ID`
 - Employees are listed per-store in the `employees` array
 - **Employees can:** view inventory, sell to customers
-- **Employees cannot:** buy from wholesale, manage store settings, manage employees, manage buyer approvals
+- **Employees cannot:** buy from catalogue, manage store settings, manage employees, manage buyer approvals
 - Add/remove employees from the Manage Employees button
 
 ---
@@ -283,7 +269,7 @@ Designated operators (listed in `config.BLACK_MARKET_OWNER_IDS`) or stores with 
 
 ### Ripperdoc Stores
 
-**Supply chain:** Google Sheet (cyberware catalog) -> CW catalog DB table -> Weekly wholesale rotation -> Ripperdocs buy from wholesale -> Ripperdocs sell/install to patients
+**Supply chain:** Google Sheet (cyberware catalog) -> CW catalog DB table -> Ripperdocs buy from catalogue -> Ripperdocs sell/install to patients
 
 **Cyberware properties:** Each cyberware item in the catalog includes CWP (Cyberware Points, integer) and Slot (body location). The 11 valid slots are (in display order): Neural, Ocular System, Auditory System, Integumentary System, Hands & Feet, Arms & Arm Attachments, Legs & Mobility, Skeleton & Torso Musculature, Universal Muscular (Arms/Legs/Tail), Circulatory & Immune Systems, Miscellaneous. These fields are read from the spreadsheet and carried through to player inventory. All display surfaces group cyberware by slot with section headers and use the format: `Name — [CWP: X] — $Price × Qty` (no restriction tag). Player inventory uses: `Name — [CWP: X] · [Slot Name]`. Shared constants: `CW_SLOT_ORDER`, `CW_SLOT_DISPLAY_NAMES` in `constants.py`. Shared formatter: `format_cw_lines_grouped()` in `helpers.py`.
 
@@ -313,7 +299,7 @@ Designated operators (listed in `config.BLACK_MARKET_OWNER_IDS`) or stores with 
 - **Employee role:** `RIPPERDOC_EMPLOYEE_ROLE_ID`
 - The general `RIPPERDOC_ROLE_ID` also grants menu access (but not all operations)
 - **Employees can:** view inventory, sell/install to patients
-- **Employees cannot:** buy from wholesale, manage clinic settings, manage employees
+- **Employees cannot:** buy from catalogue, manage clinic settings, manage employees
 
 ---
 
@@ -331,7 +317,7 @@ Designated operators (listed in `config.BLACK_MARKET_OWNER_IDS`) or stores with 
 3. Business rent (by tier) — always charged
 4. Trauma Team subscription — skipped if on LOA
 
-**Deduction order:** Cash first, then bank for the remainder. This applies to all payment flows across the bot — rent, trades, store purchases, wholesale buying, and Fixer add-item. The bot always checks total affordability (cash + bank) before attempting any deduction.
+**Deduction order:** Cash first, then bank for the remainder. This applies to all payment flows across the bot — rent, trades, store purchases, catalogue buying, and Fixer add-item. The bot always checks total affordability (cash + bank) before attempting any deduction.
 
 **Double-charge protection:** Uses calendar-month boundaries via the `payment_labels` table. If any collection label (`collect_rent_after`, `collect_housing_after`, `collect_business_after`, `collect_trauma_after`) was recorded this calendar month, the member is skipped.
 
@@ -543,8 +529,8 @@ The `!move_npcs` command (Fixer only) moves NPC character sheet threads to the d
 |------|-----------|----------------|
 | Fixer | `FIXER_ROLE_ID` | Fixer Hub access, player management, item add/remove/reassign, RP management, DM relay, character sheet management |
 | Administrator | Discord permission | Everything Fixers can do plus system control, config editing, panel posting, rent collection |
-| Gun Store Owner | `WHOLESALER_STORE_ROLE_IDS` | Gun Store Hub access, wholesale buying, selling, store management |
-| Gun Store Employee | `GUN_STORE_EMPLOYEE_ROLE_ID` | Gun Store Hub access (sell and view only, no wholesale buying or store management) |
+| Gun Store Owner | `WHOLESALER_STORE_ROLE_IDS` | Gun Store Hub access, catalogue buying, selling, store management |
+| Gun Store Employee | `GUN_STORE_EMPLOYEE_ROLE_ID` | Gun Store Hub access (sell and view only, no catalogue buying or store management) |
 | Ripperdoc Owner | `RIPPERDOC_OWNER_ROLE_ID` | Ripperdoc Hub full access |
 | Ripperdoc Employee | `RIPPERDOC_EMPLOYEE_ROLE_ID` | Ripperdoc Hub access (sell/install and view only) |
 | Ripperdoc | `RIPPERDOC_ROLE_ID` | Ripperdoc Hub menu access, checkup commands, cyberware status commands |
@@ -690,7 +676,7 @@ All IDs, paths, and feature settings. Key groups:
 
 **Economy Timing:** `TIMEZONE`, `RENT_COLLECTION_HOUR`, `RENT_COLLECTION_MINUTE`
 
-**Paths:** `BASE_DIR`, `BALANCE_BACKUP_DIR`, `CHARACTER_BACKUP_DIR`, `RENT_AUDIT_DIR`, `WHOLESALER_DATA_DIR`, `CYBERWARE_SHOP_DATA_DIR`
+**Paths:** `BASE_DIR`, `BALANCE_BACKUP_DIR`, `CHARACTER_BACKUP_DIR`, `RENT_AUDIT_DIR`, `CYBERWARE_SHOP_DATA_DIR`
 
 ### DB-Backed Economy Config (editable at runtime via `!config set`)
 
@@ -740,12 +726,6 @@ All IDs, paths, and feature settings. Key groups:
 | `cyberware_meta` | Cyberware system metadata |
 | `cyberware_weekly_runs` | Weekly cyberware run results |
 | `dm_threads` | User-to-thread DM relay mappings |
-| `wholesale_lots` | Gun wholesale inventory |
-| `wholesaler_stores` | Store metadata |
-| `wholesaler_shops` | Shop registry |
-| `wholesaler_pending_payouts` | Failed seller payouts awaiting retry |
-| `wholesaler_settings` | Wholesaler configuration |
-| `wholesaler_transactions` | Transaction audit log |
 | `bot_config` | Runtime-editable economy constants |
 | `payment_labels` | Double-charge protection timestamps |
 | `cyberware_catalog` | CW master item list |

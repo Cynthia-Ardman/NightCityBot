@@ -311,7 +311,7 @@ class Admin(commands.Cog):
             (
                 "🏪 Interactive Hubs",
                 "\n".join([
-                    f"<#{config.FIXER_HUB_CHANNEL_ID}> – **Fixer panel**: player inventory, items, LOA, store & wholesale management.",
+                    f"<#{config.FIXER_HUB_CHANNEL_ID}> – **Fixer panel**: player inventory, items, LOA & store management.",
                     f"<#{config.RIPPERDOC_HUB_CHANNEL_ID}> – ripperdoc hub: buy, sell, install, view stock, checkup patients.",
                 ]),
             ),
@@ -392,7 +392,7 @@ class Admin(commands.Cog):
             (
                 "🏪 Interactive Hubs",
                 "\n".join([
-                    f"<#{config.ADMIN_HUB_CHANNEL_ID}> – admin panel: add/remove items, reassign, history lookup, wholesale management.",
+                    f"<#{config.ADMIN_HUB_CHANNEL_ID}> – admin panel: add/remove items, reassign, history lookup.",
                     f"<#{config.GUN_HUB_CHANNEL_ID}> – gun store hub: buy, sell, view stock, manage approved buyers.",
                     f"<#{config.RIPPERDOC_HUB_CHANNEL_ID}> – ripperdoc hub: buy, sell, install, view stock, checkup patients.",
                 ]),
@@ -479,12 +479,12 @@ class Admin(commands.Cog):
     @commands.command(name="helpguns", aliases=["helpbusiness", "helpshop", "helpstore"])
     @commands.check_any(is_store_owner(), is_fixer(), commands.has_permissions(administrator=True))
     async def helpguns(self, ctx):
-        """Display help for the wholesale gun system and gun store owners."""
+        """Display help for the gun store system and gun store owners."""
         embed = discord.Embed(
             title="🔫 NCRP Bot — Gun Shop Guide",
             description=(
-                "The corporate gun wholesaler stocks guns every week. "
-                "Store owners buy from the gun wholesaler, then sell to players at their own markup.\n\n"
+                "Store owners buy from the full gun catalogue at list price, "
+                "then sell to players at their own markup.\n\n"
                 f"**Head to <#{config.GUN_HUB_CHANNEL_ID}>** to use the interactive hub — buy, sell, and view stock all from one place."
             ),
             color=discord.Color.orange(),
@@ -493,8 +493,8 @@ class Admin(commands.Cog):
         embed.add_field(
             name="📖 How It Works",
             value=(
-                "1. **Browse wholesale** — see what's available this week\n"
-                "2. **Buy stock** — pay wholesale price, guns go into your store\n"
+                "1. **Browse the catalogue** — the full gun list is always available\n"
+                "2. **Buy stock** — pay catalogue price, guns go into your store\n"
                 "3. **Sell to players** — pick the customer, pick the gun, set your price\n"
                 "4. **Customer confirms** — they get a DM to accept or decline\n\n"
                 "All of this is handled through the Gun Store hub panel with dropdowns."
@@ -517,9 +517,9 @@ class Admin(commands.Cog):
         embed.add_field(
             name="⚠️ Good to Know",
             value=(
-                "- Wholesale stock refreshes **weekly** — buy before it's gone.\n"
-                "- You set your own sale prices — wholesale cost is your floor.\n"
-                "- Restriction levels carry over from the gun wholesaler.\n"
+                "- The full catalogue is always available — no weekly rotation.\n"
+                "- You set your own sale prices — catalogue cost is your floor.\n"
+                "- Restriction levels are set per gun in the catalogue.\n"
                 f"- Admin tools are available in <#{config.ADMIN_HUB_CHANNEL_ID}>."
             ),
             inline=False,
@@ -535,7 +535,7 @@ class Admin(commands.Cog):
         embed = discord.Embed(
             title="🦾 NCRP Bot — Cyberware Shop Guide",
             description=(
-                "Ripperdocs buy parts from the corporate supplier at catalogue price, "
+                "Ripperdocs buy parts from the full cyberware catalogue at list price, "
                 "then install them for patients at their own rate.\n\n"
                 f"**Head to <#{config.RIPPERDOC_HUB_CHANNEL_ID}>** to use the interactive hub — buy, sell, install, "
                 "and view stock all from one place."
@@ -546,7 +546,7 @@ class Admin(commands.Cog):
         embed.add_field(
             name="📖 How It Works",
             value=(
-                "1. **Browse wholesale** — see what's in rotation this week\n"
+                "1. **Browse the catalogue** — the full cyberware list is always available\n"
                 "2. **Buy parts** — pay catalogue price, parts go into your stock\n"
                 "3. **Sell or install** — pick the patient, pick the part, set your price\n"
                 "4. **Patient confirms** — they get a DM to accept or decline\n\n"
@@ -560,7 +560,7 @@ class Admin(commands.Cog):
             value=(
                 "- You must buy a part **before** you can sell/install it.\n"
                 "- Stock is per-Ripperdoc: your inventory is yours alone.\n"
-                "- Wholesale stock rotates every **Sunday**.\n"
+                "- The full catalogue is always available — no weekly rotation.\n"
                 "- Catalogue prices are the supplier floor — charge what you want.\n"
                 f"- Admin tools are available in <#{config.ADMIN_HUB_CHANNEL_ID}>."
             ),
