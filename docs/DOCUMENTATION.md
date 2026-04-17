@@ -316,10 +316,11 @@ Designated operators (listed in `config.BLACK_MARKET_OWNER_IDS`) or stores with 
 2. Housing rent (by tier) — skipped if on LOA
 3. Business rent (by tier) — always charged
 4. Trauma Team subscription — skipped if on LOA
+5. Xanadu Gold premium membership ($500 default) — skipped if on LOA
 
 **Deduction order:** Cash first, then bank for the remainder. This applies to all payment flows across the bot — rent, trades, store purchases, catalogue buying, and Fixer add-item. The bot always checks total affordability (cash + bank) before attempting any deduction.
 
-**Double-charge protection:** Uses calendar-month boundaries via the `payment_labels` table. If any collection label (`collect_rent_after`, `collect_housing_after`, `collect_business_after`, `collect_trauma_after`) was recorded this calendar month, the member is skipped.
+**Double-charge protection:** Uses calendar-month boundaries via the `payment_labels` table. If any collection label (`collect_rent_after`, `collect_housing_after`, `collect_business_after`, `collect_trauma_after`) was recorded this calendar month, the member is skipped. Xanadu Gold is collected as part of `!collect_rent` and shares this guard.
 
 **Cyberware meds** are NOT included in rent collection — they're handled separately by the weekly cyberware process.
 
@@ -540,6 +541,7 @@ The `!move_npcs` command (Fixer only) moves NPC character sheet threads to the d
 | LOA | `LOA_ROLE_ID` | Exempts from baseline/housing/Trauma fees |
 | NPC | `NPC_ROLE_ID` | NPC role button |
 | Trauma Team | `TRAUMA_TEAM_ROLE_ID` | Trauma Team pings |
+| Xanadu Gold | `XANADU_GOLD_ROLE_ID` | Premium membership — charged $500 monthly with rent run |
 | Cyberware (Medium/High/Extreme) | `CYBER_MEDIUM_ROLE_ID`, `CYBER_HIGH_ROLE_ID`, `CYBER_EXTREME_ROLE_ID` | Subject to weekly medication costs |
 | Cyberware Checkup | `CYBER_CHECKUP_ROLE_ID` | Indicates a checkup is due |
 
@@ -564,6 +566,7 @@ Supports `!enable_system all` and `!disable_system all` to toggle everything at 
 | `housing_rent` | ON | Housing rent collection |
 | `business_rent` | ON | Business rent collection |
 | `trauma_team` | ON | Trauma Team features |
+| `xanadu_gold` | ON | Monthly Xanadu Gold premium membership fee |
 | `dm` | ON | DM relay system |
 | `auto_collect_rent` | **OFF** | Automatic monthly rent collection |
 
@@ -694,6 +697,7 @@ All IDs, paths, and feature settings. Key groups:
 | `trauma_gold_cost` | 2000 | Trauma Team Gold |
 | `trauma_plat_cost` | 4000 | Trauma Team Plat |
 | `trauma_diamond_cost` | 10000 | Trauma Team Diamond |
+| `xanadu_gold_cost` | 500 | Monthly Xanadu Gold premium membership fee |
 | `tier0_income_1_open` | 150 | Tier 0 income for 1 open/month |
 | `tier0_income_2_open` | 250 | Tier 0 income for 2 opens/month |
 | `tier0_income_3_open` | 350 | Tier 0 income for 3 opens/month |

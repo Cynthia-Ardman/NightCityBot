@@ -1176,6 +1176,69 @@ class Economy(commands.Cog):
 
         return success, cash, bank
 
+    async def process_xanadu_gold(
+        self,
+        member: discord.Member,
+        cash: int,
+        bank: int,
+        log: List[str],
+        rent_log_channel: Optional[discord.TextChannel],
+        *,
+        dry_run: bool = False,
+    ) -> tuple[int, int]:
+        """Charge the monthly Xanadu Gold premium membership fee, if applicable."""
+        control = self.bot.get_cog("SystemControl")
+        if control and not control.is_enabled("xanadu_gold"):
+            log.append("⚠️ Xanadu Gold system disabled.")
+            return cash, bank
+
+        if not any(r.id == config.XANADU_GOLD_ROLE_ID for r in member.roles):
+            return cash, bank
+
+        cost = _cfg.get_xanadu_gold_cost()
+        if cost <= 0:
+            return cash, bank
+
+        log.append(f"🥇 Xanadu Gold membership detected → Fee: ${cost}")
+
+        total = (cash or 0) + (bank or 0)
+        if total < cost:
+            log.append(
+                f"❌ Cannot pay Xanadu Gold fee of ${cost}. Insufficient funds."
+            )
+            return cash, bank
+
+        deduct_cash, deduct_bank = self._split_deduction(cash, cost)
+        payload: Dict[str, int] = {}
+        if deduct_cash > 0:
+            payload["cash"] = -deduct_cash
+        if deduct_bank > 0:
+            payload["bank"] = -deduct_bank
+
+        success = True
+        if not dry_run:
+            success = await self.unbelievaboat.update_balance(
+                member.id, payload, reason="Xanadu Gold Membership"
+            )
+        if success:
+            cash -= deduct_cash
+            bank -= deduct_bank
+            log.append(
+                f"🧮 {'Would subtract' if dry_run else 'Subtracted'} Xanadu Gold fee ${cost} — ${deduct_cash} from cash, ${deduct_bank} from bank."
+            )
+            log.append(
+                f"📈 Balance after Xanadu Gold — Cash: ${cash:,}, Bank: ${bank:,}, Total: {(cash or 0) + (bank or 0):,}"
+            )
+            log.append("✅ Xanadu Gold membership fee collected.")
+            if rent_log_channel and not dry_run:
+                await rent_log_channel.send(
+                    f"✅ <@{member.id}> — Xanadu Gold membership paid: ${cost}",
+                    allowed_mentions=discord.AllowedMentions(users=False),
+                )
+        else:
+            log.append("❌ Failed to deduct Xanadu Gold fee despite sufficient funds.")
+        return cash, bank
+
     async def process_housing_rent(
         self,
         member: discord.Member,
@@ -1839,6 +1902,13 @@ class Economy(commands.Cog):
                     start = len(log)
                     await self.trauma_service.process_trauma_team_payment(
                         member, log=log, dry_run=dry_run
+                    )
+                    await _flush(start)
+
+                if not on_loa:
+                    start = len(log)
+                    cash, bank = await self.process_xanadu_gold(
+                        member, cash, bank, log, rent_log_channel, dry_run=dry_run
                     )
                     await _flush(start)
 

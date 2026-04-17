@@ -13,6 +13,7 @@ SYSTEMS = [
     "housing_rent",
     "business_rent",
     "trauma_team",
+    "xanadu_gold",
     "dm",
     "auto_collect_rent",
 ]

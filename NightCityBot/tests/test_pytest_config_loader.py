@@ -94,6 +94,18 @@ def test_default_trauma_role_costs():
         assert _cfg.get_trauma_role_costs() == TRAUMA_ROLE_COSTS
 
 
+def test_default_xanadu_gold_cost():
+    """get_xanadu_gold_cost() returns the seeded $500 default."""
+    with patch.dict(_cfg._cache, {}, clear=True):
+        assert _cfg.get_xanadu_gold_cost() == 500
+
+
+def test_xanadu_gold_cost_override():
+    """get_xanadu_gold_cost() respects the in-memory cache override."""
+    with patch.dict(_cfg._cache, {"xanadu_gold_cost": "750"}, clear=True):
+        assert _cfg.get_xanadu_gold_cost() == 750
+
+
 def test_default_cyber_max_cost():
     """get_cyber_max_cost() returns expected defaults for medium/high/extreme."""
     with patch.dict(_cfg._cache, {}, clear=True):

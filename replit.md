@@ -17,7 +17,7 @@ Operational state is persisted to **PostgreSQL** via normalized tables (29 table
 
 ### `bot_config` table — runtime-editable economy constants
 
-All hardcoded dollar amounts (baseline living cost, housing/business/trauma rent tiers, attendance reward, cyberware max costs, tier-0 income scale, open-shop percent) are seeded into the `bot_config` table at startup and read via `NightCityBot/utils/config_loader.py`. Values in the DB override code defaults without requiring a redeploy. Admins can change values at runtime using `!config set <key> <value>` (fixer-only).
+All hardcoded dollar amounts (baseline living cost, housing/business/trauma rent tiers, Xanadu Gold premium membership fee, attendance reward, cyberware max costs, tier-0 income scale, open-shop percent) are seeded into the `bot_config` table at startup and read via `NightCityBot/utils/config_loader.py`. Values in the DB override code defaults without requiring a redeploy. Admins can change values at runtime using `!config set <key> <value>` (fixer-only). Members holding the Xanadu Gold role (`config.XANADU_GOLD_ROLE_ID`) are charged `xanadu_gold_cost` ($500 default) on the 1st of each month as part of the monthly rent run; the fee is skipped on LOA and can be toggled with `!disable_system xanadu_gold`.
 
 `config_loader.py` public getters: `get_baseline_living_cost`, `get_attend_reward`, `get_role_costs_housing`, `get_role_costs_business`, `get_trauma_role_costs`, `get_tier0_income_scale`, `get_open_percent`, `get_cyber_max_cost`. Lifecycle: `seed_and_reload()` at startup, `reload_config()` on demand.
 

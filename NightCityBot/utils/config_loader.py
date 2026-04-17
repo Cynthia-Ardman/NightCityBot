@@ -43,6 +43,8 @@ _DEFAULTS: dict[str, tuple[Any, str, str]] = {
     "trauma_gold_cost":       (2000,  "Monthly Trauma Team Gold subscription", "int"),
     "trauma_plat_cost":       (4000,  "Monthly Trauma Team Plat subscription", "int"),
     "trauma_diamond_cost":    (10000, "Monthly Trauma Team Diamond subscription", "int"),
+    # Xanadu Gold premium membership
+    "xanadu_gold_cost":       (500,   "Monthly Xanadu Gold premium membership fee", "int"),
     # Passive income (Tier 0 flat scale, 1-4 opens)
     "tier0_income_1_open":    (150,   "Tier-0 passive income for 1 business open/month", "int"),
     "tier0_income_2_open":    (250,   "Tier-0 passive income for 2 business opens/month", "int"),
@@ -133,6 +135,10 @@ def get_role_costs_housing() -> dict[str, int]:
         "Housing Tier 2": _cfg_int("housing_tier_2_rent"),
         "Housing Tier 3": _cfg_int("housing_tier_3_rent"),
     }
+
+
+def get_xanadu_gold_cost() -> int:
+    return _cfg_int("xanadu_gold_cost")
 
 
 def get_trauma_role_costs() -> dict[str, int]:
