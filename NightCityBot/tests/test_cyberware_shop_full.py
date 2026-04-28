@@ -104,39 +104,6 @@ class TestLookupItem:
         assert cog._lookup_item(_CATALOG, "Unknown Implant XYZ") is None
 
 
-class TestLookupLot:
-    @staticmethod
-    def _lots():
-        return [
-            {"item_name": "Kiroshi Optics Mk.1", "unit_cost": 3000, "qty_available": 2},
-            {"item_name": "Sandevistan Mk.1", "unit_cost": 8000, "qty_available": 1},
-        ]
-
-    def test_exact_match(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        lot = cog._lookup_lot(self._lots(), "Kiroshi Optics Mk.1")
-        assert lot is not None
-        assert lot["item_name"] == "Kiroshi Optics Mk.1"
-
-    def test_case_insensitive(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        lot = cog._lookup_lot(self._lots(), "sandevistan mk.1")
-        assert lot is not None
-        assert lot["item_name"] == "Sandevistan Mk.1"
-
-    def test_prefix_match(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        lot = cog._lookup_lot(self._lots(), "Kiro")
-        assert lot is not None
-        assert lot["item_name"] == "Kiroshi Optics Mk.1"
-
-    def test_no_match(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        assert cog._lookup_lot(self._lots(), "Phantom Liberty") is None
-
-
-
-
 
 # ------------------------------------------------------------------
 # _load_inventory migration tests
@@ -244,18 +211,6 @@ class TestGroupedInventory:
         groups = cog._grouped_inventory(inv)
         assert groups[0]["name"] == "Kiroshi"
         assert groups[1]["name"] == "Sandevistan"
-
-    def test_stable_numbering_not_affected_by_stock(self, tmp_path, monkeypatch):
-        """_sorted_lots returns all lots alphabetically; sold-out lots keep their numbers."""
-        cog = _make_cog(tmp_path, monkeypatch)
-        lots = [
-            {"item_name": "Sandevistan",  "qty_available": 2, "unit_cost": 8000, "lot_id": "s"},
-            {"item_name": "Kiroshi",      "qty_available": 0, "unit_cost": 3000, "lot_id": "k"},
-            {"item_name": "Berserk",      "qty_available": 1, "unit_cost": 5000, "lot_id": "b"},
-        ]
-        ordered = cog._sorted_lots(lots)
-        assert [l["item_name"] for l in ordered] == ["Berserk", "Kiroshi", "Sandevistan"]
-
 
 class TestCwBuyHelpTextNoDeadRefs:
     """!cw_buy docstring + invalid-lot error must not reference removed commands."""

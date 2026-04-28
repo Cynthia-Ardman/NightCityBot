@@ -32,6 +32,9 @@ _TRANSIENT_ERRORS = (
     asyncpg.InterfaceError,
     asyncpg.TooManyConnectionsError,
     asyncio.TimeoutError,
+    # Socket-level failures that surface during connection prepare/execute.
+    # Includes ConnectionResetError, ConnectionAbortedError, BrokenPipeError, etc.
+    OSError,
 )
 
 
@@ -3975,8 +3978,15 @@ async def ih_record_event(
             label="ih_record_event",
         )
         return True
-    except Exception:
-        logger.error("ih_record_event failed for item_id='%s' event='%s'", item_id, event_type, exc_info=True)
+    except Exception as exc:
+        # Audit-trail loss is recoverable and _with_retry has already logged the
+        # underlying error with full traceback when retries were exhausted, so
+        # demote this to WARNING and skip the duplicate stack trace to avoid
+        # spamming the audit channel on transient DB blips.
+        logger.warning(
+            "ih_record_event failed for item_id='%s' event='%s': %s",
+            item_id, event_type, exc,
+        )
         return False
 
 

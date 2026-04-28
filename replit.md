@@ -319,12 +319,11 @@ All interactive View timeouts across all hub cogs are standardized to **300 seco
 
 Each weapon lot has a `restriction` field (default: `basic`):
 - **basic** — anyone can buy, no special requirements
-- **controlled** — buyer must be on the store owner's controlled-buyer list (`!wh_approve @user`)
-- **restricted** — buyer must be on the controlled-buyer list AND an admin must approve the sale via audit channel reaction (5-minute timeout)
+- **controlled** — buyer must be on the store owner's controlled-buyer list (managed in the Gunstore Hub → Controlled-Buyer List)
+- **restricted** — buyer must be on the controlled-buyer list AND a Fixer/Admin must approve the sale via audit-channel reaction (5-minute timeout)
 
-Store owner commands: `!wh_approve @user`, `!wh_unapprove @user`, `!wh_approved`
-Admin commands:
-- `!store_remove @owner <lot_id> [qty]` — remove a lot or reduce its quantity from a store
+Store owner controls: `!gunstore` → **Controlled-Buyer List** (approve / unapprove / view).
+Admin/Fixer controls: `!fixer` → **Store** → select store → Add/Remove stock or inspect inventory. Legacy `!wh_*` and `!store_*` prefix commands have been removed; everything is hub-driven.
 
 ### Black Market Store Type
 

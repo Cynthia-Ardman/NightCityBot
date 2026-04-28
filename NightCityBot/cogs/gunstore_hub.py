@@ -559,9 +559,11 @@ class GunSellSetupView(SafeView):
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a customer…", row=0)
     async def customer_select(self, interaction: discord.Interaction,
                               select: discord.ui.UserSelect):
+        # Defer first — DB lookup below can take longer than the 3s ack window.
+        await interaction.response.defer(ephemeral=True)
         user = select.values[0] if select.values else None
         if user is None:
-            await respond_ephemeral(interaction, 
+            await send_ephemeral(interaction,
                 "Please select a server member.")
             return
         if isinstance(user, discord.Member):
@@ -573,17 +575,17 @@ class GunSellSetupView(SafeView):
                 if member:
                     self.selected_customer = member
                 else:
-                    await respond_ephemeral(interaction, 
+                    await send_ephemeral(interaction,
                         "That user doesn't appear to be in this server.")
                     return
             else:
-                await respond_ephemeral(interaction, 
+                await send_ephemeral(interaction,
                     "Could not resolve server member.")
                 return
         self.selected_character = None
         characters = await get_active_characters(str(self.selected_customer.id))
         if not characters:
-            await respond_ephemeral(interaction, 
+            await send_ephemeral(interaction,
                 f"❌ {self.selected_customer.display_name} has no active characters. "
                 "They must create a character before receiving items.")
             self.selected_customer = None
@@ -605,7 +607,7 @@ class GunSellSetupView(SafeView):
         self._character_select = char_select
         self._characters = characters
         self.add_item(char_select)
-        await interaction.response.edit_message(
+        await interaction.edit_original_response(
             content=self._status_content(),
             view=self,
         )
@@ -639,25 +641,27 @@ class GunSellSetupView(SafeView):
     @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=3)
     async def continue_btn(self, interaction: discord.Interaction,
                            button: discord.ui.Button):
+        # Defer first — ensure_character_active hits the DB and could otherwise
+        # blow past the 3s interaction ack deadline.
+        await interaction.response.defer(ephemeral=True)
         if self.selected_customer is None:
-            await respond_ephemeral(interaction, 
+            await send_ephemeral(interaction,
                 "Please select a customer first.")
             return
         if self.selected_character is None:
-            await respond_ephemeral(interaction, 
+            await send_ephemeral(interaction,
                 "Please select a character for the customer.")
             return
         if self.selected_lot_idx is None:
-            await respond_ephemeral(interaction, 
+            await send_ephemeral(interaction,
                 "Please select a gun from your stock first.")
             return
         if not await ensure_character_active(self.selected_character["character_id"]):
-            await respond_ephemeral(interaction, 
+            await send_ephemeral(interaction,
                 f"❌ Character **{self.selected_character['name']}** is no longer active.")
             return
         lot = self.lots[self.selected_lot_idx]
-        await interaction.response.defer(ephemeral=True)
-        await send_ephemeral(interaction, 
+        await send_ephemeral(interaction,
             "📝 **Enter the sale price** (number only, `0` for free), or type `cancel`:")
         price_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if price_text is None:

@@ -126,24 +126,41 @@ class CharacterManager(commands.Cog):
             yield t
 
     async def _ensure_index(self, forums: list[discord.ForumChannel]) -> None:
-        """Build or refresh the sheet index."""
+        """Build or refresh the sheet index.
+
+        Discord 5xx hiccups (DiscordServerError) on individual thread fetches
+        are skipped so one bad thread can't fail the whole index build.
+        Returns silently — the caller will work with whatever index we have.
+        """
         now = time.monotonic()
         if self.sheet_index and now - self.index_time < 3600:
             return
 
         self.sheet_index.clear()
         for forum in forums:
-            async for thread in self._iter_all_threads(forum):
-                first = ""
-                async for msg in thread.history(limit=1, oldest_first=True):
-                    first = msg.content or ""
-                    break
-                self.sheet_index[thread.id] = {
-                    "thread": thread,
-                    "title": thread.name,
-                    "tags": [t.name for t in thread.applied_tags],
-                    "first": first,
-                }
+            try:
+                async for thread in self._iter_all_threads(forum):
+                    first = ""
+                    try:
+                        async for msg in thread.history(limit=1, oldest_first=True):
+                            first = msg.content or ""
+                            break
+                    except (discord.DiscordServerError, discord.HTTPException) as exc:
+                        logger.warning(
+                            "Skipping first-message fetch for thread %s during index build: %s",
+                            thread.id, exc,
+                        )
+                    self.sheet_index[thread.id] = {
+                        "thread": thread,
+                        "title": thread.name,
+                        "tags": [t.name for t in thread.applied_tags],
+                        "first": first,
+                    }
+            except (discord.DiscordServerError, discord.HTTPException) as exc:
+                logger.warning(
+                    "Skipping forum %s during index build (Discord error): %s",
+                    getattr(forum, "id", "?"), exc,
+                )
 
         self.index_time = now
 
@@ -287,7 +304,14 @@ class CharacterManager(commands.Cog):
             i += 1
         keyword = " ".join(kw_parts)
 
-        await self._ensure_index(forums)
+        try:
+            await self._ensure_index(forums)
+        except (discord.DiscordServerError, discord.HTTPException) as exc:
+            logger.warning("search_characters: index build hit Discord error: %s", exc)
+            await ctx.send(
+                "⚠️ Discord is having trouble responding right now. Please try again in a moment."
+            )
+            return
 
         matches: list[tuple[discord.Thread, str, str]] = []
         for data in self.sheet_index.values():
@@ -309,13 +333,20 @@ class CharacterManager(commands.Cog):
                 if any(mth.id == data["thread"].id for mth, _, _ in matches):
                     continue
                 thread: discord.Thread = data["thread"]
-                async for msg in thread.history(limit=depth, oldest_first=True):
-                    if msg.content and self._match(keyword, msg.content):
-                        text = msg.content
-                        loc = text.lower().find(keyword.lower())
-                        snippet = text[max(0, loc - 30) : loc + len(keyword) + 30] if loc != -1 else text[:60]
-                        matches.append((thread, snippet, msg.jump_url))
-                        break
+                try:
+                    async for msg in thread.history(limit=depth, oldest_first=True):
+                        if msg.content and self._match(keyword, msg.content):
+                            text = msg.content
+                            loc = text.lower().find(keyword.lower())
+                            snippet = text[max(0, loc - 30) : loc + len(keyword) + 30] if loc != -1 else text[:60]
+                            matches.append((thread, snippet, msg.jump_url))
+                            break
+                except (discord.DiscordServerError, discord.HTTPException) as exc:
+                    logger.warning(
+                        "search_characters: skipping deep scan of thread %s (Discord error): %s",
+                        thread.id, exc,
+                    )
+                    continue
                 if len(matches) >= 10:
                     break
 

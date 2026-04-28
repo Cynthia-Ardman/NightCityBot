@@ -206,22 +206,6 @@ class CyberwareShop(commands.Cog):
     def _now_iso() -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    def _lookup_lot(
-        self, lots: list[dict], query: str
-    ) -> Optional[dict]:
-        q = query.strip().lower()
-        for lot in lots:
-            if lot.get("item_name", "").lower() == q:
-                return lot
-        for lot in lots:
-            if lot.get("item_name", "").lower().startswith(q):
-                return lot
-        return None
-
-    @staticmethod
-    def _sorted_lots(lots: list[dict]) -> list[dict]:
-        return sorted(lots, key=lambda l: l["item_name"])
-
     @staticmethod
     def _slot_ordered_lots(lots: list[dict]) -> list[dict]:
         from NightCityBot.utils.constants import CW_SLOT_ORDER, CW_SLOT_DISPLAY_NAMES

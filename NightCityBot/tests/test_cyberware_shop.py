@@ -1,4 +1,4 @@
-"""Tests for CyberwareShop helper methods (_sorted_lots, _grouped_inventory)."""
+"""Tests for CyberwareShop helper methods (_grouped_inventory)."""
 
 import asyncio
 import uuid
@@ -43,46 +43,6 @@ def _make_cog(tmp_path: Path):
     cog.inventory_dir.mkdir(parents=True, exist_ok=True)
     cog._startup_done = True
     return cog
-
-
-# ------------------------------------------------------------------
-# TestSortedLots
-# ------------------------------------------------------------------
-
-class TestSortedLots:
-    def test_alphabetical_ordering(self):
-        lots = [
-            {"item_name": "Sandevistan", "qty_available": 2, "unit_cost": 10000},
-            {"item_name": "Berserk",     "qty_available": 1, "unit_cost": 8000},
-            {"item_name": "Kiroshi",     "qty_available": 0, "unit_cost": 3000},
-        ]
-        result = CyberwareShop._sorted_lots(lots)
-        assert [l["item_name"] for l in result] == ["Berserk", "Kiroshi", "Sandevistan"]
-
-    def test_includes_sold_out_items_in_single_list(self):
-        """Sold-out lots must NOT be moved to the end — all lots in one alpha list."""
-        lots = [
-            {"item_name": "Zebra",  "qty_available": 0, "unit_cost": 500},
-            {"item_name": "Alpha",  "qty_available": 3, "unit_cost": 500},
-            {"item_name": "Middle", "qty_available": 0, "unit_cost": 500},
-        ]
-        result = CyberwareShop._sorted_lots(lots)
-        names = [l["item_name"] for l in result]
-        assert names == ["Alpha", "Middle", "Zebra"]
-
-    def test_stable_numbering_after_sold_out(self):
-        """Lot numbers should not shift when an item sells out."""
-        lots = [
-            {"item_name": "B-Item", "qty_available": 1, "unit_cost": 100},
-            {"item_name": "A-Item", "qty_available": 2, "unit_cost": 100},
-        ]
-        ordered_before = [l["item_name"] for l in CyberwareShop._sorted_lots(lots)]
-        lots[1]["qty_available"] = 0
-        ordered_after = [l["item_name"] for l in CyberwareShop._sorted_lots(lots)]
-        assert ordered_before == ordered_after
-
-    def test_empty_list_returns_empty(self):
-        assert CyberwareShop._sorted_lots([]) == []
 
 
 # ------------------------------------------------------------------

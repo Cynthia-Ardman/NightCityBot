@@ -670,26 +670,28 @@ class SellSetupView(SafeView):
     @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=3)
     async def continue_btn(self, interaction: discord.Interaction,
                            button: discord.ui.Button):
+        # Defer first — ensure_character_active hits the DB and could otherwise
+        # blow past the 3s interaction ack deadline.
+        await interaction.response.defer(ephemeral=True)
         if self.selected_patient is None:
-            await respond_ephemeral(interaction, 
+            await send_ephemeral(interaction,
                 "Please select a patient first.")
             return
         if self.selected_character is None:
-            await respond_ephemeral(interaction, 
+            await send_ephemeral(interaction,
                 "Please select a character for the patient.")
             return
         if self.selected_group_idx is None:
-            await respond_ephemeral(interaction, 
+            await send_ephemeral(interaction,
                 "Please select an item from your stock first.")
             return
         if not await ensure_character_active(self.selected_character["character_id"]):
-            await respond_ephemeral(interaction, 
+            await send_ephemeral(interaction,
                 f"❌ Character **{self.selected_character['name']}** is no longer active.")
             return
         group = self.groups[self.selected_group_idx]
         label = "install fee" if self.mode == "install" else "price to charge"
-        await interaction.response.defer(ephemeral=True)
-        await send_ephemeral(interaction, 
+        await send_ephemeral(interaction,
             f"📝 **Enter the {label}** (number only, `0` for free), or type `cancel`:")
         price_text = await collect_text_input(interaction.client, interaction.channel_id, interaction.user.id)
         if price_text is None:
