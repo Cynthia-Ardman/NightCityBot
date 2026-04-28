@@ -261,6 +261,7 @@ class RipperdocMenuView(SafeView):
             await respond_ephemeral(interaction, 
                 "Only Ripperdoc Owners can manage their store.")
             return
+        await interaction.response.defer(ephemeral=True)
         cw_cog = interaction.client.get_cog("CyberwareShop")
         store_name = None
         if cw_cog:
@@ -276,7 +277,7 @@ class RipperdocMenuView(SafeView):
         if store_name:
             header += f" — {store_name}"
         header += "** — choose an action:"
-        await respond_ephemeral(interaction, header, view=view)
+        await send_ephemeral(interaction, header, view=view)
 
     @discord.ui.button(label="Manage Employees", style=discord.ButtonStyle.secondary, emoji="👥", row=2, custom_id="ripperdoc:manage_employees")
     async def manage_employees(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -582,9 +583,10 @@ class SellSetupView(SafeView):
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a patient…", row=0)
     async def patient_select(self, interaction: discord.Interaction,
                              select: discord.ui.UserSelect):
+        await interaction.response.defer(ephemeral=True)
         user = select.values[0] if select.values else None
         if user is None:
-            await respond_ephemeral(interaction, 
+            await send_ephemeral(interaction, 
                 "Please select a server member.")
             return
         if isinstance(user, discord.Member):
@@ -596,17 +598,17 @@ class SellSetupView(SafeView):
                 if member:
                     self.selected_patient = member
                 else:
-                    await respond_ephemeral(interaction, 
+                    await send_ephemeral(interaction, 
                         "That user doesn't appear to be in this server.")
                     return
             else:
-                await respond_ephemeral(interaction, 
+                await send_ephemeral(interaction, 
                     "Could not resolve server member.")
                 return
         self.selected_character = None
         characters = await get_active_characters(str(self.selected_patient.id))
         if not characters:
-            await respond_ephemeral(interaction, 
+            await send_ephemeral(interaction, 
                 f"❌ {self.selected_patient.display_name} has no active characters. "
                 "They must create a character before receiving items.")
             self.selected_patient = None
@@ -628,7 +630,7 @@ class SellSetupView(SafeView):
         self._character_select = char_select
         self._characters = characters
         self.add_item(char_select)
-        await interaction.response.edit_message(
+        await interaction.edit_original_response(
             content=self._status_content(),
             view=self,
         )

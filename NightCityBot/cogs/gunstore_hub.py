@@ -256,6 +256,7 @@ class GunstoreMenuView(SafeView):
                 "Only Store Owners can manage their store.")
             await log_panel_failure(interaction.client, "GUN_LOG_CHANNEL_ID", "Manage Gun Store", interaction.user, "Employee tried to manage store (owner-only)")
             return
+        await interaction.response.defer(ephemeral=True)
         cog = interaction.client.get_cog("GunstoreHub")
         guns_cog = cog._guns_cog() if cog else None
         store_name = None
@@ -271,7 +272,7 @@ class GunstoreMenuView(SafeView):
         if store_name:
             header += f" — {store_name}"
         header += "** — choose an action:"
-        await respond_ephemeral(interaction, header, view=view)
+        await send_ephemeral(interaction, header, view=view)
 
     @discord.ui.button(label="Manage Employees", style=discord.ButtonStyle.secondary, emoji="👥", row=2, custom_id="gunstore:manage_employees")
     async def manage_employees(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1193,14 +1194,15 @@ class _ApproveBuyerView(SafeView):
 
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Select a player…", row=0)
     async def buyer_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        await interaction.response.defer(ephemeral=True)
         raw_user = select.values[0] if select.values else None
         if raw_user is None:
-            await respond_ephemeral(interaction, "Please select a member.")
+            await send_ephemeral(interaction, "Please select a member.")
             return
 
         guild = self.ctx.guild
         if not guild:
-            await respond_ephemeral(interaction, "Must be used in server.")
+            await send_ephemeral(interaction, "Must be used in server.")
             return
 
         if isinstance(raw_user, discord.Member):
@@ -1211,12 +1213,12 @@ class _ApproveBuyerView(SafeView):
                 try:
                     user = await guild.fetch_member(raw_user.id)
                 except Exception:
-                    await respond_ephemeral(interaction, "Could not find that member.")
+                    await send_ephemeral(interaction, "Could not find that member.")
                     return
 
         characters = await get_active_characters(str(user.id))
         if not characters:
-            await respond_ephemeral(interaction, 
+            await send_ephemeral(interaction, 
                 f"❌ {user.display_name} has no active characters.")
             return
 
@@ -1240,7 +1242,7 @@ class _ApproveBuyerView(SafeView):
         self.add_item(char_select)
 
         action_word = "approve" if self.approve else "unapprove"
-        await interaction.response.edit_message(
+        await interaction.edit_original_response(
             content=f"Player: **{user.display_name}** ✓ — Now select the character to {action_word}.",
             view=self,
         )

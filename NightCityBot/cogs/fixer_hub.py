@@ -268,22 +268,22 @@ class ReassignSourcePickerView(SafeView):
 
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Select the item's current owner…", row=0)
     async def source_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        await interaction.response.defer(ephemeral=True)
         raw_user = select.values[0] if select.values else None
         if raw_user is None:
-            await respond_ephemeral(interaction, "Please select a player.")
+            await send_ephemeral(interaction, "Please select a player.")
             return
         guild = self.ctx.guild
         if not guild:
-            await respond_ephemeral(interaction, "Must be used in server.")
+            await send_ephemeral(interaction, "Must be used in server.")
             return
         member = raw_user if isinstance(raw_user, discord.Member) else guild.get_member(raw_user.id)
         if member is None:
             try:
                 member = await guild.fetch_member(raw_user.id)
             except Exception:
-                await respond_ephemeral(interaction, "Could not find that member.")
+                await send_ephemeral(interaction, "Could not find that member.")
                 return
-        await interaction.response.defer(ephemeral=True)
         items = await pi_get_by_owner(str(member.id))
         if not items:
             await send_ephemeral(interaction, 
@@ -461,12 +461,12 @@ class PlayerInvPickerView(SafeView):
 
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
     async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        await interaction.response.defer(ephemeral=True)
         user = select.values[0] if select.values else None
         member = await _resolve_user_select(self.ctx, user)
         if not member:
-            await respond_ephemeral(interaction, "Could not resolve member.")
+            await send_ephemeral(interaction, "Could not resolve member.")
             return
-        await interaction.response.defer(ephemeral=True)
         items = await pi_get_by_owner(str(member.id))
         if not items:
             await send_ephemeral(interaction, f"{member.display_name} has no items.")
@@ -897,13 +897,14 @@ class PlayerRemoveItemView(SafeView):
 
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose the player…", row=0)
     async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        await interaction.response.defer(ephemeral=True)
         user = select.values[0] if select.values else None
         member = await _resolve_user_select(self.ctx, user)
         if not member:
-            await respond_ephemeral(interaction, "Could not resolve member.")
+            await send_ephemeral(interaction, "Could not resolve member.")
             return
         self.selected_player = member
-        await respond_ephemeral(interaction, f"Player: **{member.display_name}** ✓")
+        await send_ephemeral(interaction, f"Player: **{member.display_name}** ✓")
 
     @discord.ui.button(label="Continue →", style=discord.ButtonStyle.primary, emoji="✅", row=1)
     async def continue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1047,12 +1048,12 @@ class LOAPickerView(SafeView):
 
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
     async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        await interaction.response.defer(ephemeral=True)
         user = select.values[0] if select.values else None
         member = await _resolve_user_select(self.ctx, user)
         if not member:
-            await respond_ephemeral(interaction, "Could not resolve member.")
+            await send_ephemeral(interaction, "Could not resolve member.")
             return
-        await interaction.response.defer(ephemeral=True)
         loa_cog = self.cog.bot.get_cog("LOA")
         if not loa_cog:
             await send_ephemeral(interaction, "LOA system unavailable.")
@@ -1156,12 +1157,12 @@ class FixerItemHistoryPlayerPickerView(SafeView):
 
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
     async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        await interaction.response.defer(ephemeral=True)
         user = select.values[0] if select.values else None
         member = await _resolve_user_select(self.ctx, user)
         if not member:
-            await respond_ephemeral(interaction, "Could not resolve member.")
+            await send_ephemeral(interaction, "Could not resolve member.")
             return
-        await interaction.response.defer(ephemeral=True)
         items = await pi_get_by_owner(str(member.id))
         if not items:
             await send_ephemeral(interaction, f"{member.display_name} has no items.")
@@ -1197,12 +1198,12 @@ class FixerItemHistoryStorePickerView(SafeView):
 
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose the store owner…", row=0)
     async def owner_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        await interaction.response.defer(ephemeral=True)
         user = select.values[0] if select.values else None
         owner = await _resolve_user_select(self.ctx, user)
         if not owner:
-            await respond_ephemeral(interaction, "Could not resolve member.")
+            await send_ephemeral(interaction, "Could not resolve member.")
             return
-        await interaction.response.defer(ephemeral=True)
         guild = self.ctx.guild
         options = []
         guns_cog = self.cog.bot.cogs.get("GunsShopCog")
@@ -1977,8 +1978,7 @@ class FixerHubCog(commands.Cog, name="FixerHub"):
             description=(
                 "Choose a category below.\n\n"
                 "**Player** — Inventory, items, LOA, history\n"
-                "**Store** — Gun store and Ripperdoc stock management\n"
-                "**Wholesaler** — Wholesale inventory and restocking"
+                "**Store** — Gun store and Ripperdoc stock management"
             ),
             color=discord.Color.dark_gold(),
         )
@@ -1988,7 +1988,7 @@ class FixerHubCog(commands.Cog, name="FixerHub"):
         embed = discord.Embed(
             title="📘 Fixer Panel — How It Works",
             description=(
-                "This panel is for Fixers to manage players, stores, and the wholesale market. "
+                "This panel is for Fixers to manage players and inspect player-owned stores. "
                 "Pick a category below to open its sub-menu. "
                 "All responses are private and **auto-delete after 5 minutes**."
             ),
@@ -2011,16 +2011,6 @@ class FixerHubCog(commands.Cog, name="FixerHub"):
                 "Inspect player-owned stores:\n"
                 "• **View Gun Store** — browse a gun store's current stock\n"
                 "• **View Ripperdoc Store** — browse a ripperdoc's current stock"
-            ),
-            inline=False,
-        )
-        embed.add_field(
-            name="🏭 Wholesaler",
-            value=(
-                "Control the wholesale supply that stores buy from:\n"
-                "• **View Stock** — see all gun and cyberware wholesale lots\n"
-                "• **Add / Remove Gun** — manage gun wholesale lots\n"
-                "• **Add / Remove Cyberware** — manage cyberware wholesale lots"
             ),
             inline=False,
         )

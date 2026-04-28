@@ -43,6 +43,7 @@ class TestNegativeCashSplit:
         member.roles = [approved_role, checkup_role, medium_role]
         member.add_roles = AsyncMock()
         member.remove_roles = AsyncMock()
+        member.send = AsyncMock()
 
         guild.get_role = MagicMock(side_effect=lambda rid: {
             config.CYBER_CHECKUP_ROLE_ID: checkup_role,

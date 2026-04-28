@@ -66,6 +66,60 @@ class CyberwareManager(commands.Cog):
         cost = int(base_factor * (2 ** (weeks - 1)))
         return min(cost, max_c)
 
+    async def _notify_member_checkup_due(self, member: discord.Member) -> None:
+        """DM a member that they have a cyberware checkup due (no charge yet)."""
+        try:
+            await member.send(
+                "🩺 **Cyberware Checkup Due**\n"
+                "You've been flagged for your weekly cyberware checkup. "
+                "No money was deducted this week — visit a Ripperdoc to clear the checkup. "
+                "If you don't, medication costs will start accruing next week."
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            logger.info("Could not DM checkup-due notice to %s", member.id)
+
+    async def _notify_member_charged(
+        self,
+        member: discord.Member,
+        cost: int,
+        weeks: int,
+        level: str,
+        cash_deduct: int,
+        bank_deduct: int,
+    ) -> None:
+        """DM a member confirming a successful cyberware medication deduction."""
+        breakdown_parts = []
+        if cash_deduct > 0:
+            breakdown_parts.append(f"${cash_deduct:,} from cash")
+        if bank_deduct > 0:
+            breakdown_parts.append(f"${bank_deduct:,} from bank")
+        breakdown = " + ".join(breakdown_parts) if breakdown_parts else "$0"
+        try:
+            await member.send(
+                f"💊 **Cyberware Medication Charged**\n"
+                f"You were just charged **${cost:,}** for your weekly cyberware meds "
+                f"({level} level, week {weeks} of missed checkups).\n"
+                f"Breakdown: {breakdown}.\n"
+                f"Visit a Ripperdoc and get a checkup to reset your streak before costs grow further."
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            logger.info("Could not DM charge notice to %s", member.id)
+
+    async def _notify_member_payment_failed(
+        self, member: discord.Member, cost: int, weeks: int, level: str
+    ) -> None:
+        """DM a member that a cyberware medication payment failed (insufficient funds)."""
+        try:
+            await member.send(
+                f"❌ **Cyberware Medication Payment Failed**\n"
+                f"You were due **${cost:,}** for your weekly cyberware meds "
+                f"({level} level, week {weeks} of missed checkups), "
+                f"but your balance was insufficient or the payment could not be processed.\n"
+                f"Top up and visit a Ripperdoc as soon as possible — unpaid weeks compound."
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            logger.info("Could not DM payment-failed notice to %s", member.id)
+
     def _week_increment(self) -> int:
         """Return how many weeks have passed since the last full run."""
         if self.last_run:
@@ -217,6 +271,7 @@ class CyberwareManager(commands.Cog):
                 results["checkup"].append(member.id)
                 if not dry_run:
                     self.data[user_id] = {"weeks": 0, "last": None}
+                    await self._notify_member_checkup_due(member)
                 continue
 
             # User kept the checkup role for another week → charge them
@@ -234,9 +289,11 @@ class CyberwareManager(commands.Cog):
                     total = cash + bank
                     if total >= cost:
                         safe_cash = max(cash, 0)
+                        cash_deduct = min(cost, safe_cash)
+                        bank_deduct = max(0, cost - safe_cash)
                         ok = await self.unbelievaboat.update_balance(
                             member.id,
-                            {"cash": -min(cost, safe_cash), "bank": -max(0, cost - safe_cash)},
+                            {"cash": -cash_deduct, "bank": -bank_deduct},
                             reason=f"Cyberware meds week {weeks}",
                         )
                         if ok:
@@ -245,24 +302,30 @@ class CyberwareManager(commands.Cog):
                                     f"✅ Deducted ${cost} from <@{member.id}> for cyberware meds."
                                 )
                             results["paid"].append(member.id)
+                            await self._notify_member_charged(
+                                member, cost, weeks, role_level, cash_deduct, bank_deduct
+                            )
                         else:
                             if log is not None:
                                 log.append(
                                     f"❌ Could not deduct ${cost} from <@{member.id}> for cyberware meds."
                                 )
                             results["unpaid"].append(member.id)
+                            await self._notify_member_payment_failed(member, cost, weeks, role_level)
                     else:
                         if log is not None:
                             log.append(
                                 f"❌ Could not deduct ${cost} from <@{member.id}> for cyberware meds."
                             )
                         results["unpaid"].append(member.id)
+                        await self._notify_member_payment_failed(member, cost, weeks, role_level)
                 else:
                     if log is not None:
                         log.append(
                             f"❌ Could not deduct ${cost} from <@{member.id}> for cyberware meds."
                         )
                     results["unpaid"].append(member.id)
+                    await self._notify_member_payment_failed(member, cost, weeks, role_level)
 
             if not dry_run:
                 self.data[user_id] = {

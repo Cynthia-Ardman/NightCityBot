@@ -363,6 +363,13 @@ Income is paid immediately when `!open_shop` is used (or the Open Shop button is
 - Members who had a checkup (checkup role removed by a Ripperdoc) get their streak reset
 - Members on LOA or with the Ripperdoc role are exempt
 
+**Member DMs.** During each weekly run, the bot DMs the affected member directly:
+- **First-time checkup-due notice** — sent the first time a cyberware user is missing their checkup, prompting them to book a Ripperdoc visit before charges begin
+- **Successful charge** — confirms the weekly meds amount that was deducted from cash/bank
+- **Failed charge (insufficient funds)** — warns the member that the weekly fee could not be collected
+
+DM failures are logged but never block the weekly run.
+
 ---
 
 ## DM Relay System

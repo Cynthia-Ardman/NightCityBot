@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import random
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -40,7 +39,6 @@ def _make_cog(tmp_path: Path, monkeypatch):
     cog.sheet_cache_path = data_dir / "master_sheet.xlsx"
     cog.tx_file = data_dir / "transactions.json"
     cog.inventory_dir = inv_dir
-    cog.DEFAULT_CW_RESTOCK_SETTINGS = CyberwareShop.DEFAULT_CW_RESTOCK_SETTINGS
 
     monkeypatch.setattr(
         "NightCityBot.cogs.cyberware_shop.cw_catalog_get_all",
@@ -71,37 +69,11 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def _seed_state(cog, lots=None, extra=None):
-    state = {}
-    if lots is not None:
-        state["cw_wholesale_lots"] = lots
-    if extra:
-        state.update(extra)
-    _run(cog._save_state(state))
-
-
-def _seed_inventory(cog, user_id, items):
-    _run(cog._save_inventory(user_id, items))
-
-
-def _inv_names(inv) -> list[str]:
-    """Extract item names from a list that may contain strings or dicts."""
-    return [e["name"] if isinstance(e, dict) else e for e in inv]
-
-
 _CATALOG = [
     {"name": "Kiroshi Optics Mk.1", "price": 3000, "cwp": "CWP-1", "description": "Basic optics"},
     {"name": "Militech Berserk Mk.1", "price": 5000, "cwp": "", "description": ""},
     {"name": "Sandevistan Mk.1", "price": 8000, "cwp": "CWP-3", "description": "Reflex booster"},
 ]
-
-
-def _seed_catalog(cog: CyberwareShop, catalog=None) -> None:
-    """Write catalog.json so _load_catalog fallback finds it."""
-    if catalog is None:
-        catalog = _CATALOG
-    with open(cog.data_dir / "catalog.json", "w") as f:
-        json.dump(catalog, f)
 
 
 # ------------------------------------------------------------------
@@ -163,63 +135,7 @@ class TestLookupLot:
         assert cog._lookup_lot(self._lots(), "Phantom Liberty") is None
 
 
-class TestRestockSettings:
-    def test_defaults_when_empty(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        cfg = cog._resolve_cw_restock_settings({})
-        assert cfg == CyberwareShop.DEFAULT_CW_RESTOCK_SETTINGS
 
-    def test_overrides_applied(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        state = {"settings": {"cw_restock": {"total_items": 20, "qty_min": 2}}}
-        cfg = cog._resolve_cw_restock_settings(state)
-        assert cfg["total_items"] == 20
-        assert cfg["qty_min"] == 2
-        assert cfg["qty_max"] == CyberwareShop.DEFAULT_CW_RESTOCK_SETTINGS["qty_max"]
-
-    def test_unknown_keys_ignored(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        state = {"settings": {"cw_restock": {"bogus_key": 999}}}
-        cfg = cog._resolve_cw_restock_settings(state)
-        assert "bogus_key" not in cfg
-
-
-class TestGenerateCwLots:
-    def test_lot_count_capped_by_catalog(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        cfg = {"total_items": 100, "qty_min": 1, "qty_max": 3}
-        lots = cog._generate_cw_lots(_CATALOG, cfg, random.Random(42))
-        assert len(lots) == len(_CATALOG)
-
-    def test_lot_count_respects_setting(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        cfg = {"total_items": 2, "qty_min": 1, "qty_max": 3}
-        lots = cog._generate_cw_lots(_CATALOG, cfg, random.Random(42))
-        assert len(lots) == 2
-
-    def test_qty_within_bounds(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        cfg = {"total_items": 3, "qty_min": 2, "qty_max": 5}
-        lots = cog._generate_cw_lots(_CATALOG, cfg, random.Random(99))
-        for lot in lots:
-            assert 2 <= lot["qty_available"] <= 5
-
-    def test_lot_has_required_fields(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        cfg = {"total_items": 1, "qty_min": 1, "qty_max": 1}
-        lots = cog._generate_cw_lots(_CATALOG, cfg, random.Random(0))
-        assert len(lots) == 1
-        lot = lots[0]
-        for field in ("lot_id", "item_name", "unit_cost", "qty_available", "created_at"):
-            assert field in lot
-        assert lot["lot_id"].startswith("cwlot-")
-
-    def test_deterministic_with_seed(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        cfg = {"total_items": 2, "qty_min": 1, "qty_max": 3}
-        names_a = [l["item_name"] for l in cog._generate_cw_lots(_CATALOG, cfg, random.Random(7))]
-        names_b = [l["item_name"] for l in cog._generate_cw_lots(_CATALOG, cfg, random.Random(7))]
-        assert names_a == names_b
 
 
 # ------------------------------------------------------------------
@@ -341,15 +257,28 @@ class TestGroupedInventory:
         assert [l["item_name"] for l in ordered] == ["Berserk", "Kiroshi", "Sandevistan"]
 
 
-class TestCwWhListGrouped:
-    """!cw_wh_list should use format_cw_lines_grouped with slot headers."""
+class TestCwBuyHelpTextNoDeadRefs:
+    """!cw_buy docstring + invalid-lot error must not reference removed commands."""
 
-    def test_cw_wh_list_grouped_by_slot(self, tmp_path, monkeypatch):
+    _REMOVED = (
+        "!cw_catalog",
+        "!cw_wh_list",
+        "!cw_wh_restock",
+        "!cw_wh_add",
+        "!cw_wh_remove",
+        "!cw_wh_settings",
+    )
+
+    def test_docstring_has_no_removed_command_references(self, tmp_path, monkeypatch):
+        cog = _make_cog(tmp_path, monkeypatch)
+        doc = cog.cw_buy.callback.__doc__ or ""
+        for removed in self._REMOVED:
+            assert removed not in doc, f"cw_buy docstring references removed command {removed}"
+
+    def test_invalid_lot_error_has_no_removed_command_references(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
         catalog_items = [
             {"name": "Kiroshi Mk.I", "price": 2000, "cwp": 7, "slot": "ocular system"},
-            {"name": "Neural Link",  "price": 5000, "cwp": 14, "slot": "neural"},
-            {"name": "Subdermal",    "price": 1000, "cwp": 2, "slot": "integumentary system"},
         ]
         monkeypatch.setattr(
             "NightCityBot.cogs.cyberware_shop.cw_catalog_get_all",
@@ -358,62 +287,9 @@ class TestCwWhListGrouped:
         ctx = MagicMock()
         ctx.guild = MagicMock()
         ctx.send = AsyncMock()
-        _run(cog.cw_wh_list.callback(cog, ctx))
-        assert ctx.send.call_count == 1
-        embed = ctx.send.call_args[1]["embed"]
-        desc = embed.description
-        assert "▬▬" in desc
-        assert "[CWP:" in desc
-        assert "Neural Link" in desc
-        assert "Kiroshi Mk.I" in desc
-
-    def test_cw_wh_list_empty(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        monkeypatch.setattr(
-            "NightCityBot.cogs.cyberware_shop.cw_catalog_get_all",
-            AsyncMock(return_value=[]),
-        )
-        ctx = MagicMock()
-        ctx.guild = MagicMock()
-        ctx.send = AsyncMock()
-        _run(cog.cw_wh_list.callback(cog, ctx))
+        _run(cog.cw_buy.callback(cog, ctx, lot_number=99, qty=1))
         msg = ctx.send.call_args[0][0]
-        assert "No cyberware available in the catalog" in msg
+        assert "Invalid lot number" in msg
+        for removed in self._REMOVED:
+            assert removed not in msg, f"cw_buy invalid-lot message references removed command {removed}"
 
-    def test_cw_wh_list_and_buy_row_consistency(self, tmp_path, monkeypatch):
-        """Row N in !cw_wh_list must map to same item in !cw_buy N."""
-        cog = _make_cog(tmp_path, monkeypatch)
-        catalog_items = [
-            {"name": "Zetatech Link", "price": 9000, "cwp": 14, "slot": "neural"},
-            {"name": "Kiroshi Mk.I",  "price": 2000, "cwp": 7, "slot": "ocular system"},
-            {"name": "Arm Blade",     "price": 4000, "cwp": 5, "slot": "arms & arm attachments"},
-        ]
-        monkeypatch.setattr(
-            "NightCityBot.cogs.cyberware_shop.cw_catalog_get_all",
-            AsyncMock(return_value=catalog_items),
-        )
-        ctx = MagicMock()
-        ctx.guild = MagicMock()
-        ctx.send = AsyncMock()
-        _run(cog.cw_wh_list.callback(cog, ctx))
-        embed = ctx.send.call_args[1]["embed"]
-        desc = embed.description
-        displayed = []
-        for line in desc.split("\n"):
-            if line.startswith("`") and "**" in line:
-                name = line.split("**")[1]
-                displayed.append(name)
-        lots = [
-            {
-                "lot_id": f"cat-{item['name']}",
-                "item_name": item["name"],
-                "unit_cost": int(item.get("price", 0)),
-                "cwp": item.get("cwp", ""),
-                "slot": item.get("slot", ""),
-                "qty_available": 99,
-            }
-            for item in catalog_items
-        ]
-        buy_ordered = cog._slot_ordered_lots(lots)
-        buy_names = [l["item_name"] for l in buy_ordered]
-        assert displayed == buy_names

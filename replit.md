@@ -124,9 +124,11 @@ Blocking behavior: if a user (buyer/recipient/seller) has no active characters, 
 
 ## Cyberware Shop
 
-Two-table catalog system in PostgreSQL:
-- `cyberware_catalog` (name UNIQUE, price, updated_at) — full item list, populated by `!cw_setsheet`
+Catalog system in PostgreSQL:
+- `cyberware_catalog` (name UNIQUE, price, cwp, slot, updated_at) — full item list, populated via the admin hub from a Google Sheet
 - Ripperdoc inventory stored per-owner in PostgreSQL
+
+The full catalog is always available — there is no rotating wholesale lottery. Ripperdocs buy any catalog item directly via the Ripperdoc Hub (`!ripperdoc`) or `!cw_buy` and then resell/install for patients.
 
 ### Ripperdoc Inventory Flow
 
@@ -134,11 +136,12 @@ Two-table catalog system in PostgreSQL:
 2. `!cw_sell @patient <row> <price> character_name` — sells to patient, creates `player_inventory` record
 3. `!cw_install @patient <row> character_name` — free install (no payment), creates `player_inventory` record
 
-### Admin commands
-- `!cw_wh_restock [seed]` — force restock
-- `!cw_wh_add <qty> <item>` — add/top-up a specific item mid-week
-- `!cw_wh_remove <item>` — pull an item from current week
-- `!cw_wh_settings [key] [value]` — tune total_items, qty_min, qty_max
+### Weekly Cyberware Processing
+
+`process_week()` runs Sunday and, in addition to charging cyberware fees, DMs the affected member directly via three helpers:
+- `_notify_member_checkup_due` — first-time checkup-due notice
+- `_notify_member_charged` — successful weekly meds charge
+- `_notify_member_payment_failed` — failed weekly meds charge (insufficient funds)
 
 ## Character Ownership System (Task #16)
 
