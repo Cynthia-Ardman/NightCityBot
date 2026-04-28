@@ -559,8 +559,12 @@ class GunSellSetupView(SafeView):
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a customer…", row=0)
     async def customer_select(self, interaction: discord.Interaction,
                               select: discord.ui.UserSelect):
-        # Defer first — DB lookup below can take longer than the 3s ack window.
-        await interaction.response.defer(ephemeral=True)
+        # Defer as a message-update (not ephemeral) so the success-path
+        # edit_original_response below updates the parent panel itself,
+        # not a brand-new ephemeral followup. Using ephemeral defer here
+        # would orphan the view from the panel and Discord would return
+        # "This interaction failed" on every subsequent click.
+        await interaction.response.defer()
         user = select.values[0] if select.values else None
         if user is None:
             await send_ephemeral(interaction,
