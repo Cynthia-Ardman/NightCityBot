@@ -143,6 +143,8 @@ The full catalog is always available — there is no rotating wholesale lottery.
 - `_notify_member_charged` — successful weekly meds charge
 - `_notify_member_payment_failed` — failed weekly meds charge (insufficient funds)
 
+After each weekly run, `weekly_check` posts a summary embed to `CYBERWARE_LOG_CHANNEL_ID` via `_post_weekly_summary` showing per-member rows for who was charged, who failed payment, and who got a checkup notice — plus totals for collected and outstanding amounts. The detail data is collected in `process_week`'s `results["details"]` dict (one entry per member with `id`, `cost`, `weeks`, `level`, and cash/bank split for paid).
+
 ## Character Ownership System (Task #16)
 
 Inventory is now owned by characters, not directly by Discord users. A Discord user can have multiple characters; each character belongs to exactly one user.

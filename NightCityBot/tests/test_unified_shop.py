@@ -224,7 +224,7 @@ class TestRipperdocMenuView:
             view = RipperdocMenuView()
             inter = _make_interaction()
             inter.client.get_cog = MagicMock(return_value=None)
-            btn = _find_button(view, "Buy from Wholesale")
+            btn = _find_button(view, "Buy from Catalogue")
             await btn.callback(inter)
             return inter.followup.send.call_args[0][0]
 
@@ -240,7 +240,7 @@ class TestRipperdocMenuView:
             view = RipperdocMenuView()
             inter = _make_interaction()
             inter.client.get_cog = MagicMock(return_value=cw_cog)
-            btn = _find_button(view, "Buy from Wholesale")
+            btn = _find_button(view, "Buy from Catalogue")
             await btn.callback(inter)
             return inter.followup.send.call_args[0][0]
 

@@ -184,7 +184,7 @@ class TestEventLockExists:
 class TestCWCatalogBuyFlow:
     def test_catalog_buy_adds_to_inventory(self):
         async def run():
-            from NightCityBot.cogs.ripperdoc_hub import WholesaleBuySelect
+            from NightCityBot.cogs.ripperdoc_hub import CatalogueBuySelect
 
             catalog_lot = {
                 "lot_id": "cat-Neural Link",
@@ -214,7 +214,7 @@ class TestCWCatalogBuyFlow:
             ctx.author = MagicMock()
             ctx.author.id = 12345
 
-            view = WholesaleBuySelect(cog, ctx, [catalog_lot], cw_cog)
+            view = CatalogueBuySelect(cog, ctx, [catalog_lot], cw_cog)
 
             inter = MagicMock(spec=discord.Interaction)
             inter.user = MagicMock()

@@ -204,7 +204,7 @@ Interactive hub for Ripperdocs. Provides a Discord button/menu UI to buy cyberwa
 ### CyberwareShop
 *File: `NightCityBot/cogs/cyberware_shop.py`*
 
-Implements the Ripperdoc marketplace where Ripperdocs buy parts from the full cyberware catalog (no rotating wholesale) and sell/install them for patients. Also runs the weekly cyberware processor (`process_week`), which charges meds fees and DMs each affected member with a `_notify_member_checkup_due`, `_notify_member_charged`, or `_notify_member_payment_failed` notice.
+Implements the Ripperdoc marketplace where Ripperdocs buy parts from the full cyberware catalog (no rotating wholesale) and sell/install them for patients. The Ripperdoc Hub panel (`!ripperdoc`) exposes the catalog through "Buy from Catalogue" and "Catalogue List" buttons. Also runs the weekly cyberware processor (`process_week`), which charges meds fees and DMs each affected member with a `_notify_member_checkup_due`, `_notify_member_charged`, or `_notify_member_payment_failed` notice. After each weekly run finishes, a per-member summary embed is posted to the cyberware-logs channel (`CYBERWARE_LOG_CHANNEL_ID`) listing who was charged what, who failed payment, and who received a checkup notice.
 
 ### GunsShopCog
 *File: `NightCityBot/cogs/guns_shop.py`*

@@ -119,13 +119,13 @@ class RipperdocMenuView(SafeView):
         await log_panel_failure(interaction.client, "CYBERWARE_LOG_CHANNEL_ID", "Ripperdoc Panel", interaction.user, "Missing ripperdoc role")
         return False
 
-    @discord.ui.button(label="Buy from Wholesale", style=discord.ButtonStyle.primary, emoji="🛒", row=0, custom_id="ripperdoc:buy_wholesale")
+    @discord.ui.button(label="Buy from Catalogue", style=discord.ButtonStyle.primary, emoji="🛒", row=0, custom_id="ripperdoc:buy_wholesale")
     async def buy_wholesale(self, interaction: discord.Interaction, button: discord.ui.Button):
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if member and _is_ripperdoc_employee(member) and not _is_ripperdoc_owner(member):
             await respond_ephemeral(interaction, 
-                "Only Ripperdoc Owners can buy from wholesale.")
-            await log_panel_failure(interaction.client, "CYBERWARE_LOG_CHANNEL_ID", "Buy CW Wholesale", interaction.user, "Employee tried to buy wholesale (owner-only)")
+                "Only Ripperdoc Owners can buy from the catalogue.")
+            await log_panel_failure(interaction.client, "CYBERWARE_LOG_CHANNEL_ID", "Buy CW Catalogue", interaction.user, "Employee tried to buy from catalogue (owner-only)")
             return
         await interaction.response.defer(ephemeral=True)
         cw_cog = interaction.client.get_cog("CyberwareShop")
@@ -140,7 +140,7 @@ class RipperdocMenuView(SafeView):
             if not rd_store:
                 await send_ephemeral(interaction, 
                     "❌ You don't have an initialized ripperdoc store. "
-                    "Please set up your store first before buying from wholesale.")
+                    "Please set up your store first before buying from the catalogue.")
                 return
         catalog = await cw_catalog_get_all()
         lots = _build_cw_catalog_lots(catalog)
@@ -149,7 +149,7 @@ class RipperdocMenuView(SafeView):
             return
         cog = interaction.client.get_cog("RipperdocHub")
         ctx = PanelContext(interaction)
-        view = WholesaleBuySelect(cog, ctx, lots, cw_cog)
+        view = CatalogueBuySelect(cog, ctx, lots, cw_cog)
         await send_ephemeral(interaction, "Select an item to buy:", view=view)
 
     @discord.ui.button(label="Sell to Patient", style=discord.ButtonStyle.success, emoji="💉", row=1, custom_id="ripperdoc:sell_patient")
@@ -178,7 +178,7 @@ class RipperdocMenuView(SafeView):
             store_id = _rd_store_id(interaction.guild.id, interaction.user.id)
         inventory = await cw_cog._load_inventory(inv_owner_id)
         if not inventory:
-            await send_ephemeral(interaction, "Store cyberware stock is empty. Buy from wholesale first.")
+            await send_ephemeral(interaction, "Store cyberware stock is empty. Buy from the catalogue first.")
             return
         groups = cw_cog._grouped_inventory(inventory)
         view = SellSetupView(cog, ctx, groups, mode="sell", store_id=store_id, inv_owner_id=inv_owner_id)
@@ -213,7 +213,7 @@ class RipperdocMenuView(SafeView):
             store_id = _rd_store_id(interaction.guild.id, interaction.user.id)
         inventory = await cw_cog._load_inventory(inv_owner_id)
         if not inventory:
-            await send_ephemeral(interaction, "Store cyberware stock is empty. Buy from wholesale first.")
+            await send_ephemeral(interaction, "Store cyberware stock is empty. Buy from the catalogue first.")
             return
         groups = cw_cog._grouped_inventory(inventory)
         view = SellSetupView(cog, ctx, groups, mode="install", store_id=store_id, inv_owner_id=inv_owner_id)
@@ -222,7 +222,7 @@ class RipperdocMenuView(SafeView):
             msg += f"\n⚠️ Showing first 25 of {len(groups)} item groups."
         await send_ephemeral(interaction, msg, view=view)
 
-    @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=0, custom_id="ripperdoc:wholesale_list")
+    @discord.ui.button(label="Catalogue List", style=discord.ButtonStyle.secondary, emoji="📋", row=0, custom_id="ripperdoc:wholesale_list")
     async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         catalog = await cw_catalog_get_all()
@@ -395,7 +395,7 @@ def _build_cw_catalog_lots(catalog: list[dict]) -> list[dict]:
     return lots
 
 
-class WholesaleBuySelect(SafeView):
+class CatalogueBuySelect(SafeView):
     PAGE_SIZE = 25
 
     def __init__(self, cog: "RipperdocHub", ctx: commands.Context, lots: list, cw_cog, *, page: int = 0):
@@ -476,7 +476,7 @@ class WholesaleBuySelect(SafeView):
         ok = await self.cog.unbelievaboat.update_balance(
             member.id,
             {"cash": -cash_deduct, "bank": -bank_deduct},
-            reason=f"CW wholesale buy: {lot['item_name']} x{qty}",
+            reason=f"CW catalogue buy: {lot['item_name']} x{qty}",
         )
         if not ok:
             await send_ephemeral(interaction, "Payment failed.")
@@ -505,11 +505,11 @@ class WholesaleBuySelect(SafeView):
                 )
             inv_ok = await self.cw_cog._save_inventory(member.id, inventory)
             if not inv_ok:
-                logger.error("cw wholesale buy: _save_inventory failed — refunding buyer=%s", member.id)
+                logger.error("cw catalogue buy: _save_inventory failed — refunding buyer=%s", member.id)
                 await self.cog.unbelievaboat.update_balance(
                     member.id,
                     {"cash": cash_deduct, "bank": bank_deduct},
-                    reason="CW wholesale refund — inventory save failed",
+                    reason="CW catalogue refund — inventory save failed",
                 )
                 await send_ephemeral(interaction, 
                     "⚠️ Purchase failed (inventory save error). Payment has been refunded. Please try again.")
@@ -520,7 +520,7 @@ class WholesaleBuySelect(SafeView):
         log_ch = await self.cog._log_channel()
         if log_ch:
             embed = discord.Embed(
-                title="🛒 Cyberware Wholesale Purchase",
+                title="🛒 Cyberware Catalogue Purchase",
                 color=discord.Color.teal(),
                 timestamp=datetime.now(timezone.utc),
             )
@@ -1870,8 +1870,8 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
             title="💉 Ripperdoc Shop",
             description=(
                 "Welcome, Ripperdoc. Choose an action below.\n\n"
-                "**Buy from Wholesale** — Purchase cyberware from the full catalog *(owners only)*\n"
-                "**Wholesale List** — Browse the full cyberware catalog\n"
+                "**Buy from Catalogue** — Purchase cyberware from the full catalog *(owners only)*\n"
+                "**Catalogue List** — Browse the full cyberware catalog\n"
                 "**Sell to Patient** — Sell cyberware to a patient (DM confirmation)\n"
                 "**Install on Patient** — Install cyberware on a patient (consumes item)\n"
                 "**Manage Store** — Create/rename store, view stock, transfer or close *(owners only)*\n"
@@ -1892,13 +1892,13 @@ class RipperdocHub(commands.Cog, name="RipperdocHub"):
             color=discord.Color.teal(),
         )
         embed.add_field(
-            name="🛒 Buy from Wholesale",
+            name="🛒 Buy from Catalogue",
             value="Purchase cyberware from the full catalog to add to your clinic stock. *(Owners only)*",
             inline=False,
         )
         embed.add_field(
-            name="📋 Wholesale List",
-            value="Browse what's currently available in wholesale — no purchase required.",
+            name="📋 Catalogue List",
+            value="Browse what's currently available in the catalogue — no purchase required.",
             inline=False,
         )
         embed.add_field(

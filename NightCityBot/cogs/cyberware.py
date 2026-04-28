@@ -120,6 +120,115 @@ class CyberwareManager(commands.Cog):
         except (discord.Forbidden, discord.HTTPException):
             logger.info("Could not DM payment-failed notice to %s", member.id)
 
+    def _build_weekly_summary_embed(
+        self, results: Dict[str, List], run_at: datetime
+    ) -> discord.Embed:
+        """Build the weekly cyberware summary embed for the cyberware-logs channel."""
+        details = results.get("details", {}) if isinstance(results, dict) else {}
+        paid = details.get("paid", []) or []
+        unpaid = details.get("unpaid", []) or []
+        checkup = details.get("checkup", []) or []
+
+        total_charged = sum(int(e.get("cost", 0)) for e in paid)
+        total_due_unpaid = sum(int(e.get("cost", 0)) for e in unpaid)
+
+        embed = discord.Embed(
+            title="📊 Weekly Cyberware Run",
+            description=(
+                f"**Charged:** {len(paid)} (${total_charged:,} collected)\n"
+                f"**Payment Failed:** {len(unpaid)} (${total_due_unpaid:,} outstanding)\n"
+                f"**Checkup Notices:** {len(checkup)}"
+            ),
+            color=discord.Color.teal(),
+            timestamp=run_at,
+        )
+
+        # Discord allows 25 fields per embed. Reserve a budget per category so
+        # one runaway list cannot starve the others, and append a "+N more"
+        # tail line when truncated.
+        MAX_FIELDS_PER_CATEGORY = 7
+
+        def _add_chunked(name: str, lines: List[str]) -> None:
+            if not lines:
+                return
+            chunks: List[str] = []
+            cur = ""
+            for line in lines:
+                addition = (line if not cur else "\n" + line)
+                if len(cur) + len(addition) > 1024:
+                    if cur:
+                        chunks.append(cur)
+                    cur = line[:1024]
+                else:
+                    cur += addition
+            if cur:
+                chunks.append(cur)
+            if len(chunks) > MAX_FIELDS_PER_CATEGORY:
+                kept = chunks[:MAX_FIELDS_PER_CATEGORY]
+                dropped_lines = sum(c.count("\n") + 1 for c in chunks[MAX_FIELDS_PER_CATEGORY:])
+                tail = f"\n…and {dropped_lines} more"
+                if len(kept[-1]) + len(tail) <= 1024:
+                    kept[-1] = kept[-1] + tail
+                else:
+                    kept[-1] = kept[-1][: 1024 - len(tail)] + tail
+                chunks = kept
+            for i, chunk in enumerate(chunks):
+                field_name = name if i == 0 else f"{name} (cont.)"
+                embed.add_field(name=field_name, value=chunk, inline=False)
+
+        _add_chunked(
+            "💊 Charged",
+            [
+                f"<@{e['id']}> — ${int(e['cost']):,} ({e['level']}, week {e['weeks']})"
+                for e in paid
+            ],
+        )
+        _add_chunked(
+            "❌ Payment Failed",
+            [
+                f"<@{e['id']}> — ${int(e['cost']):,} ({e['level']}, week {e['weeks']})"
+                for e in unpaid
+            ],
+        )
+        _add_chunked(
+            "🩺 Checkup Notices",
+            [f"<@{e['id']}> ({e['level']})" for e in checkup],
+        )
+
+        if not (paid or unpaid or checkup):
+            embed.add_field(
+                name="Result",
+                value="No members required action this week.",
+                inline=False,
+            )
+        return embed
+
+    async def _post_weekly_summary(
+        self, results: Dict[str, List], run_at: datetime
+    ) -> None:
+        """Post the weekly cyberware summary embed to the cyberware-logs channel."""
+        ch_id = getattr(config, "CYBERWARE_LOG_CHANNEL_ID", 0)
+        if not ch_id:
+            return
+        guild = self.bot.get_guild(config.GUILD_ID)
+        log_ch = None
+        if guild:
+            log_ch = guild.get_channel(ch_id)
+        if log_ch is None:
+            try:
+                log_ch = await self.bot.fetch_channel(ch_id)
+            except Exception:
+                logger.warning(
+                    "Could not fetch CYBERWARE_LOG_CHANNEL_ID for weekly summary",
+                    exc_info=True,
+                )
+                return
+        try:
+            embed = self._build_weekly_summary_embed(results, run_at)
+            await log_ch.send(embed=embed)
+        except Exception:
+            logger.warning("Failed to post weekly cyberware summary", exc_info=True)
+
     def _week_increment(self) -> int:
         """Return how many weeks have passed since the last full run."""
         if self.last_run:
@@ -173,6 +282,8 @@ class CyberwareManager(commands.Cog):
                     "weekly run results not persisted",
                 )
 
+            await self._post_weekly_summary(results, run_at)
+
             summary = "\n".join(logs) if logs else "✅ No actions performed."
             if notify_user:
                 try:
@@ -196,11 +307,17 @@ class CyberwareManager(commands.Cog):
         if control and not control.is_enabled("cyberware"):
             if log is not None:
                 log.append("Cyberware system disabled.")
-            return {"checkup": [], "paid": [], "unpaid": []}
+            return {
+                "checkup": [], "paid": [], "unpaid": [],
+                "details": {"checkup": [], "paid": [], "unpaid": []},
+            }
 
         guild = self.bot.get_guild(config.GUILD_ID)
         if not guild:
-            return {"checkup": [], "paid": [], "unpaid": []}
+            return {
+                "checkup": [], "paid": [], "unpaid": [],
+                "details": {"checkup": [], "paid": [], "unpaid": []},
+            }
 
         checkup_role = guild.get_role(config.CYBER_CHECKUP_ROLE_ID)
         medium_role = guild.get_role(config.CYBER_MEDIUM_ROLE_ID)
@@ -210,7 +327,16 @@ class CyberwareManager(commands.Cog):
         ripper_role = guild.get_role(config.RIPPERDOC_ROLE_ID)
         log_channel = guild.get_channel(config.RIPPERDOC_LOG_CHANNEL_ID)
 
-        results = {"checkup": [], "paid": [], "unpaid": []}
+        results: Dict[str, List] = {
+            "checkup": [],
+            "paid": [],
+            "unpaid": [],
+            "details": {
+                "checkup": [],
+                "paid": [],
+                "unpaid": [],
+            },
+        }
 
         week_inc = self._week_increment()
         members = [target_member] if target_member else guild.members
@@ -269,6 +395,10 @@ class CyberwareManager(commands.Cog):
                         f"Ripperdoc checkup on <@{member.id}>. No money deducted."
                     )
                 results["checkup"].append(member.id)
+                results["details"]["checkup"].append({
+                    "id": member.id,
+                    "level": role_level,
+                })
                 if not dry_run:
                     self.data[user_id] = {"weeks": 0, "last": None}
                     await self._notify_member_checkup_due(member)
@@ -302,6 +432,14 @@ class CyberwareManager(commands.Cog):
                                     f"✅ Deducted ${cost} from <@{member.id}> for cyberware meds."
                                 )
                             results["paid"].append(member.id)
+                            results["details"]["paid"].append({
+                                "id": member.id,
+                                "cost": cost,
+                                "weeks": weeks,
+                                "level": role_level,
+                                "cash": cash_deduct,
+                                "bank": bank_deduct,
+                            })
                             await self._notify_member_charged(
                                 member, cost, weeks, role_level, cash_deduct, bank_deduct
                             )
@@ -311,6 +449,12 @@ class CyberwareManager(commands.Cog):
                                     f"❌ Could not deduct ${cost} from <@{member.id}> for cyberware meds."
                                 )
                             results["unpaid"].append(member.id)
+                            results["details"]["unpaid"].append({
+                                "id": member.id,
+                                "cost": cost,
+                                "weeks": weeks,
+                                "level": role_level,
+                            })
                             await self._notify_member_payment_failed(member, cost, weeks, role_level)
                     else:
                         if log is not None:
@@ -318,6 +462,12 @@ class CyberwareManager(commands.Cog):
                                 f"❌ Could not deduct ${cost} from <@{member.id}> for cyberware meds."
                             )
                         results["unpaid"].append(member.id)
+                        results["details"]["unpaid"].append({
+                            "id": member.id,
+                            "cost": cost,
+                            "weeks": weeks,
+                            "level": role_level,
+                        })
                         await self._notify_member_payment_failed(member, cost, weeks, role_level)
                 else:
                     if log is not None:
@@ -325,6 +475,12 @@ class CyberwareManager(commands.Cog):
                             f"❌ Could not deduct ${cost} from <@{member.id}> for cyberware meds."
                         )
                     results["unpaid"].append(member.id)
+                    results["details"]["unpaid"].append({
+                        "id": member.id,
+                        "cost": cost,
+                        "weeks": weeks,
+                        "level": role_level,
+                    })
                     await self._notify_member_payment_failed(member, cost, weeks, role_level)
 
             if not dry_run:
