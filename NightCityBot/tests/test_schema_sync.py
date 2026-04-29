@@ -36,6 +36,7 @@ EXPECTED_TABLES = [
     "fixer_event",
     "store_inventory",
     "shop_permitted_roles",
+    "balance_history",
 ]
 
 

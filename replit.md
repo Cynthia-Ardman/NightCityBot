@@ -13,7 +13,10 @@ A Discord bot for NCRP (Cyberpunk-themed RP server) managing economy, roleplay u
 
 ## Data Storage
 
-Operational state is persisted to **PostgreSQL** via normalized tables (29 tables total, including `characters`, `item_history`, `cw_shop_state`, `fixer_event`, `store_inventory`, and `shop_permitted_roles`). The legacy `json_store` key-value table remains for backward compatibility. File-based JSON storage is retained for per-member balance backups.
+Operational state is persisted to **PostgreSQL** via normalized tables (30 tables total, including `characters`, `item_history`, `cw_shop_state`, `fixer_event`, `store_inventory`, `shop_permitted_roles`, and `balance_history`). The legacy `json_store` key-value table remains for backward compatibility. File-based JSON storage is retained for per-member balance backups.
+
+### `balance_history` table — every UnbelievaBoat balance change
+Columns: `id BIGSERIAL`, `user_id TEXT`, `ts TIMESTAMPTZ`, `cash_delta INT`, `bank_delta INT`, `reason TEXT` (index on `user_id, ts DESC`). `UnbelievaBoatAPI.update_balance` records to it after every successful PATCH (failures are swallowed so they never break the underlying balance update). Powers the admin-panel **Balance History** button (💰, row 3 of `/admin`), which opens a user picker and renders the last 30 days of changes — merged with legacy `balance_backup_{user_id}.json` snapshots (deduped within a 120s window when totals match) — most-recent-first, capped at 50 rows / 3900 chars.
 
 ### `bot_config` table — runtime-editable economy constants
 

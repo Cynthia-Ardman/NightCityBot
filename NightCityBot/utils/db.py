@@ -622,6 +622,21 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         CREATE INDEX IF NOT EXISTS idx_item_history_actor
             ON item_history (actor_id)
         """,
+        # ── Balance history (per-user audit trail of UnbelievaBoat changes) ──
+        """
+        CREATE TABLE IF NOT EXISTS balance_history (
+            id          BIGSERIAL PRIMARY KEY,
+            user_id     TEXT NOT NULL,
+            ts          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            cash_delta  INT NOT NULL DEFAULT 0,
+            bank_delta  INT NOT NULL DEFAULT 0,
+            reason      TEXT NOT NULL DEFAULT ''
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_balance_history_user_ts
+            ON balance_history (user_id, ts DESC)
+        """,
     ]
 
     async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
@@ -4154,6 +4169,87 @@ async def migrate_inventory_to_characters(pool: asyncpg.Pool | None = None) -> i
         created, remaining or 0,
     )
     return created
+
+
+# ---------------------------------------------------------------------------
+# Balance history (per-user audit trail of UnbelievaBoat balance changes)
+# ---------------------------------------------------------------------------
+
+async def balance_history_record(
+    user_id: str,
+    cash_delta: int,
+    bank_delta: int,
+    reason: str,
+) -> bool:
+    """Append one balance change for a user. Returns True on success."""
+    try:
+        pool = await get_pool()
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO balance_history (user_id, cash_delta, bank_delta, reason)
+                VALUES ($1, $2, $3, $4)
+                """,
+                str(user_id),
+                int(cash_delta or 0),
+                int(bank_delta or 0),
+                str(reason or "")[:512],
+            ),
+            label="balance_history_record",
+        )
+        return True
+    except Exception:
+        logger.error(
+            "balance_history_record failed for user '%s'", user_id, exc_info=True
+        )
+        return False
+
+
+async def balance_history_get(
+    user_id: str,
+    since: Optional[datetime] = None,
+    limit: int = 500,
+) -> list[dict]:
+    """Return balance-history rows for a user, newest first.
+
+    ``since`` is an inclusive lower bound on ``ts``. ``limit`` caps row count.
+    """
+    try:
+        pool = await get_pool()
+        if since is not None:
+            rows = await _with_retry(
+                lambda: pool.fetch(
+                    """
+                    SELECT id, ts, cash_delta, bank_delta, reason
+                    FROM balance_history
+                    WHERE user_id = $1 AND ts >= $2
+                    ORDER BY ts DESC
+                    LIMIT $3
+                    """,
+                    str(user_id), since, int(limit),
+                ),
+                label="balance_history_get",
+            )
+        else:
+            rows = await _with_retry(
+                lambda: pool.fetch(
+                    """
+                    SELECT id, ts, cash_delta, bank_delta, reason
+                    FROM balance_history
+                    WHERE user_id = $1
+                    ORDER BY ts DESC
+                    LIMIT $2
+                    """,
+                    str(user_id), int(limit),
+                ),
+                label="balance_history_get",
+            )
+        return [dict(r) for r in rows]
+    except Exception:
+        logger.error(
+            "balance_history_get failed for user '%s'", user_id, exc_info=True
+        )
+        return []
 
 
 # ---------------------------------------------------------------------------

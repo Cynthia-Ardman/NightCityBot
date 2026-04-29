@@ -7,8 +7,9 @@ import logging
 import re
 import random
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Optional
 
 import discord
 from discord.ext import commands
@@ -24,6 +25,7 @@ from NightCityBot.utils.db import (
     cw_catalog_upsert_many,
     gun_catalog_get_all,
     cw_shop_state_save,
+    balance_history_get,
 )
 from NightCityBot.utils.inline_helpers import collect_text_input
 from NightCityBot.utils.panel_context import PanelContext
@@ -269,6 +271,18 @@ class AdminShopMenuView(SafeView):
                 except Exception:
                     pass
 
+
+    @discord.ui.button(label="Balance History", style=discord.ButtonStyle.secondary, row=3, custom_id="admin_shop:balance_history")
+    async def balance_history(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        cog = interaction.client.get_cog("AdminShop")
+        ctx = PanelContext(interaction)
+        view = BalanceHistoryPickerView(cog, ctx)
+        await send_ephemeral(
+            interaction,
+            "**Balance History** — Pick a player to see the last 30 days of balance changes:",
+            view=view,
+        )
 
     @discord.ui.button(label="Perm Overwrites", style=discord.ButtonStyle.secondary, emoji="🔐", row=3, custom_id="admin_shop:perm_overwrites")
     async def perm_overwrites(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1697,6 +1711,215 @@ class AdminShopCog(commands.Cog, name="AdminShop"):
             await ctx.message.delete()
         except Exception:
             pass
+
+
+_FRIENDLY_BACKUP_LABELS = {
+    "collect_housing_after": "Housing Rent collected",
+    "collect_business_after": "Business Rent collected",
+    "collect_cyberware_after": "Cyberware Rent collected",
+    "trauma_after": "Trauma Team service",
+}
+
+
+def _friendly_backup_label(raw_label: str) -> Optional[str]:
+    """Convert a backup-file label to a human-readable reason.
+
+    Returns ``None`` for snapshot anchor entries (`*_before`) that do not
+    represent real balance changes and should be skipped.
+    """
+    if not raw_label:
+        return None
+    if raw_label.endswith("_before"):
+        return None
+    if raw_label in _FRIENDLY_BACKUP_LABELS:
+        return _FRIENDLY_BACKUP_LABELS[raw_label]
+    if raw_label.startswith("manual_"):
+        return "Admin manual backup/restore"
+    return raw_label
+
+
+async def _load_backup_history(user_id: int, since_dt: datetime) -> list[dict]:
+    """Load post-`*_after` snapshots from the per-user backup file.
+
+    Returns rows shaped like ``balance_history_get`` so they can be merged
+    transparently with the live audit table.
+    """
+    backup_path = Path(config.BALANCE_BACKUP_DIR) / f"balance_backup_{user_id}.json"
+    entries = await helpers.load_json_file(backup_path, default=[])
+    if not isinstance(entries, list):
+        return []
+    out: list[dict] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        ts_raw = entry.get("timestamp")
+        if not ts_raw:
+            continue
+        try:
+            ts = datetime.fromisoformat(str(ts_raw))
+        except Exception:
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if ts < since_dt:
+            continue
+        reason = _friendly_backup_label(str(entry.get("label", "")))
+        if reason is None:
+            continue
+        try:
+            change = int(entry.get("change", 0) or 0)
+        except (TypeError, ValueError):
+            # Skip a single malformed row rather than dropping the whole file.
+            continue
+        # Backup snapshots only carry a single combined ``change`` (cash+bank
+        # delta). Surface it under cash_delta for display purposes; bank stays 0.
+        out.append({
+            "id": None,
+            "ts": ts,
+            "cash_delta": change,
+            "bank_delta": 0,
+            "reason": f"{reason} (snapshot)",
+        })
+    return out
+
+
+def _merge_history(
+    live_rows: list[dict],
+    backup_rows: list[dict],
+    *,
+    dedupe_window_seconds: int = 120,
+) -> list[dict]:
+    """Merge live audit + backup rows, dropping near-duplicate snapshots.
+
+    A backup row is treated as a duplicate when a live row exists within
+    ``dedupe_window_seconds`` whose total delta matches the backup's change.
+    """
+    merged = list(live_rows)
+    for b in backup_rows:
+        is_dup = False
+        b_total = int(b["cash_delta"]) + int(b["bank_delta"])
+        b_ts = b["ts"]
+        for r in live_rows:
+            r_total = int(r["cash_delta"]) + int(r["bank_delta"])
+            if r_total != b_total:
+                continue
+            try:
+                gap = abs((r["ts"] - b_ts).total_seconds())
+            except Exception:
+                continue
+            if gap <= dedupe_window_seconds:
+                is_dup = True
+                break
+        if not is_dup:
+            merged.append(b)
+    merged.sort(key=lambda r: r["ts"], reverse=True)
+    return merged
+
+
+def _format_history_lines(rows: list[dict], *, max_rows: int = 50) -> tuple[list[str], int]:
+    """Format rows for embed display. Returns (lines, omitted_count)."""
+    lines: list[str] = []
+    show = rows[:max_rows]
+    for r in show:
+        ts: datetime = r["ts"]
+        try:
+            ts_str = ts.strftime("%m/%d %H:%M")
+        except Exception:
+            ts_str = str(ts)
+        cash = int(r["cash_delta"])
+        bank = int(r["bank_delta"])
+        parts: list[str] = []
+        if cash:
+            parts.append(f"{'+' if cash > 0 else ''}${cash:,} cash")
+        if bank:
+            parts.append(f"{'+' if bank > 0 else ''}${bank:,} bank")
+        if not parts:
+            parts.append("$0")
+        delta_str = " / ".join(parts)
+        reason = (r.get("reason") or "").strip() or "(no reason)"
+        if len(reason) > 140:
+            reason = reason[:137] + "…"
+        lines.append(f"`{ts_str}` **{delta_str}** — {reason}")
+    omitted = max(0, len(rows) - len(show))
+    return lines, omitted
+
+
+def _fit_lines_to_description(lines: list[str], cap: int = 3900) -> tuple[str, int]:
+    """Join lines into a single description, truncating to fit Discord's limit.
+
+    Returns (description, dropped_lines).
+    """
+    out: list[str] = []
+    total = 0
+    for ln in lines:
+        add = len(ln) + 1  # +1 for newline
+        if total + add > cap:
+            break
+        out.append(ln)
+        total += add
+    dropped = len(lines) - len(out)
+    return "\n".join(out), dropped
+
+
+class BalanceHistoryPickerView(SafeView):
+    """User picker for the Balance History admin panel button."""
+
+    def __init__(self, cog, ctx):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.select(cls=discord.ui.UserSelect, placeholder="Choose a player…", row=0)
+    async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        user = select.values[0] if select.values else None
+        member = await _resolve_user_select(self.ctx, user)
+        if not member:
+            await respond_ephemeral(interaction, "Could not resolve member.")
+            return
+        await interaction.response.defer(ephemeral=True)
+        since_dt = datetime.now(timezone.utc) - timedelta(days=30)
+        try:
+            live_rows = await balance_history_get(str(member.id), since=since_dt, limit=500)
+        except Exception:
+            logger.exception("balance_history_get failed for user %s", member.id)
+            live_rows = []
+        try:
+            backup_rows = await _load_backup_history(member.id, since_dt)
+        except Exception:
+            logger.exception("_load_backup_history failed for user %s", member.id)
+            backup_rows = []
+        # Normalize live row timestamps to aware UTC for comparisons
+        for r in live_rows:
+            ts = r.get("ts")
+            if isinstance(ts, datetime) and ts.tzinfo is None:
+                r["ts"] = ts.replace(tzinfo=timezone.utc)
+        merged = _merge_history(live_rows, backup_rows)
+        if not merged:
+            await send_ephemeral(
+                interaction,
+                f"No balance changes recorded for **{member.display_name}** in the last 30 days.",
+            )
+            return
+        lines, omitted = _format_history_lines(merged, max_rows=50)
+        description, dropped = _fit_lines_to_description(lines)
+        footer_bits = [f"{len(merged)} change(s) in window"]
+        if omitted:
+            footer_bits.append(f"{omitted} older entries hidden")
+        if dropped:
+            footer_bits.append(f"{dropped} lines truncated for length")
+        embed = discord.Embed(
+            title=f"Balance History — {member.display_name}",
+            description=description or "(no entries fit)",
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text="Last 30 days • " + " • ".join(footer_bits))
+        await send_ephemeral(interaction, embed=embed)
 
 
 async def setup(bot: commands.Bot):

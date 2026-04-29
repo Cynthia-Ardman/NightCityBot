@@ -84,6 +84,9 @@ class UnbelievaBoatAPI:
                         url, headers=self.headers, json=payload
                     ) as resp:
                         if resp.status == 200:
+                            await self._record_history(
+                                user_id, amount_dict, reason
+                            )
                             return True
                         if resp.status == 429:
                             try:
@@ -111,3 +114,21 @@ class UnbelievaBoatAPI:
         """
         balance = await self.get_balance(user_id)
         return balance is not None
+
+    async def _record_history(
+        self, user_id: int, amount_dict: Dict, reason: str
+    ) -> None:
+        """Persist a successful balance change to the local audit table.
+
+        Failures are swallowed so they never break the live balance update.
+        """
+        try:
+            from NightCityBot.utils.db import balance_history_record
+
+            cash = int(amount_dict.get("cash", 0) or 0)
+            bank = int(amount_dict.get("bank", 0) or 0)
+            await balance_history_record(str(user_id), cash, bank, reason)
+        except Exception:
+            logger.debug(
+                "balance_history_record skipped for user %s", user_id, exc_info=True
+            )
