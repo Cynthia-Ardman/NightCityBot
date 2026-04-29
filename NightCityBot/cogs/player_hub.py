@@ -171,8 +171,13 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
             inline=False,
         )
         embed.add_field(
-            name="💸 View Due",
-            value="See a breakdown of your estimated monthly costs (cyberware maintenance, business fees, etc.).",
+            name="📅 Monthly Bills",
+            value="Preview your next 1st-of-month auto-collection: baseline living cost, housing rent, business rent, and Trauma Team subscription.",
+            inline=False,
+        )
+        embed.add_field(
+            name="💊 Weekly Cyberware",
+            value="Preview the cyberware medication charge that hits this Monday based on your current cyberware level and missed-checkup streak.",
             inline=False,
         )
         return embed
@@ -209,7 +214,8 @@ class PlayerHubCog(commands.Cog, name="PlayerHub"):
                 "• **Start LOA / End LOA** — start or end your Leave of Absence\n"
                 "• **Attend** — log event attendance (Sundays / active events)\n"
                 "• **Open Shop** — log a business opening for a cash payout (Sundays / active events)\n"
-                "• **View Due** — see your estimated monthly costs breakdown"
+                "• **Monthly Bills** — preview the next 1st-of-month auto-collection (rent, business rent, Trauma Team)\n"
+                "• **Weekly Cyberware** — preview the cyberware medication charge for the upcoming Monday run"
             ),
             color=discord.Color.blue(),
         )
@@ -637,8 +643,9 @@ class PlayerHubView(SafeView):
             except Exception:
                 pass
 
-    @discord.ui.button(label="View Due", style=discord.ButtonStyle.secondary, emoji="💸", row=3, custom_id="player_hub:due")
-    async def view_due(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Monthly Bills", style=discord.ButtonStyle.secondary, emoji="📅", row=3, custom_id="player_hub:due")
+    async def view_monthly_bills(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Preview the next 1st-of-month auto-collection (rent / business / Trauma Team)."""
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
         if not guild:
@@ -653,12 +660,17 @@ class PlayerHubView(SafeView):
             await send_ephemeral(interaction, "Must be used in a server.")
             return
         try:
-            total, details = econ_cog.calculate_due(member)
+            total, details = econ_cog.calculate_monthly_due(member)
         except Exception as e:
-            await send_ephemeral(interaction, 
-                f"⚠️ Could not calculate dues: {e}")
+            await send_ephemeral(interaction,
+                f"⚠️ Could not calculate monthly bills: {e}")
             return
-        header = f"💸 **Estimated Due:** ${total}"
+
+        header = (
+            f"📅 **Monthly Bills Preview:** ${total:,}\n"
+            "_Auto-collected on the 1st of each month — covers baseline, "
+            "housing, business rent, and Trauma Team subscription._"
+        )
         lines = [header] + [f"• {d}" for d in details]
 
         from NightCityBot.utils.db import last_payment_get_with_ts
@@ -675,11 +687,66 @@ class PlayerHubView(SafeView):
             if paid_local.year == now_local.year and paid_local.month == now_local.month:
                 paid_str = paid_local.strftime("%b %d")
                 lines.append(
-                    f"✅ **Housing & baseline already paid this month** (recorded {paid_str})."
-                    " Cyberware meds are collected separately by staff."
+                    f"✅ **Already paid this month** (recorded {paid_str})."
                 )
 
         await send_ephemeral(interaction, "\n".join(lines))
+
+    @discord.ui.button(label="Weekly Cyberware", style=discord.ButtonStyle.secondary, emoji="💊", row=3, custom_id="player_hub:weekly_cyber")
+    async def view_weekly_cyberware(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Preview the upcoming Monday cyberware medication charge."""
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        if not guild:
+            await send_ephemeral(interaction, "Must be used in a server.")
+            return
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            await send_ephemeral(interaction, "Must be used in a server.")
+            return
+        cyber_cog = interaction.client.get_cog("CyberwareManager")
+        if not cyber_cog:
+            await send_ephemeral(interaction, "⚠️ Cyberware system unavailable.")
+            return
+        try:
+            preview = cyber_cog.preview_weekly_cost(member)
+        except Exception as e:
+            await send_ephemeral(interaction,
+                f"⚠️ Could not calculate cyberware preview: {e}")
+            return
+
+        if preview is None:
+            await send_ephemeral(interaction,
+                "💊 **Weekly Cyberware Preview**\n"
+                "You owe **$0** this week. (No Medium/High/Extreme cyberware role, "
+                "or you're on LOA / are a Ripperdoc.)")
+            return
+
+        level = preview["level"].title()
+        cost = preview["cost"]
+        upcoming_weeks = preview["upcoming_weeks"]
+        has_checkup = preview["has_checkup"]
+
+        if has_checkup:
+            body = (
+                f"💊 **Weekly Cyberware Preview**\n"
+                f"Cyberware level: **{level}**\n"
+                f"Estimated charge this Monday: **${cost:,}** "
+                f"(week {upcoming_weeks} of missed checkups).\n"
+                f"_Visit a Ripperdoc and clear your checkup before Monday to "
+                f"reset the streak and avoid the charge._"
+            )
+        else:
+            body = (
+                f"💊 **Weekly Cyberware Preview**\n"
+                f"Cyberware level: **{level}**\n"
+                f"You'll be flagged for a checkup this Monday — **no money** is "
+                f"deducted on the first week.\n"
+                f"_Visit a Ripperdoc to clear the checkup before next Monday or "
+                f"medication costs will start accruing._"
+            )
+
+        await send_ephemeral(interaction, body)
 
 
 class ManageInventoryView(SafeView):

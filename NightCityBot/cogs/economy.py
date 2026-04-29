@@ -595,8 +595,12 @@ class Economy(commands.Cog):
         else:
             await ctx.send(f"✅ Attendance logged! You received ${reward}.")
 
-    def calculate_due(self, member: discord.Member) -> tuple[int, List[str]]:
-        """Calculate upcoming rent, baseline, cyberware and subscription costs."""
+    def calculate_monthly_due(self, member: discord.Member) -> tuple[int, List[str]]:
+        """Calculate upcoming MONTHLY costs only (baseline, housing, business, Trauma).
+
+        Excludes weekly cyberware medication costs — those run on a separate
+        weekly schedule and have their own preview.
+        """
         details: List[str] = []
         total = 0
         role_names = [r.name for r in member.roles]
@@ -633,6 +637,15 @@ class Economy(commands.Cog):
                 total += cost
                 details.append(f"{trauma_role.name}: ${cost}")
 
+        return total, details
+
+    def calculate_due(self, member: discord.Member) -> tuple[int, List[str]]:
+        """Calculate upcoming rent, baseline, cyberware and subscription costs."""
+        total, details = self.calculate_monthly_due(member)
+        loa_role = member.guild.get_role(config.LOA_ROLE_ID)
+        on_loa = loa_role in member.roles if loa_role else False
+
+        if not on_loa:
             cyber = self.bot.get_cog("CyberwareManager")
             if cyber:
                 guild = member.guild

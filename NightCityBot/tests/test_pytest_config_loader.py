@@ -202,3 +202,143 @@ def test_calculate_due_uses_housing_cost_from_cache():
         total, _ = econ.calculate_due(member)
 
     assert total >= baseline + 300, f"Expected at least baseline+300, got {total}"
+
+
+# ---------------------------------------------------------------------------
+# Economy.calculate_monthly_due — preview helper for new player-hub button
+# ---------------------------------------------------------------------------
+
+def test_calculate_monthly_due_excludes_cyberware():
+    """calculate_monthly_due returns baseline+housing+business+trauma but no cyber meds."""
+    econ = _make_economy()
+    member = _make_member_with_roles("Housing Tier 1")
+
+    with patch.dict(_cfg._cache, {
+        "baseline_living_cost": "500",
+        "housing_tier_1_rent": "200",
+    }, clear=False):
+        total, details = econ.calculate_monthly_due(member)
+
+    assert total >= 700, f"Expected ≥700 from baseline+housing, got {total}"
+    joined = " | ".join(details)
+    assert "Cyberware" not in joined, f"monthly preview must exclude cyber meds: {joined}"
+
+
+def test_calculate_monthly_due_loa_skips_baseline():
+    """LOA members skip baseline and housing in the monthly preview."""
+    econ = _make_economy()
+
+    guild = MagicMock()
+    loa_role = MagicMock(spec=discord.Role)
+    loa_role.id = config.LOA_ROLE_ID
+    guild.get_role.return_value = loa_role
+    member = MagicMock(spec=discord.Member)
+    member.roles = [loa_role]
+    member.guild = guild
+
+    total, details = econ.calculate_monthly_due(member)
+    assert total == 0
+    assert any("LOA" in d for d in details)
+
+
+# ---------------------------------------------------------------------------
+# CyberwareManager.preview_weekly_cost — preview helper for new hub button
+# ---------------------------------------------------------------------------
+
+def _make_member_for_cyber(role_ids):
+    """Build a member whose .roles contain mocked discord.Role objects with the
+    given config IDs, plus a guild whose .get_role(rid) returns each role
+    when its id matches.
+    """
+    roles = []
+    for rid in role_ids:
+        r = MagicMock(spec=discord.Role)
+        r.id = rid
+        r.name = f"role-{rid}"
+        roles.append(r)
+
+    guild = MagicMock()
+
+    def _get_role(rid):
+        for r in roles:
+            if r.id == rid:
+                return r
+        stub = MagicMock(spec=discord.Role)
+        stub.id = rid
+        stub.name = f"stub-{rid}"
+        return stub
+
+    guild.get_role.side_effect = _get_role
+    member = MagicMock(spec=discord.Member)
+    member.roles = roles
+    member.guild = guild
+    member.id = 12345
+    return member
+
+
+def test_preview_weekly_cost_no_cyber_role_returns_none():
+    cyber = _make_cyberware()
+    member = _make_member_for_cyber([])  # no cyberware roles
+    assert cyber.preview_weekly_cost(member) is None
+
+
+def test_preview_weekly_cost_loa_returns_none():
+    cyber = _make_cyberware()
+    member = _make_member_for_cyber([
+        config.LOA_ROLE_ID,
+        config.CYBER_HIGH_ROLE_ID,
+    ])
+    assert cyber.preview_weekly_cost(member) is None
+
+
+def test_preview_weekly_cost_ripperdoc_returns_none():
+    cyber = _make_cyberware()
+    member = _make_member_for_cyber([
+        config.RIPPERDOC_ROLE_ID,
+        config.CYBER_HIGH_ROLE_ID,
+    ])
+    assert cyber.preview_weekly_cost(member) is None
+
+
+def test_preview_weekly_cost_no_checkup_returns_zero_cost():
+    cyber = _make_cyberware()
+    member = _make_member_for_cyber([config.CYBER_MEDIUM_ROLE_ID])
+    cyber.data = {}
+    out = cyber.preview_weekly_cost(member)
+    assert out is not None
+    assert out["level"] == "medium"
+    assert out["has_checkup"] is False
+    assert out["cost"] == 0
+    assert out["upcoming_weeks"] == 0
+
+
+def test_preview_weekly_cost_with_checkup_charges_next_streak():
+    """When member has the checkup role, cost should match calculate_cost(level, streak+1)."""
+    cyber = _make_cyberware()
+    member = _make_member_for_cyber([
+        config.CYBER_HIGH_ROLE_ID,
+        config.CYBER_CHECKUP_ROLE_ID,
+    ])
+    cyber.data = {str(member.id): {"weeks": 2, "last": None}}
+
+    out = cyber.preview_weekly_cost(member)
+    assert out is not None
+    assert out["level"] == "high"
+    assert out["has_checkup"] is True
+    assert out["current_streak"] == 2
+    assert out["upcoming_weeks"] == 3
+    assert out["cost"] == cyber.calculate_cost("high", 3)
+
+
+def test_preview_weekly_cost_extreme_takes_precedence():
+    """If member has multiple cyber-tier roles, extreme wins over high/medium."""
+    cyber = _make_cyberware()
+    member = _make_member_for_cyber([
+        config.CYBER_MEDIUM_ROLE_ID,
+        config.CYBER_HIGH_ROLE_ID,
+        config.CYBER_EXTREME_ROLE_ID,
+    ])
+    cyber.data = {}
+    out = cyber.preview_weekly_cost(member)
+    assert out is not None
+    assert out["level"] == "extreme"

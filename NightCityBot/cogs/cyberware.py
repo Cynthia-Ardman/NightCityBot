@@ -66,6 +66,63 @@ class CyberwareManager(commands.Cog):
         cost = int(base_factor * (2 ** (weeks - 1)))
         return min(cost, max_c)
 
+    def preview_weekly_cost(self, member: discord.Member) -> Optional[Dict]:
+        """Return the upcoming-Monday cyberware med preview for a member.
+
+        Returns ``None`` if the member is exempt (no cyberware role, on LOA,
+        or is a Ripperdoc). Otherwise returns a dict with:
+
+        - ``level``: "medium" / "high" / "extreme"
+        - ``has_checkup``: bool, True if they currently have the checkup role
+          (meaning they will be charged this Monday)
+        - ``current_streak``: int, weeks already missed
+        - ``upcoming_weeks``: int, the streak count after Monday's run
+        - ``cost``: int, dollars they will owe Monday (0 if no charge yet)
+        """
+        guild = member.guild
+        if guild is None:
+            return None
+        loa_role = guild.get_role(config.LOA_ROLE_ID)
+        if loa_role and loa_role in member.roles:
+            return None
+        ripper_role = guild.get_role(config.RIPPERDOC_ROLE_ID)
+        if ripper_role and ripper_role in member.roles:
+            return None
+
+        extreme_role = guild.get_role(config.CYBER_EXTREME_ROLE_ID)
+        high_role = guild.get_role(config.CYBER_HIGH_ROLE_ID)
+        medium_role = guild.get_role(config.CYBER_MEDIUM_ROLE_ID)
+        level = None
+        if extreme_role and extreme_role in member.roles:
+            level = "extreme"
+        elif high_role and high_role in member.roles:
+            level = "high"
+        elif medium_role and medium_role in member.roles:
+            level = "medium"
+        if level is None:
+            return None
+
+        checkup_role = guild.get_role(config.CYBER_CHECKUP_ROLE_ID)
+        has_checkup = bool(checkup_role and checkup_role in member.roles)
+
+        entry = self.data.get(str(member.id), {"weeks": 0, "last": None})
+        current_streak = int(entry.get("weeks", 0) or 0)
+
+        if has_checkup:
+            upcoming = current_streak + 1
+            cost = self.calculate_cost(level, upcoming)
+        else:
+            upcoming = current_streak
+            cost = 0
+
+        return {
+            "level": level,
+            "has_checkup": has_checkup,
+            "current_streak": current_streak,
+            "upcoming_weeks": upcoming,
+            "cost": cost,
+        }
+
     async def _notify_member_checkup_due(self, member: discord.Member) -> None:
         """DM a member that they have a cyberware checkup due (no charge yet)."""
         try:

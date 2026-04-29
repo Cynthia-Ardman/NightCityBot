@@ -102,7 +102,9 @@ Removed dead constants: `TICKET_INDEX_FILE`, `WHOLESALER_RESTOCK_SCHEDULE`, `FIX
 
 ## Player Hub (`!player`)
 
-Interactive panel for inventory management. Row 0 buttons: View Inventory, Trade Item, Sell to Store, Give Item. Row 2 buttons: Create Character, Manage Characters.
+Interactive panel for inventory management. Row 0 buttons: View Inventory, Trade Item, Sell to Store, Give Item. Row 2 buttons: Create Character, Manage Characters. Row 3 also exposes two cost-preview buttons:
+- **📅 Monthly Bills** (`player_hub:due`) — uses `Economy.calculate_monthly_due(member)` to preview the next 1st-of-month auto-collection (baseline, housing, business rent, Trauma Team). Excludes weekly cyberware med costs since those run on a separate schedule.
+- **💊 Weekly Cyberware** (`player_hub:weekly_cyber`) — uses `CyberwareManager.preview_weekly_cost(member)` to preview the upcoming Monday med charge based on the player's cyberware role and current missed-checkup streak. Returns $0 with explanation if member has no cyberware role / is on LOA / is a Ripperdoc.
 
 ### Character System
 Players can create, deactivate, and reactivate characters via the Player Hub. Characters are stored in the `characters` PostgreSQL table (25th table). Character helpers live in `NightCityBot/utils/characters.py`.
@@ -138,7 +140,7 @@ The full catalog is always available — there is no rotating wholesale lottery.
 
 ### Weekly Cyberware Processing
 
-`process_week()` runs Sunday and, in addition to charging cyberware fees, DMs the affected member directly via three helpers:
+`process_week()` runs Monday at midnight (server timezone) and, in addition to charging cyberware fees, DMs the affected member directly via three helpers:
 - `_notify_member_checkup_due` — first-time checkup-due notice
 - `_notify_member_charged` — successful weekly meds charge
 - `_notify_member_payment_failed` — failed weekly meds charge (insufficient funds)

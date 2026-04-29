@@ -2814,6 +2814,7 @@ class TestPlayerHubDueButton:
             inter.user.id = 100
             inter.user.display_name = "TestPlayer"
             econ = MagicMock()
+            econ.calculate_monthly_due = MagicMock(return_value=(2500, ["Baseline living cost: $500", "Housing Tier 1: $2000"]))
             econ.calculate_due = MagicMock(return_value=(2500, ["Baseline living cost: $500", "Housing Tier 1: $2000"]))
             orig = inter.client.get_cog
 
@@ -2826,7 +2827,7 @@ class TestPlayerHubDueButton:
             inter.client.get_cog = MagicMock(side_effect=_cog)
 
             with patch("NightCityBot.utils.db.last_payment_get_with_ts", new=AsyncMock(return_value=(None, None))):
-                btn = _find_button(view, "View Due")
+                btn = _find_button(view, "Monthly Bills")
                 await btn.callback(inter)
             msg = inter.followup.send.call_args[0][0]
             assert "$2,500" in msg or "$2500" in msg
@@ -2838,7 +2839,7 @@ class TestPlayerHubDueButton:
             view = PlayerHubView()
             inter = _make_interaction()
             inter.client.get_cog = MagicMock(return_value=None)
-            btn = _find_button(view, "View Due")
+            btn = _find_button(view, "Monthly Bills")
             await btn.callback(inter)
             msg = inter.followup.send.call_args[0][0]
             assert "economy" in msg.lower() or "unavailable" in msg.lower()

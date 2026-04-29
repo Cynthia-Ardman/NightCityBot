@@ -72,7 +72,8 @@ Each hub is posted once by an admin using a hybrid command (e.g., `!player`). Th
 | 2 | **End LOA** | Remove the LOA role |
 | 3 | **Attend** | Log weekly attendance for a $250 reward (Sundays and active Fixer events only) |
 | 3 | **Open Shop** | Log a business opening for a cash payout (Sundays and active Fixer events only) |
-| 3 | **View Due** | See a full breakdown of your estimated monthly costs |
+| 3 | **Monthly Bills** | Preview the next 1st-of-month auto-collection: baseline, housing, business rent, Trauma Team |
+| 3 | **Weekly Cyberware** | Preview the cyberware medication charge for the upcoming Monday run (level, missed-checkup streak, dollar amount) |
 
 **Manage Inventory sub-menu:**
 

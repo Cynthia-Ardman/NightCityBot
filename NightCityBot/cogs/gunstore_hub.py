@@ -1226,6 +1226,9 @@ class InlineApproveView(SafeView):
 
     @discord.ui.button(label="Approve & Sell", style=discord.ButtonStyle.success, emoji="✅")
     async def approve_and_sell(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Defer first to acknowledge the interaction within the 3s window —
+        # the DB load + save inside the lock can otherwise blow the budget.
+        await interaction.response.defer()
         async with self.guns_cog.lock:
             state = await self.guns_cog._load_state()
             store = state.get("stores", {}).get(self.store_id)
@@ -1242,10 +1245,13 @@ class InlineApproveView(SafeView):
                 await self.guns_cog._save_state(state)
         self.approved = True
         label = self.character_name or self.customer.display_name
-        await interaction.response.edit_message(
-            content=f"✅ {label} approved. Proceeding with sale...",
-            view=None,
-        )
+        try:
+            await interaction.edit_original_response(
+                content=f"✅ {label} approved. Proceeding with sale...",
+                view=None,
+            )
+        except discord.HTTPException:
+            pass
         self.stop()
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger, emoji="❌")
