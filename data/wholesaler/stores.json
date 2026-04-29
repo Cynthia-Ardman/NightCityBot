@@ -3,10 +3,6 @@
     "shop1": 2001
   },
   "stores": {
-    "111:2001": {
-      "owner_id": "2001",
-      "inventory_file": "/home/runner/workspace/data/wholesaler/inventory/stores/111-2001.json"
-    },
     "1348601552083882108:172847414791766016": {
       "owner_id": "172847414791766016",
       "inventory_file": "/home/runner/workspace/data/wholesaler/inventory/stores/1348601552083882108-172847414791766016.json"
@@ -14,7 +10,15 @@
     "1348601552083882108:286338318076084226": {
       "owner_id": "286338318076084226",
       "inventory_file": "/home/runner/workspace/data/wholesaler/inventory/stores/1348601552083882108-286338318076084226.json"
+    },
+    "1348601552083882108:320990796310642689": {
+      "owner_id": "320990796310642689",
+      "inventory_file": "/home/runner/workspace/data/wholesaler/inventory/stores/1348601552083882108-320990796310642689.json"
+    },
+    "1348601552083882108:383489547108876290": {
+      "owner_id": "383489547108876290",
+      "inventory_file": "/home/runner/workspace/data/wholesaler/inventory/stores/1348601552083882108-383489547108876290.json"
     }
   },
-  "updated_at": "2026-04-05T07:17:50.561513+00:00"
+  "updated_at": "2026-04-29T11:35:59.125522+00:00"
 }

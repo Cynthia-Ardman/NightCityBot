@@ -39,6 +39,7 @@ from NightCityBot.utils.db import (
     wh_tx_append, wh_tx_get_all,
     gun_catalog_upsert_many, gun_catalog_sync_qty_from_lots, gun_catalog_adjust_qty,
     gun_catalog_get_all,
+    get_pool, POOL_ACQUIRE_TIMEOUT,
     pi_add_item,
     ResourceLockManager,
 )
@@ -295,6 +296,21 @@ class GunsShopCog(commands.Cog):
         # added but before any restock has been run.
         try:
             existing = await gun_catalog_get_all()
+            # Only backfill rows that have *no* wholesale data at all. Equal
+            # wholesale/retail is a legitimate sheet value (basic guns), so
+            # we must not key off equality — that would re-fire on every boot.
+            # gun_catalog_get_all() already normalizes wholesale_price=0 by
+            # falling back to price, so we re-query the raw column here.
+            raw_missing = 0
+            try:
+                pool = await get_pool()
+                async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
+                    raw_missing = await conn.fetchval(
+                        "SELECT COUNT(*) FROM gun_catalog WHERE wholesale_price IS NULL OR wholesale_price <= 0"
+                    ) or 0
+            except Exception:
+                logger.debug("gun_catalog wholesale backfill probe failed", exc_info=True)
+            needs_wholesale_backfill = bool(existing) and int(raw_missing) > 0
             if not existing:
                 logger.info("gun_catalog is empty — attempting to populate from sheet on startup")
                 guns = await self._load_master_guns()
@@ -308,6 +324,16 @@ class GunsShopCog(commands.Cog):
                     )
                 else:
                     logger.info("gun_catalog startup populate: no guns found (sheet not configured?)")
+            elif needs_wholesale_backfill:
+                logger.info(
+                    "gun_catalog has %d entries with missing wholesale_price — refreshing from sheet to backfill",
+                    int(raw_missing),
+                )
+                guns = await self._load_master_guns()
+                if guns:
+                    logger.info("gun_catalog wholesale_price backfill complete: %d guns refreshed", len(guns))
+                else:
+                    logger.info("gun_catalog wholesale_price backfill skipped: sheet returned no rows")
             else:
                 logger.info("gun_catalog already populated (%d entries) — skipping startup reload", len(existing))
         except Exception:

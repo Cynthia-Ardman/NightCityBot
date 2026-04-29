@@ -3,14 +3,144 @@
   "owner_id": "286338318076084226",
   "lots": [
     {
-      "lot_id": "fixer-20260405-727f00",
-      "gun_name": "test",
+      "lot_id": "seed-20260406-d3cda2",
+      "gun_name": "Overture",
+      "gun_level": "M",
+      "unit_cost": 4000,
+      "qty_remaining": 2,
+      "item_ids": [
+        "431b9adf-c855-40ba-9d9c-5561c3aa77ac",
+        "37b0abf8-8133-47ad-bd5f-8fe2652cce62"
+      ],
+      "restriction": "controlled",
+      "weapon_type": "revolver",
+      "gun_category": "Power"
+    },
+    {
+      "lot_id": "seed-20260406-1ee61d",
+      "gun_name": "Nekomata",
+      "gun_level": "H",
+      "unit_cost": 100000,
+      "qty_remaining": 3,
+      "item_ids": [
+        "6e95314e-5ad8-4589-9d58-e9a15fadc41e",
+        "85ed4af9-de8b-4ac4-8fba-6d76f4e3b8f5",
+        "0479d7ce-1481-4c6f-91a8-d3a0f5d7522c"
+      ],
+      "restriction": "restricted",
+      "weapon_type": "sniper_rifle",
+      "gun_category": "Tech"
+    },
+    {
+      "lot_id": "seed-20260406-ea1662",
+      "gun_name": "M-10AF Lexington",
       "gun_level": "L",
-      "unit_cost": 1,
-      "qty_available": 0,
-      "item_ids": [],
+      "unit_cost": 1000,
+      "qty_remaining": 1,
+      "item_ids": [
+        "57206d37-031b-469a-b144-6812372defa7"
+      ],
       "restriction": "basic",
-      "weapon_type": "pistol"
+      "weapon_type": "pistol",
+      "gun_category": "Power"
+    },
+    {
+      "lot_id": "seed-20260406-fdcc6f",
+      "gun_name": "Nue",
+      "gun_level": "M",
+      "unit_cost": 1300,
+      "qty_remaining": 3,
+      "item_ids": [
+        "c4dada32-324c-4613-be56-a202de432abd",
+        "07d0ee33-6e0f-474d-aeb1-d7312f06f52d",
+        "0d421b74-aac6-412f-87ea-04c49dedc983"
+      ],
+      "restriction": "basic",
+      "weapon_type": "pistol",
+      "gun_category": "Power"
+    },
+    {
+      "lot_id": "seed-20260406-b05dfe",
+      "gun_name": "DB-2 Testera (6 pellets)",
+      "gun_level": "L",
+      "unit_cost": 2000,
+      "qty_remaining": 3,
+      "item_ids": [
+        "951d7905-4303-465e-8add-50d34be79eee",
+        "8203518f-86d8-4ea5-8db7-00a7afe4eec4",
+        "053b093c-aa92-44b2-940e-14855641b08a"
+      ],
+      "restriction": "basic",
+      "weapon_type": "shotgun",
+      "gun_category": "Power"
+    },
+    {
+      "lot_id": "seed-20260406-ea12c7",
+      "gun_name": "Nowaki",
+      "gun_level": "M",
+      "unit_cost": 5000,
+      "qty_remaining": 2,
+      "item_ids": [
+        "3f2331be-1d6e-423f-a376-9f0b78d787ca",
+        "92b83891-e667-41cf-a53f-99f9c3f0b3f1"
+      ],
+      "restriction": "basic",
+      "weapon_type": "assault_rifle",
+      "gun_category": "Power"
+    },
+    {
+      "lot_id": "seed-20260406-3ba43f",
+      "gun_name": "Unity",
+      "gun_level": "M",
+      "unit_cost": 1500,
+      "qty_remaining": 2,
+      "item_ids": [
+        "0d1e5dca-f2ce-49f2-bce5-810eeb5b40cc",
+        "66851f6d-145c-4d4a-9c2e-4016e398d1bf"
+      ],
+      "restriction": "basic",
+      "weapon_type": "pistol",
+      "gun_category": "Power"
+    },
+    {
+      "lot_id": "seed-20260406-65489b",
+      "gun_name": "Tamayura",
+      "gun_level": "M",
+      "unit_cost": 1200,
+      "qty_remaining": 1,
+      "item_ids": [
+        "304d0960-b587-415a-9bc9-9882224fe9d2"
+      ],
+      "restriction": "basic",
+      "weapon_type": "pistol",
+      "gun_category": "Power"
+    },
+    {
+      "lot_id": "seed-20260406-389376",
+      "gun_name": "DR-5 Nova",
+      "gun_level": "H",
+      "unit_cost": 3000,
+      "qty_remaining": 2,
+      "item_ids": [
+        "8718466f-bd09-4b2b-8bb5-1d213bfe5e43",
+        "68130d58-dd40-4e29-9910-e221d68670a5"
+      ],
+      "restriction": "basic",
+      "weapon_type": "revolver",
+      "gun_category": "Power"
+    },
+    {
+      "lot_id": "seed-20260406-7ddc62",
+      "gun_name": "HJSH-18 Masamune",
+      "gun_level": "M",
+      "unit_cost": 6000,
+      "qty_remaining": 1,
+      "item_ids": [
+        "9608c854-f64b-4908-9730-e2e04ed2fd8a"
+      ],
+      "restriction": "controlled",
+      "weapon_type": "assault_rifle",
+      "gun_category": "Power"
     }
   ],
   "controlled_buyers": [
@@ -21,5 +151,5 @@
       "character_name": "Corpse"
     }
   ],
-  "updated_at": "2026-04-05T07:17:50.565012+00:00"
+  "updated_at": "2026-04-29T11:35:59.128612+00:00"
 }

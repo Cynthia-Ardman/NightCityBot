@@ -1,0 +1,21 @@
+{
+  "store_id": "1348601552083882108:383489547108876290",
+  "owner_id": "383489547108876290",
+  "lots": [
+    {
+      "lot_id": "lot-20260428-b637e2",
+      "gun_name": "DR-5 Nova",
+      "gun_level": "H",
+      "unit_cost": 3000,
+      "qty_remaining": 1,
+      "item_ids": [
+        "763ee9e4-8f92-4ced-8afe-946ea6d331d9"
+      ],
+      "restriction": "basic",
+      "weapon_type": "revolver",
+      "gun_category": "Power"
+    }
+  ],
+  "controlled_buyers": [],
+  "updated_at": "2026-04-29T11:35:59.130096+00:00"
+}

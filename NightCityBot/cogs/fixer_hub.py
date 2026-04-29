@@ -167,40 +167,62 @@ class WholesalerSubView(SafeView):
         Under the full-catalog model this is: catalog items (unlimited stock)
         plus any Fixer custom-overlay additions in ``state["wholesale_lots"]``
         / ``state["cw_wholesale_lots"]`` (finite stock).
+
+        Sends one embed per category (guns, cyberware) so the full catalog is
+        visible — with safe truncation if either side exceeds Discord's
+        4096-char description limit.
         """
         await interaction.response.defer(ephemeral=True)
         guns_cog = self.cog.bot.cogs.get("GunsShopCog")
         cw_cog = self.cog.bot.cogs.get("CyberwareShop")
-        lines = []
+        embeds: list[discord.Embed] = []
+
+        def _fit_description(lines: list[str], cap: int = 3900) -> str:
+            joined = "\n".join(lines)
+            if len(joined) <= cap:
+                return joined
+            kept = []
+            total = 0
+            for ln in lines:
+                if total + len(ln) + 1 > cap - 60:
+                    break
+                kept.append(ln)
+                total += len(ln) + 1
+            kept.append("\n_(list truncated — open a Gun/Ripper store panel to see the full catalog)_")
+            return "\n".join(kept)
+
         if guns_cog:
             from NightCityBot.cogs.gunstore_hub import _build_combined_gun_lots
             from NightCityBot.utils.helpers import format_gun_lines_grouped
             combined = await _build_combined_gun_lots(guns_cog)
             available = [l for l in combined if int(l.get("qty_available", 0)) > 0]
-            lines.append("**🔫 Gun Wholesale:**")
             if available:
-                lines.extend(format_gun_lines_grouped(available, qty_key="qty_available", max_items=15))
+                gun_lines = format_gun_lines_grouped(available, qty_key="qty_available", max_items=500)
             else:
-                lines.append("_(empty)_")
+                gun_lines = ["_(empty)_"]
+            embeds.append(discord.Embed(
+                title="🔫 Gun Wholesale Stock",
+                description=_fit_description(gun_lines),
+                color=discord.Color.orange(),
+            ))
         if cw_cog:
             from NightCityBot.cogs.ripperdoc_hub import _build_combined_cw_lots
             from NightCityBot.utils.helpers import format_cw_lines_grouped
             combined = await _build_combined_cw_lots(cw_cog)
             available = [l for l in combined if int(l.get("qty_available", 0)) > 0]
-            lines.append("\n**💉 Cyberware Wholesale:**")
             if available:
-                lines.extend(format_cw_lines_grouped(available, max_items=15))
+                cw_lines = format_cw_lines_grouped(available, max_items=500)
             else:
-                lines.append("_(empty)_")
-        if not lines:
+                cw_lines = ["_(empty)_"]
+            embeds.append(discord.Embed(
+                title="💉 Cyberware Wholesale Stock",
+                description=_fit_description(cw_lines),
+                color=discord.Color.teal(),
+            ))
+        if not embeds:
             await send_ephemeral(interaction, "No wholesale systems available.")
             return
-        embed = discord.Embed(
-            title="🏭 Wholesale Stock Overview",
-            description="\n".join(lines),
-            color=discord.Color.orange(),
-        )
-        await send_ephemeral(interaction, embed=embed)
+        await send_ephemeral(interaction, embeds=embeds)
 
     @discord.ui.button(label="Add Gun", style=discord.ButtonStyle.primary, emoji="🔫", row=1)
     async def add_gun(self, interaction: discord.Interaction, button: discord.ui.Button):

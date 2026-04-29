@@ -1,174 +1,152 @@
 {
-  "wholesale_lots": [
-    {
-      "lot_id": "admin-20260405-dd3373",
-      "gun_name": "Tamayura",
-      "gun_level": "M",
-      "unit_cost": 1200,
-      "qty_available": 2,
-      "weapon_type": "pistol",
-      "restriction": "basic",
-      "description": "",
-      "effectiveness_raw": "",
-      "gun_category": "Power"
-    },
-    {
-      "lot_id": "admin-20260405-ca12d6",
-      "gun_name": "DB-2 Testera (6 pellets)",
-      "gun_level": "L",
-      "unit_cost": 2000,
-      "qty_available": 1,
-      "weapon_type": "shotgun",
-      "restriction": "basic",
-      "description": "",
-      "effectiveness_raw": "",
-      "gun_category": "Power"
-    },
-    {
-      "lot_id": "admin-20260405-a312ab",
-      "gun_name": "M-10AF Lexington",
-      "gun_level": "L",
-      "unit_cost": 1000,
-      "qty_available": 2,
-      "weapon_type": "pistol",
-      "restriction": "basic",
-      "description": "",
-      "effectiveness_raw": "",
-      "gun_category": "Power"
-    },
-    {
-      "lot_id": "admin-20260405-d15c34",
-      "gun_name": "M2038 Tactician (6 pellets)",
-      "gun_level": "L",
-      "unit_cost": 4000,
-      "qty_available": 1,
-      "weapon_type": "shotgun",
-      "restriction": "basic",
-      "description": "",
-      "effectiveness_raw": "",
-      "gun_category": "Power"
-    },
-    {
-      "lot_id": "admin-20260405-2b94fb",
-      "gun_name": "DR-5 Nova",
-      "gun_level": "H",
-      "unit_cost": 3000,
-      "qty_available": 1,
-      "weapon_type": "revolver",
-      "restriction": "basic",
-      "description": "",
-      "effectiveness_raw": "",
-      "gun_category": "Power"
-    },
-    {
-      "lot_id": "admin-20260405-cb4014",
-      "gun_name": "Unity",
-      "gun_level": "M",
-      "unit_cost": 1500,
-      "qty_available": 1,
-      "weapon_type": "pistol",
-      "restriction": "basic",
-      "description": "",
-      "effectiveness_raw": "",
-      "gun_category": "Power"
-    },
-    {
-      "lot_id": "admin-20260405-71529a",
-      "gun_name": "Nowaki",
-      "gun_level": "M",
-      "unit_cost": 5000,
-      "qty_available": 2,
-      "weapon_type": "assault_rifle",
-      "restriction": "basic",
-      "description": "",
-      "effectiveness_raw": "",
-      "gun_category": "Power"
-    },
-    {
-      "lot_id": "admin-20260405-180b87",
-      "gun_name": "Nue",
-      "gun_level": "M",
-      "unit_cost": 1300,
-      "qty_available": 2,
-      "weapon_type": "pistol",
-      "restriction": "basic",
-      "description": "",
-      "effectiveness_raw": "",
-      "gun_category": "Power"
-    },
-    {
-      "lot_id": "admin-20260405-c27985",
-      "gun_name": "Shigure",
-      "gun_level": "L",
-      "unit_cost": 5000,
-      "qty_available": 2,
-      "weapon_type": "submachine_gun",
-      "restriction": "controlled",
-      "description": "",
-      "effectiveness_raw": "",
-      "gun_category": "Power"
-    },
-    {
-      "lot_id": "admin-20260405-fc6656",
-      "gun_name": "Overture",
-      "gun_level": "M",
-      "unit_cost": 4000,
-      "qty_available": 2,
-      "weapon_type": "revolver",
-      "restriction": "controlled",
-      "description": "",
-      "effectiveness_raw": "",
-      "gun_category": "Power"
-    },
-    {
-      "lot_id": "admin-20260405-bab92b",
-      "gun_name": "M-179e Achilles",
-      "gun_level": "H",
-      "unit_cost": 90000,
-      "qty_available": 1,
-      "weapon_type": "precision_rifle",
-      "restriction": "restricted",
-      "description": "",
-      "effectiveness_raw": "",
-      "gun_category": "Tech"
-    },
-    {
-      "lot_id": "fixer-20260405-3e490b",
-      "gun_name": "test",
-      "gun_level": "M",
-      "gun_category": "Power",
-      "weapon_type": "pistol",
-      "unit_cost": 1,
-      "qty_available": 100,
-      "restriction": "basic"
-    }
-  ],
+  "wholesale_lots": [],
   "stores": {
-    "111:2001": {
-      "owner_id": "2001",
-      "store_name": "",
-      "balance": 0,
-      "total_sales": 0,
-      "lots": [
-        {
-          "lot_id": "lot-001",
-          "gun_name": "Nue",
-          "gun_level": "M",
-          "unit_cost": 1300,
-          "qty_available": 0,
-          "item_ids": [],
-          "restriction": "basic",
-          "weapon_type": "pistol"
-        }
-      ]
-    },
     "1348601552083882108:172847414791766016": {
       "owner_id": "172847414791766016",
       "store_name": "Liberty Arms",
       "balance": 0,
       "total_sales": 0,
       "employees": [],
-      "store_type": "standard"
+      "store_type": "standard",
+      "lots": [
+        {
+          "lot_id": "seed-20260406-2d67d1",
+          "gun_name": "Nue",
+          "gun_level": "M",
+          "unit_cost": 1300,
+          "qty_remaining": 1,
+          "item_ids": [
+            "3981fdaa-180e-4b56-8349-4ca98b02ea1a"
+          ],
+          "restriction": "basic",
+          "weapon_type": "pistol",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-eb479a",
+          "gun_name": "M-10AF Lexington",
+          "gun_level": "L",
+          "unit_cost": 1000,
+          "qty_remaining": 1,
+          "item_ids": [
+            "309d7cdc-722e-47c9-8164-28134e462d38"
+          ],
+          "restriction": "basic",
+          "weapon_type": "pistol",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-16ba12",
+          "gun_name": "DR-5 Nova",
+          "gun_level": "H",
+          "unit_cost": 3000,
+          "qty_remaining": 1,
+          "item_ids": [
+            "c6b5aefb-b4b8-426b-8039-8c5e7f6ac4d4"
+          ],
+          "restriction": "basic",
+          "weapon_type": "revolver",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-e09500",
+          "gun_name": "DB-2 Testera (6 pellets)",
+          "gun_level": "L",
+          "unit_cost": 2000,
+          "qty_remaining": 2,
+          "item_ids": [
+            "53aa544e-d97a-4f38-ad23-494cd00a0e80",
+            "f7b24df8-aade-4847-964b-4baade5c59e8"
+          ],
+          "restriction": "basic",
+          "weapon_type": "shotgun",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-a488a8",
+          "gun_name": "Tamayura",
+          "gun_level": "M",
+          "unit_cost": 1200,
+          "qty_remaining": 1,
+          "item_ids": [
+            "24d0c090-9ccf-4ac8-ae5b-b43f33133d33"
+          ],
+          "restriction": "basic",
+          "weapon_type": "pistol",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-61af2f",
+          "gun_name": "Nowaki",
+          "gun_level": "M",
+          "unit_cost": 5000,
+          "qty_remaining": 2,
+          "item_ids": [
+            "4a1e4d78-6ef9-48e2-8d50-bf83aead1eba",
+            "29b4c7de-b247-4a2d-ab72-2a268c8d1c8f"
+          ],
+          "restriction": "basic",
+          "weapon_type": "assault_rifle",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-530b0b",
+          "gun_name": "M2038 Tactician (6 pellets)",
+          "gun_level": "L",
+          "unit_cost": 4000,
+          "qty_remaining": 3,
+          "item_ids": [
+            "390bf111-b64a-4c76-a044-f0c12cec260a",
+            "1e2cc443-afca-4cda-92cc-2dd7807e2dc6",
+            "5d87e6d7-60e4-4d18-a8e8-dd4107272116"
+          ],
+          "restriction": "basic",
+          "weapon_type": "shotgun",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-55ff7a",
+          "gun_name": "Shigure",
+          "gun_level": "L",
+          "unit_cost": 5000,
+          "qty_remaining": 2,
+          "item_ids": [
+            "fd3c464a-f4d7-4f2e-ab0b-9351d49cddcf",
+            "2049b89e-2e91-4d4b-a8b0-955632edbbfc"
+          ],
+          "restriction": "controlled",
+          "weapon_type": "submachine_gun",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-b50fb1",
+          "gun_name": "DB-2 Satara (14 pellets) (2 shot burst)",
+          "gun_level": "M",
+          "unit_cost": 24000,
+          "qty_remaining": 2,
+          "item_ids": [
+            "6ed0e68b-cbe2-4e12-a495-029ea46d712d",
+            "d073f26d-2325-463e-b962-fa952357449b"
+          ],
+          "restriction": "controlled",
+          "weapon_type": "shotgun",
+          "gun_category": "Tech"
+        },
+        {
+          "lot_id": "seed-20260406-3e9eed",
+          "gun_name": "M-179e Achilles",
+          "gun_level": "H",
+          "unit_cost": 90000,
+          "qty_remaining": 2,
+          "item_ids": [
+            "73895cf6-da15-4361-b3a3-f332a09d3a96",
+            "0e07a2bb-9974-4ce7-b626-6cddf06e51be"
+          ],
+          "restriction": "restricted",
+          "weapon_type": "precision_rifle",
+          "gun_category": "Tech"
+        }
+      ]
     },
     "1348601552083882108:286338318076084226": {
       "owner_id": "286338318076084226",
@@ -185,14 +163,318 @@
       ],
       "lots": [
         {
-          "lot_id": "fixer-20260405-727f00",
-          "gun_name": "test",
+          "lot_id": "seed-20260406-d3cda2",
+          "gun_name": "Overture",
+          "gun_level": "M",
+          "unit_cost": 4000,
+          "qty_remaining": 2,
+          "item_ids": [
+            "431b9adf-c855-40ba-9d9c-5561c3aa77ac",
+            "37b0abf8-8133-47ad-bd5f-8fe2652cce62"
+          ],
+          "restriction": "controlled",
+          "weapon_type": "revolver",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-1ee61d",
+          "gun_name": "Nekomata",
+          "gun_level": "H",
+          "unit_cost": 100000,
+          "qty_remaining": 3,
+          "item_ids": [
+            "6e95314e-5ad8-4589-9d58-e9a15fadc41e",
+            "85ed4af9-de8b-4ac4-8fba-6d76f4e3b8f5",
+            "0479d7ce-1481-4c6f-91a8-d3a0f5d7522c"
+          ],
+          "restriction": "restricted",
+          "weapon_type": "sniper_rifle",
+          "gun_category": "Tech"
+        },
+        {
+          "lot_id": "seed-20260406-ea1662",
+          "gun_name": "M-10AF Lexington",
           "gun_level": "L",
-          "unit_cost": 1,
-          "qty_available": 0,
-          "item_ids": [],
+          "unit_cost": 1000,
+          "qty_remaining": 1,
+          "item_ids": [
+            "57206d37-031b-469a-b144-6812372defa7"
+          ],
           "restriction": "basic",
-          "weapon_type": "pistol"
+          "weapon_type": "pistol",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-fdcc6f",
+          "gun_name": "Nue",
+          "gun_level": "M",
+          "unit_cost": 1300,
+          "qty_remaining": 3,
+          "item_ids": [
+            "c4dada32-324c-4613-be56-a202de432abd",
+            "07d0ee33-6e0f-474d-aeb1-d7312f06f52d",
+            "0d421b74-aac6-412f-87ea-04c49dedc983"
+          ],
+          "restriction": "basic",
+          "weapon_type": "pistol",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-b05dfe",
+          "gun_name": "DB-2 Testera (6 pellets)",
+          "gun_level": "L",
+          "unit_cost": 2000,
+          "qty_remaining": 3,
+          "item_ids": [
+            "951d7905-4303-465e-8add-50d34be79eee",
+            "8203518f-86d8-4ea5-8db7-00a7afe4eec4",
+            "053b093c-aa92-44b2-940e-14855641b08a"
+          ],
+          "restriction": "basic",
+          "weapon_type": "shotgun",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-ea12c7",
+          "gun_name": "Nowaki",
+          "gun_level": "M",
+          "unit_cost": 5000,
+          "qty_remaining": 2,
+          "item_ids": [
+            "3f2331be-1d6e-423f-a376-9f0b78d787ca",
+            "92b83891-e667-41cf-a53f-99f9c3f0b3f1"
+          ],
+          "restriction": "basic",
+          "weapon_type": "assault_rifle",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-3ba43f",
+          "gun_name": "Unity",
+          "gun_level": "M",
+          "unit_cost": 1500,
+          "qty_remaining": 2,
+          "item_ids": [
+            "0d1e5dca-f2ce-49f2-bce5-810eeb5b40cc",
+            "66851f6d-145c-4d4a-9c2e-4016e398d1bf"
+          ],
+          "restriction": "basic",
+          "weapon_type": "pistol",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-65489b",
+          "gun_name": "Tamayura",
+          "gun_level": "M",
+          "unit_cost": 1200,
+          "qty_remaining": 1,
+          "item_ids": [
+            "304d0960-b587-415a-9bc9-9882224fe9d2"
+          ],
+          "restriction": "basic",
+          "weapon_type": "pistol",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-389376",
+          "gun_name": "DR-5 Nova",
+          "gun_level": "H",
+          "unit_cost": 3000,
+          "qty_remaining": 2,
+          "item_ids": [
+            "8718466f-bd09-4b2b-8bb5-1d213bfe5e43",
+            "68130d58-dd40-4e29-9910-e221d68670a5"
+          ],
+          "restriction": "basic",
+          "weapon_type": "revolver",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-7ddc62",
+          "gun_name": "HJSH-18 Masamune",
+          "gun_level": "M",
+          "unit_cost": 6000,
+          "qty_remaining": 1,
+          "item_ids": [
+            "9608c854-f64b-4908-9730-e2e04ed2fd8a"
+          ],
+          "restriction": "controlled",
+          "weapon_type": "assault_rifle",
+          "gun_category": "Power"
+        }
+      ]
+    },
+    "1348601552083882108:320990796310642689": {
+      "owner_id": "320990796310642689",
+      "store_name": "Hellfire Arms",
+      "balance": 0,
+      "total_sales": 0,
+      "employees": [
+        383489547108876290,
+        461494936504893443
+      ],
+      "store_type": "standard",
+      "controlled_buyers": [],
+      "lots": [
+        {
+          "lot_id": "seed-20260406-39eaf3",
+          "gun_name": "Unity",
+          "gun_level": "M",
+          "unit_cost": 1500,
+          "qty_remaining": 1,
+          "item_ids": [
+            "df217c8e-1b83-4543-8147-c64a3045d852"
+          ],
+          "restriction": "basic",
+          "weapon_type": "pistol",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-1fe6eb",
+          "gun_name": "DR-5 Nova",
+          "gun_level": "H",
+          "unit_cost": 3000,
+          "qty_remaining": 3,
+          "item_ids": [
+            "d2150ed6-bdaa-4c4a-89f6-65ff3cbb0a3b",
+            "7f850447-a9a1-4157-9b7e-fda162cc8c51",
+            "ca78b6c1-b267-4a60-946a-07e9073af3be"
+          ],
+          "restriction": "basic",
+          "weapon_type": "revolver",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-04de6d",
+          "gun_name": "DB-2 Testera (6 pellets)",
+          "gun_level": "L",
+          "unit_cost": 2000,
+          "qty_remaining": 1,
+          "item_ids": [
+            "0d698023-cef8-48c4-9f74-f549ff68b070"
+          ],
+          "restriction": "basic",
+          "weapon_type": "shotgun",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-8f903a",
+          "gun_name": "M2038 Tactician (6 pellets)",
+          "gun_level": "L",
+          "unit_cost": 4000,
+          "qty_remaining": 1,
+          "item_ids": [
+            "9ed6b06e-fdec-4eb5-b1a5-0803ae471730"
+          ],
+          "restriction": "basic",
+          "weapon_type": "shotgun",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-71ff77",
+          "gun_name": "M-10AF Lexington",
+          "gun_level": "L",
+          "unit_cost": 1000,
+          "qty_remaining": 3,
+          "item_ids": [
+            "fcf53abc-3dd0-49a2-b9cd-5496b00fe2b6",
+            "d86fbdf4-af27-452e-934b-1445603d9fd6",
+            "b66199fe-7c0a-41d2-a4c7-b50d930159fb"
+          ],
+          "restriction": "basic",
+          "weapon_type": "pistol",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-616eed",
+          "gun_name": "Nue",
+          "gun_level": "M",
+          "unit_cost": 1300,
+          "qty_remaining": 2,
+          "item_ids": [
+            "a5e150e6-b88a-4c51-9b69-37793b67f0c0",
+            "79336451-c5e2-4a2f-869b-e57036d89ae4"
+          ],
+          "restriction": "basic",
+          "weapon_type": "pistol",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-47640b",
+          "gun_name": "Nowaki",
+          "gun_level": "M",
+          "unit_cost": 5000,
+          "qty_remaining": 1,
+          "item_ids": [
+            "24a04572-b995-4eda-8021-8cc031b33313"
+          ],
+          "restriction": "basic",
+          "weapon_type": "assault_rifle",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-d17640",
+          "gun_name": "DB-2 Satara (14 pellets) (2 shot burst)",
+          "gun_level": "M",
+          "unit_cost": 24000,
+          "qty_remaining": 1,
+          "item_ids": [
+            "0b8c7d3f-f8c8-444f-ad60-a5864a7fe092"
+          ],
+          "restriction": "controlled",
+          "weapon_type": "shotgun",
+          "gun_category": "Tech"
+        },
+        {
+          "lot_id": "seed-20260406-e89417",
+          "gun_name": "HJSH-18 Masamune",
+          "gun_level": "M",
+          "unit_cost": 6000,
+          "qty_remaining": 1,
+          "item_ids": [
+            "5c9ae8f9-d791-4c1b-981a-21168f3abcf9"
+          ],
+          "restriction": "controlled",
+          "weapon_type": "assault_rifle",
+          "gun_category": "Power"
+        },
+        {
+          "lot_id": "seed-20260406-bb730f",
+          "gun_name": "M-179e Achilles",
+          "gun_level": "H",
+          "unit_cost": 90000,
+          "qty_remaining": 3,
+          "item_ids": [
+            "bb22ae62-bb5c-4410-a7c7-b4a3e587f73f",
+            "e592cd13-a185-4c07-b850-d49987589b19",
+            "afa54491-af99-4bc3-9add-0ad91836a23c"
+          ],
+          "restriction": "restricted",
+          "weapon_type": "precision_rifle",
+          "gun_category": "Tech"
+        }
+      ]
+    },
+    "1348601552083882108:383489547108876290": {
+      "owner_id": "383489547108876290",
+      "store_name": "Jesse Arms",
+      "balance": 0,
+      "total_sales": 0,
+      "store_type": "standard",
+      "controlled_buyers": [],
+      "lots": [
+        {
+          "lot_id": "lot-20260428-b637e2",
+          "gun_name": "DR-5 Nova",
+          "gun_level": "H",
+          "unit_cost": 3000,
+          "qty_remaining": 1,
+          "item_ids": [
+            "763ee9e4-8f92-4ced-8afe-946ea6d331d9"
+          ],
+          "restriction": "basic",
+          "weapon_type": "revolver",
+          "gun_category": "Power"
         }
       ]
     }
@@ -241,8 +523,9 @@
       "light_machine_gun_L": 0,
       "light_machine_gun_M": 0
     },
-    "last_auto_restock_week": "2026-W14",
-    "last_auto_restock_sunday": "2026-04-05"
+    "master_sheet_url": "https://docs.google.com/spreadsheets/d/1rmjc5EQcF3OU-fkVzet2jK-e6_b1wRgZmQJGjJGxhgk/export?format=xlsx&gid=250925100",
+    "last_auto_restock_week": "2026-W15",
+    "last_auto_restock_sunday": "2026-04-12"
   },
   "transactions": 0
 }

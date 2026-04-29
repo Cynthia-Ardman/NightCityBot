@@ -512,6 +512,10 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         ALTER TABLE gun_catalog
             ADD COLUMN IF NOT EXISTS gun_category TEXT NOT NULL DEFAULT ''
         """,
+        """
+        ALTER TABLE gun_catalog
+            ADD COLUMN IF NOT EXISTS wholesale_price INT NOT NULL DEFAULT 0
+        """,
         # ── Characters ─────────────────────────────────────────────────────────
         """
         CREATE TABLE IF NOT EXISTS characters (
@@ -3438,13 +3442,20 @@ async def gun_catalog_get_all() -> list[dict]:
         pool = await get_pool()
         rows = await pool.fetch(
             """
-            SELECT gun_name, gun_level, price, qty_available,
+            SELECT gun_name, gun_level, price, wholesale_price, qty_available,
                    restriction, status, weapon_type, effectiveness_raw, gun_category
             FROM gun_catalog
             ORDER BY gun_name
             """
         )
-        return [dict(row) for row in rows]
+        out = []
+        for row in rows:
+            d = dict(row)
+            wp = int(d.get("wholesale_price") or 0)
+            if wp <= 0:
+                d["wholesale_price"] = int(d.get("price") or 0)
+            out.append(d)
+        return out
     except Exception:
         logger.error("gun_catalog_get_all failed", exc_info=True)
         return []
@@ -3469,16 +3480,19 @@ async def gun_catalog_upsert_many(guns: list[dict]) -> bool:
                         name = str(gun.get("gun_name", "")).strip()
                         if not name:
                             continue
+                        price = int(gun.get("price_new", gun.get("price", 0)) or 0)
+                        wholesale = int(gun.get("wholesale_price", 0) or 0) or price
                         await conn.execute(
                             """
                             INSERT INTO gun_catalog
-                                (gun_name, gun_level, price, qty_available,
+                                (gun_name, gun_level, price, wholesale_price, qty_available,
                                  restriction, status, weapon_type, effectiveness_raw,
                                  gun_category, updated_at)
-                            VALUES ($1, $2, $3, 0, $4, $5, $6, $7, $8, NOW())
+                            VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9, NOW())
                             ON CONFLICT (gun_name) DO UPDATE
                                 SET gun_level        = EXCLUDED.gun_level,
                                     price            = EXCLUDED.price,
+                                    wholesale_price  = EXCLUDED.wholesale_price,
                                     restriction      = EXCLUDED.restriction,
                                     status           = EXCLUDED.status,
                                     weapon_type      = EXCLUDED.weapon_type,
@@ -3488,7 +3502,8 @@ async def gun_catalog_upsert_many(guns: list[dict]) -> bool:
                             """,
                             name,
                             str(gun.get("gun_level", "L")),
-                            int(gun.get("price_new", gun.get("price", 0))),
+                            price,
+                            wholesale,
                             str(gun.get("restriction", "basic")),
                             str(gun.get("status", "live")),
                             str(gun.get("weapon_type", "")),
