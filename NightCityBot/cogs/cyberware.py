@@ -90,28 +90,26 @@ class CyberwareManager(commands.Cog):
         guild = member.guild
         if guild is None:
             return None
-        loa_role = guild.get_role(config.LOA_ROLE_ID)
-        if loa_role and loa_role in member.roles:
+        # Check by role-ID directly against the member's roles. This avoids
+        # `guild.get_role()` returning None when the guild's role cache isn't
+        # fully populated in an interaction context — the member object always
+        # carries its real role IDs from Discord.
+        member_role_ids = {r.id for r in getattr(member, "roles", [])}
+        if config.LOA_ROLE_ID in member_role_ids:
             return None
-        ripper_role = guild.get_role(config.RIPPERDOC_ROLE_ID)
-        if ripper_role and ripper_role in member.roles:
+        if config.RIPPERDOC_ROLE_ID in member_role_ids:
             return None
 
-        extreme_role = guild.get_role(config.CYBER_EXTREME_ROLE_ID)
-        high_role = guild.get_role(config.CYBER_HIGH_ROLE_ID)
-        medium_role = guild.get_role(config.CYBER_MEDIUM_ROLE_ID)
-        level = None
-        if extreme_role and extreme_role in member.roles:
+        if config.CYBER_EXTREME_ROLE_ID in member_role_ids:
             level = "extreme"
-        elif high_role and high_role in member.roles:
+        elif config.CYBER_HIGH_ROLE_ID in member_role_ids:
             level = "high"
-        elif medium_role and medium_role in member.roles:
+        elif config.CYBER_MEDIUM_ROLE_ID in member_role_ids:
             level = "medium"
-        if level is None:
+        else:
             return None
 
-        checkup_role = guild.get_role(config.CYBER_CHECKUP_ROLE_ID)
-        has_checkup = bool(checkup_role and checkup_role in member.roles)
+        has_checkup = config.CYBER_CHECKUP_ROLE_ID in member_role_ids
 
         entry = self.data.get(str(member.id), {"weeks": 0, "last": None})
         current_streak = int(entry.get("weeks", 0) or 0)

@@ -339,6 +339,34 @@ def test_preview_weekly_cost_with_checkup_charges_next_streak():
     assert out["next_charge_weeks"] == out["upcoming_weeks"]
 
 
+def test_preview_weekly_cost_works_when_guild_get_role_returns_none():
+    """Regression: a high-cyber player should still be detected even when
+    `guild.get_role()` returns None for cached lookups (which can happen in
+    interaction contexts where the role cache isn't fully populated). The
+    member object's role IDs are the source of truth.
+    """
+    cyber = _make_cyberware()
+
+    role = MagicMock(spec=discord.Role)
+    role.id = config.CYBER_HIGH_ROLE_ID
+    role.name = "High Cyberware"
+
+    guild = MagicMock()
+    guild.get_role = MagicMock(return_value=None)  # role cache "empty"
+
+    member = MagicMock(spec=discord.Member)
+    member.id = 99999
+    member.roles = [role]
+    member.guild = guild
+
+    cyber.data = {}
+    out = cyber.preview_weekly_cost(member)
+
+    assert out is not None, "should detect High cyber via role IDs even when get_role returns None"
+    assert out["level"] == "high"
+    assert out["next_charge_cost"] > 0
+
+
 def test_preview_weekly_cost_extreme_takes_precedence():
     """If member has multiple cyber-tier roles, extreme wins over high/medium."""
     cyber = _make_cyberware()
