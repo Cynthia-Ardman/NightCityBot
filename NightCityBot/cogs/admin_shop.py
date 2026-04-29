@@ -250,11 +250,20 @@ class AdminShopMenuView(SafeView):
                 return
             async with guns_cog.lock:
                 state = await guns_cog._load_state()
+                old_count = len(state.get("wholesale_lots", []) or [])
                 cfg = guns_cog._resolve_restock_settings(state)
                 rng = random.Random()
                 new_lots, totals = guns_cog._generate_restock_lots(guns, cfg, rng)
+                # Explicit wipe-then-replace so a generation failure cannot
+                # leave the previous wholesale stock visible.
+                state["wholesale_lots"] = []
+                wipe_ok = await guns_cog._save_state(state)
                 state["wholesale_lots"] = new_lots
                 save_ok = await guns_cog._save_state(state)
+            logger.info(
+                "resync_gun_wh: cleared %d old lots, generated %d new lots (wipe_ok=%s save_ok=%s)",
+                old_count, len(new_lots), wipe_ok, save_ok,
+            )
             if not save_ok:
                 await send_ephemeral(interaction, "❌ Generated lots but failed to persist. Check logs.")
                 return
@@ -262,6 +271,7 @@ class AdminShopMenuView(SafeView):
             await send_ephemeral(interaction,
                 f"🏭 **Gun Wholesaler Resynced**\n"
                 f"• Catalogue items: **{len(guns)}**\n"
+                f"• Cleared previous lots: **{old_count}**\n"
                 f"• New lots: **{len(new_lots)}**\n"
                 f"• Total stock: **{total_qty}** units (L:{totals.get('L', 0)} M:{totals.get('M', 0)} H:{totals.get('H', 0)})")
         except Exception as e:
@@ -313,14 +323,23 @@ class AdminShopMenuView(SafeView):
                 })
             async with cw_cog.lock:
                 state = await cw_cog._load_state()
+                old_count = len(state.get("cw_wholesale_lots", []) or [])
+                # Explicit wipe-then-replace so any stale lots cannot leak through.
+                state["cw_wholesale_lots"] = []
+                wipe_ok = await cw_cog._save_state(state)
                 state["cw_wholesale_lots"] = new_lots
                 save_ok = await cw_cog._save_state(state)
+            logger.info(
+                "resync_cw_wh: cleared %d old lots, generated %d new lots (wipe_ok=%s save_ok=%s)",
+                old_count, len(new_lots), wipe_ok, save_ok,
+            )
             if save_ok is False:
                 await send_ephemeral(interaction, "❌ Refreshed catalogue but failed to persist wholesale lots. Check logs.")
                 return
             await send_ephemeral(interaction,
                 f"🏭 **Cyberware Wholesaler Resynced**\n"
                 f"• Catalogue items: **{len(items)}**\n"
+                f"• Cleared previous lots: **{old_count}**\n"
                 f"• Wholesale lots: **{len(new_lots)}** (each stocked to 99)")
         except Exception as e:
             logger.exception("resync_cw_wh failed")
