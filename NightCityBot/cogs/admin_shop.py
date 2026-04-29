@@ -201,6 +201,23 @@ class AdminShopMenuView(SafeView):
             except Exception as e:
                 logger.warning("Gun sheet reload failed", exc_info=True)
                 results.append(f"🔫 Gun catalog reload failed: {e}")
+            try:
+                async with guns_cog.lock:
+                    state = await guns_cog._load_state()
+                    raw_lots = state.get("wholesale_lots", []) or []
+                    kept = [
+                        l for l in raw_lots
+                        if isinstance(l, dict)
+                        and str(l.get("lot_id", "")).startswith("fixer-")
+                    ]
+                    removed = len(raw_lots) - len(kept)
+                    if removed > 0:
+                        state["wholesale_lots"] = kept
+                        await guns_cog._save_state(state)
+                        results.append(f"🔫 Cleared **{removed}** non-custom gun lot(s) from wholesale")
+            except Exception as e:
+                logger.warning("Gun wholesale legacy purge failed", exc_info=True)
+                results.append(f"🔫 Gun wholesale legacy purge failed: {e}")
         else:
             results.append("🔫 Gun shop system unavailable")
         cw_cog = interaction.client.get_cog("CyberwareShop")
@@ -220,6 +237,23 @@ class AdminShopMenuView(SafeView):
             except Exception as e:
                 logger.warning("CW sheet reload failed", exc_info=True)
                 results.append(f"💉 Cyberware catalog reload failed: {e}")
+            try:
+                async with cw_cog.lock:
+                    state = await cw_cog._load_state()
+                    raw_lots = state.get("cw_wholesale_lots", []) or []
+                    kept = [
+                        l for l in raw_lots
+                        if isinstance(l, dict)
+                        and str(l.get("lot_id", "")).startswith("fixer-cw-")
+                    ]
+                    removed = len(raw_lots) - len(kept)
+                    if removed > 0:
+                        state["cw_wholesale_lots"] = kept
+                        await cw_cog._save_state(state)
+                        results.append(f"💉 Cleared **{removed}** non-custom cyberware lot(s) from wholesale")
+            except Exception as e:
+                logger.warning("CW wholesale legacy purge failed", exc_info=True)
+                results.append(f"💉 Cyberware wholesale legacy purge failed: {e}")
         else:
             results.append("💉 Cyberware system unavailable")
         await send_ephemeral(interaction, "\n".join(results))
