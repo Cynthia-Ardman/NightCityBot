@@ -159,29 +159,35 @@ class GunstoreMenuView(SafeView):
             view = GunBuySelect(cog, ctx, lots, guns_cog, black_market=True)
             await send_ephemeral(interaction, "🏴 **Black Market** — select a gun to buy:", view=view)
         else:
-            catalog = await gun_catalog_get_all()
-            lots = _build_catalog_lots(catalog)
+            lots = _build_wholesale_lots_from_state(state)
             if not lots:
-                await send_ephemeral(interaction, "No guns available in the catalog.")
+                await send_ephemeral(interaction,
+                    "🏭 The wholesaler is currently out of stock. Ask a Fixer to restock.")
                 return
             ctx = PanelContext(interaction)
             view = GunBuySelect(cog, ctx, lots, guns_cog)
-            await send_ephemeral(interaction, "Select a gun to buy:", view=view)
+            await send_ephemeral(interaction, "Select a gun to buy from wholesale:", view=view)
 
     @discord.ui.button(label="Wholesale List", style=discord.ButtonStyle.secondary, emoji="📋", row=0, custom_id="gunstore:wholesale_list")
     async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        catalog = await gun_catalog_get_all()
-        lots = _build_catalog_lots(catalog)
+        cog = interaction.client.get_cog("GunstoreHub")
+        guns_cog = cog._guns_cog() if cog else None
+        if not guns_cog:
+            await send_ephemeral(interaction, "Gun shop system unavailable.")
+            return
+        state = await guns_cog._load_state()
+        lots = _build_wholesale_lots_from_state(state)
         if not lots:
-            await send_ephemeral(interaction, "No guns available in the catalog.")
+            await send_ephemeral(interaction,
+                "🏭 The wholesaler is currently out of stock. Ask a Fixer to restock.")
             return
         from NightCityBot.utils.helpers import format_gun_lines_grouped
         lines = format_gun_lines_grouped(lots, qty_key="qty_available", max_items=len(lots))
         text = "\n".join(lines)
         if len(text) <= 4096:
             embed = discord.Embed(
-                title="🔫 Gun Catalog",
+                title="🔫 Wholesale Stock",
                 description=text,
                 color=discord.Color.dark_gold(),
             )
@@ -189,12 +195,12 @@ class GunstoreMenuView(SafeView):
         else:
             mid = len(lines) // 2
             embed1 = discord.Embed(
-                title="🔫 Gun Catalog (1/2)",
+                title="🔫 Wholesale Stock (1/2)",
                 description="\n".join(lines[:mid]),
                 color=discord.Color.dark_gold(),
             )
             embed2 = discord.Embed(
-                title="🔫 Gun Catalog (2/2)",
+                title="🔫 Wholesale Stock (2/2)",
                 description="\n".join(lines[mid:]),
                 color=discord.Color.dark_gold(),
             )
@@ -316,6 +322,39 @@ def _build_catalog_lots(catalog: list[dict]) -> list[dict]:
     return lots
 
 
+def _build_wholesale_lots_from_state(state: dict) -> list[dict]:
+    """Build the buy-list of gun lots that wholesale (non-Black-Market) stores see.
+
+    Reads from ``state["wholesale_lots"]`` (the Fixer-managed wholesaler stock),
+    keeps only lots with qty_available > 0, and preserves each lot's lot_id so
+    the purchase flow can decrement the correct lot.
+    """
+    raw_lots = state.get("wholesale_lots", []) or []
+    lots = []
+    for lot in raw_lots:
+        if not isinstance(lot, dict):
+            continue
+        try:
+            qty = int(lot.get("qty_available", 0))
+        except (TypeError, ValueError):
+            qty = 0
+        if qty <= 0:
+            continue
+        lots.append({
+            "lot_id": lot.get("lot_id", ""),
+            "gun_name": lot.get("gun_name", "?"),
+            "gun_level": lot.get("gun_level", "L"),
+            "weapon_type": lot.get("weapon_type", ""),
+            "gun_category": lot.get("gun_category", ""),
+            "unit_cost": int(lot.get("unit_cost", 0) or 0),
+            "qty_available": qty,
+            "restriction": lot.get("restriction", "basic"),
+            "_wholesale": True,
+        })
+    lots.sort(key=lambda l: (l["gun_name"], l.get("lot_id", "")))
+    return lots
+
+
 def _build_black_market_lots(catalog: list[dict]) -> list[dict]:
     multiplier = config.BLACK_MARKET_PRICE_MULTIPLIER
     lots = []
@@ -407,6 +446,16 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty, *, black_m
     if qty < 1:
         await send_ephemeral(interaction, "Quantity must be at least 1.")
         return
+    # For non-Black-Market buys we draw from the Fixer-managed wholesaler stock,
+    # so cap the requested quantity at what the wholesale lot still has.
+    if not black_market and lot.get("_wholesale"):
+        max_qty = int(lot.get("qty_available", 0))
+        if max_qty <= 0:
+            await send_ephemeral(interaction,
+                "🏭 That wholesale lot is sold out. Refresh and try another.")
+            return
+        if qty > max_qty:
+            qty = max_qty
     unit_cost = int(lot["unit_cost"])
     total = unit_cost * qty
     member = ctx.author
@@ -435,6 +484,40 @@ async def _process_gun_buy(cog, interaction, ctx, lot, guns_cog, qty, *, black_m
 
     async with guns_cog.lock:
         state = await guns_cog._load_state()
+
+        # If this is a wholesale buy, decrement the wholesale lot's remaining
+        # qty so the Fixer-managed wholesaler stock actually reflects sales.
+        wholesale_underflow = False
+        if not black_market and lot.get("_wholesale"):
+            wh_lot_id = lot.get("lot_id", "")
+            for wl in state.get("wholesale_lots", []) or []:
+                if isinstance(wl, dict) and wl.get("lot_id") == wh_lot_id:
+                    try:
+                        remaining = int(wl.get("qty_available", 0))
+                    except (TypeError, ValueError):
+                        remaining = 0
+                    if remaining < qty:
+                        wholesale_underflow = True
+                        break
+                    wl["qty_available"] = remaining - qty
+                    break
+            else:
+                wholesale_underflow = True
+        if wholesale_underflow:
+            # The lot disappeared or no longer has enough stock between display
+            # and purchase — refund the buyer and bail out cleanly.
+            logger.warning(
+                "gun wholesale buy: lot %s no longer has %d in stock — refunding buyer=%s",
+                lot.get("lot_id"), qty, member.id,
+            )
+            await cog.unbelievaboat.update_balance(
+                member.id,
+                {"cash": cash_deduct, "bank": bank_deduct},
+                reason="Gun wholesale refund — lot out of stock",
+            )
+            await send_ephemeral(interaction,
+                "🏭 That wholesale lot ran out before your purchase completed. Payment refunded.")
+            return
 
         store_id = guns_cog._store_id(ctx.guild.id, member.id)
         default_type = "black_market" if black_market else "standard"
