@@ -75,9 +75,17 @@ class CyberwareManager(commands.Cog):
         - ``level``: "medium" / "high" / "extreme"
         - ``has_checkup``: bool, True if they currently have the checkup role
           (meaning they will be charged this Monday)
-        - ``current_streak``: int, weeks already missed
+        - ``current_streak``: int, weeks already missed in the DB
         - ``upcoming_weeks``: int, the streak count after Monday's run
-        - ``cost``: int, dollars they will owe Monday (0 if no charge yet)
+        - ``cost``: int, dollars they will owe THIS Monday (0 if no checkup
+          role currently — they'll just be flagged)
+        - ``next_charge_cost``: int, projected cost the next time the system
+          actually charges them (i.e. once they have the checkup role active
+          on a Monday). Always > 0 for Medium/High/Extreme members so the
+          preview shows a meaningful "you will eventually owe this" number.
+        - ``next_charge_weeks``: int, the streak the projected charge applies
+          to (current_streak + 1 if has_checkup, otherwise 1 because the
+          streak gets reset when the role is freshly assigned).
         """
         guild = member.guild
         if guild is None:
@@ -111,9 +119,17 @@ class CyberwareManager(commands.Cog):
         if has_checkup:
             upcoming = current_streak + 1
             cost = self.calculate_cost(level, upcoming)
+            next_charge_cost = cost
+            next_charge_weeks = upcoming
         else:
             upcoming = current_streak
             cost = 0
+            # When the system runs and the member has no checkup role, the role
+            # is freshly assigned and the streak is reset to 0 in the DB.
+            # The first time they actually get charged after that, the streak
+            # will be 1 (one week with the role active).
+            next_charge_weeks = 1
+            next_charge_cost = self.calculate_cost(level, next_charge_weeks)
 
         return {
             "level": level,
@@ -121,6 +137,8 @@ class CyberwareManager(commands.Cog):
             "current_streak": current_streak,
             "upcoming_weeks": upcoming,
             "cost": cost,
+            "next_charge_cost": next_charge_cost,
+            "next_charge_weeks": next_charge_weeks,
         }
 
     async def _notify_member_checkup_due(self, member: discord.Member) -> None:

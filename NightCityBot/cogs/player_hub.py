@@ -690,6 +690,33 @@ class PlayerHubView(SafeView):
                     f"✅ **Already paid this month** (recorded {paid_str})."
                 )
 
+        # Current balance + afford check
+        ub = getattr(econ_cog, "unbelievaboat", None) or getattr(
+            interaction.client, "unbelievaboat", None)
+        if ub is not None:
+            try:
+                bal = await ub.get_balance(member.id)
+            except Exception:
+                bal = None
+            if bal:
+                cash = int(bal.get("cash", 0) or 0)
+                bank = int(bal.get("bank", 0) or 0)
+                bal_total = cash + bank
+                lines.append(
+                    f"💰 **Current balance:** ${cash:,} cash + ${bank:,} bank "
+                    f"= **${bal_total:,}** total")
+                if total <= 0:
+                    pass
+                elif bal_total >= total:
+                    lines.append(
+                        f"✅ You can cover this month's bills "
+                        f"(${bal_total - total:,} left over).")
+                else:
+                    short = total - bal_total
+                    lines.append(
+                        f"⚠️ **Short ${short:,}** — you can't cover this "
+                        "month's bills with your current funds.")
+
         await send_ephemeral(interaction, "\n".join(lines))
 
     @discord.ui.button(label="Weekly Cyberware", style=discord.ButtonStyle.secondary, emoji="💊", row=3, custom_id="player_hub:weekly_cyber")
@@ -726,27 +753,72 @@ class PlayerHubView(SafeView):
         cost = preview["cost"]
         upcoming_weeks = preview["upcoming_weeks"]
         has_checkup = preview["has_checkup"]
+        next_charge_cost = preview.get("next_charge_cost", cost)
+        next_charge_weeks = preview.get("next_charge_weeks", upcoming_weeks)
+        current_streak = preview.get("current_streak", 0)
 
+        lines = [
+            "💊 **Weekly Cyberware Preview**",
+            f"Cyberware level: **{level}**",
+            f"Missed-checkup streak in records: **{current_streak} week(s)**",
+        ]
         if has_checkup:
-            body = (
-                f"💊 **Weekly Cyberware Preview**\n"
-                f"Cyberware level: **{level}**\n"
-                f"Estimated charge this Monday: **${cost:,}** "
-                f"(week {upcoming_weeks} of missed checkups).\n"
-                f"_Visit a Ripperdoc and clear your checkup before Monday to "
-                f"reset the streak and avoid the charge._"
+            lines.append(
+                f"You currently have the **checkup-due** role. Estimated charge "
+                f"this Monday: **${cost:,}** (week {upcoming_weeks} of missed "
+                f"checkups)."
             )
+            lines.append(
+                "_Visit a Ripperdoc and clear your checkup before Monday to "
+                "reset the streak and avoid the charge._"
+            )
+            charge_for_afford = cost
         else:
-            body = (
-                f"💊 **Weekly Cyberware Preview**\n"
-                f"Cyberware level: **{level}**\n"
-                f"You'll be flagged for a checkup this Monday — **no money** is "
-                f"deducted on the first week.\n"
-                f"_Visit a Ripperdoc to clear the checkup before next Monday or "
-                f"medication costs will start accruing._"
+            lines.append(
+                f"You don't currently have the **checkup-due** role. **$0** "
+                f"will be deducted this Monday — you'll just be flagged."
             )
+            lines.append(
+                f"If you don't visit a Ripperdoc before the following Monday, "
+                f"you'll be charged **${next_charge_cost:,}** "
+                f"(week {next_charge_weeks} of missed checkups), and the cost "
+                f"doubles every week after until it caps out."
+            )
+            charge_for_afford = next_charge_cost
 
-        await send_ephemeral(interaction, body)
+        # Current balance + afford check
+        ub = getattr(interaction.client, "unbelievaboat", None)
+        econ = interaction.client.get_cog("Economy")
+        if ub is None and econ is not None:
+            ub = getattr(econ, "unbelievaboat", None)
+        if ub is not None:
+            try:
+                bal = await ub.get_balance(member.id)
+            except Exception:
+                bal = None
+            if bal:
+                cash = int(bal.get("cash", 0) or 0)
+                bank = int(bal.get("bank", 0) or 0)
+                bal_total = cash + bank
+                lines.append(
+                    f"💰 **Current balance:** ${cash:,} cash + ${bank:,} bank "
+                    f"= **${bal_total:,}** total")
+                if charge_for_afford <= 0:
+                    pass
+                elif bal_total >= charge_for_afford:
+                    lines.append(
+                        f"✅ You can cover the next ${charge_for_afford:,} "
+                        f"cyberware charge "
+                        f"(${bal_total - charge_for_afford:,} left over)."
+                    )
+                else:
+                    short = charge_for_afford - bal_total
+                    lines.append(
+                        f"⚠️ **Short ${short:,}** — you can't cover the next "
+                        f"${charge_for_afford:,} cyberware charge."
+                    )
+
+        await send_ephemeral(interaction, "\n".join(lines))
 
 
 class ManageInventoryView(SafeView):

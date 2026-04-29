@@ -2816,6 +2816,8 @@ class TestPlayerHubDueButton:
             econ = MagicMock()
             econ.calculate_monthly_due = MagicMock(return_value=(2500, ["Baseline living cost: $500", "Housing Tier 1: $2000"]))
             econ.calculate_due = MagicMock(return_value=(2500, ["Baseline living cost: $500", "Housing Tier 1: $2000"]))
+            econ.unbelievaboat = MagicMock()
+            econ.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 1000, "bank": 5000})
             orig = inter.client.get_cog
 
             def _cog(n):
@@ -2832,6 +2834,35 @@ class TestPlayerHubDueButton:
             msg = inter.followup.send.call_args[0][0]
             assert "$2,500" in msg or "$2500" in msg
             assert "Baseline" in msg
+            # Balance + afford check are now part of the preview
+            assert "Current balance" in msg
+            assert "$6,000" in msg  # 1000 cash + 5000 bank
+            assert "cover" in msg.lower()  # has 6000, owes 2500 → can cover
+
+        _run(_test())
+
+    def test_due_shows_short_when_underfunded(self):
+        async def _test():
+            view = PlayerHubView()
+            inter = _make_interaction()
+            inter.user = MagicMock(spec=discord.Member)
+            inter.user.id = 101
+            inter.user.display_name = "BrokePlayer"
+            econ = MagicMock()
+            econ.calculate_monthly_due = MagicMock(return_value=(2500, ["Baseline living cost: $500"]))
+            econ.calculate_due = MagicMock(return_value=(2500, ["Baseline living cost: $500"]))
+            econ.unbelievaboat = MagicMock()
+            econ.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 100, "bank": 200})
+            orig = inter.client.get_cog
+            inter.client.get_cog = MagicMock(side_effect=lambda n: econ if n == "Economy" else orig(n))
+
+            with patch("NightCityBot.utils.db.last_payment_get_with_ts", new=AsyncMock(return_value=(None, None))):
+                btn = _find_button(view, "Monthly Bills")
+                await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "Short" in msg
+            assert "$2,200" in msg  # 2500 - 300 = short 2200
+
         _run(_test())
 
     def test_due_no_economy_cog(self):
@@ -2843,4 +2874,108 @@ class TestPlayerHubDueButton:
             await btn.callback(inter)
             msg = inter.followup.send.call_args[0][0]
             assert "economy" in msg.lower() or "unavailable" in msg.lower()
+        _run(_test())
+
+
+class TestPlayerHubWeeklyCyberwareButton:
+    def test_weekly_cyber_no_checkup_shows_projected_cost(self):
+        """Without the checkup role, button shows next-charge projection plus balance."""
+        async def _test():
+            view = PlayerHubView()
+            inter = _make_interaction()
+            inter.user = MagicMock(spec=discord.Member)
+            inter.user.id = 200
+            inter.user.display_name = "CyberPlayer"
+            inter.client.unbelievaboat = MagicMock()
+            inter.client.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 50, "bank": 0})
+
+            cyber = MagicMock()
+            cyber.preview_weekly_cost = MagicMock(return_value={
+                "level": "high",
+                "has_checkup": False,
+                "current_streak": 0,
+                "upcoming_weeks": 0,
+                "cost": 0,
+                "next_charge_cost": 39,
+                "next_charge_weeks": 1,
+            })
+            orig = inter.client.get_cog
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cyber if n == "CyberwareManager" else orig(n))
+
+            btn = _find_button(view, "Weekly Cyberware")
+            await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            # Should mention projected next-charge cost and balance
+            assert "$39" in msg
+            assert "Current balance" in msg
+            assert "$50" in msg
+            # Has $50, will owe $39 → should be able to cover
+            assert "cover" in msg.lower()
+
+        _run(_test())
+
+    def test_weekly_cyber_balance_fetch_failure_skips_afford_block(self):
+        """If get_balance raises, the button should still respond cleanly."""
+        async def _test():
+            view = PlayerHubView()
+            inter = _make_interaction()
+            inter.user = MagicMock(spec=discord.Member)
+            inter.user.id = 202
+            inter.user.display_name = "ApiBrokenPlayer"
+            inter.client.unbelievaboat = MagicMock()
+            inter.client.unbelievaboat.get_balance = AsyncMock(side_effect=RuntimeError("api down"))
+
+            cyber = MagicMock()
+            cyber.preview_weekly_cost = MagicMock(return_value={
+                "level": "medium",
+                "has_checkup": False,
+                "current_streak": 0,
+                "upcoming_weeks": 0,
+                "cost": 0,
+                "next_charge_cost": 15,
+                "next_charge_weeks": 1,
+            })
+            orig = inter.client.get_cog
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cyber if n == "CyberwareManager" else orig(n))
+
+            btn = _find_button(view, "Weekly Cyberware")
+            await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            # Preview body still rendered, balance/afford block silently dropped
+            assert "Weekly Cyberware Preview" in msg
+            assert "Current balance" not in msg
+
+        _run(_test())
+
+    def test_weekly_cyber_with_checkup_shows_immediate_charge(self):
+        async def _test():
+            view = PlayerHubView()
+            inter = _make_interaction()
+            inter.user = MagicMock(spec=discord.Member)
+            inter.user.id = 201
+            inter.user.display_name = "FlaggedPlayer"
+            inter.client.unbelievaboat = MagicMock()
+            inter.client.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 0, "bank": 0})
+
+            cyber = MagicMock()
+            cyber.preview_weekly_cost = MagicMock(return_value={
+                "level": "extreme",
+                "has_checkup": True,
+                "current_streak": 3,
+                "upcoming_weeks": 4,
+                "cost": 1250,
+                "next_charge_cost": 1250,
+                "next_charge_weeks": 4,
+            })
+            orig = inter.client.get_cog
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cyber if n == "CyberwareManager" else orig(n))
+
+            btn = _find_button(view, "Weekly Cyberware")
+            await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "$1,250" in msg
+            assert "Extreme" in msg
+            # Has $0, will owe $1,250 → should show short
+            assert "Short" in msg
+
         _run(_test())

@@ -308,8 +308,14 @@ def test_preview_weekly_cost_no_checkup_returns_zero_cost():
     assert out is not None
     assert out["level"] == "medium"
     assert out["has_checkup"] is False
+    # Immediate Monday charge is $0 — they'll just get the role assigned
     assert out["cost"] == 0
     assert out["upcoming_weeks"] == 0
+    # But the projected next charge (one cycle later) is non-zero so the
+    # player can see what they'll eventually owe if they keep ignoring.
+    assert out["next_charge_weeks"] == 1
+    assert out["next_charge_cost"] == cyber.calculate_cost("medium", 1)
+    assert out["next_charge_cost"] > 0
 
 
 def test_preview_weekly_cost_with_checkup_charges_next_streak():
@@ -328,6 +334,9 @@ def test_preview_weekly_cost_with_checkup_charges_next_streak():
     assert out["current_streak"] == 2
     assert out["upcoming_weeks"] == 3
     assert out["cost"] == cyber.calculate_cost("high", 3)
+    # When already flagged, next_charge_* mirrors the immediate charge.
+    assert out["next_charge_cost"] == out["cost"]
+    assert out["next_charge_weeks"] == out["upcoming_weeks"]
 
 
 def test_preview_weekly_cost_extreme_takes_precedence():
