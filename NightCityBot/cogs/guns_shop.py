@@ -478,6 +478,10 @@ class GunsShopCog(commands.Cog):
         eff_idx = idx_for(["Type/Armor Effectiveness", "Type", "Effectiveness"], 1)
         mag_idx = idx_for(["Mag Size", "Mag"], 2)
         price_idx = idx_for(["Price New", "Price", "Price (New)"], 3)
+        wholesale_price_idx = idx_for(
+            ["Wholesale Price", "Wholesale", "Price (Wholesale)", "Wholesale_Price"],
+            None,
+        )
         cyberware_idx = idx_for(["Cyberware Needed", "Cyberware"], 4)
         restriction_idx = idx_for(["Restriction", "Restrictions"], None)
         status_idx = idx_for(["Status", "Market Status"], None)
@@ -508,6 +512,11 @@ class GunsShopCog(commands.Cog):
                 str(row[eff_idx]).strip() if eff_idx < len(row) and row[eff_idx] is not None else ""
             )
             price_new = GunsShopCog._to_int(row[price_idx] if price_idx < len(row) else None)
+            wholesale_price = None
+            if wholesale_price_idx is not None:
+                wholesale_price = GunsShopCog._to_int(
+                    row[wholesale_price_idx] if wholesale_price_idx < len(row) else None
+                )
 
             if not gun_name:
                 continue
@@ -558,6 +567,7 @@ class GunsShopCog(commands.Cog):
                     "effectiveness_raw": effectiveness_raw,
                     "mag_size": mag_size,
                     "price_new": price_new,
+                    "wholesale_price": int(wholesale_price) if wholesale_price and wholesale_price > 0 else int(price_new),
                     "cyberware_needed": cyberware_needed,
                     "gun_level": gun_level,
                     "gun_category": gun_category,
@@ -826,111 +836,6 @@ class GunsShopCog(commands.Cog):
                 data[key] = self._sanitize_non_negative_int(explicit_type_lots.get(key), 0)
 
         return data
-
-    def _generate_restock_lots(
-        self,
-        guns: list[dict[str, Any]],
-        cfg: dict[str, int],
-        rng: random.Random,
-    ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-        guns = [g for g in guns if str(g.get("status", "live")).strip().lower() == "live"]
-        by_level = {
-            "L": [g for g in guns if g["gun_level"] == "L"],
-            "M": [g for g in guns if g["gun_level"] == "M"],
-            "H": [g for g in guns if g["gun_level"] == "H"],
-        }
-        weighted = [
-            g
-            for g in guns
-            for _ in range(self.LEVEL_SETTINGS.get(g["gun_level"], {"weight": 1})["weight"])
-        ]
-
-        lots: list[dict[str, Any]] = []
-        level_totals = {"L": 0, "M": 0, "H": 0}
-
-        explicit_keys = [f"{weapon_type}_{lvl}" for weapon_type in self.WEAPON_TYPES for lvl in ("L", "M", "H")]
-        has_explicit_mix = any(cfg.get(k, 0) > 0 for k in explicit_keys)
-
-        if has_explicit_mix:
-            for weapon_type in self.WEAPON_TYPES:
-                for requested_level in ("L", "M", "H"):
-                    target = int(cfg.get(f"{weapon_type}_{requested_level}", 0))
-                    if target <= 0:
-                        continue
-                    pool = [
-                        g for g in guns
-                        if g.get("weapon_type") == weapon_type and g.get("gun_level") == requested_level
-                    ]
-                    if not pool:
-                        pool = [g for g in by_level[requested_level] if g.get("weapon_type") == weapon_type]
-                    if not pool:
-                        continue
-
-                    for _ in range(target):
-                        gun = rng.choice(pool)
-                        qty = rng.randint(cfg[f"qty_min_{requested_level}"], cfg[f"qty_max_{requested_level}"])
-                        lots.append(
-                            {
-                                "lot_id": f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
-                                "gun_name": gun["gun_name"],
-                                "gun_level": requested_level,
-                                "gun_category": gun.get("gun_category") or "",
-                                "weapon_type": gun.get("weapon_type") or "",
-                                "unit_cost": int(gun["price_new"]),
-                                "qty_available": qty,
-                                "restriction": gun.get("restriction", "basic"),
-                                "created_at": self._now_iso(),
-                            }
-                        )
-                        level_totals[requested_level] += qty
-        else:
-
-            for requested_level in ("L", "M", "H"):
-                target = cfg[f"lots_{requested_level}"]
-                pool = by_level[requested_level] if by_level[requested_level] else weighted
-                if not pool or target <= 0:
-                    continue
-
-                for _ in range(target):
-                    gun = rng.choice(pool)
-                    actual_level = str(gun.get("gun_level", requested_level))
-                    if actual_level not in {"L", "M", "H"}:
-                        actual_level = requested_level
-                    qty = rng.randint(cfg[f"qty_min_{actual_level}"], cfg[f"qty_max_{actual_level}"])
-                    lots.append(
-                        {
-                            "lot_id": f"lot-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6]}",
-                            "gun_name": gun["gun_name"],
-                            "gun_level": actual_level,
-                            "gun_category": gun.get("gun_category") or "",
-                            "weapon_type": gun.get("weapon_type") or "",
-                            "unit_cost": int(gun["price_new"]),
-                            "qty_available": qty,
-                            "restriction": gun.get("restriction", "basic"),
-                            "created_at": self._now_iso(),
-                        }
-                    )
-                    level_totals[actual_level] += qty
-
-        if len(lots) > cfg["total_lots"]:
-            lots = rng.sample(lots, cfg["total_lots"])
-
-        merged: dict[str, dict[str, Any]] = {}
-        for lot in lots:
-            key = f"{lot['gun_name']}|{lot['gun_level']}|{lot['unit_cost']}|{lot.get('weapon_type', '')}|{lot.get('gun_category', '')}"
-            if key in merged:
-                merged[key]["qty_available"] += lot["qty_available"]
-            else:
-                merged[key] = dict(lot)
-        lots = list(merged.values())
-
-        level_totals = {
-            "L": sum(int(lot.get("qty_available", 0)) for lot in lots if lot.get("gun_level") == "L"),
-            "M": sum(int(lot.get("qty_available", 0)) for lot in lots if lot.get("gun_level") == "M"),
-            "H": sum(int(lot.get("qty_available", 0)) for lot in lots if lot.get("gun_level") == "H"),
-        }
-
-        return lots, level_totals
 
     async def _save_state(self, state: dict[str, Any]) -> bool:
         wholesale_file = Path(getattr(self, "wholesale_inventory_file", self.state_file))

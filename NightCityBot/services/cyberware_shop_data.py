@@ -90,6 +90,13 @@ def parse_cyberware_sheet(xlsx_path: Path | str) -> list[dict[str, Any]]:
         ],
         1,
     )
+    wholesale_price_idx = _find_col(
+        [
+            "wholesale price", "wholesale", "price (wholesale)",
+            "wholesale_price", "wholesale cost", "buy in",
+        ],
+        -1,
+    )
     cwp_idx = _find_col(
         ["cwp", "cyberware points", "cw points", "cyber points", "cwp cost", "cwp value"],
         -1,
@@ -130,6 +137,12 @@ def parse_cyberware_sheet(xlsx_path: Path | str) -> list[dict[str, Any]]:
         if price is None or price <= 0:
             continue
 
+        wholesale_price = price
+        if wholesale_price_idx >= 0 and wholesale_price_idx < len(row) and row[wholesale_price_idx] is not None:
+            wp = _to_int(row[wholesale_price_idx])
+            if wp is not None and wp > 0:
+                wholesale_price = wp
+
         cwp = ""
         if cwp_idx >= 0 and cwp_idx < len(row) and row[cwp_idx] is not None:
             cwp = str(row[cwp_idx]).strip()
@@ -142,7 +155,7 @@ def parse_cyberware_sheet(xlsx_path: Path | str) -> list[dict[str, Any]]:
         if slot_idx >= 0 and slot_idx < len(row) and row[slot_idx] is not None:
             slot = str(row[slot_idx]).strip()
 
-        items.append({"name": item_name, "price": price, "cwp": cwp, "description": description, "slot": slot})
+        items.append({"name": item_name, "price": price, "wholesale_price": wholesale_price, "cwp": cwp, "description": description, "slot": slot})
 
     wb.close()
     return items

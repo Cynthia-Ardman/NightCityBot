@@ -127,10 +127,18 @@ Blocking behavior: if a user (buyer/recipient/seller) has no active characters, 
 ## Cyberware Shop
 
 Catalog system in PostgreSQL:
-- `cyberware_catalog` (name UNIQUE, price, cwp, slot, updated_at) — full item list, populated via the admin hub from a Google Sheet
+- `cyberware_catalog` (name UNIQUE, price, wholesale_price, cwp, slot, updated_at) — full item list, populated via the admin hub from a Google Sheet
 - Ripperdoc inventory stored per-owner in PostgreSQL
 
 The full catalog is always available — there is no rotating wholesale lottery. Ripperdocs buy any catalog item directly via the Ripperdoc Hub (`!ripperdoc`) or `!cw_buy` and then resell/install for patients.
+
+### Wholesale Price column
+
+Both the gun and cyberware catalog spreadsheets support an optional **Wholesale Price** column (header aliases: `Wholesale Price`, `Wholesale`, `Price (Wholesale)`). The parser surfaces this as a `wholesale_price` field on each parsed row; storefronts charge owners that wholesale value when buying from the catalogue. If the column is missing or blank for a row, the parser falls back to the existing sticker / `Price New` / `Pricing` value so all rows always have a usable wholesale cost. The cyberware catalog DB table mirrors this: `wholesale_price INT` (default 0); `cw_catalog_get_all` returns it alongside `price` and storefronts use it directly.
+
+### Custom Fixer-added stock (overlay)
+
+Fixers can still inject one-off items not present in the catalogue via the Fixer Hub's **Add Gun** / **Add Cyberware** buttons. These quantity-tracked custom additions are persisted in `state["wholesale_lots"]` (guns) and `state["cw_wholesale_lots"]` (cyberware) and are merged with the catalogue when the hub renders Buy lists. Custom lots are flagged (`_wholesale: True` for guns, `_custom: True` for cyberware) so the buy flow knows to decrement their qty on purchase, while catalogue rows are unlimited (`lot_id="cat-{name}"`, qty 99). The legacy rotating wholesale generator, admin restock command, Resync Gun / CW Wholesaler buttons, and Fixer Remove Gun / Remove Cyberware buttons have all been removed.
 
 ### Ripperdoc Inventory Flow
 

@@ -489,6 +489,10 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         ALTER TABLE cyberware_catalog
             ADD COLUMN IF NOT EXISTS slot TEXT NOT NULL DEFAULT ''
         """,
+        """
+        ALTER TABLE cyberware_catalog
+            ADD COLUMN IF NOT EXISTS wholesale_price INT NOT NULL DEFAULT 0
+        """,
         # ── Gun catalog (editable master gun list + wholesale qty) ─────────────
         """
         CREATE TABLE IF NOT EXISTS gun_catalog (
@@ -3297,12 +3301,13 @@ async def cw_catalog_get_all() -> list[dict]:
     try:
         pool = await get_pool()
         rows = await pool.fetch(
-            "SELECT name, price, cwp, description, slot FROM cyberware_catalog ORDER BY name"
+            "SELECT name, price, wholesale_price, cwp, description, slot FROM cyberware_catalog ORDER BY name"
         )
         return [
             {
                 "name": row["name"],
                 "price": row["price"],
+                "wholesale_price": int(row["wholesale_price"] or 0) or int(row["price"] or 0),
                 "cwp": row["cwp"] or "",
                 "description": row["description"] or "",
                 "slot": row["slot"] or "",
@@ -3333,6 +3338,7 @@ async def cw_catalog_upsert_many(items: list[dict]) -> bool:
                     for item in items:
                         name = str(item.get("name", "")).strip()
                         price = int(item.get("price", 0))
+                        wholesale_price = int(item.get("wholesale_price", 0) or 0) or price
                         cwp = str(item.get("cwp", "") or "").strip()
                         description = str(item.get("description", "") or "").strip()
                         slot = str(item.get("slot", "") or "").strip()
@@ -3340,16 +3346,17 @@ async def cw_catalog_upsert_many(items: list[dict]) -> bool:
                             continue
                         await conn.execute(
                             """
-                            INSERT INTO cyberware_catalog (name, price, cwp, description, slot, updated_at)
-                            VALUES ($1, $2, $3, $4, $5, NOW())
+                            INSERT INTO cyberware_catalog (name, price, wholesale_price, cwp, description, slot, updated_at)
+                            VALUES ($1, $2, $3, $4, $5, $6, NOW())
                             ON CONFLICT (name) DO UPDATE
                                 SET price = EXCLUDED.price,
+                                    wholesale_price = EXCLUDED.wholesale_price,
                                     cwp = EXCLUDED.cwp,
                                     description = EXCLUDED.description,
                                     slot = EXCLUDED.slot,
                                     updated_at = NOW()
                             """,
-                            name, price, cwp, description, slot,
+                            name, price, wholesale_price, cwp, description, slot,
                         )
 
         await _with_retry(_do, label="cw_catalog_upsert_many")
@@ -3364,6 +3371,7 @@ async def cw_catalog_upsert_one(item: dict) -> bool:
     try:
         name = str(item.get("name", "")).strip()
         price = int(item.get("price", 0))
+        wholesale_price = int(item.get("wholesale_price", 0) or 0) or price
         cwp = str(item.get("cwp", "") or "").strip()
         description = str(item.get("description", "") or "").strip()
         slot = str(item.get("slot", "") or "").strip()
@@ -3375,16 +3383,17 @@ async def cw_catalog_upsert_one(item: dict) -> bool:
             async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
                 await conn.execute(
                     """
-                    INSERT INTO cyberware_catalog (name, price, cwp, description, slot, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, NOW())
+                    INSERT INTO cyberware_catalog (name, price, wholesale_price, cwp, description, slot, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, NOW())
                     ON CONFLICT (name) DO UPDATE
                         SET price = EXCLUDED.price,
+                            wholesale_price = EXCLUDED.wholesale_price,
                             cwp = EXCLUDED.cwp,
                             description = EXCLUDED.description,
                             slot = EXCLUDED.slot,
                             updated_at = NOW()
                     """,
-                    name, price, cwp, description, slot,
+                    name, price, wholesale_price, cwp, description, slot,
                 )
 
         await _with_retry(_do, label="cw_catalog_upsert_one")

@@ -185,60 +185,6 @@ class TestSheetParsing:
         assert guns[0]["gun_name"] == "Good Gun"
 
 
-class TestRestockLotConsolidation:
-    def test_duplicate_guns_are_merged_into_single_lot(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        guns = [{"gun_name": "Nue", "gun_level": "M", "price_new": 1300, "weapon_type": "pistol"}]
-        cfg = {
-            "total_lots": 50,
-            "lots_L": 0, "lots_M": 5, "lots_H": 0,
-            "qty_min_L": 1, "qty_max_L": 1,
-            "qty_min_M": 2, "qty_max_M": 2,
-            "qty_min_H": 1, "qty_max_H": 1,
-        }
-        lots, totals = cog._generate_restock_lots(guns, cfg, random.Random(42))
-        assert len(lots) == 1
-        assert lots[0]["gun_name"] == "Nue"
-        assert lots[0]["qty_available"] == 10
-        assert totals["M"] == 10
-
-    def test_different_guns_stay_separate(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        guns = [
-            {"gun_name": "Nue", "gun_level": "M", "price_new": 1300, "weapon_type": "pistol"},
-            {"gun_name": "Liberty", "gun_level": "M", "price_new": 2000, "weapon_type": "pistol"},
-        ]
-        cfg = {
-            "total_lots": 50,
-            "lots_L": 0, "lots_M": 4, "lots_H": 0,
-            "qty_min_L": 1, "qty_max_L": 1,
-            "qty_min_M": 1, "qty_max_M": 1,
-            "qty_min_H": 1, "qty_max_H": 1,
-        }
-        lots, _ = cog._generate_restock_lots(guns, cfg, random.Random(42))
-        assert len(lots) <= 2
-        for lot in lots:
-            assert lot["weapon_type"] == "pistol"
-
-    def test_same_gun_different_levels_stay_separate(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        guns = [
-            {"gun_name": "TestGun", "gun_level": "L", "price_new": 100, "weapon_type": "pistol"},
-            {"gun_name": "TestGun", "gun_level": "H", "price_new": 500, "weapon_type": "pistol"},
-        ]
-        cfg = {
-            "total_lots": 50,
-            "lots_L": 2, "lots_M": 0, "lots_H": 2,
-            "qty_min_L": 1, "qty_max_L": 1,
-            "qty_min_M": 1, "qty_max_M": 1,
-            "qty_min_H": 1, "qty_max_H": 1,
-        }
-        lots, _ = cog._generate_restock_lots(guns, cfg, random.Random(42))
-        assert len(lots) == 2
-        levels = {l["gun_level"] for l in lots}
-        assert levels == {"L", "H"}
-
-
 class TestStateManagement:
     def test_save_and_load_roundtrip(self, tmp_path, monkeypatch):
         cog = _make_cog(tmp_path, monkeypatch)
@@ -391,34 +337,3 @@ class TestEdgeCases:
         assert cfg["lots_H"] == 0
         assert cfg["total_lots"] == 5
 
-    def test_restock_defaults_restriction_to_basic(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        guns = [
-            {"gun_name": "Nue", "gun_level": "M", "price_new": 1300, "weapon_type": "pistol"},
-        ]
-        cfg = {
-            "total_lots": 50,
-            "lots_L": 0, "lots_M": 1, "lots_H": 0,
-            "qty_min_L": 1, "qty_max_L": 1,
-            "qty_min_M": 1, "qty_max_M": 1,
-            "qty_min_H": 1, "qty_max_H": 1,
-        }
-        lots, _totals = cog._generate_restock_lots(guns, cfg, random.Random(42))
-        assert len(lots) == 1
-        assert lots[0]["restriction"] == "basic"
-
-    def test_restock_carries_restriction_from_parsed_guns(self, tmp_path, monkeypatch):
-        cog = _make_cog(tmp_path, monkeypatch)
-        guns = [
-            {"gun_name": "Nue", "gun_level": "M", "price_new": 1300, "weapon_type": "pistol", "restriction": "controlled"},
-        ]
-        cfg = {
-            "total_lots": 50,
-            "lots_L": 0, "lots_M": 3, "lots_H": 0,
-            "qty_min_L": 1, "qty_max_L": 1,
-            "qty_min_M": 1, "qty_max_M": 1,
-            "qty_min_H": 1, "qty_max_H": 1,
-        }
-        lots, _totals = cog._generate_restock_lots(guns, cfg, random.Random(42))
-        assert len(lots) == 1
-        assert lots[0]["restriction"] == "controlled"

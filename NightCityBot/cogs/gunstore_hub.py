@@ -159,10 +159,10 @@ class GunstoreMenuView(SafeView):
             view = GunBuySelect(cog, ctx, lots, guns_cog, black_market=True)
             await send_ephemeral(interaction, "🏴 **Black Market** — select a gun to buy:", view=view)
         else:
-            lots = _build_wholesale_lots_from_state(state)
+            lots = await _build_combined_gun_lots(guns_cog)
             if not lots:
                 await send_ephemeral(interaction,
-                    "🏭 The wholesaler is currently out of stock. Ask a Fixer to restock.")
+                    "🏭 The wholesaler has no items. Ask an admin to load the gun catalog sheet.")
                 return
             ctx = PanelContext(interaction)
             view = GunBuySelect(cog, ctx, lots, guns_cog)
@@ -176,11 +176,10 @@ class GunstoreMenuView(SafeView):
         if not guns_cog:
             await send_ephemeral(interaction, "Gun shop system unavailable.")
             return
-        state = await guns_cog._load_state()
-        lots = _build_wholesale_lots_from_state(state)
+        lots = await _build_combined_gun_lots(guns_cog)
         if not lots:
             await send_ephemeral(interaction,
-                "🏭 The wholesaler is currently out of stock. Ask a Fixer to restock.")
+                "🏭 The wholesaler has no items. Ask an admin to load the gun catalog sheet.")
             return
         from NightCityBot.utils.helpers import format_gun_lines_grouped
         lines = format_gun_lines_grouped(lots, qty_key="qty_available", max_items=len(lots))
@@ -304,22 +303,43 @@ class GunstoreMenuView(SafeView):
 
 
 def _build_catalog_lots(catalog: list[dict]) -> list[dict]:
+    """Build catalog-sourced gun lots (unlimited stock, sheet wholesale price).
+
+    Pulls the per-gun ``wholesale_price`` produced by ``guns_shop._parse_gun_rows``
+    (which falls back to ``price_new`` when the sheet has no Wholesale column).
+    """
     lots = []
     for entry in catalog:
         if str(entry.get("status", "")).strip().lower() != "live":
             continue
+        wholesale = int(entry.get("wholesale_price", 0) or 0) or int(
+            entry.get("price_new", entry.get("price", 0)) or 0
+        )
         lots.append({
             "lot_id": f"cat-{entry['gun_name']}",
             "gun_name": entry["gun_name"],
             "gun_level": entry.get("gun_level", "L"),
             "weapon_type": entry.get("weapon_type", ""),
             "gun_category": entry.get("gun_category", ""),
-            "unit_cost": int(entry.get("price", 0)),
+            "unit_cost": wholesale,
             "qty_available": 99,
             "restriction": entry.get("restriction", "basic"),
         })
     lots.sort(key=lambda l: l["gun_name"])
     return lots
+
+
+async def _build_combined_gun_lots(guns_cog) -> list[dict]:
+    """Return the full Buy-from-Wholesale list = catalog ∪ Fixer custom additions.
+
+    Catalog lots come from the gun sheet (unlimited stock); custom lots come
+    from ``state["wholesale_lots"]`` and are decremented when bought.
+    """
+    catalog = await gun_catalog_get_all()
+    catalog_lots = _build_catalog_lots(catalog)
+    state = await guns_cog._load_state() if guns_cog else {}
+    custom_lots = _build_wholesale_lots_from_state(state)
+    return catalog_lots + custom_lots
 
 
 def _build_wholesale_lots_from_state(state: dict) -> list[dict]:

@@ -142,8 +142,7 @@ class RipperdocMenuView(SafeView):
                     "❌ You don't have an initialized ripperdoc store. "
                     "Please set up your store first before buying from the catalogue.")
                 return
-        catalog = await cw_catalog_get_all()
-        lots = _build_cw_catalog_lots(catalog)
+        lots = await _build_combined_cw_lots(cw_cog)
         if not lots:
             await send_ephemeral(interaction, "No cyberware available in the catalog.")
             return
@@ -225,8 +224,8 @@ class RipperdocMenuView(SafeView):
     @discord.ui.button(label="Catalogue List", style=discord.ButtonStyle.secondary, emoji="📋", row=0, custom_id="ripperdoc:wholesale_list")
     async def wholesale_list(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        catalog = await cw_catalog_get_all()
-        lots = _build_cw_catalog_lots(catalog)
+        cw_cog = interaction.client.get_cog("CyberwareShop")
+        lots = await _build_combined_cw_lots(cw_cog) if cw_cog else _build_cw_catalog_lots(await cw_catalog_get_all())
         if not lots:
             await send_ephemeral(interaction, "No cyberware available in the catalog.")
             return
@@ -381,18 +380,61 @@ class _CheckupPatientSelectView(SafeView):
 
 
 def _build_cw_catalog_lots(catalog: list[dict]) -> list[dict]:
+    """Build catalog-sourced cyberware lots (unlimited stock, sheet wholesale price)."""
     lots = []
     for item in catalog:
+        wholesale = int(item.get("wholesale_price", 0) or 0) or int(item.get("price", 0) or 0)
         lots.append({
             "lot_id": f"cat-{item['name']}",
             "item_name": item["name"],
-            "unit_cost": int(item.get("price", 0)),
+            "unit_cost": wholesale,
             "cwp": item.get("cwp", ""),
             "slot": item.get("slot", ""),
             "qty_available": 99,
         })
     lots.sort(key=lambda l: l["item_name"])
     return lots
+
+
+def _build_cw_custom_lots_from_state(state: dict) -> list[dict]:
+    """Build custom-overlay cyberware lots added by Fixers via the panel.
+
+    These items don't appear on the catalog sheet — they're one-off prototypes
+    or special orders. Unlike catalog lots, they have finite quantities that
+    decrement when ripperdocs buy them, and disappear when stock hits zero.
+    """
+    raw_lots = state.get("cw_wholesale_lots", []) or []
+    out = []
+    for lot in raw_lots:
+        if not isinstance(lot, dict):
+            continue
+        try:
+            qty = int(lot.get("qty_available", 0))
+        except (TypeError, ValueError):
+            qty = 0
+        if qty <= 0:
+            continue
+        out.append({
+            "lot_id": lot.get("lot_id", ""),
+            "item_name": lot.get("item_name", "?"),
+            "unit_cost": int(lot.get("unit_cost", 0) or 0),
+            "cwp": lot.get("cwp", ""),
+            "slot": lot.get("slot", ""),
+            "qty_available": qty,
+            "_custom": True,
+        })
+    out.sort(key=lambda l: l["item_name"])
+    return out
+
+
+async def _build_combined_cw_lots(cw_cog) -> list[dict]:
+    """Return the full Buy-from-Catalogue list = catalog ∪ custom Fixer additions."""
+    from NightCityBot.utils.db import cw_catalog_get_all
+    catalog = await cw_catalog_get_all()
+    catalog_lots = _build_cw_catalog_lots(catalog)
+    state = await cw_cog._load_state() if cw_cog else {}
+    custom_lots = _build_cw_custom_lots_from_state(state)
+    return catalog_lots + custom_lots
 
 
 class CatalogueBuySelect(SafeView):
@@ -482,7 +524,36 @@ class CatalogueBuySelect(SafeView):
             await send_ephemeral(interaction, "Payment failed.")
             return
 
-        async with self.cw_cog._locks.acquire(str(member.id)):
+        async with self.cw_cog.lock:
+            decremented_state = None
+            if lot.get("_custom"):
+                state = await self.cw_cog._load_state()
+                custom_lots = state.get("cw_wholesale_lots", []) or []
+                target_id = lot.get("lot_id")
+                target = next((l for l in custom_lots if l.get("lot_id") == target_id), None)
+                if target is None or int(target.get("qty_available", 0)) < qty:
+                    await self.cog.unbelievaboat.update_balance(
+                        member.id,
+                        {"cash": cash_deduct, "bank": bank_deduct},
+                        reason="CW catalogue refund — custom lot stock changed",
+                    )
+                    await send_ephemeral(interaction,
+                        "⚠️ Stock changed before your purchase completed. Payment refunded.")
+                    return
+                target["qty_available"] = int(target["qty_available"]) - qty
+                state["cw_wholesale_lots"] = [l for l in custom_lots if int(l.get("qty_available", 0)) > 0]
+                state_ok = await self.cw_cog._save_state(state)
+                if not state_ok:
+                    await self.cog.unbelievaboat.update_balance(
+                        member.id,
+                        {"cash": cash_deduct, "bank": bank_deduct},
+                        reason="CW catalogue refund — state save failed",
+                    )
+                    await send_ephemeral(interaction,
+                        "⚠️ Purchase failed (state save error). Payment refunded.")
+                    return
+                decremented_state = state
+
             inventory = await self.cw_cog._load_inventory(member.id)
             for _ in range(qty):
                 item_id = str(uuid.uuid4())
@@ -506,6 +577,19 @@ class CatalogueBuySelect(SafeView):
             inv_ok = await self.cw_cog._save_inventory(member.id, inventory)
             if not inv_ok:
                 logger.error("cw catalogue buy: _save_inventory failed — refunding buyer=%s", member.id)
+                if decremented_state is not None:
+                    rollback_state = await self.cw_cog._load_state()
+                    rollback_lots = rollback_state.get("cw_wholesale_lots", []) or []
+                    target_id = lot.get("lot_id")
+                    rb_target = next((l for l in rollback_lots if l.get("lot_id") == target_id), None)
+                    if rb_target is not None:
+                        rb_target["qty_available"] = int(rb_target.get("qty_available", 0)) + qty
+                    else:
+                        restored = dict(lot)
+                        restored["qty_available"] = qty
+                        rollback_lots.append(restored)
+                        rollback_state["cw_wholesale_lots"] = rollback_lots
+                    await self.cw_cog._save_state(rollback_state)
                 await self.cog.unbelievaboat.update_balance(
                     member.id,
                     {"cash": cash_deduct, "bank": bank_deduct},

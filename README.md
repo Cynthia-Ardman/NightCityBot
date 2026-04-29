@@ -190,7 +190,7 @@ A unified interactive panel for admins and fixers to manage the shop system. Pro
 ### GunstoreHub
 *File: `NightCityBot/cogs/gunstore_hub.py`*
 
-Interactive hub for gun store owners. Provides a Discord button/menu UI to buy from wholesale, sell to customers, and manage store inventory without using text commands.
+Interactive hub for gun store owners. Provides a Discord button/menu UI to buy from the full wholesale catalogue, sell to customers, and manage store inventory without using text commands.
 
 * `!gunstore` – open the interactive gun store panel.
 
@@ -215,20 +215,20 @@ After each weekly run finishes, a per-member summary embed is posted to the cybe
 ### GunsShopCog
 *File: `NightCityBot/cogs/guns_shop.py`*
 
-Implements the gun store backend used by the Gunstore Hub (`!gunstore`) and Fixer Hub (`!fixer`). All player-facing gun-shop actions are now driven through interactive Discord menus — the legacy `!wh_*` and `!store_*` prefix commands have been removed. The cog still exposes helper methods (state management, restock logic, sheet parsing, balance helpers) for the hubs via `bot.cogs.get("GunsShopCog")`.
+Implements the gun store backend used by the Gunstore Hub (`!gunstore`) and Fixer Hub (`!fixer`). All player-facing gun-shop actions are driven through interactive Discord menus — the legacy `!wh_*` and `!store_*` prefix commands have been removed. The cog exposes helper methods (state management, sheet parsing, balance helpers) for the hubs via `bot.cogs.get("GunsShopCog")`.
 
-Lots come from the Master Gun List spreadsheet and are grouped by weapon type (Pistol, Revolver, Shotgun, Submachine Gun, Assault Rifle, etc.) based on section headers in the source spreadsheet. During restock, duplicate guns with the same name, level, cost and type are automatically consolidated into a single lot with combined quantity. Wholesaler state, transaction logs, sheet cache, wholesale lots, and per-store inventories are persisted in PostgreSQL (with local file fallback under `data/wholesaler/`) so stock survives restarts. The wholesaler auto-refreshes weekly right after cyberware processing, and all sales produce immutable receipts in the wholesaler audit channel for manual staff spreadsheet updates.
+The full Master Gun List catalogue is always available — there is no rotating wholesale lottery and no admin restock command. Each gun's wholesale cost comes from a dedicated **Wholesale Price** column in the spreadsheet (header aliases: `Wholesale Price`, `Wholesale`, `Price (Wholesale)`); if that column is blank the parser falls back to the existing `Price New` / sticker price. Guns are grouped for display by weapon type (Pistol, Revolver, Shotgun, Submachine Gun, Assault Rifle, etc.) based on section headers in the source spreadsheet. Fixers can also Add custom guns through the Fixer Hub for one-off items not present in the catalogue; these custom additions are stored as quantity-tracked overlay lots in `state["wholesale_lots"]` and appear alongside the catalogue. Sheet cache, custom-overlay lots, and per-store inventories are persisted in PostgreSQL (with local file fallback under `data/wholesaler/`) so stock survives restarts. All sales produce immutable receipts in the wholesaler audit channel for manual staff spreadsheet updates.
 
 Each weapon has a restriction level that controls who can purchase it:
 * **basic** (default) – anyone can buy, no special requirements.
 * **controlled** – only buyers on the store owner's controlled-buyer list can purchase.
 * **restricted** – requires being on the controlled-buyer list AND admin approval via audit channel reaction (5-minute timeout).
 
-Restrictions are read from a "Restriction" column in the master spreadsheet (if present), and carry over from the wholesaler to store inventories when stock is purchased through the Gunstore Hub.
+Restrictions are read from a "Restriction" column in the master spreadsheet (if present), and carry over from the catalogue to store inventories when stock is purchased through the Gunstore Hub.
 
 **Gun Store Owner workflow** — open `!gunstore` and use the buttons:
 
-* **Buy from Wholesaler / Catalogue** – browse available wholesaler stock (or, for Black Market owners, the full live catalogue at a markup) and purchase lots into your store inventory.
+* **Buy from Catalogue** – browse the full gun catalogue (plus any custom Fixer-added items) and purchase lots into your store inventory at the catalogue's wholesale price.
 * **Sell to Customer** – pick a customer + character, choose stock, set price; payment moves from buyer to seller and a receipt is posted to the audit channel.
 * **My Inventory** – view your current store stock grouped by weapon type.
 * **Controlled-Buyer List** – approve/unapprove customers for controlled and restricted weapons.
@@ -311,10 +311,10 @@ pytest
 
 Key test files:
 
-* `test_wholesaler_full.py` – covers the wholesaler backend end-to-end: spreadsheet parsing with weapon type assignment, restock lot consolidation, state save/load roundtrips, wholesale buying (success, insufficient funds, invalid lot, zero qty, exceeding stock), player sales (success, buyer/seller failures, pending payouts), shop registry management, transaction logging, full lifecycle flows (restock → buy → sell), multi-store independence, display grouping by weapon type, restock settings, gun restrictions (basic/controlled/restricted enforcement and restriction carry-over), controlled-buyer list management, and URL-normalisation edge cases.
-* `test_wholesaler_parsing.py` – **35 tests** for parsing logic, restock math, state migration, and file persistence.
-* `test_wholesaler_commands.py` – smoke tests verifying all wholesaler commands are registered.
-* `test_release_readiness_simulation.py` – simulated multi-week economy + wholesaler cycles with buy/sell and UnbelievaBoat balance transfers.
+* `test_wholesaler_full.py` – covers the gun-store backend end-to-end: spreadsheet parsing with weapon type assignment and Wholesale Price column, state save/load roundtrips, catalogue buying (success, insufficient funds, invalid lot), player sales (success, buyer/seller failures, pending payouts), shop registry management, transaction logging, full lifecycle flows (catalogue → buy → sell), multi-store independence, display grouping by weapon type, gun restrictions (basic/controlled/restricted enforcement and restriction carry-over), controlled-buyer list management, and URL-normalisation edge cases.
+* `test_wholesaler_parsing.py` – tests for parsing logic, state migration, and file persistence.
+* `test_wholesaler_commands.py` – smoke tests verifying all gun-store commands are registered.
+* `test_release_readiness_simulation.py` – simulated multi-week economy + catalogue cycles with buy/sell and UnbelievaBoat balance transfers.
 
 For release-readiness checks only:
 
@@ -337,6 +337,6 @@ All steps below run through the interactive hubs — there are no `!wh_*` text c
 
 1. **Grant store permissions role** to the player (one of `WHOLESALER_STORE_ROLE_IDS`).
 2. **Bind a shop alias** to that owner: open `!fixer` → **Store** → use the shop-binding flow to attach an alias (e.g. `shop1`) to the user.
-3. **Seed inventory** either by wholesaler flow (the new owner opens `!gunstore` → **Buy from Wholesaler**) or direct admin injection via `!fixer` → **Store** → select the store → **Add Item**.
+3. **Seed inventory** either by catalogue flow (the new owner opens `!gunstore` → **Buy from Catalogue**) or direct admin injection via `!fixer` → **Store** → select the store → **Add Item**.
 4. **Verify mapping and stock** in `!fixer` → **Store** (lists shops and lets you inspect any inventory).
-5. (Optional) **Set/rotate the source sheet URL live** through `!admin_shop` (or by updating the configured sheet URL); the wholesaler auto-refreshes weekly.
+5. (Optional) **Set/rotate the source sheet URL live** through `!admin_shop` (or by updating the configured sheet URL); the cached catalogue refreshes from the sheet automatically.

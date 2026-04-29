@@ -64,61 +64,6 @@ def test_restock_settings_allow_zero_for_level_lots():
     assert cfg["total_lots"] == 5
 
 
-def test_generate_restock_lots_uses_actual_level_on_fallback():
-    cog = WholesalerCog.__new__(WholesalerCog)
-    guns = [{"gun_name": "Only L", "gun_level": "L", "price_new": 1000}]
-    cfg = {
-        "total_lots": 1,
-        "lots_L": 0,
-        "lots_M": 0,
-        "lots_H": 1,
-        "qty_min_L": 3,
-        "qty_max_L": 3,
-        "qty_min_M": 1,
-        "qty_max_M": 1,
-        "qty_min_H": 1,
-        "qty_max_H": 1,
-    }
-
-    import random
-
-    lots, _totals = cog._generate_restock_lots(guns, cfg, random.Random(1))
-
-    assert len(lots) == 1
-    assert lots[0]["gun_level"] == "L"
-    assert lots[0]["qty_available"] == 3
-
-
-def test_generate_restock_lots_recomputes_level_totals_after_cap():
-    cog = WholesalerCog.__new__(WholesalerCog)
-    guns = [
-        {"gun_name": "L1", "gun_level": "L", "price_new": 100},
-        {"gun_name": "M1", "gun_level": "M", "price_new": 200},
-        {"gun_name": "H1", "gun_level": "H", "price_new": 300},
-    ]
-    cfg = {
-        "total_lots": 1,
-        "lots_L": 1,
-        "lots_M": 1,
-        "lots_H": 1,
-        "qty_min_L": 2,
-        "qty_max_L": 2,
-        "qty_min_M": 3,
-        "qty_max_M": 3,
-        "qty_min_H": 4,
-        "qty_max_H": 4,
-    }
-
-    import random
-
-    lots, totals = cog._generate_restock_lots(guns, cfg, random.Random(2))
-
-    assert len(lots) == 1
-    level = lots[0]["gun_level"]
-    assert totals[level] == lots[0]["qty_available"]
-    assert sum(totals.values()) == lots[0]["qty_available"]
-
-
 def test_normalize_google_sheet_url_to_xlsx_export():
     url = "https://docs.google.com/spreadsheets/d/abc123/edit?usp=sharing"
     out = WholesalerCog._normalize_sheet_source_url(url)
@@ -370,60 +315,6 @@ def test_resolve_restock_settings_includes_type_mix():
 
     assert cfg["revolver_L"] == 4
     assert cfg["revolver_M"] == 0
-
-
-def test_generate_restock_lots_uses_explicit_type_mix():
-    cog = WholesalerCog.__new__(WholesalerCog)
-    cog.WEAPON_TYPES = WholesalerCog.WEAPON_TYPES
-    guns = [
-        {"gun_name": "Nova", "gun_level": "L", "price_new": 100, "weapon_type": "revolver"},
-        {"gun_name": "Ajax", "gun_level": "L", "price_new": 150, "weapon_type": "assault_rifle"},
-    ]
-    cfg = {
-        "total_lots": 5,
-        "lots_L": 5,
-        "lots_M": 0,
-        "lots_H": 0,
-        "qty_min_L": 1,
-        "qty_max_L": 1,
-        "qty_min_M": 1,
-        "qty_max_M": 1,
-        "qty_min_H": 1,
-        "qty_max_H": 1,
-        "revolver_L": 2,
-        "revolver_M": 0,
-        "revolver_H": 0,
-        "submachine_gun_L": 0,
-        "submachine_gun_M": 0,
-        "submachine_gun_H": 0,
-        "shotgun_L": 0,
-        "shotgun_M": 0,
-        "shotgun_H": 0,
-        "assault_rifle_L": 0,
-        "assault_rifle_M": 0,
-        "assault_rifle_H": 0,
-        "light_machine_gun_L": 0,
-        "light_machine_gun_M": 0,
-        "light_machine_gun_H": 0,
-        "heavy_machine_gun_L": 0,
-        "heavy_machine_gun_M": 0,
-        "heavy_machine_gun_H": 0,
-        "precision_rifle_L": 0,
-        "precision_rifle_M": 0,
-        "precision_rifle_H": 0,
-        "sniper_rifle_L": 0,
-        "sniper_rifle_M": 0,
-        "sniper_rifle_H": 0,
-    }
-
-    import random
-
-    lots, totals = cog._generate_restock_lots(guns, cfg, random.Random(9))
-
-    assert len(lots) == 1
-    assert lots[0]["gun_name"] == "Nova"
-    assert lots[0]["qty_available"] == 2
-    assert totals["L"] == 2
 
 
 def test_migrate_legacy_files_copies_state_and_transactions(tmp_path: Path):

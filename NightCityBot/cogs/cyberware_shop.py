@@ -286,18 +286,8 @@ class CyberwareShop(commands.Cog):
             await ctx.send("❌ qty must be at least 1.")
             return
 
-        catalog = await cw_catalog_get_all()
-        lots = [
-            {
-                "lot_id": f"cat-{item['name']}",
-                "item_name": item["name"],
-                "unit_cost": int(item.get("price", 0)),
-                "cwp": item.get("cwp", ""),
-                "slot": item.get("slot", ""),
-                "qty_available": 99,
-            }
-            for item in catalog
-        ]
+        from NightCityBot.cogs.ripperdoc_hub import _build_combined_cw_lots
+        lots = await _build_combined_cw_lots(self)
         all_ordered = self._slot_ordered_lots(lots)
 
         if not all_ordered:
@@ -345,6 +335,37 @@ class CyberwareShop(commands.Cog):
 
         async with self.lock:
             now_iso = self._now_iso()
+            decremented_custom = False
+            if lot.get("_custom"):
+                state = await self._load_state()
+                custom_lots = state.get("cw_wholesale_lots", []) or []
+                target_id = lot.get("lot_id")
+                target = next((l for l in custom_lots if l.get("lot_id") == target_id), None)
+                if target is None or int(target.get("qty_available", 0)) < qty:
+                    await self.unbelievaboat.update_balance(
+                        ctx.author.id,
+                        {"cash": cash_deduct, "bank": bank_deduct},
+                        reason=f"Cyberware buy refund (custom lot stock changed): {lot['item_name']}",
+                    )
+                    await ctx.send(
+                        "❌ Stock changed before your purchase completed. Payment refunded."
+                    )
+                    return
+                target["qty_available"] = int(target["qty_available"]) - qty
+                state["cw_wholesale_lots"] = [l for l in custom_lots if int(l.get("qty_available", 0)) > 0]
+                state_ok = await self._save_state(state)
+                if not state_ok:
+                    await self.unbelievaboat.update_balance(
+                        ctx.author.id,
+                        {"cash": cash_deduct, "bank": bank_deduct},
+                        reason=f"Cyberware buy refund (state save failed): {lot['item_name']}",
+                    )
+                    await ctx.send(
+                        "❌ Failed to update custom stock. Your payment has been refunded."
+                    )
+                    return
+                decremented_custom = True
+
             inventory = await self._load_inventory(ctx.author.id)
             new_items = []
             for _ in range(qty):
@@ -361,6 +382,19 @@ class CyberwareShop(commands.Cog):
                 for ni in new_items:
                     if ni in inventory:
                         inventory.remove(ni)
+                if decremented_custom:
+                    rollback_state = await self._load_state()
+                    rollback_lots = rollback_state.get("cw_wholesale_lots", []) or []
+                    target_id = lot.get("lot_id")
+                    rb_target = next((l for l in rollback_lots if l.get("lot_id") == target_id), None)
+                    if rb_target is not None:
+                        rb_target["qty_available"] = int(rb_target.get("qty_available", 0)) + qty
+                    else:
+                        restored = dict(lot)
+                        restored["qty_available"] = qty
+                        rollback_lots.append(restored)
+                        rollback_state["cw_wholesale_lots"] = rollback_lots
+                    await self._save_state(rollback_state)
                 await self.unbelievaboat.update_balance(
                     ctx.author.id,
                     {"cash": cash_deduct, "bank": bank_deduct},
