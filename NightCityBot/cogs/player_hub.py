@@ -722,7 +722,15 @@ class PlayerHubView(SafeView):
     @discord.ui.button(label="Weekly Cyberware", style=discord.ButtonStyle.secondary, emoji="💊", row=3, custom_id="player_hub:weekly_cyber")
     async def view_weekly_cyberware(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Preview the upcoming Monday cyberware medication charge."""
-        await interaction.response.defer(ephemeral=True)
+        # Guard against double-dispatch (e.g. duplicate persistent-view
+        # registration or two bot instances sharing the same token briefly
+        # racing on the same interaction). Only one defer per interaction.
+        if interaction.response.is_done():
+            return
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except discord.HTTPException:
+            return
         guild = interaction.guild
         if not guild:
             await send_ephemeral(interaction, "Must be used in a server.")
@@ -743,6 +751,17 @@ class PlayerHubView(SafeView):
             return
 
         if preview is None:
+            # Log exactly what role IDs the bot saw so we can diagnose any
+            # future false-negatives (e.g. role-cache vs raw-payload mismatch).
+            try:
+                raw_ids = list(getattr(member, "_roles", []) or [])
+                cached_ids = [getattr(r, "id", None) for r in getattr(member, "roles", []) or []]
+                logger.info(
+                    "weekly_cyber preview None for user=%s raw_roles=%s cached_roles=%s",
+                    member.id, raw_ids, cached_ids,
+                )
+            except Exception:
+                pass
             await send_ephemeral(interaction,
                 "💊 **Weekly Cyberware Preview**\n"
                 "You owe **$0** this week. (No Medium/High/Extreme cyberware role, "

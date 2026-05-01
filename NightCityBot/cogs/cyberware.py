@@ -90,19 +90,32 @@ class CyberwareManager(commands.Cog):
         guild = member.guild
         if guild is None:
             return None
-        # Pull role IDs from the raw payload (`Member._roles`) rather than the
-        # `Member.roles` property. The property filters every role through
-        # `guild.get_role()` and silently drops any ID the guild's role cache
-        # doesn't currently know about — which produces a false-negative
-        # "no cyberware role" result when the cache is briefly stale (e.g.
-        # right after a gateway resume or bot restart). The raw `_roles`
-        # snowflake list comes straight from Discord's interaction payload
-        # and always reflects the member's real, current roles.
+        # Build role-ID set from BOTH the raw payload (`Member._roles`) AND
+        # the resolved `Member.roles` property. Either source can be lossy
+        # in different scenarios:
+        #   - `member.roles` is a property that filters every role through
+        #     `guild.get_role()` and silently drops any ID the guild's role
+        #     cache doesn't currently know about (briefly stale right after
+        #     a gateway resume or restart).
+        #   - `member._roles` is the raw snowflake list from the payload but
+        #     can be missing/empty on partial Member objects (e.g. ones built
+        #     from message references rather than gateway/interaction data).
+        # Unioning both gives us the most accurate picture in every code
+        # path that calls this preview, including button interactions.
+        member_role_ids: set[int] = set()
         raw_role_ids = getattr(member, "_roles", None)
         if raw_role_ids is not None:
-            member_role_ids = set(int(r) for r in raw_role_ids)
-        else:
-            member_role_ids = {r.id for r in getattr(member, "roles", [])}
+            try:
+                member_role_ids.update(int(r) for r in raw_role_ids)
+            except (TypeError, ValueError):
+                pass
+        for r in getattr(member, "roles", []) or []:
+            rid = getattr(r, "id", None)
+            if rid is not None:
+                try:
+                    member_role_ids.add(int(rid))
+                except (TypeError, ValueError):
+                    pass
         if config.LOA_ROLE_ID in member_role_ids:
             return None
         if config.RIPPERDOC_ROLE_ID in member_role_ids:

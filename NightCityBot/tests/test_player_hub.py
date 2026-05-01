@@ -82,6 +82,7 @@ def _make_interaction(user_id=100, guild_id=999, cog=None, inv_cog=None):
     inter.response.defer = AsyncMock()
     inter.response.send_message = AsyncMock()
     inter.response.edit_message = AsyncMock()
+    inter.response.is_done = MagicMock(return_value=False)
     inter.followup = MagicMock()
     inter.followup.send = AsyncMock()
     inter.guild = MagicMock()
