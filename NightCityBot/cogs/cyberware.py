@@ -90,11 +90,19 @@ class CyberwareManager(commands.Cog):
         guild = member.guild
         if guild is None:
             return None
-        # Check by role-ID directly against the member's roles. This avoids
-        # `guild.get_role()` returning None when the guild's role cache isn't
-        # fully populated in an interaction context — the member object always
-        # carries its real role IDs from Discord.
-        member_role_ids = {r.id for r in getattr(member, "roles", [])}
+        # Pull role IDs from the raw payload (`Member._roles`) rather than the
+        # `Member.roles` property. The property filters every role through
+        # `guild.get_role()` and silently drops any ID the guild's role cache
+        # doesn't currently know about — which produces a false-negative
+        # "no cyberware role" result when the cache is briefly stale (e.g.
+        # right after a gateway resume or bot restart). The raw `_roles`
+        # snowflake list comes straight from Discord's interaction payload
+        # and always reflects the member's real, current roles.
+        raw_role_ids = getattr(member, "_roles", None)
+        if raw_role_ids is not None:
+            member_role_ids = set(int(r) for r in raw_role_ids)
+        else:
+            member_role_ids = {r.id for r in getattr(member, "roles", [])}
         if config.LOA_ROLE_ID in member_role_ids:
             return None
         if config.RIPPERDOC_ROLE_ID in member_role_ids:

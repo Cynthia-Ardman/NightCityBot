@@ -138,8 +138,19 @@
       "restriction": "restricted",
       "weapon_type": "precision_rifle",
       "gun_category": "Tech"
+    },
+    {
+      "lot_id": "fixer-20260501-d3bd32",
+      "gun_name": "Liindy Lever Action Tech Rifle",
+      "gun_level": "M",
+      "unit_cost": 25000,
+      "qty_remaining": 1,
+      "item_ids": [],
+      "restriction": "restricted",
+      "weapon_type": "assault_rifle",
+      "gun_category": "Tech"
     }
   ],
   "controlled_buyers": [],
-  "updated_at": "2026-04-29T23:38:22.021893+00:00"
+  "updated_at": "2026-05-01T16:15:26.002216+00:00"
 }

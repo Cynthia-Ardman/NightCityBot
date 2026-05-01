@@ -271,6 +271,7 @@ def _make_member_for_cyber(role_ids):
     guild.get_role.side_effect = _get_role
     member = MagicMock(spec=discord.Member)
     member.roles = roles
+    member._roles = list(role_ids)
     member.guild = guild
     member.id = 12345
     return member
@@ -339,30 +340,36 @@ def test_preview_weekly_cost_with_checkup_charges_next_streak():
     assert out["next_charge_weeks"] == out["upcoming_weeks"]
 
 
-def test_preview_weekly_cost_works_when_guild_get_role_returns_none():
-    """Regression: a high-cyber player should still be detected even when
-    `guild.get_role()` returns None for cached lookups (which can happen in
-    interaction contexts where the role cache isn't fully populated). The
-    member object's role IDs are the source of truth.
+def test_preview_weekly_cost_works_when_guild_role_cache_is_stale():
+    """Regression: when the guild's role cache is briefly stale (right after
+    a gateway resume or restart) `member.roles` returns an empty/filtered
+    list because discord.py's `Member.roles` property silently drops any role
+    ID that `guild.get_role()` returns None for. The fix reads the raw role
+    IDs from `member._roles` (the snowflake list straight from Discord's
+    payload), which always reflects the member's real, current roles.
+
+    Production symptom: player owns Cyberware High but the Weekly Cyberware
+    button reported "no Medium/High/Extreme cyberware role".
     """
     cyber = _make_cyberware()
 
-    role = MagicMock(spec=discord.Role)
-    role.id = config.CYBER_HIGH_ROLE_ID
-    role.name = "High Cyberware"
-
     guild = MagicMock()
-    guild.get_role = MagicMock(return_value=None)  # role cache "empty"
+    # Simulate a stale role cache: every lookup returns None.
+    guild.get_role = MagicMock(return_value=None)
 
     member = MagicMock(spec=discord.Member)
     member.id = 99999
-    member.roles = [role]
+    # `member.roles` is empty because the property filtered out every role
+    # via the now-empty role cache.
+    member.roles = []
+    # ...but the raw payload still carries the truth.
+    member._roles = [config.CYBER_HIGH_ROLE_ID]
     member.guild = guild
 
     cyber.data = {}
     out = cyber.preview_weekly_cost(member)
 
-    assert out is not None, "should detect High cyber via role IDs even when get_role returns None"
+    assert out is not None, "must detect cyber level from raw role IDs even when role cache is empty"
     assert out["level"] == "high"
     assert out["next_charge_cost"] > 0
 
