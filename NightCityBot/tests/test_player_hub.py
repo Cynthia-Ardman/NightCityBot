@@ -3020,6 +3020,79 @@ class TestPlayerHubWeeklyCyberwareButton:
 
         _run(_test())
 
+    def test_weekly_cyber_high_streak_no_checkup_explains_reset(self):
+        """Regression: a member with a stale 9-week streak but no checkup
+        role should NOT see "9 weeks" presented as if it'll drive the next
+        charge. The message must explain the reset behavior so 'streak: 9
+        + next charge $39 (week 1)' isn't contradictory-looking."""
+        async def _test():
+            view = PlayerHubView()
+            inter = _make_interaction()
+            inter.user = MagicMock(spec=discord.Member)
+            inter.user.id = 555
+            inter.user.display_name = "ConfusedPlayer"
+            inter.client.unbelievaboat = MagicMock()
+            inter.client.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 13361, "bank": 0})
+
+            cyber = MagicMock()
+            cyber.preview_weekly_cost = MagicMock(return_value={
+                "level": "high",
+                "has_checkup": False,
+                "current_streak": 9,
+                "upcoming_weeks": 9,
+                "cost": 0,
+                "next_charge_cost": 39,
+                "next_charge_weeks": 1,
+                "exempt_reason": None,
+            })
+            orig = inter.client.get_cog
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cyber if n == "CyberwareManager" else orig(n))
+
+            btn = _find_button(view, "Weekly Cyberware")
+            await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            # Both numbers should still be there but the explanation must too
+            assert "9 week" in msg  # the stale streak
+            assert "$39" in msg     # the next charge
+            assert "week 1" in msg  # what the next charge is for
+            # And the wording should explicitly say the streak gets wiped
+            assert "wiped clean" in msg.lower() or "reset" in msg.lower()
+
+        _run(_test())
+
+    def test_weekly_cyber_ripperdoc_with_stale_streak_marks_it_frozen(self):
+        async def _test():
+            view = PlayerHubView()
+            inter = _make_interaction()
+            inter.user = MagicMock(spec=discord.Member)
+            inter.user.id = 556
+            inter.user.display_name = "FrozenStreakRipper"
+            inter.client.unbelievaboat = MagicMock()
+            inter.client.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 100, "bank": 0})
+
+            cyber = MagicMock()
+            cyber.preview_weekly_cost = MagicMock(return_value={
+                "level": "high",
+                "has_checkup": False,
+                "current_streak": 9,
+                "upcoming_weeks": 9,
+                "cost": 0,
+                "next_charge_cost": 39,
+                "next_charge_weeks": 1,
+                "exempt_reason": "ripperdoc",
+            })
+            orig = inter.client.get_cog
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cyber if n == "CyberwareManager" else orig(n))
+
+            btn = _find_button(view, "Weekly Cyberware")
+            await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "Ripperdoc" in msg
+            assert "frozen" in msg.lower()
+            assert "9 week" in msg
+
+        _run(_test())
+
     def test_weekly_cyber_loa_shows_exempt_with_level(self):
         async def _test():
             view = PlayerHubView()

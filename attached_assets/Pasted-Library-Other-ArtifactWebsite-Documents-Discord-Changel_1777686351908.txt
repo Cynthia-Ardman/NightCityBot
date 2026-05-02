@@ -1,0 +1,200 @@
+Library
+Other
+ArtifactWebsite
+Documents
+Discord Changelog — NightCityBot v3.0 UpdateText
+Databases
+Development Database30.92MB / 20GB
+Production Database34.45MB / 100GB
+Billing PeriodRenews monthly, May 31
+Hours of Compute Used0.38 hours
+Production
+Status
+Cynthia published about 1 hour ago
+Visibility
+Public
+Domain
+https://night-city-botv-2-CynthiaArdman.replit.app
+Geography
+North America
+Type
+Reserved VM(0.5 vCPU / 2 GiB RAM)
+Database
+Production database connected
+Your production database is ready! Your app can now save and manage live user data securely.
+968a4dc8
+CA
+CynthiaArdman
+Cynthiapublished about 7 hours ago
+8ee6ee39
+CA
+CynthiaArdman
+Cynthiapublished about 8 hours ago
+e84dcb51
+CA
+CynthiaArdman
+Cynthiapublished 2 days ago
+65f27efa
+CA
+CynthiaArdman
+Cynthiapublished 3 days ago
+5648450b
+CA
+CynthiaArdman
+Cynthiapublished 3 days ago
+153c5239
+CA
+CynthiaArdman
+Cynthiapublished 3 days ago
+c96925f9
+CA
+CynthiaArdman
+Cynthiapublished 3 days ago
+73b32202
+CA
+CynthiaArdman
+Cynthiapublished 3 days ago
+f9b2950e
+CA
+CynthiaArdman
+Cynthiapublished 3 days ago
+90b6a616
+CA
+CynthiaArdman
+Cynthiapublished 3 days ago
+1e106a7f
+CA
+CynthiaArdman
+Cynthiapublished 3 days ago
+52730920
+CA
+CynthiaArdman
+Cynthiapublished 3 days ago
+5f00fd99
+CA
+CynthiaArdman
+Cynthiapublished 3 days ago
+b6309922
+CA
+CynthiaArdman
+Cynthiapublished 4 days ago
+c302467f
+CA
+CynthiaArdman
+Cynthiapublished 15 days ago
+35fd0268
+CA
+CynthiaArdman
+Cynthiapublished 19 days ago
+5bfdff27
+CA
+CynthiaArdman
+Cynthiapublished 25 days ago
+f64be0b1
+CA
+CynthiaArdman
+Cynthiapublished 26 days ago
+b7c7f031
+CA
+CynthiaArdman
+Cynthiapublished 26 days ago
+4d8e3dd4
+CA
+CynthiaArdman
+Cynthiapublished 26 days ago
+db1d0123
+CA
+CynthiaArdman
+Cynthiapublished 26 days ago
+bd6816a9
+CA
+CynthiaArdman
+Cynthiapublished 26 days ago
+ecd63f90
+CA
+CynthiaArdman
+Cynthiapublished 26 days ago
+3c62ac9d
+CA
+CynthiaArdman
+Cynthiapublished 26 days ago
+930ae2d5
+CA
+CynthiaArdman
+Cynthiafailed to publish 26 days ago
+893d2793
+CA
+CynthiaArdman
+Cynthiapublished 26 days ago
+8a970045
+CA
+CynthiaArdman
+Cynthiapublished 26 days ago
+0beae97c
+CA
+CynthiaArdman
+Cynthiapublished 26 days ago
+a7a557ef
+CA
+CynthiaArdman
+Cynthiapublished 26 days ago
+4023fc70
+CA
+CynthiaArdman
+Cynthiapublished 26 days ago
+61bab73a
+CA
+CynthiaArdman
+Cynthiapublished 27 days ago
+8fbca0b4
+CA
+CynthiaArdman
+Cynthiapublished 27 days ago
+1b2c8830
+CA
+CynthiaArdman
+Cynthiapublished 27 days ago
+7f4ba559
+CA
+CynthiaArdman
+Cynthiapublished 27 days ago
+2902d0b7
+CA
+CynthiaArdman
+Cynthiapublished 27 days ago
+d6934141
+CA
+CynthiaArdman
+Cynthiapublished 27 days ago
+aff338a5
+CA
+CynthiaArdman
+Cynthiapublished 27 days ago
+fd857426
+CA
+CynthiaArdman
+Cynthiapublished 27 days ago
+2c272b78
+CA
+CynthiaArdman
+Cynthiapublished 28 days ago
+Published your App
+
+This is after the fix was deployed
+7 hours ago
+7 hours ago
+
+Same issue. It's not picking up my role or the roles I have when I click weekly cyberware costs in the player hub
+1 hour ago
+
+But I do get charged weekly don't I?
+1 hour ago
+
+Cyberware level: High
+Missed-checkup streak in records: 9 week(s)
+You don't currently have the checkup-due role. $0 will be deducted this Monday — you'll just be flagged.
+If you don't visit a Ripperdoc before the following Monday, you'll be charged $39 (week 1 of missed checkups), and the cost doubles every week after until it caps out.
+💰 Current balance: $13,361 cash + $0 bank = $13,361 total
+✅ You can cover the next $39 cyberware charge ($13,322 left over).
+
+How is my streak 9 weeks but i'm not being charged anything? thats confusing

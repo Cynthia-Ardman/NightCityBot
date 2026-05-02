@@ -780,21 +780,44 @@ class PlayerHubView(SafeView):
         lines = [
             "💊 **Weekly Cyberware Preview**",
             f"Cyberware level: **{level}**",
-            f"Missed-checkup streak in records: **{current_streak} week(s)**",
         ]
+        # The "streak" only ever counts up while the checkup-due role is
+        # active. When the role is missing, the next weekly run resets the
+        # streak to 0 before doing anything else, so showing the stale
+        # number prominently is misleading. Only surface it when it
+        # actually matters (you currently have checkup-due AND aren't
+        # exempt). Otherwise mention it in a small footnote that explains
+        # what will happen to it.
         if exempt_reason == "loa":
             lines.append(
                 "🏖️ **You're on LOA** — no cyberware charge will be applied "
                 "while your Leave of Absence is active."
             )
+            if current_streak > 0:
+                lines.append(
+                    f"_(Records show an old missed-checkup streak of "
+                    f"**{current_streak} week(s)**, but it's frozen while "
+                    f"you're on LOA.)_"
+                )
             charge_for_afford = 0
         elif exempt_reason == "ripperdoc":
             lines.append(
                 "🩺 **You're a Ripperdoc** — Ripperdocs are exempt from "
                 "weekly cyberware medication charges."
             )
+            if current_streak > 0:
+                lines.append(
+                    f"_(Records show an old missed-checkup streak of "
+                    f"**{current_streak} week(s)** from before you became a "
+                    f"Ripperdoc. It's frozen and won't ever be charged "
+                    f"while you have the Ripperdoc role.)_"
+                )
             charge_for_afford = 0
         elif has_checkup:
+            lines.append(
+                f"Missed-checkup streak: **{current_streak} week(s)** "
+                f"(used to calculate your charge)."
+            )
             lines.append(
                 f"You currently have the **checkup-due** role. Estimated charge "
                 f"this Monday: **${cost:,}** (week {upcoming_weeks} of missed "
@@ -808,8 +831,16 @@ class PlayerHubView(SafeView):
         else:
             lines.append(
                 f"You don't currently have the **checkup-due** role. **$0** "
-                f"will be deducted this Monday — you'll just be flagged."
+                f"will be deducted this Monday — the system will assign you "
+                f"the checkup-due role and **reset your streak to 0**."
             )
+            if current_streak > 0:
+                lines.append(
+                    f"_(Records currently show **{current_streak} week(s)** "
+                    f"of missed checkups, but that gets wiped clean on "
+                    f"Monday since you don't currently have the checkup "
+                    f"role — that's why your next charge starts at week 1.)_"
+                )
             lines.append(
                 f"If you don't visit a Ripperdoc before the following Monday, "
                 f"you'll be charged **${next_charge_cost:,}** "
