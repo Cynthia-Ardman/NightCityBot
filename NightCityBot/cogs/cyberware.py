@@ -69,16 +69,21 @@ class CyberwareManager(commands.Cog):
     def preview_weekly_cost(self, member: discord.Member) -> Optional[Dict]:
         """Return the upcoming-Monday cyberware med preview for a member.
 
-        Returns ``None`` if the member is exempt (no cyberware role, on LOA,
-        or is a Ripperdoc). Otherwise returns a dict with:
+        Returns ``None`` ONLY when the member has no Medium/High/Extreme
+        cyberware role at all (nothing to preview). LOA and Ripperdoc
+        exemptions still suppress the actual charge but the preview will
+        return the cyber data plus an ``exempt_reason`` so the caller can
+        explain WHY there's no charge instead of leaving the user guessing.
+
+        Result dict fields:
 
         - ``level``: "medium" / "high" / "extreme"
         - ``has_checkup``: bool, True if they currently have the checkup role
-          (meaning they will be charged this Monday)
+          (meaning they would be charged this Monday)
         - ``current_streak``: int, weeks already missed in the DB
         - ``upcoming_weeks``: int, the streak count after Monday's run
         - ``cost``: int, dollars they will owe THIS Monday (0 if no checkup
-          role currently — they'll just be flagged)
+          role currently — they'll just be flagged; also 0 if exempt)
         - ``next_charge_cost``: int, projected cost the next time the system
           actually charges them (i.e. once they have the checkup role active
           on a Monday). Always > 0 for Medium/High/Extreme members so the
@@ -86,6 +91,9 @@ class CyberwareManager(commands.Cog):
         - ``next_charge_weeks``: int, the streak the projected charge applies
           to (current_streak + 1 if has_checkup, otherwise 1 because the
           streak gets reset when the role is freshly assigned).
+        - ``exempt_reason``: Optional[str], either ``"loa"``, ``"ripperdoc"``
+          or ``None`` if not exempt. When set, no charge will be applied by
+          the weekly task.
         """
         guild = member.guild
         if guild is None:
@@ -116,10 +124,6 @@ class CyberwareManager(commands.Cog):
                     member_role_ids.add(int(rid))
                 except (TypeError, ValueError):
                     pass
-        if config.LOA_ROLE_ID in member_role_ids:
-            return None
-        if config.RIPPERDOC_ROLE_ID in member_role_ids:
-            return None
 
         if config.CYBER_EXTREME_ROLE_ID in member_role_ids:
             level = "extreme"
@@ -130,6 +134,14 @@ class CyberwareManager(commands.Cog):
         else:
             return None
 
+        # Determine exemption AFTER detecting the cyber level so the caller
+        # can show "you have High Cyberware but you're exempt because X".
+        exempt_reason: Optional[str] = None
+        if config.LOA_ROLE_ID in member_role_ids:
+            exempt_reason = "loa"
+        elif config.RIPPERDOC_ROLE_ID in member_role_ids:
+            exempt_reason = "ripperdoc"
+
         has_checkup = config.CYBER_CHECKUP_ROLE_ID in member_role_ids
 
         entry = self.data.get(str(member.id), {"weeks": 0, "last": None})
@@ -137,8 +149,9 @@ class CyberwareManager(commands.Cog):
 
         if has_checkup:
             upcoming = current_streak + 1
-            cost = self.calculate_cost(level, upcoming)
-            next_charge_cost = cost
+            raw_cost = self.calculate_cost(level, upcoming)
+            cost = 0 if exempt_reason else raw_cost
+            next_charge_cost = raw_cost
             next_charge_weeks = upcoming
         else:
             upcoming = current_streak
@@ -156,6 +169,7 @@ class CyberwareManager(commands.Cog):
             "current_streak": current_streak,
             "upcoming_weeks": upcoming,
             "cost": cost,
+            "exempt_reason": exempt_reason,
             "next_charge_cost": next_charge_cost,
             "next_charge_weeks": next_charge_weeks,
         }

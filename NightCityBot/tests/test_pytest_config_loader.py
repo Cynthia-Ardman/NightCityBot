@@ -283,21 +283,61 @@ def test_preview_weekly_cost_no_cyber_role_returns_none():
     assert cyber.preview_weekly_cost(member) is None
 
 
-def test_preview_weekly_cost_loa_returns_none():
+def test_preview_weekly_cost_loa_returns_exempt_with_level():
+    """LOA member with cyberware: preview returns full data + exempt_reason='loa'.
+    Cost stays $0 because the weekly task won't actually charge them."""
     cyber = _make_cyberware()
     member = _make_member_for_cyber([
         config.LOA_ROLE_ID,
         config.CYBER_HIGH_ROLE_ID,
+        config.CYBER_CHECKUP_ROLE_ID,  # would have been charged if not on LOA
     ])
-    assert cyber.preview_weekly_cost(member) is None
+    cyber.data = {str(member.id): {"weeks": 2, "last": None}}
+    out = cyber.preview_weekly_cost(member)
+    assert out is not None
+    assert out["level"] == "high"
+    assert out["exempt_reason"] == "loa"
+    assert out["cost"] == 0  # no charge while on LOA
+    # next_charge_cost still shows what they'd owe so they understand the system
+    assert out["next_charge_cost"] > 0
 
 
-def test_preview_weekly_cost_ripperdoc_returns_none():
+def test_preview_weekly_cost_ripperdoc_returns_exempt_with_level():
+    """Ripperdoc with cyberware: preview returns full data + exempt_reason='ripperdoc'.
+    This is the original user-reported bug — they had Cyber High AND Ripperdoc
+    and the button hid all info behind a vague catch-all message."""
     cyber = _make_cyberware()
     member = _make_member_for_cyber([
         config.RIPPERDOC_ROLE_ID,
         config.CYBER_HIGH_ROLE_ID,
+        config.CYBER_CHECKUP_ROLE_ID,
     ])
+    cyber.data = {str(member.id): {"weeks": 1, "last": None}}
+    out = cyber.preview_weekly_cost(member)
+    assert out is not None
+    assert out["level"] == "high"
+    assert out["exempt_reason"] == "ripperdoc"
+    assert out["cost"] == 0
+    assert out["next_charge_cost"] > 0
+
+
+def test_preview_weekly_cost_loa_takes_precedence_over_ripperdoc():
+    cyber = _make_cyberware()
+    member = _make_member_for_cyber([
+        config.LOA_ROLE_ID,
+        config.RIPPERDOC_ROLE_ID,
+        config.CYBER_HIGH_ROLE_ID,
+    ])
+    out = cyber.preview_weekly_cost(member)
+    assert out is not None
+    assert out["exempt_reason"] == "loa"
+
+
+def test_preview_weekly_cost_no_cyber_role_returns_none_even_for_loa():
+    """A LOA member with NO cyber roles still returns None — there's nothing
+    to preview."""
+    cyber = _make_cyberware()
+    member = _make_member_for_cyber([config.LOA_ROLE_ID])
     assert cyber.preview_weekly_cost(member) is None
 
 

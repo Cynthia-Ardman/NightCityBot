@@ -221,3 +221,81 @@ def test_process_week_dms_user_on_first_checkup_assignment():
     assert "Checkup Due" in msg
     # No deduction message should have been sent
     assert "Charged" not in msg
+
+
+def test_process_week_does_not_charge_ripperdoc_with_cyber_role():
+    """Regression for the Weekly Cyberware preview UX fix: even though the
+    preview now returns data for Ripperdocs (so the player_hub button can
+    explain the exemption), process_week MUST still skip charging them.
+    Mirrors the originally-reported user (Ripperdoc + Cyber High + checkup)."""
+    mgr = _make_manager()
+    member = _make_member(has_checkup=True, level_role_id=config.CYBER_HIGH_ROLE_ID)
+
+    guild = MagicMock()
+    role_map = {
+        config.CYBER_CHECKUP_ROLE_ID: _make_role(config.CYBER_CHECKUP_ROLE_ID, "checkup"),
+        config.CYBER_MEDIUM_ROLE_ID: _make_role(config.CYBER_MEDIUM_ROLE_ID, "medium"),
+        config.CYBER_HIGH_ROLE_ID: _make_role(config.CYBER_HIGH_ROLE_ID, "high"),
+        config.CYBER_EXTREME_ROLE_ID: _make_role(config.CYBER_EXTREME_ROLE_ID, "extreme"),
+        config.LOA_ROLE_ID: _make_role(config.LOA_ROLE_ID, "loa"),
+        config.RIPPERDOC_ROLE_ID: _make_role(config.RIPPERDOC_ROLE_ID, "ripperdoc"),
+    }
+    member.roles = [
+        _make_role(config.APPROVED_ROLE_ID, "Approved Character"),
+        role_map[config.CYBER_HIGH_ROLE_ID],
+        role_map[config.CYBER_CHECKUP_ROLE_ID],
+        role_map[config.RIPPERDOC_ROLE_ID],  # the exemption that matters
+    ]
+    guild.get_role.side_effect = lambda rid: role_map.get(rid)
+    guild.get_channel.return_value = None
+    guild.members = [member]
+
+    mgr.bot.get_guild.return_value = guild
+    mgr.bot.get_cog.return_value = None
+
+    with patch("NightCityBot.cogs.cyberware.cyberware_status_upsert_many", new=AsyncMock(return_value=True)), \
+         patch("NightCityBot.cogs.cyberware.cyberware_last_run_set", new=AsyncMock(return_value=True)):
+        results = asyncio.run(mgr.process_week(target_member=member))
+
+    # No charge attempted, no payment-failed bucket, no DM sent.
+    assert member.id not in results.get("paid", {})
+    assert member.id not in results.get("unpaid", {})
+    mgr.unbelievaboat.update_balance.assert_not_awaited()
+    member.send.assert_not_awaited()
+
+
+def test_process_week_does_not_charge_loa_with_cyber_role():
+    """LOA exemption parallel to the Ripperdoc regression test above."""
+    mgr = _make_manager()
+    member = _make_member(has_checkup=True, level_role_id=config.CYBER_HIGH_ROLE_ID)
+
+    guild = MagicMock()
+    role_map = {
+        config.CYBER_CHECKUP_ROLE_ID: _make_role(config.CYBER_CHECKUP_ROLE_ID, "checkup"),
+        config.CYBER_MEDIUM_ROLE_ID: _make_role(config.CYBER_MEDIUM_ROLE_ID, "medium"),
+        config.CYBER_HIGH_ROLE_ID: _make_role(config.CYBER_HIGH_ROLE_ID, "high"),
+        config.CYBER_EXTREME_ROLE_ID: _make_role(config.CYBER_EXTREME_ROLE_ID, "extreme"),
+        config.LOA_ROLE_ID: _make_role(config.LOA_ROLE_ID, "loa"),
+        config.RIPPERDOC_ROLE_ID: _make_role(config.RIPPERDOC_ROLE_ID, "ripperdoc"),
+    }
+    member.roles = [
+        _make_role(config.APPROVED_ROLE_ID, "Approved Character"),
+        role_map[config.CYBER_HIGH_ROLE_ID],
+        role_map[config.CYBER_CHECKUP_ROLE_ID],
+        role_map[config.LOA_ROLE_ID],
+    ]
+    guild.get_role.side_effect = lambda rid: role_map.get(rid)
+    guild.get_channel.return_value = None
+    guild.members = [member]
+
+    mgr.bot.get_guild.return_value = guild
+    mgr.bot.get_cog.return_value = None
+
+    with patch("NightCityBot.cogs.cyberware.cyberware_status_upsert_many", new=AsyncMock(return_value=True)), \
+         patch("NightCityBot.cogs.cyberware.cyberware_last_run_set", new=AsyncMock(return_value=True)):
+        results = asyncio.run(mgr.process_week(target_member=member))
+
+    assert member.id not in results.get("paid", {})
+    assert member.id not in results.get("unpaid", {})
+    mgr.unbelievaboat.update_balance.assert_not_awaited()
+    member.send.assert_not_awaited()

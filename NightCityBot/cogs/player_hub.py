@@ -764,8 +764,8 @@ class PlayerHubView(SafeView):
                 pass
             await send_ephemeral(interaction,
                 "💊 **Weekly Cyberware Preview**\n"
-                "You owe **$0** this week. (No Medium/High/Extreme cyberware role, "
-                "or you're on LOA / are a Ripperdoc.)")
+                "You owe **$0** this week — no Medium/High/Extreme cyberware "
+                "role detected on your account.")
             return
 
         level = preview["level"].title()
@@ -775,13 +775,26 @@ class PlayerHubView(SafeView):
         next_charge_cost = preview.get("next_charge_cost", cost)
         next_charge_weeks = preview.get("next_charge_weeks", upcoming_weeks)
         current_streak = preview.get("current_streak", 0)
+        exempt_reason = preview.get("exempt_reason")
 
         lines = [
             "💊 **Weekly Cyberware Preview**",
             f"Cyberware level: **{level}**",
             f"Missed-checkup streak in records: **{current_streak} week(s)**",
         ]
-        if has_checkup:
+        if exempt_reason == "loa":
+            lines.append(
+                "🏖️ **You're on LOA** — no cyberware charge will be applied "
+                "while your Leave of Absence is active."
+            )
+            charge_for_afford = 0
+        elif exempt_reason == "ripperdoc":
+            lines.append(
+                "🩺 **You're a Ripperdoc** — Ripperdocs are exempt from "
+                "weekly cyberware medication charges."
+            )
+            charge_for_afford = 0
+        elif has_checkup:
             lines.append(
                 f"You currently have the **checkup-due** role. Estimated charge "
                 f"this Monday: **${cost:,}** (week {upcoming_weeks} of missed "

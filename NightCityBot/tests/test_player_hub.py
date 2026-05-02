@@ -2980,3 +2980,75 @@ class TestPlayerHubWeeklyCyberwareButton:
             assert "Short" in msg
 
         _run(_test())
+
+    def test_weekly_cyber_ripperdoc_shows_exempt_with_level(self):
+        """Regression: a Ripperdoc with Cyber High should see their level
+        AND a clear exemption message, not the vague catch-all."""
+        async def _test():
+            view = PlayerHubView()
+            inter = _make_interaction()
+            inter.user = MagicMock(spec=discord.Member)
+            inter.user.id = 286338318076084226
+            inter.user.display_name = "RipperWithCyber"
+            inter.client.unbelievaboat = MagicMock()
+            inter.client.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 100, "bank": 0})
+
+            cyber = MagicMock()
+            cyber.preview_weekly_cost = MagicMock(return_value={
+                "level": "high",
+                "has_checkup": True,
+                "current_streak": 0,
+                "upcoming_weeks": 1,
+                "cost": 0,
+                "next_charge_cost": 39,
+                "next_charge_weeks": 1,
+                "exempt_reason": "ripperdoc",
+            })
+            orig = inter.client.get_cog
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cyber if n == "CyberwareManager" else orig(n))
+
+            btn = _find_button(view, "Weekly Cyberware")
+            await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "Weekly Cyberware Preview" in msg
+            assert "High" in msg  # cyber level still shown
+            assert "Ripperdoc" in msg
+            assert "exempt" in msg.lower()
+            # No "Short" or "cover" afford line — exempt charge_for_afford is 0
+            assert "Short" not in msg
+            assert "cover the next" not in msg
+
+        _run(_test())
+
+    def test_weekly_cyber_loa_shows_exempt_with_level(self):
+        async def _test():
+            view = PlayerHubView()
+            inter = _make_interaction()
+            inter.user = MagicMock(spec=discord.Member)
+            inter.user.id = 999111
+            inter.user.display_name = "LoaPlayer"
+            inter.client.unbelievaboat = MagicMock()
+            inter.client.unbelievaboat.get_balance = AsyncMock(return_value={"cash": 0, "bank": 0})
+
+            cyber = MagicMock()
+            cyber.preview_weekly_cost = MagicMock(return_value={
+                "level": "medium",
+                "has_checkup": True,
+                "current_streak": 1,
+                "upcoming_weeks": 2,
+                "cost": 0,
+                "next_charge_cost": 30,
+                "next_charge_weeks": 2,
+                "exempt_reason": "loa",
+            })
+            orig = inter.client.get_cog
+            inter.client.get_cog = MagicMock(side_effect=lambda n: cyber if n == "CyberwareManager" else orig(n))
+
+            btn = _find_button(view, "Weekly Cyberware")
+            await btn.callback(inter)
+            msg = inter.followup.send.call_args[0][0]
+            assert "Medium" in msg
+            assert "LOA" in msg
+            assert "Short" not in msg
+
+        _run(_test())
