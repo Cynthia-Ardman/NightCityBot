@@ -3,6 +3,7 @@
 Provides a single interactive panel for Fixers/admins to manage inventory,
 look up item history, add/remove items, and view audit trails.
 """
+import io
 import logging
 import re
 import random
@@ -1820,10 +1821,14 @@ def _merge_history(
     return merged
 
 
-def _format_history_lines(rows: list[dict], *, max_rows: int = 50) -> tuple[list[str], int]:
-    """Format rows for embed display. Returns (lines, omitted_count)."""
+def _format_history_lines(rows: list[dict], *, max_rows: Optional[int] = None) -> tuple[list[str], int]:
+    """Format rows for embed display. Returns (lines, omitted_count).
+
+    ``max_rows=None`` (default) renders every row — overflow is handled
+    by the caller via a text-file attachment so nothing gets hidden.
+    """
     lines: list[str] = []
-    show = rows[:max_rows]
+    show = rows if max_rows is None else rows[:max_rows]
     for r in show:
         ts: datetime = r["ts"]
         try:
@@ -2198,46 +2203,65 @@ class BalanceHistoryPickerView(SafeView):
         merged = _merge_history(live_rows, ub_rows)
         merged = _merge_history(merged, backup_rows)
         if not merged:
-            diag = ""
-            if ub_stats:
-                diag = (
-                    f"\n_UB scrape: scanned={ub_stats.get('scanned', 0)} "
-                    f"with_embeds={ub_stats.get('with_embeds', 0)} "
-                    f"embeds={ub_stats.get('embeds_seen', 0)} "
-                    f"parsed={ub_stats.get('parsed', 0)}"
-                    + (f" • top: {ub_stats['top_authors']}" if ub_stats.get('top_authors') else "")
-                    + (f" • err={ub_stats['error']}" if ub_stats.get('error') else "")
-                    + "_"
-                )
             await send_ephemeral(
                 interaction,
-                f"No balance changes recorded for **{member.display_name}** in the last 30 days.{diag}",
+                f"No balance changes recorded for **{member.display_name}** in the last 30 days.",
             )
             return
-        lines, omitted = _format_history_lines(merged, max_rows=50)
+        # Render every row — no row cap. If the rendered text overflows
+        # the embed description cap, attach the full plain-text list as
+        # a file so nothing gets hidden.
+        lines, _ = _format_history_lines(merged)
         description, dropped = _fit_lines_to_description(lines)
         footer_bits = [f"{len(merged)} change(s) in window"]
-        if omitted:
-            footer_bits.append(f"{omitted} older entries hidden")
         if dropped:
-            footer_bits.append(f"{dropped} lines truncated for length")
-        if ub_stats:
-            footer_bits.append(
-                "UB: scanned={s} embeds={e} parsed={p}{top}{err}".format(
-                    s=ub_stats.get("scanned", 0),
-                    e=ub_stats.get("embeds_seen", 0),
-                    p=ub_stats.get("parsed", 0),
-                    top=f" top={ub_stats['top_authors']}" if ub_stats.get("top_authors") else "",
-                    err=f" err={ub_stats['error']}" if ub_stats.get("error") else "",
-                )
-            )
+            footer_bits.append(f"{dropped} additional row(s) attached as file")
         embed = discord.Embed(
             title=f"Balance History — {member.display_name}",
             description=description or "(no entries fit)",
             color=discord.Color.gold(),
         )
         embed.set_footer(text="Last 30 days • " + " • ".join(footer_bits))
-        await send_ephemeral(interaction, embed=embed)
+        kwargs: dict[str, Any] = {"embed": embed}
+        if dropped:
+            # Plain-text version (markdown stripped) so it reads cleanly
+            # in a file viewer.
+            plain_lines = []
+            for r in merged:
+                ts: datetime = r["ts"]
+                try:
+                    ts_str = ts.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    ts_str = str(ts)
+                cash = int(r["cash_delta"])
+                bank = int(r["bank_delta"])
+                parts: list[str] = []
+                if cash:
+                    parts.append(f"{'+' if cash > 0 else ''}${cash:,} cash")
+                if bank:
+                    parts.append(f"{'+' if bank > 0 else ''}${bank:,} bank")
+                if not parts:
+                    parts.append("$0")
+                reason = (r.get("reason") or "").strip() or "(no reason)"
+                plain_lines.append(f"{ts_str}  {' / '.join(parts):<24}  {reason}")
+            header = (
+                f"Balance History — {member.display_name}\n"
+                f"Last 30 days • {len(merged)} change(s)\n"
+                + ("=" * 72) + "\n"
+            )
+            blob = (header + "\n".join(plain_lines)).encode("utf-8")
+            kwargs["file"] = discord.File(
+                io.BytesIO(blob),
+                filename=f"balance_history_{member.id}.txt",
+            )
+        await send_ephemeral(interaction, **kwargs)
+        # Always log the UB scrape diagnostics for ops visibility, but
+        # don't surface them in the panel itself anymore.
+        if ub_stats:
+            logger.info(
+                "Balance History panel for user=%s rendered %d rows (UB: %s)",
+                member.id, len(merged), ub_stats,
+            )
 
 
 async def setup(bot: commands.Bot):

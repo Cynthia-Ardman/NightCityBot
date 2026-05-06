@@ -1,0 +1,52 @@
+Balance History — Oxarck / Saburō
+05/06 21:43 $-259 cash — UB: blackjack bet
+05/06 21:42 $-150 cash — UB: blackjack bet
+05/06 21:29 $-16 cash — UB: give-money command
+05/06 21:28 +$175 cash — UB: work command
+05/05 12:53 $-750 cash — UB: give-money command
+05/05 04:52 $-500 cash — UB: give-money command
+05/05 00:12 $-268 cash — UB: blackjack bet
+05/05 00:11 +$163 cash — UB: work command
+05/04 06:46 $-4,000 cash — UB: give-money command
+05/04 06:46 +$600 cash — UB: blackjack ended
+05/04 06:45 $-300 cash — UB: blackjack bet
+05/04 00:14 $-1,250 cash — UB: give-money command
+05/04 00:14 $-1,250 cash — UB: give-money command
+05/04 00:12 $-120 cash — UB: give-money command
+05/03 22:35 $-75 cash — UB: give-money command
+05/03 22:19 $-190 cash — UB: blackjack bet
+05/03 22:19 +$500 cash — UB: blackjack ended
+05/03 22:19 $-250 cash — UB: blackjack bet
+05/03 21:19 +$250 cash — Attendance reward
+05/03 21:19 +$190 cash — UB: work command
+05/01 21:19 $-336 cash — UB: roulette bet
+05/01 21:16 +$336 cash — UB: blackjack ended
+05/01 21:16 $-168 cash — UB: blackjack bet
+05/01 21:16 $-150 cash — UB: blackjack bet
+05/01 21:16 +$200 cash — UB: blackjack ended
+05/01 21:16 $-100 cash — UB: blackjack bet
+05/01 21:16 +$218 cash — UB: blackjack ended
+05/01 21:16 $-218 cash — UB: blackjack bet
+05/01 21:15 +$181 cash — UB: work command
+05/01 07:12 $-500 bank — Xanadu Gold Membership
+05/01 07:12 $-1,000 bank — Housing Rent
+05/01 07:12 $-37 cash / $-463 bank — Flat Monthly Fee
+05/01 05:18 +$7 cash — UB: give-money command — by @Aly-Senpai
+05/01 05:18 +$5 cash — UB: give-money command — by @_Slestial_ | Street Artist
+05/01 05:14 +$5 cash — UB: give-money command — by @Max The Italian Sniper Dog
+05/01 05:08 +$10 cash — UB: give-money command — by @Mob-Adam(min)
+05/01 04:59 +$10 cash — UB: give-money command — by @Mr Classic / Julian
+05/01 04:19 $-1,500 cash — UB: roulette bet
+05/01 04:15 $-1,500 cash — UB: roulette bet
+05/01 04:14 $-1,500 cash — UB: roulette bet
+05/01 04:14 +$3,000 cash — UB: roulette won
+05/01 04:14 $-1,500 cash — UB: roulette bet
+05/01 04:02 +$3,000 cash — UB: roulette won
+05/01 04:01 $-1,500 cash — UB: roulette bet
+05/01 03:41 $-1,500 cash — UB: roulette bet
+05/01 03:40 +$2,000 cash — UB: roulette won
+05/01 03:40 $-1,000 cash — UB: roulette bet
+05/01 03:38 +$2,000 cash — UB: roulette won
+05/01 03:38 $-1,000 cash — UB: roulette bet
+05/01 03:37 +$6,000 cash — UB: blackjack ended
+Last 30 days • 80 change(s) in window • 30 older entries hidden • UB: scanned=2000 embeds=2195 parsed=80 top=UnbelievaBoat#1351330246590337095×2000
