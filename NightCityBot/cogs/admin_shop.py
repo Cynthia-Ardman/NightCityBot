@@ -1936,6 +1936,21 @@ def _parse_ub_amount(raw: str) -> int:
         return 0
 
 
+_UB_MD_STRIP_RE = re.compile(r"[`*_~]+")
+
+
+def _strip_ub_markdown(text: str) -> str:
+    """Remove the markdown UB uses around field labels and values.
+
+    UnbelievaBoat renders embed text like ``**User:** @name`` and
+    ``**Amount:** Cash: `-1` | Bank: `0` ``. We strip backticks,
+    asterisks, underscores, and tildes so the existing regexes can
+    match the underlying ``User: @name`` / ``Amount: Cash: -1 | Bank: 0``
+    cleanly.
+    """
+    return _UB_MD_STRIP_RE.sub("", text or "")
+
+
 def _extract_ub_text(embed: discord.Embed) -> str:
     """Concatenate every text-bearing slot of an UnbelievaBoat balance embed.
 
@@ -1955,7 +1970,8 @@ def _extract_ub_text(embed: discord.Embed) -> str:
         # ("User", "Amount", "Reason") and field values as the data.
         # Joining "name: value" produces text that the same regexes match.
         parts.append(f"{name}: {value}" if name and ":" not in name else f"{name}\n{value}")
-    return "\n".join(p for p in parts if p)
+    # Strip markdown so `**User:** @name` and `Cash: \`-1\`` parse cleanly.
+    return _strip_ub_markdown("\n".join(p for p in parts if p))
 
 
 def _parse_ub_balance_embed(

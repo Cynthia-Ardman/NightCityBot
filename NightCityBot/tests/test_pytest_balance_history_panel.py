@@ -449,6 +449,34 @@ class TestParseUBBalanceEmbedNameFallback:
         assert "Medusa" in row["reason"]
         assert " — by " in row["reason"]
 
+    def test_real_world_markdown_formatted_embed(self):
+        """UB embeds in production wrap field labels in **bold** and
+        numeric values in `code` formatting. Parser must handle both."""
+        e = _make_embed(description=(
+            "**User:** @Medusa (Shadow the Edgehog)\n"
+            "**Actioned by:** @Medusa (Shadow the Edgehog)\n"
+            "**Amount:** Cash: `-1` | Bank: `0`\n"
+            "**Reason:** give-money command"
+        ))
+        names = ["medusa", "shadow the edgehog", "medusa (shadow the edgehog)"]
+        row = _parse_ub_balance_embed(e, self.TARGET, names)
+        assert row is not None
+        assert row["cash_delta"] == -1
+        assert row["bank_delta"] == 0
+        assert "give-money" in row["reason"]
+
+    def test_real_world_markdown_with_thousands(self):
+        e = _make_embed(description=(
+            "**User:** @Medusa (Shadow the Edgehog)\n"
+            "**Amount:** Cash: `-3,000` | Bank: `+500`\n"
+            "**Reason:** roulette bet"
+        ))
+        names = ["medusa", "medusa (shadow the edgehog)"]
+        row = _parse_ub_balance_embed(e, self.TARGET, names)
+        assert row is not None
+        assert row["cash_delta"] == -3000
+        assert row["bank_delta"] == 500
+
     def test_no_target_names_still_works_with_snowflake(self):
         """Existing snowflake path stays functional with empty names list."""
         e = _make_embed(description=(
