@@ -5,14 +5,20 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
+
 from NightCityBot.cogs.admin_shop import (
     _friendly_backup_label,
     _load_backup_history,
     _merge_history,
     _format_history_lines,
     _fit_lines_to_description,
+    _parse_ub_amount,
+    _parse_ub_balance_embed,
+    _load_economy_log_history,
 )
 from NightCityBot.services.unbelievaboat import UnbelievaBoatAPI
+import config
 
 
 class TestFriendlyBackupLabel:
@@ -60,6 +66,16 @@ class TestMergeHistory:
         now = datetime.now(timezone.utc)
         live = [self._row(now, cash=-500, reason="Housing Rent")]
         backup = [self._row(now + timedelta(seconds=30), cash=-200, reason="Other event (snapshot)")]
+        merged = _merge_history(live, backup)
+        assert len(merged) == 2
+
+    def test_does_not_collapse_same_net_but_different_split(self):
+        """A withdraw (cash=+500, bank=-500, net 0) and a no-op snapshot
+        (cash=0, bank=0, net 0) share the same net total but represent
+        different events. Both must survive the merge."""
+        now = datetime.now(timezone.utc)
+        live = [self._row(now, cash=500, bank=-500, reason="ATM withdraw")]
+        backup = [self._row(now + timedelta(seconds=10), cash=0, bank=0, reason="snapshot")]
         merged = _merge_history(live, backup)
         assert len(merged) == 2
 
@@ -194,6 +210,235 @@ def test_update_balance_does_not_record_when_patch_fails():
         ok = asyncio.run(api.update_balance(7, {"cash": 1}, reason="x"))
     assert ok is False
     api._record_history.assert_not_called()
+
+
+class TestParseUBAmount:
+    def test_simple_positive(self):
+        assert _parse_ub_amount("+477") == 477
+
+    def test_negative(self):
+        assert _parse_ub_amount("-200") == -200
+
+    def test_thousands_separator(self):
+        assert _parse_ub_amount("-3,000") == -3000
+        assert _parse_ub_amount("+6,000") == 6000
+
+    def test_zero_and_garbage(self):
+        assert _parse_ub_amount("0") == 0
+        assert _parse_ub_amount("nope") == 0
+
+
+def _make_embed(*, description: str = "", title: str = "", fields=None) -> discord.Embed:
+    kwargs = {}
+    if title:
+        kwargs["title"] = title
+    if description:
+        kwargs["description"] = description
+    e = discord.Embed(**kwargs)
+    for fname, fvalue in (fields or []):
+        e.add_field(name=fname, value=fvalue, inline=False)
+    return e
+
+
+class TestParseUBBalanceEmbed:
+    TARGET = 286338318076084226
+    OTHER = 999000111222333
+
+    def test_parses_self_action_credit(self):
+        """work/crime/etc — User: <@target>, no actor."""
+        e = _make_embed(description=(
+            "Balance updated\n"
+            f"User: <@{self.TARGET}>\n"
+            "Amount: Cash: +477 | Bank: 0\n"
+            "Reason: crime command"
+        ))
+        row = _parse_ub_balance_embed(e, self.TARGET)
+        assert row is not None
+        assert row["cash_delta"] == 477
+        assert row["bank_delta"] == 0
+        assert "crime command" in row["reason"]
+        assert row["reason"].startswith("UB:")
+
+    def test_parses_negative_with_thousands(self):
+        e = _make_embed(description=(
+            f"Balance updated\nUser: <@{self.TARGET}>\n"
+            "Amount: Cash: -3,000 | Bank: 0\nReason: roulette bet"
+        ))
+        row = _parse_ub_balance_embed(e, self.TARGET)
+        assert row is not None
+        assert row["cash_delta"] == -3000
+
+    def test_give_money_outgoing_side(self):
+        """Sender side of give-money: actor == target."""
+        e = _make_embed(description=(
+            f"Balance updated\nUser: <@{self.TARGET}>\n"
+            f"Actioned by: <@{self.TARGET}>\n"
+            "Amount: Cash: -200 | Bank: 0\nReason: give-money command"
+        ))
+        row = _parse_ub_balance_embed(e, self.TARGET)
+        assert row is not None
+        assert row["cash_delta"] == -200
+        # Self-action — should NOT tack on a "by <@x>" suffix
+        assert " — by <@" not in row["reason"]
+
+    def test_give_money_incoming_side_tags_actor(self):
+        """Receiver side: User=target, actor=different. Reason gets actor tag."""
+        e = _make_embed(description=(
+            f"Balance updated\nUser: <@{self.TARGET}>\n"
+            f"Actioned by: <@{self.OTHER}>\n"
+            "Amount: Cash: +700 | Bank: 0\nReason: give-money command"
+        ))
+        row = _parse_ub_balance_embed(e, self.TARGET)
+        assert row is not None
+        assert row["cash_delta"] == 700
+        assert f"<@{self.OTHER}>" in row["reason"]
+
+    def test_skips_embed_for_other_user(self):
+        e = _make_embed(description=(
+            f"Balance updated\nUser: <@{self.OTHER}>\n"
+            "Amount: Cash: +1000 | Bank: 0\nReason: work command"
+        ))
+        assert _parse_ub_balance_embed(e, self.TARGET) is None
+
+    def test_skips_zero_delta_rows(self):
+        e = _make_embed(description=(
+            f"Balance updated\nUser: <@{self.TARGET}>\n"
+            "Amount: Cash: 0 | Bank: 0\nReason: noop"
+        ))
+        assert _parse_ub_balance_embed(e, self.TARGET) is None
+
+    def test_handles_bank_movement(self):
+        e = _make_embed(description=(
+            f"Balance updated\nUser: <@{self.TARGET}>\n"
+            "Amount: Cash: 0 | Bank: +500\nReason: deposit command"
+        ))
+        row = _parse_ub_balance_embed(e, self.TARGET)
+        assert row is not None
+        assert row["cash_delta"] == 0
+        assert row["bank_delta"] == 500
+
+    def test_field_based_embed_format(self):
+        """Same data but in fields instead of description (alt UB format)."""
+        e = _make_embed(
+            title="Balance updated",
+            fields=[
+                ("User", f"<@{self.TARGET}>"),
+                ("Amount", "Cash: +193 | Bank: 0"),
+                ("Reason", "work command"),
+            ],
+        )
+        row = _parse_ub_balance_embed(e, self.TARGET)
+        assert row is not None
+        assert row["cash_delta"] == 193
+        assert "work command" in row["reason"]
+
+    def test_empty_embed_returns_none(self):
+        assert _parse_ub_balance_embed(_make_embed(), self.TARGET) is None
+
+    def test_blackjack_pair(self):
+        """Two embeds (bet then ended) both target user — both parse independently."""
+        bet = _make_embed(description=(
+            f"Balance updated\nUser: <@{self.TARGET}>\n"
+            "Amount: Cash: -302 | Bank: 0\nReason: blackjack bet"
+        ))
+        won = _make_embed(description=(
+            f"Balance updated\nUser: <@{self.TARGET}>\n"
+            "Amount: Cash: +604 | Bank: 0\nReason: blackjack ended"
+        ))
+        r1 = _parse_ub_balance_embed(bet, self.TARGET)
+        r2 = _parse_ub_balance_embed(won, self.TARGET)
+        assert r1 and r2
+        assert r1["cash_delta"] == -302 and r2["cash_delta"] == 604
+
+
+class TestLoadEconomyLogHistory:
+    TARGET = 286338318076084226
+    UB_BOT_ID = 292953664492929025
+
+    def _make_msg(self, *, author_id: int, embeds: list, ts: datetime):
+        msg = MagicMock()
+        msg.author = MagicMock()
+        msg.author.id = author_id
+        msg.embeds = embeds
+        msg.created_at = ts
+        return msg
+
+    def _make_channel(self, msgs):
+        async def _hist(after=None, limit=None, oldest_first=False):
+            for m in msgs:
+                if after and m.created_at <= after:
+                    continue
+                yield m
+        ch = MagicMock()
+        ch.history = MagicMock(side_effect=lambda **kw: _hist(**kw))
+        return ch
+
+    def test_filters_to_unbelievaboat_messages_only(self):
+        now = datetime.now(timezone.utc)
+        target_embed = _make_embed(description=(
+            f"Balance updated\nUser: <@{self.TARGET}>\n"
+            "Amount: Cash: +500 | Bank: 0\nReason: work command"
+        ))
+        impostor_embed = _make_embed(description=(
+            f"Balance updated\nUser: <@{self.TARGET}>\n"
+            "Amount: Cash: +999999 | Bank: 0\nReason: SCAM"
+        ))
+        msgs = [
+            self._make_msg(author_id=self.UB_BOT_ID, embeds=[target_embed], ts=now),
+            self._make_msg(author_id=11111111, embeds=[impostor_embed], ts=now),
+        ]
+        bot = MagicMock()
+        bot.get_channel.return_value = self._make_channel(msgs)
+        rows = asyncio.run(_load_economy_log_history(bot, self.TARGET, now - timedelta(days=30)))
+        assert len(rows) == 1
+        assert rows[0]["cash_delta"] == 500
+        assert "scam" not in rows[0]["reason"].lower()
+
+    def test_returns_empty_when_channel_id_unset(self, monkeypatch):
+        monkeypatch.setattr(config, "ECONOMY_LOG_CHANNEL_ID", 0)
+        bot = MagicMock()
+        rows = asyncio.run(_load_economy_log_history(
+            bot, self.TARGET, datetime.now(timezone.utc) - timedelta(days=1)
+        ))
+        assert rows == []
+        bot.get_channel.assert_not_called()
+
+    def test_returns_empty_on_forbidden_channel(self):
+        bot = MagicMock()
+        bot.get_channel.return_value = None
+        bot.fetch_channel = AsyncMock(side_effect=discord.Forbidden(MagicMock(status=403, reason="x"), "no"))
+        rows = asyncio.run(_load_economy_log_history(
+            bot, self.TARGET, datetime.now(timezone.utc) - timedelta(days=1)
+        ))
+        assert rows == []
+
+    def test_attaches_message_timestamp(self):
+        ts = datetime(2026, 5, 1, 12, 30, tzinfo=timezone.utc)
+        target_embed = _make_embed(description=(
+            f"Balance updated\nUser: <@{self.TARGET}>\n"
+            "Amount: Cash: +1 | Bank: 0\nReason: work command"
+        ))
+        msg = self._make_msg(author_id=self.UB_BOT_ID, embeds=[target_embed], ts=ts)
+        bot = MagicMock()
+        bot.get_channel.return_value = self._make_channel([msg])
+        rows = asyncio.run(_load_economy_log_history(bot, self.TARGET, ts - timedelta(days=1)))
+        assert len(rows) == 1
+        assert rows[0]["ts"] == ts
+
+
+def test_economy_log_dedupes_against_internal_live_row():
+    """An UB row and a live audit row for the same delta within 120s
+    should collapse to a single entry — preventing rent/cyberware
+    double-counting since our bot's update_balance also surfaces in UB."""
+    now = datetime.now(timezone.utc)
+    live = [{"id": 1, "ts": now, "cash_delta": -500, "bank_delta": 0,
+             "reason": "Cyberware meds week 1"}]
+    ub = [{"id": None, "ts": now + timedelta(seconds=5), "cash_delta": -500,
+           "bank_delta": 0, "reason": "UB: Cyberware meds week 1"}]
+    merged = _merge_history(live, ub)
+    assert len(merged) == 1
+    # live row wins because it carries our own (richer) reason text
+    assert merged[0]["reason"] == "Cyberware meds week 1"
 
 
 def test_load_backup_history_skips_malformed_change(tmp_path, monkeypatch):

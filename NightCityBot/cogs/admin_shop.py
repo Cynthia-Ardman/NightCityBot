@@ -1792,16 +1792,20 @@ def _merge_history(
     """Merge live audit + backup rows, dropping near-duplicate snapshots.
 
     A backup row is treated as a duplicate when a live row exists within
-    ``dedupe_window_seconds`` whose total delta matches the backup's change.
+    ``dedupe_window_seconds`` whose cash AND bank deltas both match the
+    backup row exactly. Comparing the components separately (rather than
+    their sum) prevents collapsing materially different events that happen
+    to share the same net total — e.g. a withdraw (cash=+500, bank=-500)
+    vs a no-op snapshot (cash=0, bank=0).
     """
     merged = list(live_rows)
     for b in backup_rows:
         is_dup = False
-        b_total = int(b["cash_delta"]) + int(b["bank_delta"])
+        b_cash = int(b["cash_delta"])
+        b_bank = int(b["bank_delta"])
         b_ts = b["ts"]
         for r in live_rows:
-            r_total = int(r["cash_delta"]) + int(r["bank_delta"])
-            if r_total != b_total:
+            if int(r["cash_delta"]) != b_cash or int(r["bank_delta"]) != b_bank:
                 continue
             try:
                 gap = abs((r["ts"] - b_ts).total_seconds())
@@ -1861,6 +1865,133 @@ def _fit_lines_to_description(lines: list[str], cap: int = 3900) -> tuple[str, i
     return "\n".join(out), dropped
 
 
+# UnbelievaBoat's economy-log embed fields. Discord renders `<@123>` as
+# "@DisplayName" but the raw embed content always carries the real snowflake.
+_UB_USER_RE = re.compile(r"User:\s*<@!?(\d+)>", re.IGNORECASE)
+_UB_ACTOR_RE = re.compile(r"Actioned by:\s*<@!?(\d+)>", re.IGNORECASE)
+_UB_AMOUNT_RE = re.compile(
+    r"Amount:\s*Cash:\s*([+\-]?[\d,]+)\s*\|\s*Bank:\s*([+\-]?[\d,]+)",
+    re.IGNORECASE,
+)
+_UB_REASON_RE = re.compile(r"Reason:\s*(.+?)(?:\n|$)", re.IGNORECASE | re.DOTALL)
+
+
+def _parse_ub_amount(raw: str) -> int:
+    """Parse '+477' or '-3,000' or '0' into an int. Returns 0 on failure."""
+    try:
+        return int(raw.replace(",", "").replace("+", "").strip())
+    except (ValueError, AttributeError):
+        return 0
+
+
+def _extract_ub_text(embed: discord.Embed) -> str:
+    """Concatenate every text-bearing slot of an UnbelievaBoat balance embed.
+
+    UnbelievaBoat has historically put the User/Amount/Reason block in the
+    embed description, but they've also shipped versions that use embed
+    fields. We join everything so a single regex pass works for both.
+    """
+    parts: list[str] = []
+    if embed.title:
+        parts.append(str(embed.title))
+    if embed.description:
+        parts.append(str(embed.description))
+    for f in getattr(embed, "fields", []) or []:
+        name = getattr(f, "name", "") or ""
+        value = getattr(f, "value", "") or ""
+        # UnbelievaBoat sometimes uses field names as the row label
+        # ("User", "Amount", "Reason") and field values as the data.
+        # Joining "name: value" produces text that the same regexes match.
+        parts.append(f"{name}: {value}" if name and ":" not in name else f"{name}\n{value}")
+    return "\n".join(p for p in parts if p)
+
+
+def _parse_ub_balance_embed(embed: discord.Embed, target_user_id: int) -> Optional[dict[str, Any]]:
+    """Parse a single UnbelievaBoat balance-update embed for ``target_user_id``.
+
+    Returns a row dict {ts: None, cash_delta, bank_delta, reason} when the
+    embed concerns the target user, else None. ``ts`` is filled in by the
+    caller from the parent message timestamp.
+
+    For ``give-money`` style transfers UnbelievaBoat emits two separate
+    embeds (one per side of the transaction), so each is parsed
+    independently and only kept if its ``User:`` line matches the target.
+    """
+    text = _extract_ub_text(embed)
+    if not text:
+        return None
+    user_m = _UB_USER_RE.search(text)
+    if not user_m or int(user_m.group(1)) != int(target_user_id):
+        return None
+    amount_m = _UB_AMOUNT_RE.search(text)
+    if not amount_m:
+        return None
+    cash_delta = _parse_ub_amount(amount_m.group(1))
+    bank_delta = _parse_ub_amount(amount_m.group(2))
+    if cash_delta == 0 and bank_delta == 0:
+        # Skip no-op rows — they add noise without informational value.
+        return None
+    reason_m = _UB_REASON_RE.search(text)
+    reason = reason_m.group(1).strip() if reason_m else "(no reason)"
+    actor_m = _UB_ACTOR_RE.search(text)
+    if actor_m and int(actor_m.group(1)) != int(target_user_id):
+        # Someone else acted on this user (e.g. received give-money). Tag
+        # the actor in the reason so admins can see who initiated the move.
+        reason = f"{reason} — by <@{actor_m.group(1)}>"
+    return {
+        "id": None,
+        "ts": None,  # filled by caller
+        "cash_delta": cash_delta,
+        "bank_delta": bank_delta,
+        "reason": f"UB: {reason}",
+    }
+
+
+async def _load_economy_log_history(
+    bot: commands.Bot,
+    user_id: int,
+    since_dt: datetime,
+    *,
+    max_messages: int = 2000,
+) -> list[dict]:
+    """Scrape #economy-logs for UnbelievaBoat balance-updates affecting ``user_id``.
+
+    Read-only. Returns rows shaped like ``balance_history_get`` so they
+    can be merged with the live audit table and backup snapshots.
+    """
+    channel_id = getattr(config, "ECONOMY_LOG_CHANNEL_ID", 0) or 0
+    if not channel_id:
+        return []
+    channel = bot.get_channel(channel_id)
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(channel_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            logger.warning("economy_log channel %s not accessible", channel_id)
+            return []
+    if not hasattr(channel, "history"):
+        return []
+    ub_id = int(getattr(config, "UNBELIEVABOAT_BOT_ID", 0) or 0)
+    out: list[dict] = []
+    try:
+        async for msg in channel.history(after=since_dt, limit=max_messages, oldest_first=False):
+            if ub_id and getattr(getattr(msg, "author", None), "id", None) != ub_id:
+                continue
+            for embed in getattr(msg, "embeds", []) or []:
+                row = _parse_ub_balance_embed(embed, user_id)
+                if row is None:
+                    continue
+                ts = getattr(msg, "created_at", None) or datetime.now(timezone.utc)
+                if isinstance(ts, datetime) and ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                row["ts"] = ts
+                out.append(row)
+    except (discord.Forbidden, discord.HTTPException):
+        logger.exception("Failed reading economy_log history for user %s", user_id)
+        return out
+    return out
+
+
 class BalanceHistoryPickerView(SafeView):
     """User picker for the Balance History admin panel button."""
 
@@ -1894,12 +2025,24 @@ class BalanceHistoryPickerView(SafeView):
         except Exception:
             logger.exception("_load_backup_history failed for user %s", member.id)
             backup_rows = []
+        try:
+            ub_rows = await _load_economy_log_history(
+                interaction.client, member.id, since_dt
+            )
+        except Exception:
+            logger.exception("_load_economy_log_history failed for user %s", member.id)
+            ub_rows = []
         # Normalize live row timestamps to aware UTC for comparisons
         for r in live_rows:
             ts = r.get("ts")
             if isinstance(ts, datetime) and ts.tzinfo is None:
                 r["ts"] = ts.replace(tzinfo=timezone.utc)
-        merged = _merge_history(live_rows, backup_rows)
+        # _merge_history dedupes by (delta-total within 120s). Run it twice:
+        # first to drop economy-log rows that match an internal-bot live row
+        # (since our update_balance call shows up in BOTH places), then
+        # again to merge in the older backup snapshots.
+        merged = _merge_history(live_rows, ub_rows)
+        merged = _merge_history(merged, backup_rows)
         if not merged:
             await send_ephemeral(
                 interaction,
