@@ -16,6 +16,8 @@ from NightCityBot.cogs.admin_shop import (
     _parse_ub_amount,
     _parse_ub_balance_embed,
     _load_economy_log_history,
+    _candidate_names_for,
+    _ub_line_matches,
 )
 from NightCityBot.services.unbelievaboat import UnbelievaBoatAPI
 import config
@@ -349,6 +351,112 @@ class TestParseUBBalanceEmbed:
         r2 = _parse_ub_balance_embed(won, self.TARGET)
         assert r1 and r2
         assert r1["cash_delta"] == -302 and r2["cash_delta"] == 604
+
+
+class TestCandidateNamesFor:
+    def test_collects_all_distinct_names(self):
+        m = MagicMock()
+        m.name = "medusa"
+        m.global_name = "Medusa"
+        m.display_name = "Shadow the Edgehog"
+        m.nick = "Shadow the Edgehog"
+        names = _candidate_names_for(m)
+        assert "medusa" in names
+        assert "shadow the edgehog" in names
+        # combo form for UB plaintext mentions
+        assert "medusa (shadow the edgehog)" in names
+
+    def test_handles_none(self):
+        assert _candidate_names_for(None) == []
+
+    def test_no_combo_when_name_equals_display(self):
+        m = MagicMock()
+        m.name = "alice"
+        m.global_name = None
+        m.display_name = "alice"
+        m.nick = None
+        names = _candidate_names_for(m)
+        assert names == ["alice"]
+
+
+class TestUBLineMatches:
+    def test_snowflake_match(self):
+        assert _ub_line_matches("<@123>", 123, []) is True
+        assert _ub_line_matches("<@!456>", 456, []) is True
+        assert _ub_line_matches("<@123>", 999, ["medusa"]) is False  # snowflake wins
+
+    def test_name_fallback(self):
+        assert _ub_line_matches(
+            "@Medusa (Shadow the Edgehog)", 12345, ["medusa (shadow the edgehog)"]
+        ) is True
+
+    def test_name_substring(self):
+        assert _ub_line_matches("@medusa", 1, ["medusa"]) is True
+
+    def test_no_match_when_neither_works(self):
+        assert _ub_line_matches("@bob", 1, ["alice"]) is False
+
+    def test_empty_line(self):
+        assert _ub_line_matches("", 1, ["alice"]) is False
+
+
+class TestParseUBBalanceEmbedNameFallback:
+    """Real-world: UB writes /give-money mentions as plain '@Username (Display)'."""
+    TARGET = 286338318076084226
+
+    def test_plaintext_mention_matches_via_names(self):
+        e = _make_embed(description=(
+            "Balance updated\n"
+            "User: @Medusa (Shadow the Edgehog)\n"
+            "Actioned by: @Medusa (Shadow the Edgehog)\n"
+            "Amount: Cash: -1 | Bank: 0\n"
+            "Reason: give-money command"
+        ))
+        names = ["medusa", "shadow the edgehog", "medusa (shadow the edgehog)"]
+        row = _parse_ub_balance_embed(e, self.TARGET, names)
+        assert row is not None
+        assert row["cash_delta"] == -1
+        assert "give-money" in row["reason"]
+        # Self-action — actor matched same names, should NOT add "by …"
+        assert " — by " not in row["reason"]
+
+    def test_plaintext_other_user_does_not_match(self):
+        e = _make_embed(description=(
+            "Balance updated\n"
+            "User: @Vinny Russo/Vanessa Bitch\n"
+            "Actioned by: @Medusa (Shadow the Edgehog)\n"
+            "Amount: Cash: +1 | Bank: 0\n"
+            "Reason: give-money command"
+        ))
+        names = ["medusa", "shadow the edgehog", "medusa (shadow the edgehog)"]
+        row = _parse_ub_balance_embed(e, self.TARGET, names)
+        assert row is None
+
+    def test_plaintext_received_money_tags_actor_text(self):
+        """Receiver side via plaintext: actor name kept verbatim in reason."""
+        e = _make_embed(description=(
+            "Balance updated\n"
+            "User: @Vinny Russo/Vanessa Bitch\n"
+            "Actioned by: @Medusa (Shadow the Edgehog)\n"
+            "Amount: Cash: +1 | Bank: 0\n"
+            "Reason: give-money command"
+        ))
+        # Pretend Vinny is the target now
+        names = ["vinny russo/vanessa bitch", "vinny"]
+        row = _parse_ub_balance_embed(e, 999, names)
+        assert row is not None
+        assert row["cash_delta"] == 1
+        assert "Medusa" in row["reason"]
+        assert " — by " in row["reason"]
+
+    def test_no_target_names_still_works_with_snowflake(self):
+        """Existing snowflake path stays functional with empty names list."""
+        e = _make_embed(description=(
+            f"Balance updated\nUser: <@{self.TARGET}>\n"
+            "Amount: Cash: +1 | Bank: 0\nReason: work command"
+        ))
+        row = _parse_ub_balance_embed(e, self.TARGET, [])
+        assert row is not None and row["cash_delta"] == 1
 
 
 class TestLoadEconomyLogHistory:

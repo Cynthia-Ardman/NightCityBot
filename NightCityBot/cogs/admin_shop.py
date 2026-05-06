@@ -1865,15 +1865,67 @@ def _fit_lines_to_description(lines: list[str], cap: int = 3900) -> tuple[str, i
     return "\n".join(out), dropped
 
 
-# UnbelievaBoat's economy-log embed fields. Discord renders `<@123>` as
-# "@DisplayName" but the raw embed content always carries the real snowflake.
-_UB_USER_RE = re.compile(r"User:\s*<@!?(\d+)>", re.IGNORECASE)
-_UB_ACTOR_RE = re.compile(r"Actioned by:\s*<@!?(\d+)>", re.IGNORECASE)
+# UnbelievaBoat's economy-log embed fields. UB writes mentions in two
+# different ways depending on the command: sometimes as a real Discord
+# mention (`<@123>`), but more often — especially for /give-money,
+# /add-money, /remove-money — as plain text "@Username (Display Name)"
+# to avoid pinging users. We try the snowflake form first, then fall
+# back to a name-based match against the target member.
+_UB_USER_RE = re.compile(r"User:\s*(.+?)(?:\n|$)", re.IGNORECASE)
+_UB_ACTOR_RE = re.compile(r"Actioned by:\s*(.+?)(?:\n|$)", re.IGNORECASE)
+_UB_SNOWFLAKE_RE = re.compile(r"<@!?(\d+)>")
 _UB_AMOUNT_RE = re.compile(
     r"Amount:\s*Cash:\s*([+\-]?[\d,]+)\s*\|\s*Bank:\s*([+\-]?[\d,]+)",
     re.IGNORECASE,
 )
 _UB_REASON_RE = re.compile(r"Reason:\s*(.+?)(?:\n|$)", re.IGNORECASE | re.DOTALL)
+
+
+def _candidate_names_for(member: Any) -> list[str]:
+    """All plausible name strings UnbelievaBoat may print for a member.
+
+    Includes username, global_name, display_name, nick, and the
+    parenthesized "Username (Display Name)" combo UB uses in its
+    plain-text mentions. Names are lowercased for case-insensitive
+    comparison and de-duplicated while preserving order.
+    """
+    if member is None:
+        return []
+    raw: list[str] = []
+    for attr in ("name", "global_name", "display_name", "nick"):
+        v = getattr(member, attr, None)
+        if v:
+            raw.append(str(v))
+    # UB combo form: "Username (DisplayName)"
+    uname = getattr(member, "name", None)
+    dname = getattr(member, "display_name", None) or getattr(member, "global_name", None)
+    if uname and dname and uname != dname:
+        raw.append(f"{uname} ({dname})")
+    seen: set[str] = set()
+    out: list[str] = []
+    for n in raw:
+        low = n.lower()
+        if low and low not in seen:
+            seen.add(low)
+            out.append(low)
+    return out
+
+
+def _ub_line_matches(line: str, target_id: int, target_names: list[str]) -> bool:
+    """True if a 'User:'/'Actioned by:' value refers to ``target_id``.
+
+    Checks for the literal Discord snowflake first (most reliable),
+    then falls back to substring-matching any of ``target_names`` in
+    the line. Name match is intentionally substring-based because UB's
+    plaintext form may be wrapped in punctuation we can't predict.
+    """
+    if not line:
+        return False
+    snow = _UB_SNOWFLAKE_RE.search(line)
+    if snow:
+        return int(snow.group(1)) == int(target_id)
+    low = line.lower()
+    return any(name in low for name in target_names)
 
 
 def _parse_ub_amount(raw: str) -> int:
@@ -1906,7 +1958,11 @@ def _extract_ub_text(embed: discord.Embed) -> str:
     return "\n".join(p for p in parts if p)
 
 
-def _parse_ub_balance_embed(embed: discord.Embed, target_user_id: int) -> Optional[dict[str, Any]]:
+def _parse_ub_balance_embed(
+    embed: discord.Embed,
+    target_user_id: int,
+    target_names: Optional[list[str]] = None,
+) -> Optional[dict[str, Any]]:
     """Parse a single UnbelievaBoat balance-update embed for ``target_user_id``.
 
     Returns a row dict {ts: None, cash_delta, bank_delta, reason} when the
@@ -1920,8 +1976,12 @@ def _parse_ub_balance_embed(embed: discord.Embed, target_user_id: int) -> Option
     text = _extract_ub_text(embed)
     if not text:
         return None
+    target_names = target_names or []
     user_m = _UB_USER_RE.search(text)
-    if not user_m or int(user_m.group(1)) != int(target_user_id):
+    if not user_m:
+        return None
+    user_line = user_m.group(1).strip()
+    if not _ub_line_matches(user_line, target_user_id, target_names):
         return None
     amount_m = _UB_AMOUNT_RE.search(text)
     if not amount_m:
@@ -1934,10 +1994,15 @@ def _parse_ub_balance_embed(embed: discord.Embed, target_user_id: int) -> Option
     reason_m = _UB_REASON_RE.search(text)
     reason = reason_m.group(1).strip() if reason_m else "(no reason)"
     actor_m = _UB_ACTOR_RE.search(text)
-    if actor_m and int(actor_m.group(1)) != int(target_user_id):
-        # Someone else acted on this user (e.g. received give-money). Tag
-        # the actor in the reason so admins can see who initiated the move.
-        reason = f"{reason} — by <@{actor_m.group(1)}>"
+    if actor_m:
+        actor_line = actor_m.group(1).strip()
+        if not _ub_line_matches(actor_line, target_user_id, target_names):
+            # Someone else acted on this user (e.g. received give-money).
+            # Prefer the snowflake suffix when present, otherwise show
+            # the literal actor text UB printed.
+            snow = _UB_SNOWFLAKE_RE.search(actor_line)
+            actor_label = f"<@{snow.group(1)}>" if snow else actor_line
+            reason = f"{reason} — by {actor_label}"
     return {
         "id": None,
         "ts": None,  # filled by caller
@@ -1972,13 +2037,40 @@ async def _load_economy_log_history(
     if not hasattr(channel, "history"):
         return []
     ub_id = int(getattr(config, "UNBELIEVABOAT_BOT_ID", 0) or 0)
+    # Resolve plausible name strings for the target — UnbelievaBoat
+    # often writes mentions as plain "@Username (Display Name)" text
+    # rather than real Discord snowflake mentions, so we need names
+    # to fall back to when the snowflake isn't present.
+    target_names: list[str] = []
+    try:
+        guild = getattr(channel, "guild", None)
+        member = None
+        if guild is not None:
+            member = guild.get_member(int(user_id))
+            if member is None and hasattr(guild, "fetch_member"):
+                try:
+                    member = await guild.fetch_member(int(user_id))
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    member = None
+        if member is None:
+            user_obj = bot.get_user(int(user_id))
+            if user_obj is None and hasattr(bot, "fetch_user"):
+                try:
+                    user_obj = await bot.fetch_user(int(user_id))
+                except (discord.NotFound, discord.HTTPException):
+                    user_obj = None
+            member = user_obj
+        target_names = _candidate_names_for(member)
+    except Exception:
+        logger.exception("Failed resolving names for user %s", user_id)
+        target_names = []
     out: list[dict] = []
     try:
         async for msg in channel.history(after=since_dt, limit=max_messages, oldest_first=False):
             if ub_id and getattr(getattr(msg, "author", None), "id", None) != ub_id:
                 continue
             for embed in getattr(msg, "embeds", []) or []:
-                row = _parse_ub_balance_embed(embed, user_id)
+                row = _parse_ub_balance_embed(embed, user_id, target_names)
                 if row is None:
                     continue
                 ts = getattr(msg, "created_at", None) or datetime.now(timezone.utc)
