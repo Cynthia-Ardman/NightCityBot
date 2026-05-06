@@ -2065,22 +2065,49 @@ async def _load_economy_log_history(
         logger.exception("Failed resolving names for user %s", user_id)
         target_names = []
     out: list[dict] = []
+    stats = {
+        "scanned": 0,
+        "ub_msgs": 0,
+        "embeds_seen": 0,
+        "parsed": 0,
+        "target_names": list(target_names),
+        "channel_name": getattr(channel, "name", None) or str(channel_id),
+        "ub_id_filter": ub_id,
+        "error": None,
+    }
+    # Walk newest→oldest from now and stop ourselves once we cross the
+    # since_dt boundary. This avoids any discord.py quirk with passing
+    # `after=<datetime>` combined with `oldest_first` flags, and gives
+    # us a deterministic, bounded scrape.
     try:
-        async for msg in channel.history(after=since_dt, limit=max_messages, oldest_first=False):
+        async for msg in channel.history(limit=max_messages):
+            stats["scanned"] += 1
+            ts = getattr(msg, "created_at", None) or datetime.now(timezone.utc)
+            if isinstance(ts, datetime) and ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if ts < since_dt:
+                break
             if ub_id and getattr(getattr(msg, "author", None), "id", None) != ub_id:
                 continue
+            stats["ub_msgs"] += 1
             for embed in getattr(msg, "embeds", []) or []:
+                stats["embeds_seen"] += 1
                 row = _parse_ub_balance_embed(embed, user_id, target_names)
                 if row is None:
                     continue
-                ts = getattr(msg, "created_at", None) or datetime.now(timezone.utc)
-                if isinstance(ts, datetime) and ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
                 row["ts"] = ts
                 out.append(row)
-    except (discord.Forbidden, discord.HTTPException):
+                stats["parsed"] += 1
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        stats["error"] = type(exc).__name__
         logger.exception("Failed reading economy_log history for user %s", user_id)
-        return out
+    logger.info(
+        "economy_log scrape user=%s scanned=%d ub_msgs=%d embeds=%d parsed=%d names=%s err=%s",
+        user_id, stats["scanned"], stats["ub_msgs"], stats["embeds_seen"],
+        stats["parsed"], target_names, stats["error"],
+    )
+    # Stash stats on the function for the picker view to surface.
+    _load_economy_log_history.last_stats = stats  # type: ignore[attr-defined]
     return out
 
 
@@ -2124,6 +2151,7 @@ class BalanceHistoryPickerView(SafeView):
         except Exception:
             logger.exception("_load_economy_log_history failed for user %s", member.id)
             ub_rows = []
+        ub_stats = getattr(_load_economy_log_history, "last_stats", None) or {}
         # Normalize live row timestamps to aware UTC for comparisons
         for r in live_rows:
             ts = r.get("ts")
@@ -2136,9 +2164,19 @@ class BalanceHistoryPickerView(SafeView):
         merged = _merge_history(live_rows, ub_rows)
         merged = _merge_history(merged, backup_rows)
         if not merged:
+            diag = ""
+            if ub_stats:
+                diag = (
+                    f"\n_UB scrape: scanned={ub_stats.get('scanned', 0)} "
+                    f"ub={ub_stats.get('ub_msgs', 0)} "
+                    f"embeds={ub_stats.get('embeds_seen', 0)} "
+                    f"parsed={ub_stats.get('parsed', 0)}"
+                    + (f" err={ub_stats['error']}" if ub_stats.get('error') else "")
+                    + "_"
+                )
             await send_ephemeral(
                 interaction,
-                f"No balance changes recorded for **{member.display_name}** in the last 30 days.",
+                f"No balance changes recorded for **{member.display_name}** in the last 30 days.{diag}",
             )
             return
         lines, omitted = _format_history_lines(merged, max_rows=50)
@@ -2148,6 +2186,16 @@ class BalanceHistoryPickerView(SafeView):
             footer_bits.append(f"{omitted} older entries hidden")
         if dropped:
             footer_bits.append(f"{dropped} lines truncated for length")
+        if ub_stats:
+            footer_bits.append(
+                "UB scrape: scanned={s} ub={u} embeds={e} parsed={p}{err}".format(
+                    s=ub_stats.get("scanned", 0),
+                    u=ub_stats.get("ub_msgs", 0),
+                    e=ub_stats.get("embeds_seen", 0),
+                    p=ub_stats.get("parsed", 0),
+                    err=f" err={ub_stats['error']}" if ub_stats.get("error") else "",
+                )
+            )
         embed = discord.Embed(
             title=f"Balance History — {member.display_name}",
             description=description or "(no entries fit)",
