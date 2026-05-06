@@ -2065,20 +2065,25 @@ async def _load_economy_log_history(
         logger.exception("Failed resolving names for user %s", user_id)
         target_names = []
     out: list[dict] = []
+    author_counts: dict[str, int] = {}
     stats = {
         "scanned": 0,
-        "ub_msgs": 0,
+        "with_embeds": 0,
         "embeds_seen": 0,
         "parsed": 0,
         "target_names": list(target_names),
         "channel_name": getattr(channel, "name", None) or str(channel_id),
         "ub_id_filter": ub_id,
+        "top_authors": "",
         "error": None,
     }
-    # Walk newest→oldest from now and stop ourselves once we cross the
-    # since_dt boundary. This avoids any discord.py quirk with passing
-    # `after=<datetime>` combined with `oldest_first` flags, and gives
-    # us a deterministic, bounded scrape.
+    # Walk newest→oldest from now and stop once we cross the since_dt
+    # boundary. We DO NOT filter by author ID anymore — UnbelievaBoat
+    # is sometimes delivered via webhook (whose author id != the bot
+    # id) or via a forked UB instance. The parser is strict enough on
+    # its own (requires the exact "User:/Amount: Cash:…/Reason:"
+    # signature) that false positives from other authors are
+    # effectively impossible.
     try:
         async for msg in channel.history(limit=max_messages):
             stats["scanned"] += 1
@@ -2087,10 +2092,17 @@ async def _load_economy_log_history(
                 ts = ts.replace(tzinfo=timezone.utc)
             if ts < since_dt:
                 break
-            if ub_id and getattr(getattr(msg, "author", None), "id", None) != ub_id:
+            embeds = getattr(msg, "embeds", []) or []
+            if not embeds:
                 continue
-            stats["ub_msgs"] += 1
-            for embed in getattr(msg, "embeds", []) or []:
+            stats["with_embeds"] += 1
+            author = getattr(msg, "author", None)
+            author_label = (
+                f"{getattr(author, 'name', '?')}#{getattr(author, 'id', '?')}"
+                if author else "unknown"
+            )
+            author_counts[author_label] = author_counts.get(author_label, 0) + 1
+            for embed in embeds:
                 stats["embeds_seen"] += 1
                 row = _parse_ub_balance_embed(embed, user_id, target_names)
                 if row is None:
@@ -2101,10 +2113,16 @@ async def _load_economy_log_history(
     except (discord.Forbidden, discord.HTTPException) as exc:
         stats["error"] = type(exc).__name__
         logger.exception("Failed reading economy_log history for user %s", user_id)
+    # Top 3 author labels from messages-with-embeds, useful for
+    # diagnosing why nothing parsed.
+    if author_counts:
+        top = sorted(author_counts.items(), key=lambda kv: kv[1], reverse=True)[:3]
+        stats["top_authors"] = ", ".join(f"{n}×{c}" for n, c in top)
     logger.info(
-        "economy_log scrape user=%s scanned=%d ub_msgs=%d embeds=%d parsed=%d names=%s err=%s",
-        user_id, stats["scanned"], stats["ub_msgs"], stats["embeds_seen"],
-        stats["parsed"], target_names, stats["error"],
+        "economy_log scrape user=%s scanned=%d with_embeds=%d embeds=%d parsed=%d "
+        "top_authors=[%s] names=%s err=%s",
+        user_id, stats["scanned"], stats["with_embeds"], stats["embeds_seen"],
+        stats["parsed"], stats["top_authors"], target_names, stats["error"],
     )
     # Stash stats on the function for the picker view to surface.
     _load_economy_log_history.last_stats = stats  # type: ignore[attr-defined]
@@ -2168,10 +2186,11 @@ class BalanceHistoryPickerView(SafeView):
             if ub_stats:
                 diag = (
                     f"\n_UB scrape: scanned={ub_stats.get('scanned', 0)} "
-                    f"ub={ub_stats.get('ub_msgs', 0)} "
+                    f"with_embeds={ub_stats.get('with_embeds', 0)} "
                     f"embeds={ub_stats.get('embeds_seen', 0)} "
                     f"parsed={ub_stats.get('parsed', 0)}"
-                    + (f" err={ub_stats['error']}" if ub_stats.get('error') else "")
+                    + (f" • top: {ub_stats['top_authors']}" if ub_stats.get('top_authors') else "")
+                    + (f" • err={ub_stats['error']}" if ub_stats.get('error') else "")
                     + "_"
                 )
             await send_ephemeral(
@@ -2188,11 +2207,11 @@ class BalanceHistoryPickerView(SafeView):
             footer_bits.append(f"{dropped} lines truncated for length")
         if ub_stats:
             footer_bits.append(
-                "UB scrape: scanned={s} ub={u} embeds={e} parsed={p}{err}".format(
+                "UB: scanned={s} embeds={e} parsed={p}{top}{err}".format(
                     s=ub_stats.get("scanned", 0),
-                    u=ub_stats.get("ub_msgs", 0),
                     e=ub_stats.get("embeds_seen", 0),
                     p=ub_stats.get("parsed", 0),
+                    top=f" top={ub_stats['top_authors']}" if ub_stats.get("top_authors") else "",
                     err=f" err={ub_stats['error']}" if ub_stats.get("error") else "",
                 )
             )

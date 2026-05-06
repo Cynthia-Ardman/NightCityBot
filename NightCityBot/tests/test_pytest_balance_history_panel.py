@@ -481,26 +481,30 @@ class TestLoadEconomyLogHistory:
         ch.history = MagicMock(side_effect=lambda **kw: _hist(**kw))
         return ch
 
-    def test_filters_to_unbelievaboat_messages_only(self):
+    def test_parses_messages_regardless_of_author(self):
+        """UnbelievaBoat is sometimes delivered via webhook (whose author
+        id != the bot id) or via a forked instance. We rely on the
+        parser's strict signature match instead of the author id."""
         now = datetime.now(timezone.utc)
-        target_embed = _make_embed(description=(
+        balance_embed = _make_embed(description=(
             f"Balance updated\nUser: <@{self.TARGET}>\n"
             "Amount: Cash: +500 | Bank: 0\nReason: work command"
         ))
-        impostor_embed = _make_embed(description=(
-            f"Balance updated\nUser: <@{self.TARGET}>\n"
-            "Amount: Cash: +999999 | Bank: 0\nReason: SCAM"
+        unrelated_embed = _make_embed(description=(
+            "Some other bot's embed with no balance signature"
         ))
         msgs = [
-            self._make_msg(author_id=self.UB_BOT_ID, embeds=[target_embed], ts=now),
-            self._make_msg(author_id=11111111, embeds=[impostor_embed], ts=now),
+            # Webhook-delivered (different author id) — must STILL parse
+            self._make_msg(author_id=999999, embeds=[balance_embed], ts=now),
+            # Unrelated embed — must NOT parse
+            self._make_msg(author_id=11111111, embeds=[unrelated_embed], ts=now),
         ]
         bot = MagicMock()
         bot.get_channel.return_value = self._make_channel(msgs)
         rows = asyncio.run(_load_economy_log_history(bot, self.TARGET, now - timedelta(days=30)))
         assert len(rows) == 1
         assert rows[0]["cash_delta"] == 500
-        assert "scam" not in rows[0]["reason"].lower()
+        assert "work" in rows[0]["reason"]
 
     def test_returns_empty_when_channel_id_unset(self, monkeypatch):
         monkeypatch.setattr(config, "ECONOMY_LOG_CHANNEL_ID", 0)
