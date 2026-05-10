@@ -2038,12 +2038,17 @@ async def _load_economy_log_history(
     user_id: int,
     since_dt: datetime,
     *,
-    max_messages: int = 2000,
+    max_messages: int = 25000,
 ) -> list[dict]:
     """Scrape #economy-logs for UnbelievaBoat balance-updates affecting ``user_id``.
 
     Read-only. Returns rows shaped like ``balance_history_get`` so they
     can be merged with the live audit table and backup snapshots.
+
+    ``max_messages`` is a hard safety cap; the scan normally exits early
+    when it crosses ``since_dt``. In busy channels (~200+ msgs/day) the
+    old 2000 cap was hit well before 30 days back, silently truncating
+    the window — 25000 covers ~3 months of even very chatty activity.
     """
     channel_id = getattr(config, "ECONOMY_LOG_CHANNEL_ID", 0) or 0
     if not channel_id:
