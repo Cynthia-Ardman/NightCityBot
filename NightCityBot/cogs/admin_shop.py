@@ -2102,6 +2102,13 @@ async def _load_economy_log_history(
         "ub_id_filter": ub_id,
         "top_authors": "",
         "error": None,
+        # Oldest message timestamp actually seen during the scan, and
+        # whether the scan reached the requested ``since_dt`` boundary.
+        # If it didn't, the channel itself doesn't have enough history
+        # to cover the window — we surface that to the operator.
+        "oldest_seen": None,
+        "reached_since": False,
+        "hit_max": False,
     }
     # Walk newest→oldest from now and stop once we cross the since_dt
     # boundary. We DO NOT filter by author ID anymore — UnbelievaBoat
@@ -2116,7 +2123,9 @@ async def _load_economy_log_history(
             ts = getattr(msg, "created_at", None) or datetime.now(timezone.utc)
             if isinstance(ts, datetime) and ts.tzinfo is None:
                 ts = ts.replace(tzinfo=timezone.utc)
+            stats["oldest_seen"] = ts
             if ts < since_dt:
+                stats["reached_since"] = True
                 break
             embeds = getattr(msg, "embeds", []) or []
             if not embeds:
@@ -2139,6 +2148,8 @@ async def _load_economy_log_history(
     except (discord.Forbidden, discord.HTTPException) as exc:
         stats["error"] = type(exc).__name__
         logger.exception("Failed reading economy_log history for user %s", user_id)
+    if not stats["reached_since"] and stats["scanned"] >= max_messages:
+        stats["hit_max"] = True
     # Top 3 author labels from messages-with-embeds, useful for
     # diagnosing why nothing parsed.
     if author_counts:
@@ -2146,9 +2157,10 @@ async def _load_economy_log_history(
         stats["top_authors"] = ", ".join(f"{n}×{c}" for n, c in top)
     logger.info(
         "economy_log scrape user=%s scanned=%d with_embeds=%d embeds=%d parsed=%d "
-        "top_authors=[%s] names=%s err=%s",
+        "oldest=%s reached_since=%s hit_max=%s top_authors=[%s] names=%s err=%s",
         user_id, stats["scanned"], stats["with_embeds"], stats["embeds_seen"],
-        stats["parsed"], stats["top_authors"], target_names, stats["error"],
+        stats["parsed"], stats["oldest_seen"], stats["reached_since"],
+        stats["hit_max"], stats["top_authors"], target_names, stats["error"],
     )
     # Stash stats on the function for the picker view to surface.
     _load_economy_log_history.last_stats = stats  # type: ignore[attr-defined]
@@ -2221,6 +2233,16 @@ class BalanceHistoryPickerView(SafeView):
         footer_bits = [f"{len(merged)} change(s) in window"]
         if dropped:
             footer_bits.append(f"{dropped} additional row(s) attached as file")
+        # If the economy-logs channel didn't have 30 days of history,
+        # tell the operator — otherwise the cutoff date looks like a bug.
+        if ub_stats and not ub_stats.get("reached_since") and not ub_stats.get("hit_max"):
+            oldest = ub_stats.get("oldest_seen")
+            if isinstance(oldest, datetime):
+                footer_bits.append(
+                    f"economy-logs only goes back to {oldest.strftime('%Y-%m-%d')}"
+                )
+        elif ub_stats and ub_stats.get("hit_max"):
+            footer_bits.append("scan cap reached — older entries may be missing")
         embed = discord.Embed(
             title=f"Balance History — {member.display_name}",
             description=description or "(no entries fit)",
