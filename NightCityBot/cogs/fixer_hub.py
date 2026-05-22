@@ -4,6 +4,7 @@ Three top-level categories: Player, Store, Wholesaler.
 Each opens a sub-menu with relevant actions.
 """
 import logging
+import random
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -469,7 +470,39 @@ class MissionRecordPickerView(SafeView):
         await send_ephemeral(interaction, body[:1900])
 
 
-MISSION_EVENT_IMAGE_PATH = Path("attached_assets/mission_banner.png")
+MISSION_EVENT_IMAGE_CANDIDATES = [
+    Path("attached_assets/NCRP_SquareBanner2_1779474926073.png"),
+    Path("attached_assets/NCRP_SquareBanner_1779474930891.png"),
+    Path("attached_assets/NCRP_GroupBanner_1779474930892.png"),
+]
+# Legacy single-banner path. If present it's added to the rotation so
+# operators who already dropped a `mission_banner.png` keep working.
+_LEGACY_BANNER = Path("attached_assets/mission_banner.png")
+
+
+def _pick_mission_banner_bytes() -> Optional[bytes]:
+    """Return the bytes of a random available mission banner (≤8 MiB), or None."""
+    candidates = list(MISSION_EVENT_IMAGE_CANDIDATES)
+    if _LEGACY_BANNER.is_file():
+        candidates.append(_LEGACY_BANNER)
+    available = [p for p in candidates if p.is_file()]
+    if not available:
+        return None
+    random.shuffle(available)
+    for path in available:
+        try:
+            raw = path.read_bytes()
+        except Exception:
+            continue
+        if len(raw) <= 8 * 1024 * 1024:
+            return raw
+        logger.warning(
+            "Mission banner %s is %d bytes (>8MiB), trying next.",
+            path, len(raw),
+        )
+    return None
+
+
 MISSION_DATETIME_RE = re.compile(r"^\s*(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})\s*$")
 
 
@@ -676,20 +709,7 @@ class CreateMissionAttendeesView(SafeView):
 
         # Build the scheduled event.
         event_title = f"Actors Needed: {self.mission_name}"
-        image_bytes: Optional[bytes] = None
-        try:
-            if MISSION_EVENT_IMAGE_PATH.is_file():
-                raw = MISSION_EVENT_IMAGE_PATH.read_bytes()
-                # Discord caps scheduled-event images around 8MiB; skip oversize.
-                if len(raw) <= 8 * 1024 * 1024:
-                    image_bytes = raw
-                else:
-                    logger.warning(
-                        "Mission banner %s is %d bytes (>8MiB), skipping image.",
-                        MISSION_EVENT_IMAGE_PATH, len(raw),
-                    )
-        except Exception:
-            image_bytes = None
+        image_bytes: Optional[bytes] = _pick_mission_banner_bytes()
         kwargs: dict = dict(
             name=event_title[:100],
             description=(

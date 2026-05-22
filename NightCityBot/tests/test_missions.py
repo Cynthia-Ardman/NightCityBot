@@ -318,6 +318,44 @@ class TestMissionStartParser:
         assert _parse_mission_start("2026-05-23 25:00") is None
 
 
+class TestPickMissionBanner:
+    def test_returns_none_when_no_files(self, tmp_path, monkeypatch):
+        from NightCityBot.cogs import fixer_hub
+
+        monkeypatch.setattr(
+            fixer_hub, "MISSION_EVENT_IMAGE_CANDIDATES",
+            [tmp_path / "missing1.png", tmp_path / "missing2.png"],
+        )
+        monkeypatch.setattr(fixer_hub, "_LEGACY_BANNER", tmp_path / "legacy.png")
+        assert fixer_hub._pick_mission_banner_bytes() is None
+
+    def test_returns_bytes_of_an_existing_file(self, tmp_path, monkeypatch):
+        from NightCityBot.cogs import fixer_hub
+
+        p1 = tmp_path / "a.png"
+        p2 = tmp_path / "b.png"
+        p1.write_bytes(b"AAA")
+        p2.write_bytes(b"BBB")
+        monkeypatch.setattr(fixer_hub, "MISSION_EVENT_IMAGE_CANDIDATES", [p1, p2])
+        monkeypatch.setattr(fixer_hub, "_LEGACY_BANNER", tmp_path / "legacy.png")
+        out = fixer_hub._pick_mission_banner_bytes()
+        assert out in (b"AAA", b"BBB")
+
+    def test_skips_oversize_file(self, tmp_path, monkeypatch):
+        from NightCityBot.cogs import fixer_hub
+
+        big = tmp_path / "big.png"
+        small = tmp_path / "small.png"
+        big.write_bytes(b"X" * (8 * 1024 * 1024 + 1))
+        small.write_bytes(b"OK")
+        monkeypatch.setattr(fixer_hub, "MISSION_EVENT_IMAGE_CANDIDATES", [big, small])
+        monkeypatch.setattr(fixer_hub, "_LEGACY_BANNER", tmp_path / "legacy.png")
+        # With both available, the small one must be the only acceptable choice
+        # if the big one is rolled first. Run a few times to cover shuffles.
+        for _ in range(20):
+            assert fixer_hub._pick_mission_banner_bytes() == b"OK"
+
+
 class TestParseIntAmount:
     def test_plain_integer(self):
         from NightCityBot.cogs.fixer_hub import _parse_int_amount
