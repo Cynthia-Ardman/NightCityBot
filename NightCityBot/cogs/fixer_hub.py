@@ -23,7 +23,10 @@ from NightCityBot.utils.db import (
     ih_record_event,
     ih_get_history,
     pt_create,
+    mission_log_get,
+    mission_log_record,
 )
+from NightCityBot.cogs.missions import _format_check_line, _parse_date_token
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active, get_character_by_name
 from NightCityBot.utils.permissions import is_fixer
 from NightCityBot.utils.inline_helpers import collect_text_input
@@ -143,6 +146,24 @@ class FixerTopView(SafeView):
                 "**Add Cyberware** — Add a custom cyberware lot (overlays the catalogue)"
             ),
             color=discord.Color.orange(),
+        )
+        await respond_ephemeral(interaction, embed=embed, view=view)
+
+    @discord.ui.button(label="Missions", style=discord.ButtonStyle.primary, emoji="🎯", row=1, custom_id="fixer:missions_menu")
+    async def missions_menu(self, interaction: discord.Interaction, button: discord.ui.Button):
+        cog = interaction.client.get_cog("FixerHub")
+        ctx = PanelContext(interaction)
+        view = MissionsSubView(cog, ctx)
+        embed = discord.Embed(
+            title="🎯 Fixer Panel — Missions",
+            description=(
+                "**Check Missions** — See how recently and how often selected "
+                "players have been on missions.\n"
+                "**Record Mission** — Log today's mission for one or more "
+                "players (use `!mission_record … date=YYYY-MM-DD` for a "
+                "custom date)."
+            ),
+            color=discord.Color.gold(),
         )
         await respond_ephemeral(interaction, embed=embed, view=view)
 
@@ -313,6 +334,128 @@ class PlayerSubView(SafeView):
         await interaction.response.defer(ephemeral=True)
         view = LOAPickerView(self.cog, self.ctx, action="end")
         await send_ephemeral(interaction, "Select a player to take off LOA:", view=view)
+
+
+class MissionsSubView(SafeView):
+    """Sub-menu for mission tracking on the Fixer panel."""
+
+    def __init__(self, cog: "FixerHubCog", ctx):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.button(label="Check Missions", style=discord.ButtonStyle.secondary, emoji="🔎", row=0)
+    async def check_missions(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        view = MissionCheckPickerView(self.cog, self.ctx)
+        await send_ephemeral(
+            interaction,
+            "Pick up to 25 players to check their mission history:",
+            view=view,
+        )
+
+    @discord.ui.button(label="Record Mission", style=discord.ButtonStyle.success, emoji="✅", row=0)
+    async def record_mission(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        view = MissionRecordPickerView(self.cog, self.ctx)
+        await send_ephemeral(
+            interaction,
+            "Pick up to 25 players to record **today's** mission for:",
+            view=view,
+        )
+
+
+class MissionCheckPickerView(SafeView):
+    def __init__(self, cog: "FixerHubCog", ctx):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.select(
+        cls=discord.ui.UserSelect,
+        placeholder="Choose player(s)…",
+        min_values=1,
+        max_values=25,
+        row=0,
+    )
+    async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        await interaction.response.defer(ephemeral=True)
+        users = list(select.values)
+        if not users:
+            await send_ephemeral(interaction, "No players selected.")
+            return
+        today = datetime.now(timezone.utc).date()
+        lines: list[str] = []
+        for u in users:
+            row = await mission_log_get(str(u.id))
+            display = getattr(u, "display_name", None) or getattr(u, "name", str(u.id))
+            lines.append(_format_check_line(display, row, today))
+        embed = discord.Embed(
+            title="🎯 Mission History",
+            description="\n".join(lines)[:4096],
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text=f"{len(users)} player(s) checked • as of {today.isoformat()}")
+        await send_ephemeral(interaction, embed=embed)
+
+
+class MissionRecordPickerView(SafeView):
+    def __init__(self, cog: "FixerHubCog", ctx):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.select(
+        cls=discord.ui.UserSelect,
+        placeholder="Choose player(s)…",
+        min_values=1,
+        max_values=25,
+        row=0,
+    )
+    async def player_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        await interaction.response.defer(ephemeral=True)
+        users = list(select.values)
+        if not users:
+            await send_ephemeral(interaction, "No players selected.")
+            return
+        today = datetime.now(timezone.utc).date()
+        recorded: list[str] = []
+        failed: list[str] = []
+        for u in users:
+            display = getattr(u, "display_name", None) or getattr(u, "name", str(u.id))
+            result = await mission_log_record(str(u.id), display, today)
+            if result is None:
+                failed.append(display)
+                continue
+            recorded.append(
+                f"• **{result.get('username') or display}** → "
+                f"total {int(result.get('mission_count') or 0)} mission(s)"
+            )
+        body = f"Recorded mission on **{today.isoformat()} (today)**:\n" + "\n".join(recorded)
+        if failed:
+            body += "\nFailed: " + ", ".join(f"`{t}`" for t in failed)
+        body += (
+            "\n\n_For a custom date, use_ `!mission_record @user date=YYYY-MM-DD`."
+        )
+        await send_ephemeral(interaction, body[:1900])
 
 
 GUN_STORE_OWNER_ROLE_ID = config.GUN_STORE_OWNER_ROLE_ID

@@ -354,6 +354,14 @@ class Admin(commands.Cog):
                     "`!manual_cyberware_log` – manually log a cyberware transaction.",
                 ]),
             ),
+            (
+                "🎯 Missions",
+                "\n".join([
+                    "Also on the Fixer panel → **Missions** → Check / Record.",
+                    "`!mission_check @user [@user2 …]` – show last mission date and total count for each user (accepts mentions, IDs, or usernames).",
+                    "`!mission_record @user [@user2 …] [date=YYYY-MM-DD]` – record a mission; date defaults to today.",
+                ]),
+            ),
         ]
 
         embeds = []
