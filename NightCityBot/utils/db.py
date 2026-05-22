@@ -9,7 +9,7 @@ import asyncpg
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -636,6 +636,16 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_balance_history_user_ts
             ON balance_history (user_id, ts DESC)
+        """,
+        # ── Mission log (Fixer-tracked roster of who's been on missions) ──
+        """
+        CREATE TABLE IF NOT EXISTS mission_log (
+            user_id        TEXT PRIMARY KEY,
+            username       TEXT NOT NULL DEFAULT '',
+            mission_count  INT  NOT NULL DEFAULT 0,
+            mission_dates  DATE[] NOT NULL DEFAULT ARRAY[]::DATE[],
+            updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
         """,
     ]
 
@@ -4250,6 +4260,108 @@ async def balance_history_get(
             "balance_history_get failed for user '%s'", user_id, exc_info=True
         )
         return []
+
+
+# ---------------------------------------------------------------------------
+# Mission log (Fixer-tracked roster of who's been on missions)
+# ---------------------------------------------------------------------------
+
+async def mission_log_get(user_id: str) -> Optional[dict]:
+    """Return the mission_log row for ``user_id`` or None."""
+    try:
+        pool = await get_pool()
+        row = await _with_retry(
+            lambda: pool.fetchrow(
+                """
+                SELECT user_id, username, mission_count, mission_dates, updated_at
+                FROM mission_log WHERE user_id = $1
+                """,
+                str(user_id),
+            ),
+            label="mission_log_get",
+        )
+        return dict(row) if row else None
+    except Exception:
+        logger.error("mission_log_get failed for user '%s'", user_id, exc_info=True)
+        return None
+
+
+async def mission_log_record(
+    user_id: str,
+    username: str,
+    mission_date: date,
+) -> Optional[dict]:
+    """Upsert a mission for a user.
+
+    On insert: mission_count = 1, mission_dates = [mission_date].
+    On update: mission_count += 1, mission_date appended to mission_dates;
+    username is refreshed to the latest value passed in.
+    Returns the resulting row as a dict, or None on failure.
+    """
+    try:
+        pool = await get_pool()
+        row = await _with_retry(
+            lambda: pool.fetchrow(
+                """
+                INSERT INTO mission_log (user_id, username, mission_count, mission_dates, updated_at)
+                VALUES ($1, $2, 1, ARRAY[$3::DATE], NOW())
+                ON CONFLICT (user_id) DO UPDATE
+                  SET username      = EXCLUDED.username,
+                      mission_count = mission_log.mission_count + 1,
+                      mission_dates = mission_log.mission_dates || EXCLUDED.mission_dates,
+                      updated_at    = NOW()
+                RETURNING user_id, username, mission_count, mission_dates, updated_at
+                """,
+                str(user_id),
+                str(username or "")[:128],
+                mission_date,
+            ),
+            label="mission_log_record",
+        )
+        return dict(row) if row else None
+    except Exception:
+        logger.error(
+            "mission_log_record failed for user '%s'", user_id, exc_info=True
+        )
+        return None
+
+
+async def mission_log_import_rows(rows: list[dict]) -> int:
+    """Bulk-replace mission_log rows from a one-shot sheet import.
+
+    Each ``rows`` entry must have keys: ``user_id``, ``username``,
+    ``mission_count``, ``mission_dates`` (list[date]). Existing rows for
+    the same user_id are overwritten (since this is a migration, not an
+    incremental update). Returns the number of rows written.
+    """
+    if not rows:
+        return 0
+    try:
+        pool = await get_pool()
+        async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
+            async with conn.transaction():
+                written = 0
+                for r in rows:
+                    await conn.execute(
+                        """
+                        INSERT INTO mission_log (user_id, username, mission_count, mission_dates, updated_at)
+                        VALUES ($1, $2, $3, $4::DATE[], NOW())
+                        ON CONFLICT (user_id) DO UPDATE
+                          SET username      = EXCLUDED.username,
+                              mission_count = EXCLUDED.mission_count,
+                              mission_dates = EXCLUDED.mission_dates,
+                              updated_at    = NOW()
+                        """,
+                        str(r["user_id"]),
+                        str(r.get("username") or "")[:128],
+                        int(r.get("mission_count") or 0),
+                        list(r.get("mission_dates") or []),
+                    )
+                    written += 1
+                return written
+    except Exception:
+        logger.error("mission_log_import_rows failed", exc_info=True)
+        return 0
 
 
 # ---------------------------------------------------------------------------
