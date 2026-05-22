@@ -42,7 +42,18 @@ from NightCityBot.utils.db import (
 )
 from NightCityBot.utils.permissions import is_fixer
 
+
 logger = logging.getLogger(__name__)
+
+
+async def _post_mission_audit(bot, **kwargs) -> None:
+    """Lazy wrapper to avoid a circular import with fixer_hub."""
+    try:
+        from NightCityBot.cogs.fixer_hub import post_mission_audit as _impl
+    except Exception:
+        logger.error("Could not import post_mission_audit", exc_info=True)
+        return
+    await _impl(bot, **kwargs)
 
 # Only events whose title begins with this prefix (case-insensitive) are
 # treated as bot-managed missions during reconciliation. Anything else
@@ -669,6 +680,30 @@ class MissionsCog(commands.Cog):
             except Exception:
                 logger.error("Failed to post mission payout summary for %s", mission_id, exc_info=True)
 
+        creator_id = row.get("creator_id")
+        creator_username = row.get("creator_username") or (str(creator_id) if creator_id else None)
+        await _post_mission_audit(
+            self.bot,
+            action="Mission Auto-Payout",
+            actor_id=str(creator_id) if creator_id else None,
+            actor_name=str(creator_username) if creator_username else None,
+            mission_id=str(mission_id) if mission_id else None,
+            mission_name=mission_name,
+            fields=[
+                ("Pay per attendee", f"¥{pay:,} → bank"),
+                ("Mission date", mission_date.isoformat() if mission_date else "_(unknown)_"),
+                (
+                    f"Paid ({len(paid_lines)})",
+                    "\n".join(paid_lines) if paid_lines else "_(none)_",
+                ),
+                (
+                    f"Failed ({len(failed_lines)})",
+                    "\n".join(failed_lines) if failed_lines else "_(none)_",
+                ),
+            ],
+            color=discord.Color.gold(),
+        )
+
     @commands.command(name="mission_check", aliases=["mission_viability"])
     @is_fixer()
     async def mission_check(self, ctx: commands.Context, *targets: str):
@@ -741,6 +776,28 @@ class MissionsCog(commands.Cog):
         if failed:
             body += "\nFailed: " + ", ".join(f"`{t}`" for t in failed)
         await ctx.reply(body, mention_author=False)
+        recorded_ids: list[str] = []
+        for tok in targets:
+            uid, _uname, _user = await _resolve_target(ctx, tok)
+            if uid:
+                recorded_ids.append(str(uid))
+        await _post_mission_audit(
+            self.bot,
+            action="Mission Recorded (command)",
+            actor=ctx.author,
+            fields=[
+                ("Date", mission_date.isoformat()),
+                (
+                    f"Players ({len(recorded_ids)})",
+                    " ".join(f"<@{uid}>" for uid in recorded_ids) if recorded_ids else "_(none)_",
+                ),
+                (
+                    f"Failed ({len(failed)})",
+                    ", ".join(f"`{t}`" for t in failed) if failed else "_(none)_",
+                ),
+            ],
+            color=discord.Color.green(),
+        )
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MissionsCog(bot))

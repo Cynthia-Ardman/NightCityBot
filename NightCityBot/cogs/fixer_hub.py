@@ -85,6 +85,84 @@ async def _audit_channel(bot: commands.Bot) -> Optional[discord.TextChannel]:
     return ch
 
 
+def _fmt_actor_line(uid: Optional[str], uname: Optional[str]) -> str:
+    if not uid:
+        return f"`{uname or '?'}`"
+    label = uname or uid
+    return f"<@{uid}> (`{label}`, `{uid}`)"
+
+
+def _fmt_attendee_list(ids: list[str], max_chars: int = 1000) -> str:
+    if not ids:
+        return "_(none)_"
+    line = " ".join(f"<@{uid}>" for uid in ids)
+    if len(line) > max_chars:
+        line = line[: max_chars - 1] + "…"
+    return f"({len(ids)}) {line}"
+
+
+async def post_mission_audit(
+    bot: commands.Bot,
+    *,
+    action: str,
+    actor: "Optional[discord.abc.User]" = None,
+    actor_id: Optional[str] = None,
+    actor_name: Optional[str] = None,
+    mission_id: Optional[str] = None,
+    mission_name: Optional[str] = None,
+    fields: Optional[list[tuple[str, str]]] = None,
+    before: Optional[str] = None,
+    after: Optional[str] = None,
+    color: Optional[discord.Color] = None,
+) -> None:
+    """Best-effort post a mission-audit embed to NIGHTCITYBOT_LOG_CHANNEL_ID.
+
+    Never raises — logs to stderr if the channel can't be reached or the
+    embed send fails, so caller flows are never disrupted by audit issues.
+    """
+    try:
+        ch = await _audit_channel(bot)
+        if ch is None:
+            return
+        embed = discord.Embed(
+            title=f"📓 {action}",
+            color=color or discord.Color.blurple(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        if actor is not None:
+            uid = str(getattr(actor, "id", "") or "")
+            uname = (
+                getattr(actor, "display_name", None)
+                or getattr(actor, "name", None)
+                or uid
+            )
+            embed.add_field(name="Actor", value=_fmt_actor_line(uid, uname), inline=False)
+        elif actor_id or actor_name:
+            embed.add_field(
+                name="Actor",
+                value=_fmt_actor_line(actor_id, actor_name),
+                inline=False,
+            )
+        if mission_name or mission_id:
+            mid_part = f"\n`{mission_id}`" if mission_id else ""
+            embed.add_field(
+                name="Mission",
+                value=f"**{mission_name or '?'}**{mid_part}"[:1024],
+                inline=False,
+            )
+        for name, value in (fields or []):
+            if value is None or value == "":
+                continue
+            embed.add_field(name=name[:256], value=str(value)[:1024], inline=False)
+        if before is not None:
+            embed.add_field(name="Before", value=str(before)[:1024], inline=False)
+        if after is not None:
+            embed.add_field(name="After", value=str(after)[:1024], inline=False)
+        await ch.send(embed=embed)
+    except Exception:
+        logger.error("Failed to post mission audit log (%s)", action, exc_info=True)
+
+
 async def _resolve_user_select(ctx, user) -> Optional[discord.Member]:
     if isinstance(user, discord.Member):
         return user
@@ -548,6 +626,24 @@ class MissionRecordPickerView(SafeView):
             "\n\n_For a custom date, use_ `!mission_record @user date=YYYY-MM-DD`."
         )
         await send_ephemeral(interaction, body[:1900])
+        recorded_ids = [str(u.id) for u in users]
+        await post_mission_audit(
+            self.cog.bot,
+            action="Mission Recorded (panel)",
+            actor=interaction.user,
+            fields=[
+                ("Date", today.isoformat()),
+                (
+                    f"Players ({len(recorded_ids)})",
+                    _fmt_attendee_list(recorded_ids),
+                ),
+                (
+                    f"Failed ({len(failed)})",
+                    ", ".join(f"`{t}`" for t in failed) if failed else "_(none)_",
+                ),
+            ],
+            color=discord.Color.green(),
+        )
 
 
 def _short(text: str, n: int) -> str:
@@ -652,6 +748,25 @@ class ActorPayAmountModal(discord.ui.Modal, title="Actor Pay"):
         if not paid and not failed:
             embed.description = "No actors selected — nothing to pay."
         await send_ephemeral(interaction, embed=embed)
+        await post_mission_audit(
+            self.cog.bot,
+            action="Actor Pay",
+            actor=interaction.user,
+            mission_id=str(self.mission_id) if self.mission_id else None,
+            mission_name=self.mission_name,
+            fields=[
+                ("Pay per actor", f"¥{pay:,} → bank"),
+                (
+                    f"Paid ({len(paid)})",
+                    "\n".join(paid) if paid else "_(none)_",
+                ),
+                (
+                    f"Failed ({len(failed)})",
+                    "\n".join(failed) if failed else "_(none)_",
+                ),
+            ],
+            color=discord.Color.gold(),
+        )
 
 
 class ActorPayPickerView(SafeView):
@@ -1485,6 +1600,32 @@ class EditMissionDateTimeModal(discord.ui.Modal, title="Edit Mission Date/Time")
             f"✅ Mission rescheduled to <t:{int(new_start.timestamp())}:F>. "
             f"Auto-payout now lands at <t:{int(new_payout.timestamp())}:F>.",
         )
+        old_start = self.panel.row.get("start_ts")
+        old_end = self.panel.row.get("end_ts")
+        old_payout = self.panel.row.get("payout_ts")
+        def _fmt_dt(dt):
+            if isinstance(dt, datetime):
+                d = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+                return f"<t:{int(d.timestamp())}:F>"
+            return "_(unknown)_"
+        await post_mission_audit(
+            self.panel.cog.bot,
+            action="Mission Edited — Date/Time",
+            actor=interaction.user,
+            mission_id=str(self.panel.row.get("mission_id") or ""),
+            mission_name=str(self.panel.row.get("mission_name") or ""),
+            before=(
+                f"Start: {_fmt_dt(old_start)}\n"
+                f"End: {_fmt_dt(old_end)}\n"
+                f"Payout: {_fmt_dt(old_payout)}"
+            ),
+            after=(
+                f"Start: {_fmt_dt(new_start)}\n"
+                f"End: {_fmt_dt(new_end)}\n"
+                f"Payout: {_fmt_dt(new_payout)}"
+            ),
+            color=discord.Color.blue(),
+        )
         await self.panel._refresh_message(interaction)
 
 
@@ -1526,6 +1667,16 @@ class EditMissionPayoutModal(discord.ui.Modal, title="Edit Mission Payout"):
         if not push_ok:
             msg += f"\n⚠️ DB updated but Discord push failed: {push_err}"
         await send_ephemeral(interaction, msg)
+        await post_mission_audit(
+            self.panel.cog.bot,
+            action="Mission Edited — Pay",
+            actor=interaction.user,
+            mission_id=str(self.panel.row.get("mission_id") or ""),
+            mission_name=str(self.panel.row.get("mission_name") or ""),
+            before=f"¥{int(self.panel.row.get('pay_per_player') or 0):,} per attendee",
+            after=f"¥{pay:,} per attendee",
+            color=discord.Color.blue(),
+        )
         await self.panel._refresh_message(interaction)
 
 
@@ -1728,6 +1879,35 @@ class EditMissionAttendeesView(SafeView):
             msg += "\n⚠️ Some gig-log updates failed: " + ", ".join(log_warnings[:5])
             if len(log_warnings) > 5:
                 msg += f", +{len(log_warnings) - 5} more"
+        added_ids = [str(u.id) for u in added]
+        await post_mission_audit(
+            self.panel.cog.bot,
+            action="Mission Edited — Attendees",
+            actor=interaction.user,
+            mission_id=str(self.panel.row.get("mission_id") or ""),
+            mission_name=str(self.panel.row.get("mission_name") or ""),
+            fields=[
+                (
+                    f"Added ({len(added_ids)})",
+                    (_fmt_attendee_list(added_ids) if added_ids else "_(none)_")
+                    + (
+                        f" — credited {credited}" if (self.credit_adds and added_ids)
+                        else (" — not credited" if added_ids else "")
+                    ),
+                ),
+                (
+                    f"Removed ({len(removed_ids)})",
+                    (_fmt_attendee_list(removed_ids) if removed_ids else "_(none)_")
+                    + (
+                        f" — reversed {reversed_}" if (self.reverse_removed and removed_ids)
+                        else (" — credits kept" if removed_ids else "")
+                    ),
+                ),
+            ],
+            before=_fmt_attendee_list(old_ids),
+            after=_fmt_attendee_list(new_ids),
+            color=discord.Color.blue(),
+        )
         if not push_ok:
             msg += f"\n⚠️ DB updated but Discord push failed: {push_err}"
         await send_ephemeral(interaction, msg)
@@ -1850,6 +2030,22 @@ class ConfirmCancelMissionView(SafeView):
             interaction,
             f"🗑️ Mission canceled. {discord_msg} No auto-payout will be issued.\n"
             f"{reverse_msg}",
+        )
+        await post_mission_audit(
+            self.panel.cog.bot,
+            action="Mission Canceled",
+            actor=interaction.user,
+            mission_id=str(row.get("mission_id") or ""),
+            mission_name=str(row.get("mission_name") or ""),
+            fields=[
+                ("Discord event", discord_msg),
+                ("Gig-log credits", reverse_msg),
+                (
+                    "Attendees at cancel",
+                    _fmt_attendee_list([str(x) for x in (row.get("attendee_ids") or [])]),
+                ),
+            ],
+            color=discord.Color.red(),
         )
         await self.panel._refresh_message(interaction)
 
@@ -2247,6 +2443,25 @@ class CreateMissionAttendeesView(SafeView):
                 inline=False,
             )
         await send_ephemeral(interaction, embed=ok_embed)
+        await post_mission_audit(
+            self.cog.bot,
+            action="Mission Created",
+            actor=interaction.user,
+            mission_id=mission_id,
+            mission_name=self.mission_name,
+            fields=[
+                ("Location", self.location),
+                ("Start (UTC)", f"<t:{int(self.start_utc.timestamp())}:F>"),
+                ("Pay each", f"¥{self.pay_per_player:,} → bank"),
+                ("Auto-payout", f"<t:{int(payout_utc.timestamp())}:F>"),
+                ("Attendees", _fmt_attendee_list(attendees)),
+                (
+                    "Description",
+                    (self.mission_description or "_(none)_")[:1000],
+                ),
+            ],
+            color=discord.Color.green(),
+        )
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="✖", row=1)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
