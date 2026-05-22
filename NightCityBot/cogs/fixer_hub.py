@@ -28,8 +28,10 @@ from NightCityBot.utils.db import (
     pt_create,
     mission_log_get,
     mission_log_record,
+    mission_log_remove_date,
     mission_event_create,
     mission_event_list_recent,
+    mission_event_list_active,
     mission_event_get,
     mission_event_update,
     mission_event_cancel,
@@ -419,17 +421,19 @@ class MissionsSubView(SafeView):
     @discord.ui.button(label="Edit Mission", style=discord.ButtonStyle.danger, emoji="✏️", row=2)
     async def edit_mission(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        recent = await mission_event_list_recent(25)
-        if not recent:
+        # Only active missions (not paid, not canceled) are editable.
+        active = await mission_event_list_active(25)
+        if not active:
             await send_ephemeral(
                 interaction,
-                "No missions on record yet. Create one first with **Create Mission**.",
+                "No editable missions — only missions that haven't been paid out "
+                "or canceled show up here. Create one with **Create Mission**.",
             )
             return
-        view = EditMissionPickerView(self.cog, self.ctx, recent)
+        view = EditMissionPickerView(self.cog, self.ctx, active)
         await send_ephemeral(
             interaction,
-            "Pick a mission to edit:",
+            "Pick a mission to edit (only upcoming / in-progress missions are listed):",
             view=view,
         )
 
@@ -958,11 +962,22 @@ class EditMissionPanelView(SafeView):
         self.cog = cog
         self.ctx = ctx
         self.row = dict(row)
-        if self.row.get("canceled"):
-            # Disable mutating actions on canceled missions.
-            for child in self.children:
-                if isinstance(child, discord.ui.Button) and child.label != "Close":
-                    child.disabled = True
+        self._apply_locked_state()
+
+    def _apply_locked_state(self) -> None:
+        """Disable mutating actions when the mission is paid or canceled.
+
+        Paid missions are locked because we can't undo a payout, and
+        canceled missions are locked because nothing the buttons do still
+        makes sense. Refresh and Close stay enabled in both cases.
+        """
+        locked = bool(self.row.get("paid") or self.row.get("canceled"))
+        if not locked:
+            return
+        allowed = {"Close", "Refresh"}
+        for child in self.children:
+            if isinstance(child, discord.ui.Button) and child.label not in allowed:
+                child.disabled = True
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
@@ -975,6 +990,11 @@ class EditMissionPanelView(SafeView):
         if fresh is None:
             return
         self.row = fresh
+        # Re-evaluate locked state in case the mission was just paid/canceled.
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = False
+        self._apply_locked_state()
         try:
             if interaction.message is not None:
                 await interaction.message.edit(
@@ -1012,6 +1032,11 @@ class EditMissionPanelView(SafeView):
             "and marks the mission as canceled. No payout will be issued.",
             view=view,
         )
+
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, emoji="🔄", row=1)
+    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        await self._refresh_message(interaction)
 
     @discord.ui.button(label="Close", style=discord.ButtonStyle.secondary, row=1)
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1188,12 +1213,31 @@ class EditMissionAttendeesView(SafeView):
         super().__init__(timeout=300)
         self.panel = panel
         self.selected: list[discord.abc.User] = []
+        # Defaults: match the creation flow (which always credits new
+        # attendees) and the historical cancel behavior (which never
+        # reverses credits for removed ones).
+        self.credit_adds: bool = True
+        self.reverse_removed: bool = False
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.panel.ctx.author.id:
             await respond_ephemeral(interaction, "This menu isn't for you.")
             return False
         return True
+
+    def _toggle_button_styles(self) -> None:
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                if child.label and child.label.startswith("Credit Added"):
+                    child.style = (
+                        discord.ButtonStyle.success if self.credit_adds
+                        else discord.ButtonStyle.secondary
+                    )
+                elif child.label and child.label.startswith("Reverse Removed"):
+                    child.style = (
+                        discord.ButtonStyle.success if self.reverse_removed
+                        else discord.ButtonStyle.secondary
+                    )
 
     @discord.ui.select(
         cls=discord.ui.UserSelect,
@@ -1211,7 +1255,37 @@ class EditMissionAttendeesView(SafeView):
             "Press **Save** to apply.",
         )
 
-    @discord.ui.button(label="Save", style=discord.ButtonStyle.success, emoji="✅", row=1)
+    @discord.ui.button(
+        label="Credit Added: ON",
+        style=discord.ButtonStyle.success,
+        emoji="📋",
+        row=1,
+    )
+    async def toggle_credit_adds(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.credit_adds = not self.credit_adds
+        button.label = f"Credit Added: {'ON' if self.credit_adds else 'OFF'}"
+        self._toggle_button_styles()
+        try:
+            await interaction.response.edit_message(view=self)
+        except Exception:
+            await interaction.response.defer()
+
+    @discord.ui.button(
+        label="Reverse Removed: OFF",
+        style=discord.ButtonStyle.secondary,
+        emoji="↩️",
+        row=1,
+    )
+    async def toggle_reverse_removed(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.reverse_removed = not self.reverse_removed
+        button.label = f"Reverse Removed: {'ON' if self.reverse_removed else 'OFF'}"
+        self._toggle_button_styles()
+        try:
+            await interaction.response.edit_message(view=self)
+        except Exception:
+            await interaction.response.defer()
+
+    @discord.ui.button(label="Save", style=discord.ButtonStyle.success, emoji="✅", row=2)
     async def save(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         if not self.selected:
@@ -1226,6 +1300,13 @@ class EditMissionAttendeesView(SafeView):
                 "Pick at least one other player.",
             )
             return
+
+        old_ids = [str(x) for x in (self.panel.row.get("attendee_ids") or [])]
+        old_set = set(old_ids)
+        new_set = set(new_ids)
+        added = [u for u in self.selected if str(u.id) in (new_set - old_set)]
+        removed_ids = [uid for uid in old_ids if uid not in new_set]
+
         ok = await mission_event_update(
             str(self.panel.row.get("mission_id")),
             attendee_ids=new_ids,
@@ -1238,18 +1319,73 @@ class EditMissionAttendeesView(SafeView):
         push_ok, push_err = await _edit_discord_event(
             self.panel.cog.bot, row, description=new_desc[:1000]
         )
-        msg = (
-            f"✅ Attendee list updated ({len(new_ids)} player(s))."
-            "\n_Note: gig-log credits aren't auto-adjusted — new attendees "
-            "aren't credited (use **Record Mission**), and removed attendees "
-            "keep any credit they got at creation time._"
-        )
+
+        # Gig-log adjustments based on the toggles.
+        start_ts = row.get("start_ts")
+        mission_date = start_ts.date() if isinstance(start_ts, datetime) else None
+        credited = 0
+        reversed_ = 0
+        log_warnings: list[str] = []
+        if mission_date is not None:
+            if self.credit_adds and added:
+                for u in added:
+                    display = getattr(u, "display_name", None) or getattr(u, "name", str(u.id))
+                    try:
+                        res = await mission_log_record(str(u.id), str(display)[:128], mission_date)
+                        if res is not None:
+                            credited += 1
+                        else:
+                            log_warnings.append(f"credit failed for <@{u.id}>")
+                    except Exception:
+                        logger.error(
+                            "mission_log_record failed for user %s on Edit Attendees",
+                            u.id, exc_info=True,
+                        )
+                        log_warnings.append(f"credit failed for <@{u.id}>")
+            if self.reverse_removed and removed_ids:
+                for uid in removed_ids:
+                    try:
+                        res = await mission_log_remove_date(str(uid), mission_date)
+                        if res is not None:
+                            reversed_ += 1
+                        # If no entry existed for that date, silently skip —
+                        # the player may have never been credited in the
+                        # first place (legacy mission).
+                    except Exception:
+                        logger.error(
+                            "mission_log_remove_date failed for user %s on Edit Attendees",
+                            uid, exc_info=True,
+                        )
+                        log_warnings.append(f"reverse failed for <@{uid}>")
+
+        msg = f"✅ Attendee list updated ({len(new_ids)} player(s))."
+        if added or removed_ids:
+            details = []
+            if added:
+                detail = f"added {len(added)}"
+                if self.credit_adds:
+                    detail += f" (credited {credited})"
+                else:
+                    detail += " (not credited)"
+                details.append(detail)
+            if removed_ids:
+                detail = f"removed {len(removed_ids)}"
+                if self.reverse_removed:
+                    detail += f" (reversed {reversed_})"
+                else:
+                    detail += " (credits kept)"
+                details.append(detail)
+            msg += f"\n• " + " • ".join(details)
+        if log_warnings:
+            msg += "\n⚠️ Some gig-log updates failed: " + ", ".join(log_warnings[:5])
+            if len(log_warnings) > 5:
+                msg += f", +{len(log_warnings) - 5} more"
         if not push_ok:
             msg += f"\n⚠️ DB updated but Discord push failed: {push_err}"
         await send_ephemeral(interaction, msg)
         await self.panel._refresh_message(interaction)
 
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=2)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         try:
@@ -1263,6 +1399,7 @@ class ConfirmCancelMissionView(SafeView):
     def __init__(self, panel: "EditMissionPanelView"):
         super().__init__(timeout=120)
         self.panel = panel
+        self.reverse_credits: bool = False
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.panel.ctx.author.id:
@@ -1270,7 +1407,27 @@ class ConfirmCancelMissionView(SafeView):
             return False
         return True
 
-    @discord.ui.button(label="Yes, cancel it", style=discord.ButtonStyle.danger, emoji="🗑️")
+    @discord.ui.button(
+        label="Reverse Gig-Log Credits: OFF",
+        style=discord.ButtonStyle.secondary,
+        emoji="↩️",
+        row=0,
+    )
+    async def toggle_reverse(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.reverse_credits = not self.reverse_credits
+        button.label = (
+            f"Reverse Gig-Log Credits: {'ON' if self.reverse_credits else 'OFF'}"
+        )
+        button.style = (
+            discord.ButtonStyle.success if self.reverse_credits
+            else discord.ButtonStyle.secondary
+        )
+        try:
+            await interaction.response.edit_message(view=self)
+        except Exception:
+            await interaction.response.defer()
+
+    @discord.ui.button(label="Yes, cancel it", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         # Try to delete the Discord event (best-effort).
@@ -1301,15 +1458,45 @@ class ConfirmCancelMissionView(SafeView):
                 f"⚠️ {discord_msg} But the DB cancel failed — try again.",
             )
             return
+
+        # Optional gig-log credit reversal for every attendee on the mission.
+        reverse_msg = (
+            "Gig-log credits kept (toggle **Reverse Gig-Log Credits** to undo)."
+        )
+        if self.reverse_credits:
+            start_ts = row.get("start_ts")
+            mission_date = start_ts.date() if isinstance(start_ts, datetime) else None
+            attendees = list(row.get("attendee_ids") or [])
+            reversed_ = 0
+            failures: list[str] = []
+            if mission_date is not None:
+                for uid in attendees:
+                    try:
+                        res = await mission_log_remove_date(str(uid), mission_date)
+                        if res is not None:
+                            reversed_ += 1
+                    except Exception:
+                        logger.error(
+                            "mission_log_remove_date failed for user %s on Cancel",
+                            uid, exc_info=True,
+                        )
+                        failures.append(f"<@{uid}>")
+            reverse_msg = (
+                f"Gig-log credits reversed for {reversed_} / {len(attendees)} attendee(s)."
+            )
+            if failures:
+                reverse_msg += f" Failures: {', '.join(failures[:5])}"
+                if len(failures) > 5:
+                    reverse_msg += f", +{len(failures) - 5} more"
+
         await send_ephemeral(
             interaction,
-            f"🗑️ Mission canceled. {discord_msg} No auto-payout will be issued."
-            "\n_Note: gig-log credits already written at creation time are not "
-            "reversed — adjust them manually if needed._",
+            f"🗑️ Mission canceled. {discord_msg} No auto-payout will be issued.\n"
+            f"{reverse_msg}",
         )
         await self.panel._refresh_message(interaction)
 
-    @discord.ui.button(label="Keep it", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Keep it", style=discord.ButtonStyle.secondary, row=1)
     async def keep(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         try:

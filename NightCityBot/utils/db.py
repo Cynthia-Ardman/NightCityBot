@@ -4381,6 +4381,58 @@ async def mission_log_record(
         return None
 
 
+async def mission_log_remove_date(
+    user_id: str, mission_date: date
+) -> Optional[dict]:
+    """Decrement a user's mission_log count and remove ONE occurrence of
+    ``mission_date`` from their dates array.
+
+    Used when a mission is canceled or a player is removed from a mission's
+    attendee list, to undo the credit that was written at creation time.
+
+    If the user has no log row, or no entry for that date, returns ``None``
+    and makes no changes. Otherwise returns the updated row.
+    """
+    try:
+        pool = await get_pool()
+        row = await _with_retry(
+            lambda: pool.fetchrow(
+                """
+                WITH idx AS (
+                    SELECT MIN(g.i) AS pos
+                      FROM mission_log m,
+                           generate_subscripts(m.mission_dates, 1) AS g(i)
+                     WHERE m.user_id = $1
+                       AND m.mission_dates[g.i] = $2::DATE
+                )
+                UPDATE mission_log m
+                   SET mission_count = GREATEST(m.mission_count - 1, 0),
+                       mission_dates =
+                           m.mission_dates[1:(SELECT pos - 1 FROM idx)]
+                        || m.mission_dates[
+                               (SELECT pos + 1 FROM idx)
+                             : COALESCE(array_length(m.mission_dates, 1), 0)
+                           ],
+                       updated_at = NOW()
+                  FROM idx
+                 WHERE m.user_id = $1
+                   AND idx.pos IS NOT NULL
+                RETURNING m.user_id, m.username, m.mission_count, m.mission_dates, m.updated_at
+                """,
+                str(user_id),
+                mission_date,
+            ),
+            label="mission_log_remove_date",
+        )
+        return dict(row) if row else None
+    except Exception:
+        logger.error(
+            "mission_log_remove_date failed for user '%s' date '%s'",
+            user_id, mission_date, exc_info=True,
+        )
+        return None
+
+
 async def mission_log_import_rows(rows: list[dict]) -> int:
     """Bulk-replace mission_log rows from a one-shot sheet import.
 
@@ -4499,6 +4551,102 @@ async def mission_event_list_due(now_ts: datetime) -> list[dict]:
     except Exception:
         logger.error("mission_event_list_due failed", exc_info=True)
         return []
+
+
+async def mission_event_list_active(limit: int = 25) -> list[dict]:
+    """Return missions that are still actionable (not paid, not canceled).
+
+    Used by the Edit Mission picker so already-paid and canceled missions
+    can't be edited or canceled again.
+    """
+    try:
+        pool = await get_pool()
+        rows = await _with_retry(
+            lambda: pool.fetch(
+                """
+                SELECT mission_id, mission_name, creator_id, creator_username,
+                       start_ts, paid, canceled
+                  FROM mission_event
+                 WHERE paid = FALSE AND canceled = FALSE
+                 ORDER BY start_ts DESC
+                 LIMIT $1
+                """,
+                int(limit),
+            ),
+            label="mission_event_list_active",
+        )
+        return [dict(r) for r in (rows or [])]
+    except Exception:
+        logger.error("mission_event_list_active failed", exc_info=True)
+        return []
+
+
+async def mission_event_claim_for_payout(mission_id: str) -> Optional[dict]:
+    """Atomically mark a mission paid and return its full row.
+
+    Returns the freshly-updated row on success (caller must pay attendees
+    next), or ``None`` if the row was already paid, canceled, or missing —
+    in which case nothing was changed and no payout should occur.
+
+    This single CAS replaces the old "fetch → pay → mark_paid" sequence
+    and closes the double-payout race when the payout loop overlaps itself
+    or a concurrent Edit Mission cancel.
+    """
+    try:
+        pool = await get_pool()
+        row = await _with_retry(
+            lambda: pool.fetchrow(
+                """
+                UPDATE mission_event
+                   SET paid = TRUE, paid_at = NOW()
+                 WHERE mission_id = $1
+                   AND paid = FALSE
+                   AND canceled = FALSE
+                RETURNING mission_id, guild_id, channel_id, event_id,
+                          mission_name, location, creator_id, creator_username,
+                          pay_per_player,
+                          start_ts, end_ts, payout_ts, attendee_ids,
+                          paid, paid_at, canceled, canceled_at, created_at
+                """,
+                str(mission_id),
+            ),
+            label="mission_event_claim_for_payout",
+        )
+        return dict(row) if row else None
+    except Exception:
+        logger.error(
+            "mission_event_claim_for_payout failed for '%s'", mission_id, exc_info=True
+        )
+        return None
+
+
+async def mission_event_unclaim(mission_id: str) -> bool:
+    """Best-effort reverse of ``claim_for_payout``.
+
+    Used when the claim succeeded but the subsequent reconcile/payout
+    decided this mission shouldn't have been paid (e.g. last-second
+    Discord cancellation). Only clears the flag if no UB calls have
+    happened yet — callers must guarantee that themselves.
+    """
+    try:
+        pool = await get_pool()
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                UPDATE mission_event
+                   SET paid = FALSE, paid_at = NULL
+                 WHERE mission_id = $1
+                """,
+                str(mission_id),
+            ),
+            label="mission_event_unclaim",
+        )
+        return True
+    except Exception:
+        logger.error(
+            "mission_event_unclaim failed for '%s'", mission_id, exc_info=True
+        )
+        return False
 
 
 async def mission_event_list_recent(limit: int = 25) -> list[dict]:

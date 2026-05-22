@@ -462,17 +462,19 @@ class TestMissionPayoutLoop:
             "channel_id": "8",
             "start_ts": datetime(2026, 5, 22, 20, 0, tzinfo=timezone.utc),
         }
-        marked = []
+        claimed = []
 
-        async def fake_mark(mid):
-            marked.append(mid)
-            return True
+        async def fake_claim(mid):
+            claimed.append(mid)
+            return dict(row)
 
         async def fake_get(mid):
             return dict(row)
 
-        with patch("NightCityBot.cogs.missions.mission_event_mark_paid", side_effect=fake_mark), \
-             patch("NightCityBot.cogs.missions.mission_event_get", side_effect=fake_get):
+        with patch(
+            "NightCityBot.cogs.missions.mission_event_claim_for_payout",
+            side_effect=fake_claim,
+        ), patch("NightCityBot.cogs.missions.mission_event_get", side_effect=fake_get):
             asyncio.run(cog._process_mission_payout(row))
 
         assert ub.update_balance.call_count == 2
@@ -480,7 +482,35 @@ class TestMissionPayoutLoop:
         for call in ub.update_balance.call_args_list:
             args, kwargs = call
             assert args[1] == {"cash": 0, "bank": 5000}
-        assert marked == ["m1"]
+        assert claimed == ["m1"]
+
+    def test_claim_returns_none_skips_payout(self):
+        """If the row was already paid/canceled in a race, claim returns
+        None and we must skip the entire UB loop."""
+        cog, ub = self._build_cog(ub_returns=True)
+        row = {
+            "mission_id": "m3",
+            "mission_name": "Already Paid",
+            "pay_per_player": 5000,
+            "attendee_ids": ["111"],
+            "guild_id": "9",
+            "channel_id": "8",
+            "start_ts": datetime(2026, 5, 22, 20, 0, tzinfo=timezone.utc),
+        }
+
+        async def fake_claim(mid):
+            return None
+
+        async def fake_get(mid):
+            return dict(row)
+
+        with patch(
+            "NightCityBot.cogs.missions.mission_event_claim_for_payout",
+            side_effect=fake_claim,
+        ), patch("NightCityBot.cogs.missions.mission_event_get", side_effect=fake_get):
+            asyncio.run(cog._process_mission_payout(row))
+
+        ub.update_balance.assert_not_called()
 
     def test_skips_ub_when_pay_zero(self):
         cog, ub = self._build_cog(ub_returns=True)
@@ -493,12 +523,119 @@ class TestMissionPayoutLoop:
             "channel_id": None,
             "start_ts": datetime(2026, 5, 22, 20, 0, tzinfo=timezone.utc),
         }
-        async def fake_mark(mid):
-            return True
+        async def fake_claim(mid):
+            return dict(row)
         async def fake_get(mid):
             return dict(row)
-        with patch("NightCityBot.cogs.missions.mission_event_mark_paid", side_effect=fake_mark), \
-             patch("NightCityBot.cogs.missions.mission_event_get", side_effect=fake_get):
+        with patch(
+            "NightCityBot.cogs.missions.mission_event_claim_for_payout",
+            side_effect=fake_claim,
+        ), patch("NightCityBot.cogs.missions.mission_event_get", side_effect=fake_get):
             asyncio.run(cog._process_mission_payout(row))
 
         ub.update_balance.assert_not_called()
+
+
+class TestMissionReconcile:
+    """Cover the Discord-reconcile branches added for completed-event purges
+    and >24h-past reschedules."""
+
+    def _build_cog_with_guild(self, fetch_result):
+        bot = MagicMock()
+        guild = MagicMock()
+        async def _fetch_event(eid):
+            if isinstance(fetch_result, Exception):
+                raise fetch_result
+            return fetch_result
+        guild.fetch_scheduled_event = _fetch_event
+        bot.get_guild.return_value = guild
+        bot.get_channel.return_value = None
+        cog = MissionsCog(bot=bot, unbelievaboat=MagicMock())
+        return cog
+
+    def test_notfound_past_start_pays_anyway(self):
+        """Completed events get purged by Discord; if start_ts is in the
+        past, treat NotFound as completion and return the row to be paid."""
+        import discord as _d
+        cog = self._build_cog_with_guild(
+            _d.NotFound(MagicMock(status=404), "gone")
+        )
+        past = datetime(2026, 5, 1, 20, 0, tzinfo=timezone.utc)
+        row = {
+            "mission_id": "m_past",
+            "mission_name": "Done Op",
+            "guild_id": "9",
+            "event_id": "1234",
+            "start_ts": past,
+        }
+        cancelled = []
+        async def fake_cancel(mid):
+            cancelled.append(mid)
+            return True
+        with patch(
+            "NightCityBot.cogs.missions.mission_event_cancel",
+            side_effect=fake_cancel,
+        ):
+            result = asyncio.run(cog._reconcile_mission_with_discord(row))
+        assert result is not None
+        assert result.get("mission_id") == "m_past"
+        assert cancelled == []
+
+    def test_notfound_future_start_cancels(self):
+        """Fixer deleted the event before it ran → cancel and skip payout."""
+        import discord as _d
+        cog = self._build_cog_with_guild(
+            _d.NotFound(MagicMock(status=404), "gone")
+        )
+        future = datetime(2099, 1, 1, 20, 0, tzinfo=timezone.utc)
+        row = {
+            "mission_id": "m_future",
+            "mission_name": "Upcoming Op",
+            "guild_id": "9",
+            "channel_id": None,
+            "event_id": "1234",
+            "start_ts": future,
+        }
+        cancelled = []
+        async def fake_cancel(mid):
+            cancelled.append(mid)
+            return True
+        with patch(
+            "NightCityBot.cogs.missions.mission_event_cancel",
+            side_effect=fake_cancel,
+        ):
+            result = asyncio.run(cog._reconcile_mission_with_discord(row))
+        assert result is None
+        assert cancelled == ["m_future"]
+
+    def test_rewound_more_than_24h_cancels_no_pay(self):
+        """If a fixer rewinds an event >24h into the past, refuse to pay
+        and mark the row canceled."""
+        import discord as _d
+        from datetime import timedelta as _td
+        ev = MagicMock()
+        ev.name = "Actors Needed: Test Op"
+        ev.status = _d.EventStatus.scheduled
+        ev.start_time = datetime.now(timezone.utc) - _td(hours=48)
+        ev.end_time = ev.start_time + _td(hours=4)
+        cog = self._build_cog_with_guild(ev)
+        row = {
+            "mission_id": "m_rewind",
+            "mission_name": "Rewound Op",
+            "guild_id": "9",
+            "channel_id": None,
+            "event_id": "1234",
+            "start_ts": datetime(2099, 1, 1, 20, 0, tzinfo=timezone.utc),
+            "end_ts": datetime(2099, 1, 1, 23, 0, tzinfo=timezone.utc),
+        }
+        cancelled = []
+        async def fake_cancel(mid):
+            cancelled.append(mid)
+            return True
+        with patch(
+            "NightCityBot.cogs.missions.mission_event_cancel",
+            side_effect=fake_cancel,
+        ):
+            result = asyncio.run(cog._reconcile_mission_with_discord(row))
+        assert result is None
+        assert cancelled == ["m_rewind"]

@@ -35,6 +35,8 @@ from NightCityBot.utils.db import (
     mission_event_get_for_user,
     mission_event_list_due,
     mission_event_mark_paid,
+    mission_event_claim_for_payout,
+    mission_event_unclaim,
     mission_event_update,
     mission_event_cancel,
 )
@@ -379,13 +381,31 @@ class MissionsCog(commands.Cog):
             return None  # transient — retry next loop
 
         if not_found or event is None:
+            # Discord auto-purges completed scheduled events some time after
+            # they end. If the mission's start_ts is in the past, treat a
+            # NotFound as "the event ran and got cleaned up" — pay anyway.
+            # Only cancel when the event was scheduled for the future and is
+            # now missing (= fixer deleted it before it could run).
+            start_ts = row.get("start_ts")
+            now = datetime.now(timezone.utc)
+            start_was_past = (
+                isinstance(start_ts, datetime)
+                and (start_ts if start_ts.tzinfo else start_ts.replace(tzinfo=timezone.utc)) <= now
+            )
+            if start_was_past:
+                logger.info(
+                    "Mission %s: Discord event %s not found but start_ts is "
+                    "in the past — assuming completed-and-purged, paying anyway.",
+                    mission_id, event_id,
+                )
+                return row
             await mission_event_cancel(mission_id)
             await self._notify_reconcile(
                 row,
                 title="🗑️ Mission Canceled (Event Deleted)",
                 description=(
                     f"The Discord event for **{row.get('mission_name')}** "
-                    "was deleted or no longer exists. No payout was issued."
+                    "was deleted before it could run. No payout was issued."
                 ),
                 color=discord.Color.dark_grey(),
             )
@@ -434,6 +454,27 @@ class MissionsCog(commands.Cog):
         if new_mission_name and new_mission_name != row.get("mission_name"):
             updates["mission_name"] = new_mission_name
         if ev_start is not None and not _dt_close(ev_start, row.get("start_ts")):
+            # Guardrail: if the event was moved more than 24 h into the past
+            # (relative to NOW, not the original start), refuse to pay this
+            # cycle. This blocks a misuse where someone rewinds an old event
+            # to trigger a fresh payout.
+            now = datetime.now(timezone.utc)
+            ev_start_utc = ev_start if ev_start.tzinfo else ev_start.replace(tzinfo=timezone.utc)
+            if ev_start_utc < now - timedelta(hours=24):
+                await self._notify_reconcile(
+                    row,
+                    title="⚠️ Mission Skipped (Rewound >24h)",
+                    description=(
+                        f"The Discord event for **{row.get('mission_name')}** "
+                        f"was moved to <t:{int(ev_start_utc.timestamp())}:F>, more "
+                        "than 24 hours in the past. No payout will be issued and "
+                        "the mission has been canceled. If this was intentional, "
+                        "create a new mission for the correct date."
+                    ),
+                    color=discord.Color.orange(),
+                )
+                await mission_event_cancel(mission_id)
+                return None
             updates["start_ts"] = ev_start
             new_payout = compute_payout_ts(ev_start)
             updates["payout_ts"] = new_payout
@@ -540,6 +581,21 @@ class MissionsCog(commands.Cog):
             return
         row = reconciled
 
+        # Atomically claim the row before any UB call. This single CAS
+        # closes the double-payout race: if two loop ticks (or a concurrent
+        # cancel) interleave, exactly one wins the claim and the other
+        # no-ops.
+        if mid:
+            claimed = await mission_event_claim_for_payout(mid)
+            if claimed is None:
+                logger.info(
+                    "Mission %s: claim_for_payout returned None — already paid "
+                    "or canceled in the meantime; skipping.",
+                    mid,
+                )
+                return
+            row = claimed
+
         mission_id = row.get("mission_id")
         mission_name = row.get("mission_name") or "Mission"
         pay = int(row.get("pay_per_player") or 0)
@@ -579,9 +635,11 @@ class MissionsCog(commands.Cog):
             else:
                 failed_lines.append(f"• **{display}** — UB payout failed")
 
-        # Mark paid even on partial failures so we don't double-pay.
-        # Failures are surfaced in the summary message and the log.
-        await mission_event_mark_paid(str(mission_id))
+        # Row was already claimed (paid=TRUE) at the start of this function
+        # via mission_event_claim_for_payout. Legacy rows that skipped the
+        # claim (no mission_id) still need the old mark_paid path.
+        if not mid:
+            await mission_event_mark_paid(str(mission_id))
 
         # Post a summary back to the channel where the mission was created.
         if guild_id and channel_id:
