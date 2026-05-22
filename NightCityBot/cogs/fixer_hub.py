@@ -38,7 +38,10 @@ from NightCityBot.utils.db import (
     mission_event_get_for_user,
     actor_attendance_record,
     actor_attendance_get_by_user,
+    bot_config_get,
+    bot_config_set,
 )
+from zoneinfo import ZoneInfo
 from NightCityBot.cogs.missions import (
     _format_check_line,
     _parse_date_token,
@@ -179,12 +182,14 @@ class FixerTopView(SafeView):
                 "**✅ Record Mission** — Log today's mission for one or more "
                 "players (use `!mission_record … date=YYYY-MM-DD` for a "
                 "custom date).\n"
-                "**🆕 Create Mission** — Schedule a Discord 'Actors Needed: …' "
-                "event, credit each attendee's gig log immediately, and "
-                "auto-pay everyone at the next midnight US-Eastern after the "
-                "start time. The fixer who created the mission is never paid. "
-                "Tap **📎 Attach Banner** on the attendees screen for a "
-                "custom cover image.\n"
+                "**🆕 Create Mission** — Short modal for name / pay / location, "
+                "then dropdowns for date, start hour, duration, and timezone "
+                "(defaults to your last-used). Schedules a Discord 'Actors "
+                "Needed: …' event, credits each attendee's gig log "
+                "immediately, and auto-pays everyone at the next midnight "
+                "US-Eastern after the start time. The fixer who created the "
+                "mission is never paid. Tap **📎 Attach Banner** on the "
+                "attendees screen for a custom cover image.\n"
                 "**🎭 Actor Pay** — Pick actor(s) and a recorded mission, "
                 "then enter a per-actor amount paid via UnbelievaBoat.\n"
                 "**🔎 Check Actor** — How many times someone has acted, the "
@@ -403,7 +408,11 @@ class MissionsSubView(SafeView):
 
     @discord.ui.button(label="Create Mission", style=discord.ButtonStyle.primary, emoji="🆕", row=0)
     async def create_mission(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(CreateMissionModal(self.cog, self.ctx))
+        # Pre-load the fixer's preferred timezone so the dropdown auto-fills.
+        default_tz = await get_fixer_tz_pref(interaction.user.id)
+        await interaction.response.send_modal(
+            CreateMissionModal(self.cog, self.ctx, default_tz=default_tz)
+        )
 
     @discord.ui.button(label="Actor Pay", style=discord.ButtonStyle.primary, emoji="🎭", row=1)
     async def actor_pay(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -857,6 +866,306 @@ def _parse_int_amount(text: str) -> Optional[int]:
         return int(cleaned)
     except ValueError:
         return None
+
+
+# ─── Create Mission: timezone / date / time helpers ───────────────────────────
+
+MISSION_TZ_OPTIONS: list[tuple[str, str]] = [
+    ("US Eastern", "America/New_York"),
+    ("US Central", "America/Chicago"),
+    ("US Mountain", "America/Denver"),
+    ("US Pacific", "America/Los_Angeles"),
+    ("UTC", "UTC"),
+]
+MISSION_TZ_LABELS: dict[str, str] = {tz: label for label, tz in MISSION_TZ_OPTIONS}
+MISSION_DEFAULT_TZ: str = "America/New_York"
+
+MISSION_DURATION_OPTIONS: list[tuple[str, float]] = [
+    ("30 minutes", 0.5),
+    ("1 hour", 1.0),
+    ("1.5 hours", 1.5),
+    ("2 hours", 2.0),
+    ("3 hours", 3.0),
+    ("4 hours", 4.0),
+    ("6 hours", 6.0),
+    ("8 hours", 8.0),
+    ("12 hours", 12.0),
+    ("24 hours", 24.0),
+]
+
+
+def _fixer_tz_key(user_id: int | str) -> str:
+    return f"fixer_tz:{user_id}"
+
+
+async def get_fixer_tz_pref(user_id: int | str) -> str:
+    """Return the saved IANA timezone for *user_id*, defaulting to ET."""
+    raw = await bot_config_get(_fixer_tz_key(user_id), MISSION_DEFAULT_TZ)
+    tz_name = (raw or MISSION_DEFAULT_TZ).strip()
+    # Validate it's one of our supported zones (covers stale data / typos).
+    if tz_name not in MISSION_TZ_LABELS:
+        return MISSION_DEFAULT_TZ
+    return tz_name
+
+
+async def set_fixer_tz_pref(user_id: int | str, tz_name: str) -> bool:
+    """Persist a fixer's preferred timezone for next time."""
+    if tz_name not in MISSION_TZ_LABELS:
+        return False
+    return await bot_config_set(
+        _fixer_tz_key(user_id), tz_name,
+        description="Per-fixer preferred timezone for Create Mission",
+    )
+
+
+def _format_time_option_label(hour: int) -> str:
+    """Render a 24h hour as a 12-hour AM/PM label, e.g. 20 → '8:00 PM'."""
+    suffix = "AM" if hour < 12 else "PM"
+    h12 = hour % 12
+    if h12 == 0:
+        h12 = 12
+    return f"{h12}:00 {suffix}"
+
+
+def _build_date_options(tz: ZoneInfo, count: int = 14) -> list[discord.SelectOption]:
+    """Build the next ``count`` date options starting from today in *tz*."""
+    today = datetime.now(tz).date()
+    opts: list[discord.SelectOption] = []
+    for i in range(count):
+        d = today + timedelta(days=i)
+        if i == 0:
+            label = f"Today — {d.strftime('%a, %b %d')}"
+        elif i == 1:
+            label = f"Tomorrow — {d.strftime('%a, %b %d')}"
+        else:
+            label = d.strftime("%a, %b %d")
+        opts.append(discord.SelectOption(label=label, value=d.isoformat()))
+    return opts
+
+
+def _build_time_options() -> list[discord.SelectOption]:
+    return [
+        discord.SelectOption(label=_format_time_option_label(h), value=str(h))
+        for h in range(24)
+    ]
+
+
+def _build_duration_options() -> list[discord.SelectOption]:
+    return [
+        discord.SelectOption(label=label, value=str(hours))
+        for label, hours in MISSION_DURATION_OPTIONS
+    ]
+
+
+def _build_tz_options(default_tz: str) -> list[discord.SelectOption]:
+    return [
+        discord.SelectOption(
+            label=label, value=tz, default=(tz == default_tz),
+        )
+        for label, tz in MISSION_TZ_OPTIONS
+    ]
+
+
+class CreateMissionScheduleView(SafeView):
+    """Step-2 view after the create-mission modal: dropdowns for date / time /
+    duration / timezone, then Continue advances to the attendees view.
+    """
+
+    def __init__(
+        self,
+        *,
+        cog: "FixerHubCog",
+        ctx,
+        mission_name: str,
+        pay_per_player: int,
+        location: str,
+        default_tz: str,
+        origin_channel_id: Optional[int],
+    ):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.ctx = ctx
+        self.mission_name = mission_name
+        self.pay_per_player = pay_per_player
+        self.location = location
+        self.origin_channel_id = origin_channel_id
+
+        self.tz_name: str = default_tz if default_tz in MISSION_TZ_LABELS else MISSION_DEFAULT_TZ
+        self.selected_date: Optional[str] = None  # ISO YYYY-MM-DD (wall-clock in tz_name)
+        self.selected_hour: Optional[int] = None  # 0–23 (wall-clock in tz_name)
+        self.selected_duration_h: float = 4.0      # default to 4h to match prior modal default
+
+        # Build selects with sensible defaults populated.
+        self._date_select = discord.ui.Select(
+            placeholder="Date…",
+            options=_build_date_options(ZoneInfo(self.tz_name)),
+            min_values=1, max_values=1, row=0,
+        )
+        self._date_select.callback = self._on_date  # type: ignore[assignment]
+
+        self._time_select = discord.ui.Select(
+            placeholder="Start time (hour)…",
+            options=_build_time_options(),
+            min_values=1, max_values=1, row=1,
+        )
+        self._time_select.callback = self._on_time  # type: ignore[assignment]
+
+        # Mark the default duration (4h) as default-selected.
+        dur_opts = _build_duration_options()
+        for opt in dur_opts:
+            if opt.value == "4.0":
+                opt.default = True
+        self._duration_select = discord.ui.Select(
+            placeholder="Duration…",
+            options=dur_opts,
+            min_values=1, max_values=1, row=2,
+        )
+        self._duration_select.callback = self._on_duration  # type: ignore[assignment]
+
+        self._tz_select = discord.ui.Select(
+            placeholder="Timezone…",
+            options=_build_tz_options(self.tz_name),
+            min_values=1, max_values=1, row=3,
+        )
+        self._tz_select.callback = self._on_tz  # type: ignore[assignment]
+
+        self.add_item(self._date_select)
+        self.add_item(self._time_select)
+        self.add_item(self._duration_select)
+        self.add_item(self._tz_select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    async def _on_date(self, interaction: discord.Interaction):
+        self.selected_date = self._date_select.values[0]
+        # Persist the user's pick as the default for re-renders.
+        for opt in self._date_select.options:
+            opt.default = (opt.value == self.selected_date)
+        await interaction.response.defer()
+
+    async def _on_time(self, interaction: discord.Interaction):
+        try:
+            self.selected_hour = int(self._time_select.values[0])
+        except (ValueError, TypeError):
+            self.selected_hour = None
+        for opt in self._time_select.options:
+            opt.default = (opt.value == str(self.selected_hour))
+        await interaction.response.defer()
+
+    async def _on_duration(self, interaction: discord.Interaction):
+        try:
+            self.selected_duration_h = float(self._duration_select.values[0])
+        except (ValueError, TypeError):
+            self.selected_duration_h = 4.0
+        for opt in self._duration_select.options:
+            opt.default = (opt.value == str(self.selected_duration_h))
+        await interaction.response.defer()
+
+    async def _on_tz(self, interaction: discord.Interaction):
+        new_tz = self._tz_select.values[0]
+        if new_tz in MISSION_TZ_LABELS:
+            self.tz_name = new_tz
+        # Reflect the new default + rebuild date options so "Today" reflects
+        # the chosen timezone's wall-clock.
+        for opt in self._tz_select.options:
+            opt.default = (opt.value == self.tz_name)
+        self._date_select.options = _build_date_options(ZoneInfo(self.tz_name))
+        # Preserve a previously-picked date if it's still in range.
+        if self.selected_date:
+            still_present = any(o.value == self.selected_date for o in self._date_select.options)
+            if still_present:
+                for opt in self._date_select.options:
+                    opt.default = (opt.value == self.selected_date)
+            else:
+                self.selected_date = None
+        try:
+            await interaction.response.edit_message(view=self)
+        except Exception:
+            try:
+                await interaction.response.defer()
+            except Exception:
+                pass
+
+    @discord.ui.button(label="Continue", style=discord.ButtonStyle.success, emoji="➡️", row=4)
+    async def continue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.selected_date or self.selected_hour is None:
+            await respond_ephemeral(interaction, "Pick a date and a start hour first.")
+            return
+        if not (0.25 <= self.selected_duration_h <= 24):
+            await respond_ephemeral(interaction, "Pick a duration.")
+            return
+        try:
+            tz = ZoneInfo(self.tz_name)
+        except Exception:
+            await respond_ephemeral(interaction, "Invalid timezone — please pick one from the dropdown.")
+            return
+        try:
+            y, m, d = (int(x) for x in self.selected_date.split("-"))
+            local_dt = datetime(y, m, d, int(self.selected_hour), 0, 0, tzinfo=tz)
+        except Exception:
+            await respond_ephemeral(interaction, "Couldn't build the start datetime — please re-pick.")
+            return
+        start_utc = local_dt.astimezone(timezone.utc)
+        if start_utc < datetime.now(timezone.utc) - timedelta(minutes=5):
+            await respond_ephemeral(
+                interaction,
+                f"That start time ({local_dt.strftime('%a %b %d %I:%M %p')} "
+                f"{MISSION_TZ_LABELS.get(self.tz_name, self.tz_name)}) is in the past. "
+                "Pick a future time.",
+            )
+            return
+        # Persist the fixer's tz pref so it auto-fills next time.
+        await set_fixer_tz_pref(interaction.user.id, self.tz_name)
+
+        end_utc = start_utc + timedelta(hours=self.selected_duration_h)
+        attendees_view = CreateMissionAttendeesView(
+            cog=self.cog,
+            ctx=self.ctx,
+            mission_name=self.mission_name,
+            start_utc=start_utc,
+            end_utc=end_utc,
+            pay_per_player=self.pay_per_player,
+            location=self.location,
+            origin_channel_id=self.origin_channel_id,
+        )
+        payout_utc = compute_payout_ts(start_utc)
+        tz_label = MISSION_TZ_LABELS.get(self.tz_name, self.tz_name)
+        embed = discord.Embed(
+            title=f"🆕 New Mission — {self.mission_name}",
+            description=(
+                f"**Location:** {self.location}\n"
+                f"**Start ({tz_label}):** {local_dt.strftime('%a %b %d, %Y · %I:%M %p')}\n"
+                f"**Start (your local time):** <t:{int(start_utc.timestamp())}:F> "
+                f"(<t:{int(start_utc.timestamp())}:R>)\n"
+                f"**End:** <t:{int(end_utc.timestamp())}:F>\n"
+                f"**Pay each:** ¥{self.pay_per_player:,} → bank\n"
+                f"**Auto-payout:** <t:{int(payout_utc.timestamp())}:F> "
+                "(midnight US Eastern after start)\n\n"
+                "Select up to 25 attendees below, then press **Confirm & Create**."
+                "\n_Note: you (the Fixer) will be excluded from payout automatically._"
+            ),
+            color=discord.Color.gold(),
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=attendees_view)
+        except Exception:
+            await respond_ephemeral(interaction, embed=embed, view=attendees_view)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="✖️", row=4)
+    async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            await interaction.response.edit_message(
+                content="Cancelled.", embed=None, view=None,
+            )
+        except Exception:
+            try:
+                await interaction.response.defer()
+            except Exception:
+                pass
 
 
 class EditMissionPickerView(SafeView):
@@ -1527,19 +1836,6 @@ class CreateMissionModal(discord.ui.Modal, title="Create Mission"):
         max_length=120,
         required=True,
     )
-    start_time = discord.ui.TextInput(
-        label="Start (UTC) — YYYY-MM-DD HH:MM",
-        placeholder="2026-05-23 20:00",
-        max_length=20,
-        required=True,
-    )
-    duration_hours = discord.ui.TextInput(
-        label="Duration (hours)",
-        placeholder="4",
-        default="4",
-        max_length=4,
-        required=True,
-    )
     pay_per_player = discord.ui.TextInput(
         label="Pay per player (eddies, to bank)",
         placeholder="5000",
@@ -1553,36 +1849,13 @@ class CreateMissionModal(discord.ui.Modal, title="Create Mission"):
         required=True,
     )
 
-    def __init__(self, cog: "FixerHubCog", ctx):
+    def __init__(self, cog: "FixerHubCog", ctx, default_tz: str = MISSION_DEFAULT_TZ):
         super().__init__()
         self.cog = cog
         self.ctx = ctx
+        self.default_tz = default_tz
 
     async def on_submit(self, interaction: discord.Interaction):
-        start_utc = _parse_mission_start(str(self.start_time.value))
-        if start_utc is None:
-            await respond_ephemeral(
-                interaction,
-                f"Couldn't parse start time `{self.start_time.value}`. "
-                "Use `YYYY-MM-DD HH:MM` in UTC (24h), e.g. `2026-05-23 20:00`.",
-            )
-            return
-        if start_utc < datetime.now(timezone.utc) - timedelta(minutes=5):
-            await respond_ephemeral(
-                interaction,
-                "Start time is in the past. Pick a future time (UTC).",
-            )
-            return
-        try:
-            duration_h = float(str(self.duration_hours.value).strip())
-        except ValueError:
-            duration_h = -1.0
-        if not (0.25 <= duration_h <= 24):
-            await respond_ephemeral(
-                interaction,
-                "Duration must be between 0.25 and 24 hours.",
-            )
-            return
         pay = _parse_int_amount(str(self.pay_per_player.value))
         if pay is None or pay < 0:
             await respond_ephemeral(
@@ -1595,34 +1868,34 @@ class CreateMissionModal(discord.ui.Modal, title="Create Mission"):
         if not location_text:
             await respond_ephemeral(interaction, "Location is required.")
             return
-        end_utc = start_utc + timedelta(hours=duration_h)
-        view = CreateMissionAttendeesView(
+        name_text = str(self.mission_name.value).strip()
+        if not name_text:
+            await respond_ephemeral(interaction, "Mission name is required.")
+            return
+
+        schedule_view = CreateMissionScheduleView(
             cog=self.cog,
             ctx=self.ctx,
-            mission_name=str(self.mission_name.value).strip(),
-            start_utc=start_utc,
-            end_utc=end_utc,
+            mission_name=name_text,
             pay_per_player=pay,
             location=location_text,
+            default_tz=self.default_tz,
             origin_channel_id=interaction.channel_id,
         )
-        payout_utc = compute_payout_ts(start_utc)
+        tz_label = MISSION_TZ_LABELS.get(self.default_tz, self.default_tz)
         embed = discord.Embed(
-            title=f"🆕 New Mission — {view.mission_name}",
+            title=f"🆕 New Mission — {name_text}",
             description=(
                 f"**Location:** {location_text}\n"
-                f"**Start (UTC):** <t:{int(start_utc.timestamp())}:F> "
-                f"(<t:{int(start_utc.timestamp())}:R>)\n"
-                f"**End (UTC):** <t:{int(end_utc.timestamp())}:F>\n"
-                f"**Pay each:** ¥{pay:,} → bank\n"
-                f"**Auto-payout:** <t:{int(payout_utc.timestamp())}:F> "
-                "(midnight US Eastern after start)\n\n"
-                "Select up to 25 attendees below, then press **Confirm & Create**."
-                "\n_Note: you (the Fixer) will be excluded from payout automatically._"
+                f"**Pay each:** ¥{pay:,} → bank\n\n"
+                f"Pick the **date**, **start hour**, **duration**, and "
+                f"**timezone** below, then press **Continue**.\n"
+                f"_Default timezone: {tz_label} (your last-used). Everyone "
+                "viewing the Discord event sees it in their own local time._"
             ),
             color=discord.Color.gold(),
         )
-        await respond_ephemeral(interaction, embed=embed, view=view)
+        await respond_ephemeral(interaction, embed=embed, view=schedule_view)
 
 
 class CreateMissionAttendeesView(SafeView):

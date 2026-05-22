@@ -639,3 +639,83 @@ class TestMissionReconcile:
             result = asyncio.run(cog._reconcile_mission_with_discord(row))
         assert result is None
         assert cancelled == ["m_rewind"]
+
+
+class TestCreateMissionScheduleHelpers:
+    def test_time_label_formatting(self):
+        from NightCityBot.cogs.fixer_hub import _format_time_option_label
+
+        assert _format_time_option_label(0) == "12:00 AM"
+        assert _format_time_option_label(11) == "11:00 AM"
+        assert _format_time_option_label(12) == "12:00 PM"
+        assert _format_time_option_label(13) == "1:00 PM"
+        assert _format_time_option_label(20) == "8:00 PM"
+        assert _format_time_option_label(23) == "11:00 PM"
+
+    def test_build_date_options_count_and_labels(self):
+        from zoneinfo import ZoneInfo
+        from NightCityBot.cogs.fixer_hub import _build_date_options
+
+        opts = _build_date_options(ZoneInfo("America/New_York"), count=14)
+        assert len(opts) == 14
+        assert opts[0].label.startswith("Today")
+        assert opts[1].label.startswith("Tomorrow")
+        # Values are ISO YYYY-MM-DD and strictly increasing by 1 day.
+        from datetime import date as _date
+        prev = None
+        for opt in opts:
+            d = _date.fromisoformat(opt.value)
+            if prev is not None:
+                assert (d - prev).days == 1
+            prev = d
+
+    def test_build_tz_options_default(self):
+        from NightCityBot.cogs.fixer_hub import _build_tz_options, MISSION_TZ_OPTIONS
+
+        opts = _build_tz_options("America/Chicago")
+        assert len(opts) == len(MISSION_TZ_OPTIONS)
+        defaults = [o for o in opts if o.default]
+        assert len(defaults) == 1
+        assert defaults[0].value == "America/Chicago"
+
+    def test_fixer_tz_pref_roundtrip(self):
+        from unittest.mock import AsyncMock, patch
+        from NightCityBot.cogs import fixer_hub as fh
+
+        store: dict[str, str] = {}
+
+        async def fake_get(key, default=None):
+            return store.get(key, default)
+
+        async def fake_set(key, value, description=""):
+            store[key] = value
+            return True
+
+        with patch.object(fh, "bot_config_get", side_effect=fake_get), \
+             patch.object(fh, "bot_config_set", side_effect=fake_set):
+            # First call falls back to default (US Eastern).
+            tz = asyncio.run(fh.get_fixer_tz_pref(12345))
+            assert tz == "America/New_York"
+            # Persist a new pick.
+            ok = asyncio.run(fh.set_fixer_tz_pref(12345, "America/Los_Angeles"))
+            assert ok is True
+            assert store["fixer_tz:12345"] == "America/Los_Angeles"
+            # Now it round-trips.
+            tz2 = asyncio.run(fh.get_fixer_tz_pref(12345))
+            assert tz2 == "America/Los_Angeles"
+            # Invalid tz is silently rejected on write, and stale data falls back on read.
+            ok_bad = asyncio.run(fh.set_fixer_tz_pref(12345, "Mars/Olympus"))
+            assert ok_bad is False
+            store["fixer_tz:99"] = "Not/Real"
+            assert asyncio.run(fh.get_fixer_tz_pref(99)) == "America/New_York"
+
+    def test_local_to_utc_conversion_via_schedule_view(self):
+        """Picking '8 PM US Eastern' on a given date must store the right UTC moment."""
+        from zoneinfo import ZoneInfo
+        from datetime import datetime as _dt
+        # 8 PM Eastern on a winter date (EST, UTC-5).
+        local = _dt(2026, 1, 15, 20, 0, tzinfo=ZoneInfo("America/New_York"))
+        assert local.astimezone(timezone.utc) == _dt(2026, 1, 16, 1, 0, tzinfo=timezone.utc)
+        # 8 PM Pacific on a summer date (PDT, UTC-7).
+        local2 = _dt(2026, 7, 4, 20, 0, tzinfo=ZoneInfo("America/Los_Angeles"))
+        assert local2.astimezone(timezone.utc) == _dt(2026, 7, 5, 3, 0, tzinfo=timezone.utc)
