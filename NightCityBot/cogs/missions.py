@@ -31,13 +31,43 @@ from openpyxl import load_workbook
 from NightCityBot.utils.db import (
     mission_log_get,
     mission_log_record,
+    mission_event_get,
     mission_event_get_for_user,
     mission_event_list_due,
     mission_event_mark_paid,
+    mission_event_update,
+    mission_event_cancel,
 )
 from NightCityBot.utils.permissions import is_fixer
 
 logger = logging.getLogger(__name__)
+
+# Only events whose title begins with this prefix (case-insensitive) are
+# treated as bot-managed missions during reconciliation. Anything else
+# (Main Session, Social, etc.) is ignored / treated as canceled.
+ACTORS_NEEDED_PREFIX = "Actors Needed:"
+
+
+def _strip_actors_prefix(title: str) -> str:
+    """Return the mission name part after the 'Actors Needed:' prefix."""
+    t = (title or "").strip()
+    if t.lower().startswith(ACTORS_NEEDED_PREFIX.lower()):
+        return t[len(ACTORS_NEEDED_PREFIX):].strip()
+    return t
+
+
+def _dt_close(a: Optional[datetime], b: Optional[datetime], tol_seconds: int = 30) -> bool:
+    """Treat two datetimes as equal if within `tol_seconds` of each other.
+
+    Discord round-trips timestamps as ISO strings, so allow a small tolerance.
+    """
+    if a is None or b is None:
+        return a is b
+    if a.tzinfo is None:
+        a = a.replace(tzinfo=timezone.utc)
+    if b.tzinfo is None:
+        b = b.replace(tzinfo=timezone.utc)
+    return abs((a - b).total_seconds()) <= tol_seconds
 
 # Auto-payout fires at midnight US Eastern on the day AFTER the mission
 # starts (per user spec). Using America/New_York handles EST/EDT automatically.
@@ -296,7 +326,220 @@ class MissionsCog(commands.Cog):
     async def _before_payout_loop(self) -> None:
         await self.bot.wait_until_ready()
 
+    async def _reconcile_mission_with_discord(self, row: dict) -> Optional[dict]:
+        """Re-check the Discord scheduled event before paying.
+
+        Returns:
+          * ``row`` (possibly with synced fields) if the event still exists,
+            its title still starts with ``Actors Needed:``, and its start
+            time has already passed → caller should proceed with payout.
+          * ``None`` if the mission should be skipped this cycle, either
+            because:
+              - the event was canceled/deleted (DB row marked canceled),
+              - the title no longer matches an "Actors Needed:" event
+                (DB row marked canceled),
+              - the event was rescheduled into the future (DB row updated
+                with the new start_ts/end_ts/payout_ts, loop will re-pick
+                it on the new payout date),
+              - Discord is temporarily unreachable (try again next loop).
+        """
+        mission_id = str(row.get("mission_id") or "")
+        event_id = row.get("event_id")
+        guild_id = row.get("guild_id")
+        channel_id = row.get("channel_id")
+
+        # Legacy / hand-crafted rows without a linked Discord event: skip
+        # reconciliation and pay as before.
+        if not event_id or not guild_id:
+            return row
+
+        guild = self.bot.get_guild(int(guild_id))
+        if guild is None:
+            try:
+                guild = await self.bot.fetch_guild(int(guild_id))
+            except Exception:
+                logger.warning(
+                    "Mission %s: guild %s unavailable; deferring payout",
+                    mission_id, guild_id,
+                )
+                return None  # try again next loop iteration
+
+        # Fetch the latest event state from Discord.
+        event = None
+        not_found = False
+        try:
+            event = await guild.fetch_scheduled_event(int(event_id))
+        except discord.NotFound:
+            not_found = True
+        except Exception:
+            logger.warning(
+                "Mission %s: failed to fetch scheduled event %s; deferring",
+                mission_id, event_id, exc_info=True,
+            )
+            return None  # transient — retry next loop
+
+        if not_found or event is None:
+            await mission_event_cancel(mission_id)
+            await self._notify_reconcile(
+                row,
+                title="🗑️ Mission Canceled (Event Deleted)",
+                description=(
+                    f"The Discord event for **{row.get('mission_name')}** "
+                    "was deleted or no longer exists. No payout was issued."
+                ),
+                color=discord.Color.dark_grey(),
+            )
+            return None
+
+        # Discord event status check (canceled by an organizer).
+        ev_status = getattr(event, "status", None)
+        try:
+            is_canceled_status = ev_status == discord.EventStatus.canceled
+        except Exception:
+            is_canceled_status = str(ev_status).lower().endswith("canceled")
+        if is_canceled_status:
+            await mission_event_cancel(mission_id)
+            await self._notify_reconcile(
+                row,
+                title="🗑️ Mission Canceled",
+                description=(
+                    f"The Discord event for **{row.get('mission_name')}** "
+                    "was canceled. No payout was issued."
+                ),
+                color=discord.Color.dark_grey(),
+            )
+            return None
+
+        # Only treat events tagged "Actors Needed:" as bot-managed missions.
+        ev_name = getattr(event, "name", "") or ""
+        if not ev_name.strip().lower().startswith(ACTORS_NEEDED_PREFIX.lower()):
+            await mission_event_cancel(mission_id)
+            await self._notify_reconcile(
+                row,
+                title="⚠️ Mission Skipped (Renamed)",
+                description=(
+                    f"The Discord event was renamed to `{ev_name[:120]}` and "
+                    f"no longer begins with `{ACTORS_NEEDED_PREFIX}`. "
+                    "Marking the mission canceled — no payout issued."
+                ),
+                color=discord.Color.orange(),
+            )
+            return None
+
+        # Sync mutable fields. Title change → update mission_name.
+        ev_start = getattr(event, "start_time", None) or getattr(event, "scheduled_start_time", None)
+        ev_end = getattr(event, "end_time", None) or getattr(event, "scheduled_end_time", None)
+        new_mission_name = _strip_actors_prefix(ev_name) or (row.get("mission_name") or "Mission")
+        updates: dict = {}
+        if new_mission_name and new_mission_name != row.get("mission_name"):
+            updates["mission_name"] = new_mission_name
+        if ev_start is not None and not _dt_close(ev_start, row.get("start_ts")):
+            updates["start_ts"] = ev_start
+            new_payout = compute_payout_ts(ev_start)
+            updates["payout_ts"] = new_payout
+            if ev_end is not None:
+                updates["end_ts"] = ev_end
+            else:
+                # Keep duration roughly consistent if Discord didn't return end.
+                old_start = row.get("start_ts")
+                old_end = row.get("end_ts")
+                if isinstance(old_start, datetime) and isinstance(old_end, datetime):
+                    updates["end_ts"] = ev_start + (old_end - old_start)
+        elif ev_end is not None and not _dt_close(ev_end, row.get("end_ts")):
+            updates["end_ts"] = ev_end
+
+        if updates:
+            ok = await mission_event_update(mission_id, **updates)
+            if not ok:
+                logger.error(
+                    "Mission %s: failed to apply Discord sync updates %r; deferring",
+                    mission_id, list(updates.keys()),
+                )
+                return None
+            # Reflect updates in the row dict for the payout step.
+            row = dict(row)
+            row.update(updates)
+            # If the *new* payout time is in the future, defer this cycle —
+            # the loop will re-pick the row when payout_ts arrives. Key off
+            # payout_ts (not start_ts) because someone could move start into
+            # the past but the recomputed midnight-ET payout still be future.
+            new_payout_ts = updates.get("payout_ts", row.get("payout_ts"))
+            new_start_ts = updates.get("start_ts", row.get("start_ts"))
+            now = datetime.now(timezone.utc)
+            if isinstance(new_payout_ts, datetime):
+                pts = new_payout_ts if new_payout_ts.tzinfo else new_payout_ts.replace(tzinfo=timezone.utc)
+                if pts > now:
+                    display_when = new_start_ts if isinstance(new_start_ts, datetime) else new_payout_ts
+                    if display_when.tzinfo is None:
+                        display_when = display_when.replace(tzinfo=timezone.utc)
+                    await self._notify_reconcile(
+                        row,
+                        title="📅 Mission Rescheduled",
+                        description=(
+                            f"**{new_mission_name}** was moved on Discord to "
+                            f"<t:{int(display_when.timestamp())}:F>. Payout deferred "
+                            f"to <t:{int(pts.timestamp())}:F>."
+                        ),
+                        color=discord.Color.blurple(),
+                    )
+                    return None
+
+        return row
+
+    async def _notify_reconcile(
+        self,
+        row: dict,
+        *,
+        title: str,
+        description: str,
+        color: discord.Color,
+    ) -> None:
+        """Best-effort post a reconciliation notice to the mission's channel."""
+        guild_id = row.get("guild_id")
+        channel_id = row.get("channel_id")
+        if not (guild_id and channel_id):
+            return
+        try:
+            guild = self.bot.get_guild(int(guild_id))
+            ch = guild.get_channel(int(channel_id)) if guild else None
+            if ch is None:
+                return
+            embed = discord.Embed(title=title, description=description, color=color)
+            creator_id = row.get("creator_id")
+            if creator_id:
+                embed.add_field(name="Fixer", value=f"<@{creator_id}>", inline=True)
+            await ch.send(embed=embed)
+        except Exception:
+            logger.warning(
+                "Failed to post reconcile notice for mission %s",
+                row.get("mission_id"), exc_info=True,
+            )
+
     async def _process_mission_payout(self, row: dict) -> None:
+        # Re-fetch the row so we pay with the latest pay_per_player /
+        # attendee_ids / canceled state, not whatever was snapshotted when
+        # the loop started.
+        mid = str(row.get("mission_id") or "")
+        if mid:
+            fresh = await mission_event_get(mid)
+            if fresh is None:
+                logger.info("Mission %s no longer exists; skipping payout", mid)
+                return
+            if fresh.get("paid"):
+                # Already paid in a previous loop iteration.
+                return
+            if fresh.get("canceled"):
+                logger.info("Mission %s is canceled; skipping payout", mid)
+                return
+            row = fresh
+
+        # Reconcile against Discord — skip / reschedule / cancel as needed
+        # before touching wallets.
+        reconciled = await self._reconcile_mission_with_discord(row)
+        if reconciled is None:
+            return
+        row = reconciled
+
         mission_id = row.get("mission_id")
         mission_name = row.get("mission_name") or "Mission"
         pay = int(row.get("pay_per_player") or 0)

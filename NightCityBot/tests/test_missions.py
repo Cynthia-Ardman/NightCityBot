@@ -468,7 +468,11 @@ class TestMissionPayoutLoop:
             marked.append(mid)
             return True
 
-        with patch("NightCityBot.cogs.missions.mission_event_mark_paid", side_effect=fake_mark):
+        async def fake_get(mid):
+            return dict(row)
+
+        with patch("NightCityBot.cogs.missions.mission_event_mark_paid", side_effect=fake_mark), \
+             patch("NightCityBot.cogs.missions.mission_event_get", side_effect=fake_get):
             asyncio.run(cog._process_mission_payout(row))
 
         assert ub.update_balance.call_count == 2
@@ -491,7 +495,10 @@ class TestMissionPayoutLoop:
         }
         async def fake_mark(mid):
             return True
-        with patch("NightCityBot.cogs.missions.mission_event_mark_paid", side_effect=fake_mark):
+        async def fake_get(mid):
+            return dict(row)
+        with patch("NightCityBot.cogs.missions.mission_event_mark_paid", side_effect=fake_mark), \
+             patch("NightCityBot.cogs.missions.mission_event_get", side_effect=fake_get):
             asyncio.run(cog._process_mission_payout(row))
 
         ub.update_balance.assert_not_called()

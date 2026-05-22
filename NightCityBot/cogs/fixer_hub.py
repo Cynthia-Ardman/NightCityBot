@@ -30,6 +30,9 @@ from NightCityBot.utils.db import (
     mission_log_record,
     mission_event_create,
     mission_event_list_recent,
+    mission_event_get,
+    mission_event_update,
+    mission_event_cancel,
     mission_event_get_for_user,
     actor_attendance_record,
     actor_attendance_get_by_user,
@@ -410,6 +413,23 @@ class MissionsSubView(SafeView):
         await send_ephemeral(
             interaction,
             "Pick up to 25 users to view their actor history:",
+            view=view,
+        )
+
+    @discord.ui.button(label="Edit Mission", style=discord.ButtonStyle.danger, emoji="✏️", row=2)
+    async def edit_mission(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        recent = await mission_event_list_recent(25)
+        if not recent:
+            await send_ephemeral(
+                interaction,
+                "No missions on record yet. Create one first with **Create Mission**.",
+            )
+            return
+        view = EditMissionPickerView(self.cog, self.ctx, recent)
+        await send_ephemeral(
+            interaction,
+            "Pick a mission to edit:",
             view=view,
         )
 
@@ -819,6 +839,484 @@ def _parse_int_amount(text: str) -> Optional[int]:
         return int(cleaned)
     except ValueError:
         return None
+
+
+class EditMissionPickerView(SafeView):
+    """Step 1 of Edit Mission: pick which recorded mission to operate on."""
+
+    def __init__(self, cog: "FixerHubCog", ctx, recent_missions: list[dict]):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.ctx = ctx
+        self.selected_mission_id: Optional[str] = None
+
+        options: list[discord.SelectOption] = []
+        for m in recent_missions[:25]:
+            mid = str(m.get("mission_id") or "")
+            mname = str(m.get("mission_name") or "Mission")
+            start_ts = m.get("start_ts")
+            try:
+                desc = (
+                    f"{start_ts.strftime('%Y-%m-%d')} • by "
+                    f"{_short(m.get('creator_username') or '', 40) or 'unknown'}"
+                )
+            except Exception:
+                desc = _short(m.get("creator_username") or "", 80)
+            options.append(
+                discord.SelectOption(
+                    label=_short(mname, 100),
+                    value=mid,
+                    description=_short(desc, 100) or None,
+                )
+            )
+        self.mission_select.options = options or [
+            discord.SelectOption(label="(no missions)", value="", default=True)
+        ]
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.select(
+        placeholder="Mission to edit…",
+        min_values=1,
+        max_values=1,
+        row=0,
+    )
+    async def mission_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        self.selected_mission_id = (select.values[0] if select.values else "") or None
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.success, emoji="✅", row=1)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        if not self.selected_mission_id:
+            await send_ephemeral(interaction, "Pick a mission first.")
+            return
+        row = await mission_event_get(self.selected_mission_id)
+        if row is None:
+            await send_ephemeral(interaction, "That mission no longer exists.")
+            return
+        view = EditMissionPanelView(self.cog, self.ctx, row)
+        await send_ephemeral(
+            interaction,
+            embed=_edit_mission_summary_embed(row),
+            view=view,
+        )
+
+
+def _edit_mission_summary_embed(row: dict) -> discord.Embed:
+    name = str(row.get("mission_name") or "Mission")
+    start_ts = row.get("start_ts")
+    end_ts = row.get("end_ts")
+    payout_ts = row.get("payout_ts")
+    pay = int(row.get("pay_per_player") or 0)
+    attendees = list(row.get("attendee_ids") or [])
+    creator = row.get("creator_username") or row.get("creator_id") or "unknown"
+    location = row.get("location") or "?"
+    color = discord.Color.dark_grey() if row.get("canceled") else (
+        discord.Color.green() if row.get("paid") else discord.Color.blurple()
+    )
+    embed = discord.Embed(title=f"✏️ Edit Mission — {_short(name, 80)}", color=color)
+
+    def _fmt(ts):
+        if not isinstance(ts, datetime):
+            return "—"
+        return f"<t:{int(ts.timestamp())}:F>"
+
+    status_bits = []
+    if row.get("canceled"):
+        status_bits.append("🗑️ canceled")
+    if row.get("paid"):
+        status_bits.append("✅ paid")
+    if not status_bits:
+        status_bits.append("⏳ pending")
+
+    embed.add_field(name="Status", value=" • ".join(status_bits), inline=False)
+    embed.add_field(name="Fixer", value=str(creator), inline=True)
+    embed.add_field(name="Location", value=str(location)[:64], inline=True)
+    embed.add_field(name="Pay / attendee", value=f"¥{pay:,}", inline=True)
+    embed.add_field(name="Start", value=_fmt(start_ts), inline=True)
+    embed.add_field(name="End", value=_fmt(end_ts), inline=True)
+    embed.add_field(name="Payout", value=_fmt(payout_ts), inline=True)
+    embed.add_field(
+        name=f"Attendees ({len(attendees)})",
+        value=(", ".join(f"<@{a}>" for a in attendees[:25]) or "—")[:1024],
+        inline=False,
+    )
+    embed.set_footer(text=f"mission_id: {row.get('mission_id')}")
+    return embed
+
+
+class EditMissionPanelView(SafeView):
+    """Step 2 of Edit Mission: per-field edit buttons."""
+
+    def __init__(self, cog: "FixerHubCog", ctx, row: dict):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.ctx = ctx
+        self.row = dict(row)
+        if self.row.get("canceled"):
+            # Disable mutating actions on canceled missions.
+            for child in self.children:
+                if isinstance(child, discord.ui.Button) and child.label != "Close":
+                    child.disabled = True
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    async def _refresh_message(self, interaction: discord.Interaction) -> None:
+        fresh = await mission_event_get(str(self.row.get("mission_id")))
+        if fresh is None:
+            return
+        self.row = fresh
+        try:
+            if interaction.message is not None:
+                await interaction.message.edit(
+                    embed=_edit_mission_summary_embed(self.row), view=self
+                )
+        except Exception:
+            pass
+
+    @discord.ui.button(label="Edit Date/Time", style=discord.ButtonStyle.primary, emoji="📅", row=0)
+    async def edit_datetime(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(EditMissionDateTimeModal(self))
+
+    @discord.ui.button(label="Edit Attendees", style=discord.ButtonStyle.primary, emoji="👥", row=0)
+    async def edit_attendees(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        view = EditMissionAttendeesView(self)
+        await send_ephemeral(
+            interaction,
+            f"Select the new attendee list for **{_short(self.row.get('mission_name') or '', 60)}** "
+            "(replaces the existing list). Up to 25.",
+            view=view,
+        )
+
+    @discord.ui.button(label="Edit Payout", style=discord.ButtonStyle.primary, emoji="💰", row=0)
+    async def edit_payout(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(EditMissionPayoutModal(self))
+
+    @discord.ui.button(label="Cancel Mission", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
+    async def cancel_mission(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        view = ConfirmCancelMissionView(self)
+        await send_ephemeral(
+            interaction,
+            f"⚠️ Cancel **{self.row.get('mission_name')}**? This deletes the Discord event "
+            "and marks the mission as canceled. No payout will be issued.",
+            view=view,
+        )
+
+    @discord.ui.button(label="Close", style=discord.ButtonStyle.secondary, row=1)
+    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        try:
+            if interaction.message is not None:
+                await interaction.message.delete()
+        except Exception:
+            pass
+
+
+async def _edit_discord_event(
+    bot, row: dict, **kwargs
+) -> tuple[bool, Optional[str]]:
+    """Best-effort `event.edit(**kwargs)` for the mission's Discord event.
+
+    Returns (ok, error_message). If the event is missing, returns (False, msg)
+    so callers can decide whether to still apply DB updates.
+    """
+    event_id = row.get("event_id")
+    guild_id = row.get("guild_id")
+    if not event_id or not guild_id:
+        return False, "No linked Discord event."
+    guild = bot.get_guild(int(guild_id))
+    if guild is None:
+        try:
+            guild = await bot.fetch_guild(int(guild_id))
+        except Exception:
+            return False, "Couldn't reach the guild on Discord."
+    try:
+        event = await guild.fetch_scheduled_event(int(event_id))
+    except discord.NotFound:
+        return False, "The Discord event no longer exists."
+    except Exception as e:
+        logger.warning("fetch_scheduled_event failed for %s", event_id, exc_info=True)
+        return False, f"Discord fetch failed: `{e}`"
+    try:
+        await event.edit(**kwargs)
+        return True, None
+    except Exception as e:
+        logger.warning("event.edit failed for %s", event_id, exc_info=True)
+        return False, f"Discord update failed: `{e}`"
+
+
+class EditMissionDateTimeModal(discord.ui.Modal, title="Edit Mission Date/Time"):
+    start_time = discord.ui.TextInput(
+        label="New start (UTC) — YYYY-MM-DD HH:MM",
+        placeholder="2026-05-23 20:00",
+        max_length=20,
+        required=True,
+    )
+    duration_hours = discord.ui.TextInput(
+        label="Duration (hours)",
+        placeholder="4",
+        max_length=6,
+        required=True,
+    )
+
+    def __init__(self, panel: "EditMissionPanelView"):
+        super().__init__(timeout=300)
+        self.panel = panel
+        # Pre-fill with current values for convenience.
+        cur_start = panel.row.get("start_ts")
+        cur_end = panel.row.get("end_ts")
+        if isinstance(cur_start, datetime):
+            self.start_time.default = cur_start.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        if isinstance(cur_start, datetime) and isinstance(cur_end, datetime):
+            hours = max(1, round((cur_end - cur_start).total_seconds() / 3600))
+            self.duration_hours.default = str(hours)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        new_start = _parse_mission_start(str(self.start_time.value or ""))
+        if new_start is None:
+            await send_ephemeral(
+                interaction,
+                "Start must be `YYYY-MM-DD HH:MM` in UTC (e.g. `2026-05-23 20:00`).",
+            )
+            return
+        try:
+            hours = float(str(self.duration_hours.value or "").strip())
+        except ValueError:
+            hours = -1.0
+        if not (0.25 <= hours <= 24):
+            await send_ephemeral(interaction, "Duration must be between 0.25 and 24 hours.")
+            return
+        new_end = new_start + timedelta(hours=hours)
+        new_payout = compute_payout_ts(new_start)
+
+        ok, err = await _edit_discord_event(
+            self.panel.cog.bot, self.panel.row,
+            start_time=new_start, end_time=new_end,
+        )
+        if not ok:
+            await send_ephemeral(
+                interaction,
+                f"❌ Couldn't update the Discord event — leaving the DB row untouched.\n{err}",
+            )
+            return
+        db_ok = await mission_event_update(
+            str(self.panel.row.get("mission_id")),
+            start_ts=new_start, end_ts=new_end, payout_ts=new_payout,
+        )
+        if not db_ok:
+            await send_ephemeral(
+                interaction,
+                "⚠️ Discord was updated but the DB write failed. Try again or contact the dev.",
+            )
+            return
+        await send_ephemeral(
+            interaction,
+            f"✅ Mission rescheduled to <t:{int(new_start.timestamp())}:F>. "
+            f"Auto-payout now lands at <t:{int(new_payout.timestamp())}:F>.",
+        )
+        await self.panel._refresh_message(interaction)
+
+
+class EditMissionPayoutModal(discord.ui.Modal, title="Edit Mission Payout"):
+    amount = discord.ui.TextInput(
+        label="New pay per attendee (¥, bank)",
+        placeholder="e.g. 2500",
+        required=True,
+        max_length=12,
+    )
+
+    def __init__(self, panel: "EditMissionPanelView"):
+        super().__init__(timeout=300)
+        self.panel = panel
+        cur = int(panel.row.get("pay_per_player") or 0)
+        if cur:
+            self.amount.default = str(cur)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        pay = _parse_int_amount(str(self.amount.value or ""))
+        if pay is None or pay < 0:
+            await send_ephemeral(interaction, "Pay must be a non-negative integer (e.g. `2500`).")
+            return
+        ok = await mission_event_update(
+            str(self.panel.row.get("mission_id")),
+            pay_per_player=pay,
+        )
+        if not ok:
+            await send_ephemeral(interaction, "DB write failed. Try again.")
+            return
+        # Push the new pay into the event description so attendees see it.
+        row = await mission_event_get(str(self.panel.row.get("mission_id"))) or self.panel.row
+        new_desc = _build_mission_description(row)
+        push_ok, push_err = await _edit_discord_event(
+            self.panel.cog.bot, row, description=new_desc[:1000]
+        )
+        msg = f"✅ Updated pay to ¥{pay:,} per attendee."
+        if not push_ok:
+            msg += f"\n⚠️ DB updated but Discord push failed: {push_err}"
+        await send_ephemeral(interaction, msg)
+        await self.panel._refresh_message(interaction)
+
+
+def _build_mission_description(row: dict) -> str:
+    pay = int(row.get("pay_per_player") or 0)
+    attendees = list(row.get("attendee_ids") or [])
+    creator_id = row.get("creator_id") or ""
+    location = row.get("location") or "?"
+    return (
+        f"📍 **Location:** {location}\n"
+        f"💰 **Pay:** ¥{pay:,} per attendee (auto-paid the morning after).\n"
+        f"🎬 **Fixer:** <@{creator_id}>\n"
+        f"🎯 **Attendees:** {len(attendees)}"
+    )
+
+
+class EditMissionAttendeesView(SafeView):
+    def __init__(self, panel: "EditMissionPanelView"):
+        super().__init__(timeout=300)
+        self.panel = panel
+        self.selected: list[discord.abc.User] = []
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.panel.ctx.author.id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.select(
+        cls=discord.ui.UserSelect,
+        placeholder="New attendee list (replaces existing)…",
+        min_values=1,
+        max_values=25,
+        row=0,
+    )
+    async def attendee_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        self.selected = list(select.values)
+        names = ", ".join(getattr(u, "display_name", None) or u.name for u in self.selected)
+        await respond_ephemeral(
+            interaction,
+            f"Selected {len(self.selected)} attendee(s): {names[:1500]}\n"
+            "Press **Save** to apply.",
+        )
+
+    @discord.ui.button(label="Save", style=discord.ButtonStyle.success, emoji="✅", row=1)
+    async def save(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        if not self.selected:
+            await send_ephemeral(interaction, "Pick at least one attendee first.")
+            return
+        creator_id = str(self.panel.row.get("creator_id") or "")
+        new_ids = [str(u.id) for u in self.selected if str(u.id) != creator_id]
+        if not new_ids:
+            await send_ephemeral(
+                interaction,
+                "All selected attendees were filtered (the fixer can't be paid). "
+                "Pick at least one other player.",
+            )
+            return
+        ok = await mission_event_update(
+            str(self.panel.row.get("mission_id")),
+            attendee_ids=new_ids,
+        )
+        if not ok:
+            await send_ephemeral(interaction, "DB write failed. Try again.")
+            return
+        row = await mission_event_get(str(self.panel.row.get("mission_id"))) or self.panel.row
+        new_desc = _build_mission_description(row)
+        push_ok, push_err = await _edit_discord_event(
+            self.panel.cog.bot, row, description=new_desc[:1000]
+        )
+        msg = (
+            f"✅ Attendee list updated ({len(new_ids)} player(s))."
+            "\n_Note: gig-log credits aren't auto-adjusted — new attendees "
+            "aren't credited (use **Record Mission**), and removed attendees "
+            "keep any credit they got at creation time._"
+        )
+        if not push_ok:
+            msg += f"\n⚠️ DB updated but Discord push failed: {push_err}"
+        await send_ephemeral(interaction, msg)
+        await self.panel._refresh_message(interaction)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=1)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        try:
+            if interaction.message is not None:
+                await interaction.message.delete()
+        except Exception:
+            pass
+
+
+class ConfirmCancelMissionView(SafeView):
+    def __init__(self, panel: "EditMissionPanelView"):
+        super().__init__(timeout=120)
+        self.panel = panel
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.panel.ctx.author.id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.button(label="Yes, cancel it", style=discord.ButtonStyle.danger, emoji="🗑️")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        # Try to delete the Discord event (best-effort).
+        bot = self.panel.cog.bot
+        row = self.panel.row
+        event_id = row.get("event_id")
+        guild_id = row.get("guild_id")
+        discord_msg = "Discord event removed."
+        if event_id and guild_id:
+            guild = bot.get_guild(int(guild_id))
+            if guild is None:
+                try:
+                    guild = await bot.fetch_guild(int(guild_id))
+                except Exception:
+                    guild = None
+            if guild is not None:
+                try:
+                    event = await guild.fetch_scheduled_event(int(event_id))
+                    await event.delete()
+                except discord.NotFound:
+                    discord_msg = "Discord event was already gone."
+                except Exception as e:
+                    discord_msg = f"Couldn't delete Discord event: `{e}`"
+        ok = await mission_event_cancel(str(row.get("mission_id")))
+        if not ok:
+            await send_ephemeral(
+                interaction,
+                f"⚠️ {discord_msg} But the DB cancel failed — try again.",
+            )
+            return
+        await send_ephemeral(
+            interaction,
+            f"🗑️ Mission canceled. {discord_msg} No auto-payout will be issued."
+            "\n_Note: gig-log credits already written at creation time are not "
+            "reversed — adjust them manually if needed._",
+        )
+        await self.panel._refresh_message(interaction)
+
+    @discord.ui.button(label="Keep it", style=discord.ButtonStyle.secondary)
+    async def keep(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        try:
+            if interaction.message is not None:
+                await interaction.message.delete()
+        except Exception:
+            pass
 
 
 class CreateMissionModal(discord.ui.Modal, title="Create Mission"):

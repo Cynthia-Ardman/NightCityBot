@@ -363,6 +363,8 @@ class Admin(commands.Cog):
                     "**Create Mission** (panel button) – schedules a Discord 'Actors Needed: …' event, records the mission in each selected player's gig log immediately, and at the next midnight US-Eastern after the start time auto-pays each attendee (to bank) via UnbelievaBoat. The fixer who created the mission is never paid. Tap **📎 Attach Banner** on the attendees screen to upload a custom event cover (paste/upload in chat within 60 s, ≤ 8 MiB) — otherwise a random default banner is used.",
                     "**Actor Pay** (panel button) – select actor(s), pick a recorded mission, enter a per-actor amount; pays each via UnbelievaBoat (to bank) and writes an `actor_attendance` ledger row tagged with the fixer and mission.",
                     "**Check Actor** (panel button) – show how many times someone has acted, the dates, and which missions + fixer they were acting for.",
+                    "**Edit Mission** (panel button) – pick a mission, then change date/time, attendees, or payout (Discord event + DB stay in sync), or cancel it entirely (deletes the Discord event and skips auto-payout).",
+                    "**Auto-reconcile**: at payout time the bot re-checks the Discord event. If it was deleted/canceled/renamed away from `Actors Needed:`, the mission is marked canceled and no payout fires. If it was rescheduled, the DB updates and payout is deferred to the new date.",
                 ]),
             ),
         ]

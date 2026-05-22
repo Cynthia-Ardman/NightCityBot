@@ -676,6 +676,14 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         ALTER TABLE mission_event
             ADD COLUMN IF NOT EXISTS creator_username TEXT NOT NULL DEFAULT ''
         """,
+        """
+        ALTER TABLE mission_event
+            ADD COLUMN IF NOT EXISTS canceled BOOLEAN NOT NULL DEFAULT FALSE
+        """,
+        """
+        ALTER TABLE mission_event
+            ADD COLUMN IF NOT EXISTS canceled_at TIMESTAMPTZ
+        """,
         # ── Actor attendance (per-act ledger for Actor Pay) ──
         """
         CREATE TABLE IF NOT EXISTS actor_attendance (
@@ -4469,7 +4477,7 @@ async def mission_event_create(
 
 
 async def mission_event_list_due(now_ts: datetime) -> list[dict]:
-    """Return unpaid mission events whose payout_ts has passed."""
+    """Return unpaid, non-canceled mission events whose payout_ts has passed."""
     try:
         pool = await get_pool()
         rows = await _with_retry(
@@ -4480,7 +4488,7 @@ async def mission_event_list_due(now_ts: datetime) -> list[dict]:
                        pay_per_player,
                        start_ts, end_ts, payout_ts, attendee_ids
                   FROM mission_event
-                 WHERE paid = FALSE AND payout_ts <= $1
+                 WHERE paid = FALSE AND canceled = FALSE AND payout_ts <= $1
                  ORDER BY payout_ts ASC
                 """,
                 now_ts,
@@ -4494,15 +4502,16 @@ async def mission_event_list_due(now_ts: datetime) -> list[dict]:
 
 
 async def mission_event_list_recent(limit: int = 25) -> list[dict]:
-    """Return the most recent mission events (any status) for picker UIs."""
+    """Return the most recent non-canceled mission events for picker UIs."""
     try:
         pool = await get_pool()
         rows = await _with_retry(
             lambda: pool.fetch(
                 """
                 SELECT mission_id, mission_name, creator_id, creator_username,
-                       start_ts, paid
+                       start_ts, paid, canceled
                   FROM mission_event
+                 WHERE canceled = FALSE
                  ORDER BY start_ts DESC
                  LIMIT $1
                 """,
@@ -4514,6 +4523,124 @@ async def mission_event_list_recent(limit: int = 25) -> list[dict]:
     except Exception:
         logger.error("mission_event_list_recent failed", exc_info=True)
         return []
+
+
+async def mission_event_get(mission_id: str) -> Optional[dict]:
+    """Fetch a single mission_event row by id, or None."""
+    try:
+        pool = await get_pool()
+        row = await _with_retry(
+            lambda: pool.fetchrow(
+                """
+                SELECT mission_id, guild_id, channel_id, event_id,
+                       mission_name, location, creator_id, creator_username,
+                       pay_per_player,
+                       start_ts, end_ts, payout_ts, attendee_ids,
+                       paid, paid_at, canceled, canceled_at, created_at
+                  FROM mission_event
+                 WHERE mission_id = $1
+                """,
+                str(mission_id),
+            ),
+            label="mission_event_get",
+        )
+        return dict(row) if row else None
+    except Exception:
+        logger.error("mission_event_get failed for '%s'", mission_id, exc_info=True)
+        return None
+
+
+async def mission_event_update(mission_id: str, **fields) -> bool:
+    """Update one or more mutable fields of a mission_event row.
+
+    Allowed fields: mission_name, location, pay_per_player, start_ts,
+    end_ts, payout_ts, attendee_ids (list[str]).
+    Returns True on success.
+    """
+    allowed = {
+        "mission_name": "TEXT",
+        "location": "TEXT",
+        "pay_per_player": "BIGINT",
+        "start_ts": "TIMESTAMPTZ",
+        "end_ts": "TIMESTAMPTZ",
+        "payout_ts": "TIMESTAMPTZ",
+        "attendee_ids": "TEXT[]",
+    }
+    sets: list[str] = []
+    values: list = []
+    for k, v in fields.items():
+        if k not in allowed:
+            continue
+        sets.append(f"{k} = ${len(values) + 1}::{allowed[k]}")
+        if k == "attendee_ids":
+            values.append([str(x) for x in (v or [])])
+        elif k == "pay_per_player":
+            values.append(int(v))
+        else:
+            values.append(v)
+    if not sets:
+        return False
+    values.append(str(mission_id))
+    sql = (
+        "UPDATE mission_event SET "
+        + ", ".join(sets)
+        + f" WHERE mission_id = ${len(values)}"
+    )
+    try:
+        pool = await get_pool()
+        status = await _with_retry(
+            lambda: pool.execute(sql, *values),
+            label="mission_event_update",
+        )
+        # asyncpg returns e.g. "UPDATE 1" / "UPDATE 0".
+        try:
+            n = int(str(status).rsplit(" ", 1)[-1])
+        except Exception:
+            n = -1
+        if n == 0:
+            logger.warning(
+                "mission_event_update affected 0 rows for '%s'", mission_id
+            )
+            return False
+        return True
+    except Exception:
+        logger.error(
+            "mission_event_update failed for '%s' fields=%r",
+            mission_id, list(fields.keys()), exc_info=True,
+        )
+        return False
+
+
+async def mission_event_cancel(mission_id: str) -> bool:
+    """Mark a mission_event as canceled (excluded from future payout runs)."""
+    try:
+        pool = await get_pool()
+        status = await _with_retry(
+            lambda: pool.execute(
+                """
+                UPDATE mission_event
+                   SET canceled = TRUE, canceled_at = NOW()
+                 WHERE mission_id = $1
+                """,
+                str(mission_id),
+            ),
+            label="mission_event_cancel",
+        )
+        try:
+            n = int(str(status).rsplit(" ", 1)[-1])
+        except Exception:
+            n = -1
+        if n == 0:
+            logger.warning(
+                "mission_event_cancel affected 0 rows for '%s'", mission_id
+            )
+            return False
+        return True
+    except Exception:
+        logger.error(
+            "mission_event_cancel failed for '%s'", mission_id, exc_info=True
+        )
+        return False
 
 
 async def mission_event_get_for_user(user_id: str, limit: int = 50) -> list[dict]:
