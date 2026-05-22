@@ -4,8 +4,10 @@ Three top-level categories: Player, Store, Wholesaler.
 Each opens a sub-menu with relevant actions.
 """
 import logging
+import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional
 
 import discord
@@ -25,8 +27,13 @@ from NightCityBot.utils.db import (
     pt_create,
     mission_log_get,
     mission_log_record,
+    mission_event_create,
 )
-from NightCityBot.cogs.missions import _format_check_line, _parse_date_token
+from NightCityBot.cogs.missions import (
+    _format_check_line,
+    _parse_date_token,
+    compute_payout_ts,
+)
 from NightCityBot.utils.characters import get_active_characters, ensure_character_active, get_character_by_name
 from NightCityBot.utils.permissions import is_fixer
 from NightCityBot.utils.inline_helpers import collect_text_input
@@ -370,6 +377,10 @@ class MissionsSubView(SafeView):
             view=view,
         )
 
+    @discord.ui.button(label="Create Mission", style=discord.ButtonStyle.primary, emoji="🆕", row=0)
+    async def create_mission(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CreateMissionModal(self.cog, self.ctx))
+
 
 class MissionCheckPickerView(SafeView):
     def __init__(self, cog: "FixerHubCog", ctx):
@@ -456,6 +467,328 @@ class MissionRecordPickerView(SafeView):
             "\n\n_For a custom date, use_ `!mission_record @user date=YYYY-MM-DD`."
         )
         await send_ephemeral(interaction, body[:1900])
+
+
+MISSION_EVENT_IMAGE_PATH = Path("attached_assets/mission_banner.png")
+MISSION_DATETIME_RE = re.compile(r"^\s*(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})\s*$")
+
+
+def _parse_mission_start(text: str) -> Optional[datetime]:
+    """Parse `YYYY-MM-DD HH:MM` as UTC. Returns None on failure."""
+    if not text:
+        return None
+    m = MISSION_DATETIME_RE.match(text.strip())
+    if not m:
+        return None
+    try:
+        return datetime(
+            int(m.group(1)), int(m.group(2)), int(m.group(3)),
+            int(m.group(4)), int(m.group(5)), 0,
+            tzinfo=timezone.utc,
+        )
+    except ValueError:
+        return None
+
+
+def _parse_int_amount(text: str) -> Optional[int]:
+    if text is None:
+        return None
+    cleaned = "".join(c for c in str(text).strip() if c.isdigit() or c == "-")
+    if not cleaned or cleaned == "-":
+        return None
+    try:
+        return int(cleaned)
+    except ValueError:
+        return None
+
+
+class CreateMissionModal(discord.ui.Modal, title="Create Mission"):
+    mission_name = discord.ui.TextInput(
+        label="Mission Name",
+        placeholder="e.g. Smash & Grab at Watson Med",
+        max_length=120,
+        required=True,
+    )
+    start_time = discord.ui.TextInput(
+        label="Start (UTC) — YYYY-MM-DD HH:MM",
+        placeholder="2026-05-23 20:00",
+        max_length=20,
+        required=True,
+    )
+    duration_hours = discord.ui.TextInput(
+        label="Duration (hours)",
+        placeholder="4",
+        default="4",
+        max_length=4,
+        required=True,
+    )
+    pay_per_player = discord.ui.TextInput(
+        label="Pay per player (eddies, to bank)",
+        placeholder="5000",
+        max_length=10,
+        required=True,
+    )
+    location = discord.ui.TextInput(
+        label="Location",
+        placeholder="Watson — Kabuki",
+        max_length=200,
+        required=True,
+    )
+
+    def __init__(self, cog: "FixerHubCog", ctx):
+        super().__init__()
+        self.cog = cog
+        self.ctx = ctx
+
+    async def on_submit(self, interaction: discord.Interaction):
+        start_utc = _parse_mission_start(str(self.start_time.value))
+        if start_utc is None:
+            await respond_ephemeral(
+                interaction,
+                f"Couldn't parse start time `{self.start_time.value}`. "
+                "Use `YYYY-MM-DD HH:MM` in UTC (24h), e.g. `2026-05-23 20:00`.",
+            )
+            return
+        if start_utc < datetime.now(timezone.utc) - timedelta(minutes=5):
+            await respond_ephemeral(
+                interaction,
+                "Start time is in the past. Pick a future time (UTC).",
+            )
+            return
+        try:
+            duration_h = float(str(self.duration_hours.value).strip())
+        except ValueError:
+            duration_h = -1.0
+        if not (0.25 <= duration_h <= 24):
+            await respond_ephemeral(
+                interaction,
+                "Duration must be between 0.25 and 24 hours.",
+            )
+            return
+        pay = _parse_int_amount(str(self.pay_per_player.value))
+        if pay is None or pay < 0:
+            await respond_ephemeral(
+                interaction,
+                f"Couldn't parse pay `{self.pay_per_player.value}`. "
+                "Use a non-negative integer (e.g. `5000`).",
+            )
+            return
+        location_text = str(self.location.value).strip()
+        if not location_text:
+            await respond_ephemeral(interaction, "Location is required.")
+            return
+        end_utc = start_utc + timedelta(hours=duration_h)
+        view = CreateMissionAttendeesView(
+            cog=self.cog,
+            ctx=self.ctx,
+            mission_name=str(self.mission_name.value).strip(),
+            start_utc=start_utc,
+            end_utc=end_utc,
+            pay_per_player=pay,
+            location=location_text,
+            origin_channel_id=interaction.channel_id,
+        )
+        payout_utc = compute_payout_ts(start_utc)
+        embed = discord.Embed(
+            title=f"🆕 New Mission — {view.mission_name}",
+            description=(
+                f"**Location:** {location_text}\n"
+                f"**Start (UTC):** <t:{int(start_utc.timestamp())}:F> "
+                f"(<t:{int(start_utc.timestamp())}:R>)\n"
+                f"**End (UTC):** <t:{int(end_utc.timestamp())}:F>\n"
+                f"**Pay each:** ¥{pay:,} → bank\n"
+                f"**Auto-payout:** <t:{int(payout_utc.timestamp())}:F> "
+                "(midnight US Eastern after start)\n\n"
+                "Select up to 25 attendees below, then press **Confirm & Create**."
+                "\n_Note: you (the Fixer) will be excluded from payout automatically._"
+            ),
+            color=discord.Color.gold(),
+        )
+        await respond_ephemeral(interaction, embed=embed, view=view)
+
+
+class CreateMissionAttendeesView(SafeView):
+    def __init__(
+        self,
+        *,
+        cog: "FixerHubCog",
+        ctx,
+        mission_name: str,
+        start_utc: datetime,
+        end_utc: datetime,
+        pay_per_player: int,
+        location: str,
+        origin_channel_id: Optional[int],
+    ):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.ctx = ctx
+        self.mission_name = mission_name
+        self.start_utc = start_utc
+        self.end_utc = end_utc
+        self.pay_per_player = pay_per_player
+        self.location = location
+        self.origin_channel_id = origin_channel_id
+        self.selected: list[discord.abc.User] = []
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.select(
+        cls=discord.ui.UserSelect,
+        placeholder="Choose attendees (up to 25)…",
+        min_values=1,
+        max_values=25,
+        row=0,
+    )
+    async def attendee_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        self.selected = list(select.values)
+        names = ", ".join(getattr(u, "display_name", None) or u.name for u in self.selected)
+        await respond_ephemeral(
+            interaction,
+            f"Selected {len(self.selected)} attendee(s): {names[:1500]}\n"
+            "Press **Confirm & Create** to publish the event.",
+        )
+
+    @discord.ui.button(label="Confirm & Create", style=discord.ButtonStyle.success, emoji="✅", row=1)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        if not self.selected:
+            await send_ephemeral(interaction, "Pick at least one attendee first.")
+            return
+        creator_id = str(self.ctx.author.id)
+        attendees = [str(u.id) for u in self.selected if str(u.id) != creator_id]
+        if not attendees:
+            await send_ephemeral(
+                interaction,
+                "All selected attendees were filtered (you can't pay yourself). "
+                "Pick at least one player other than yourself.",
+            )
+            return
+
+        guild = interaction.guild
+        if guild is None:
+            await send_ephemeral(interaction, "This must be used in a guild.")
+            return
+
+        # Build the scheduled event.
+        event_title = f"Actors Needed: {self.mission_name}"
+        image_bytes: Optional[bytes] = None
+        try:
+            if MISSION_EVENT_IMAGE_PATH.is_file():
+                raw = MISSION_EVENT_IMAGE_PATH.read_bytes()
+                # Discord caps scheduled-event images around 8MiB; skip oversize.
+                if len(raw) <= 8 * 1024 * 1024:
+                    image_bytes = raw
+                else:
+                    logger.warning(
+                        "Mission banner %s is %d bytes (>8MiB), skipping image.",
+                        MISSION_EVENT_IMAGE_PATH, len(raw),
+                    )
+        except Exception:
+            image_bytes = None
+        kwargs: dict = dict(
+            name=event_title[:100],
+            description=(
+                f"📍 **Location:** {self.location}\n"
+                f"💰 **Pay:** ¥{self.pay_per_player:,} per attendee (auto-paid the morning after).\n"
+                f"🎬 **Fixer:** <@{creator_id}>\n"
+                f"🎯 **Attendees:** {len(attendees)}"
+            )[:1000],
+            start_time=self.start_utc,
+            end_time=self.end_utc,
+            entity_type=discord.EntityType.external,
+            privacy_level=discord.PrivacyLevel.guild_only,
+            location=self.location[:100],
+            reason=f"Mission created by {self.ctx.author} via Fixer panel",
+        )
+        if image_bytes:
+            kwargs["image"] = image_bytes
+
+        try:
+            event = await guild.create_scheduled_event(**kwargs)
+        except Exception as e:
+            logger.exception("create_scheduled_event failed")
+            await send_ephemeral(
+                interaction,
+                f"Failed to create the Discord event: `{e}`",
+            )
+            return
+
+        mission_id = str(uuid.uuid4())
+        payout_utc = compute_payout_ts(self.start_utc)
+        ok = await mission_event_create(
+            mission_id=mission_id,
+            guild_id=str(guild.id),
+            channel_id=str(self.origin_channel_id) if self.origin_channel_id else None,
+            event_id=str(event.id),
+            mission_name=self.mission_name,
+            location=self.location,
+            creator_id=creator_id,
+            pay_per_player=self.pay_per_player,
+            start_ts=self.start_utc,
+            end_ts=self.end_utc,
+            payout_ts=payout_utc,
+            attendee_ids=attendees,
+        )
+        if not ok:
+            await send_ephemeral(
+                interaction,
+                "⚠️ Discord event was created but the DB record failed — the "
+                "auto-payout will NOT fire. Please record the mission manually "
+                "with `!mission_record` and pay the players via UnbelievaBoat. "
+                f"Mission id: `{mission_id}`",
+            )
+            return
+
+        # Disable the view so the Fixer doesn't double-submit. `interaction.message`
+        # is the message that hosts this view (the ephemeral sent from the modal);
+        # editing `interaction.edit_original_response` here would target the deferred
+        # ephemeral of THIS button click, not the parent view container.
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        self.stop()
+        try:
+            if interaction.message is not None:
+                await interaction.message.edit(view=self)
+        except Exception:
+            pass
+
+        try:
+            event_url = event.url  # type: ignore[attr-defined]
+        except Exception:
+            event_url = None
+        attendee_mentions = ", ".join(f"<@{a}>" for a in attendees)
+        ok_embed = discord.Embed(
+            title=f"✅ Mission Created — {self.mission_name}",
+            description=(
+                f"**Event:** [Actors Needed: {self.mission_name}]({event_url})\n"
+                if event_url else ""
+            ) + (
+                f"**Location:** {self.location}\n"
+                f"**Start (UTC):** <t:{int(self.start_utc.timestamp())}:F>\n"
+                f"**Pay each:** ¥{self.pay_per_player:,} → bank\n"
+                f"**Auto-payout:** <t:{int(payout_utc.timestamp())}:F>\n"
+                f"**Attendees ({len(attendees)}):** {attendee_mentions[:900]}"
+            ),
+            color=discord.Color.green(),
+        )
+        await send_ephemeral(interaction, embed=ok_embed)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="✖", row=1)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for child in self.children:
+            if hasattr(child, "disabled"):
+                child.disabled = True
+        await interaction.response.edit_message(
+            content="Mission creation cancelled.",
+            embed=None,
+            view=self,
+        )
 
 
 GUN_STORE_OWNER_ROLE_ID = config.GUN_STORE_OWNER_ROLE_ID

@@ -38,6 +38,7 @@ EXPECTED_TABLES = [
     "shop_permitted_roles",
     "balance_history",
     "mission_log",
+    "mission_event",
 ]
 
 

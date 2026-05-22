@@ -19,21 +19,46 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from openpyxl import load_workbook
 
 from NightCityBot.utils.db import (
     mission_log_get,
     mission_log_record,
+    mission_event_list_due,
+    mission_event_mark_paid,
 )
 from NightCityBot.utils.permissions import is_fixer
 
 logger = logging.getLogger(__name__)
+
+# Auto-payout fires at midnight US Eastern on the day AFTER the mission
+# starts (per user spec). Using America/New_York handles EST/EDT automatically.
+PAYOUT_TZ = ZoneInfo("America/New_York")
+
+
+def compute_payout_ts(start_utc: datetime) -> datetime:
+    """Return the UTC timestamp of the next 00:00 America/New_York strictly
+    after ``start_utc``.
+
+    Example: start = 2026-05-22 20:00 UTC (16:00 ET on May 22) →
+    payout = 2026-05-23 00:00 ET = 2026-05-23 04:00 UTC.
+    """
+    if start_utc.tzinfo is None:
+        start_utc = start_utc.replace(tzinfo=timezone.utc)
+    start_et = start_utc.astimezone(PAYOUT_TZ)
+    next_day_et = (start_et + timedelta(days=1)).date()
+    midnight_et = datetime(
+        next_day_et.year, next_day_et.month, next_day_et.day,
+        0, 0, 0, tzinfo=PAYOUT_TZ,
+    )
+    return midnight_et.astimezone(timezone.utc)
 
 _MENTION_RE = re.compile(r"^<@!?(\d+)>$")
 _ID_RE = re.compile(r"^\d{15,22}$")
@@ -203,8 +228,109 @@ def _format_check_line(token: str, row: Optional[dict], today: date) -> str:
 class MissionsCog(commands.Cog):
     """Mission tracking for the GM team."""
 
-    def __init__(self, bot: commands.Bot):
+    PAYOUT_REASON = "NCRP Mission payout"
+
+    def __init__(self, bot: commands.Bot, unbelievaboat=None):
         self.bot = bot
+        self.unbelievaboat = unbelievaboat if unbelievaboat is not None else getattr(bot, "unbelievaboat", None)
+
+    async def cog_load(self) -> None:
+        self._payout_loop.start()
+
+    async def cog_unload(self) -> None:
+        self._payout_loop.cancel()
+
+    @tasks.loop(minutes=5)
+    async def _payout_loop(self) -> None:
+        """Every 5 minutes, pay out any mission whose payout_ts has passed."""
+        try:
+            now_utc = datetime.now(timezone.utc)
+            due = await mission_event_list_due(now_utc)
+            for row in due:
+                await self._process_mission_payout(row)
+        except Exception:
+            logger.error("mission _payout_loop iteration failed", exc_info=True)
+
+    @_payout_loop.before_loop
+    async def _before_payout_loop(self) -> None:
+        await self.bot.wait_until_ready()
+
+    async def _process_mission_payout(self, row: dict) -> None:
+        mission_id = row.get("mission_id")
+        mission_name = row.get("mission_name") or "Mission"
+        pay = int(row.get("pay_per_player") or 0)
+        attendees = list(row.get("attendee_ids") or [])
+        guild_id = row.get("guild_id")
+        channel_id = row.get("channel_id")
+        start_ts = row.get("start_ts")
+        mission_date = start_ts.date() if isinstance(start_ts, datetime) else datetime.now(timezone.utc).date()
+
+        paid_lines: list[str] = []
+        failed_lines: list[str] = []
+
+        for uid in attendees:
+            display = uid
+            try:
+                user = await self.bot.fetch_user(int(uid))
+                display = getattr(user, "display_name", None) or getattr(user, "name", uid)
+            except Exception:
+                user = None
+
+            ub_ok = True
+            if pay > 0 and self.unbelievaboat is not None:
+                try:
+                    ub_ok = await self.unbelievaboat.update_balance(
+                        int(uid),
+                        {"cash": 0, "bank": pay},
+                        reason=f"{self.PAYOUT_REASON}: {mission_name}",
+                    )
+                except Exception:
+                    logger.error("UB payout failed for %s on mission %s", uid, mission_id, exc_info=True)
+                    ub_ok = False
+
+            log_result = await mission_log_record(str(uid), str(display)[:128], mission_date)
+
+            if ub_ok and log_result is not None:
+                paid_lines.append(f"• **{display}** — +¥{pay:,} bank (total {int(log_result.get('mission_count') or 0)} mission(s))")
+            else:
+                bits = []
+                if not ub_ok:
+                    bits.append("UB payout failed")
+                if log_result is None:
+                    bits.append("mission log update failed")
+                failed_lines.append(f"• **{display}** — {', '.join(bits) or 'unknown failure'}")
+
+        # Mark paid even on partial failures so we don't double-pay.
+        # Failures are surfaced in the summary message and the log.
+        await mission_event_mark_paid(str(mission_id))
+
+        # Post a summary back to the channel where the mission was created.
+        if guild_id and channel_id:
+            try:
+                guild = self.bot.get_guild(int(guild_id))
+                ch = guild.get_channel(int(channel_id)) if guild else None
+                if ch is not None:
+                    embed = discord.Embed(
+                        title=f"💰 Mission Payout — {mission_name}",
+                        color=discord.Color.gold(),
+                    )
+                    if paid_lines:
+                        embed.add_field(
+                            name=f"Paid ({len(paid_lines)})",
+                            value="\n".join(paid_lines)[:1024],
+                            inline=False,
+                        )
+                    if failed_lines:
+                        embed.add_field(
+                            name=f"Failed ({len(failed_lines)})",
+                            value="\n".join(failed_lines)[:1024],
+                            inline=False,
+                        )
+                    if not paid_lines and not failed_lines:
+                        embed.description = "No attendees on this mission — nothing to pay."
+                    await ch.send(embed=embed)
+            except Exception:
+                logger.error("Failed to post mission payout summary for %s", mission_id, exc_info=True)
 
     @commands.command(name="mission_check", aliases=["mission_viability"])
     @is_fixer()

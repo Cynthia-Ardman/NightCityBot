@@ -647,6 +647,30 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
             updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """,
+        # ── Mission events (Fixer-created Discord events with auto payout) ──
+        """
+        CREATE TABLE IF NOT EXISTS mission_event (
+            mission_id      TEXT PRIMARY KEY,
+            guild_id        TEXT NOT NULL,
+            channel_id      TEXT,
+            event_id        TEXT,
+            mission_name    TEXT NOT NULL,
+            location        TEXT NOT NULL DEFAULT '',
+            creator_id      TEXT NOT NULL,
+            pay_per_player  BIGINT NOT NULL DEFAULT 0,
+            start_ts        TIMESTAMPTZ NOT NULL,
+            end_ts          TIMESTAMPTZ NOT NULL,
+            payout_ts       TIMESTAMPTZ NOT NULL,
+            attendee_ids    TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+            paid            BOOLEAN NOT NULL DEFAULT FALSE,
+            paid_at         TIMESTAMPTZ,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_mission_event_due
+            ON mission_event (paid, payout_ts)
+        """,
     ]
 
     async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
@@ -4362,6 +4386,106 @@ async def mission_log_import_rows(rows: list[dict]) -> int:
     except Exception:
         logger.error("mission_log_import_rows failed", exc_info=True)
         return 0
+
+
+# ---------------------------------------------------------------------------
+# Mission events (Fixer-created Discord events with auto payout)
+# ---------------------------------------------------------------------------
+
+async def mission_event_create(
+    *,
+    mission_id: str,
+    guild_id: str,
+    channel_id: Optional[str],
+    event_id: Optional[str],
+    mission_name: str,
+    location: str,
+    creator_id: str,
+    pay_per_player: int,
+    start_ts: datetime,
+    end_ts: datetime,
+    payout_ts: datetime,
+    attendee_ids: list[str],
+) -> bool:
+    """Insert a new mission event row. Returns True on success."""
+    try:
+        pool = await get_pool()
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                INSERT INTO mission_event (
+                    mission_id, guild_id, channel_id, event_id,
+                    mission_name, location, creator_id, pay_per_player,
+                    start_ts, end_ts, payout_ts, attendee_ids
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::TEXT[]
+                )
+                """,
+                str(mission_id),
+                str(guild_id),
+                str(channel_id) if channel_id else None,
+                str(event_id) if event_id else None,
+                str(mission_name)[:256],
+                str(location or "")[:512],
+                str(creator_id),
+                int(pay_per_player),
+                start_ts,
+                end_ts,
+                payout_ts,
+                [str(x) for x in attendee_ids],
+            ),
+            label="mission_event_create",
+        )
+        return True
+    except Exception:
+        logger.error("mission_event_create failed", exc_info=True)
+        return False
+
+
+async def mission_event_list_due(now_ts: datetime) -> list[dict]:
+    """Return unpaid mission events whose payout_ts has passed."""
+    try:
+        pool = await get_pool()
+        rows = await _with_retry(
+            lambda: pool.fetch(
+                """
+                SELECT mission_id, guild_id, channel_id, event_id,
+                       mission_name, location, creator_id, pay_per_player,
+                       start_ts, end_ts, payout_ts, attendee_ids
+                  FROM mission_event
+                 WHERE paid = FALSE AND payout_ts <= $1
+                 ORDER BY payout_ts ASC
+                """,
+                now_ts,
+            ),
+            label="mission_event_list_due",
+        )
+        return [dict(r) for r in (rows or [])]
+    except Exception:
+        logger.error("mission_event_list_due failed", exc_info=True)
+        return []
+
+
+async def mission_event_mark_paid(mission_id: str) -> bool:
+    try:
+        pool = await get_pool()
+        await _with_retry(
+            lambda: pool.execute(
+                """
+                UPDATE mission_event
+                   SET paid = TRUE, paid_at = NOW()
+                 WHERE mission_id = $1
+                """,
+                str(mission_id),
+            ),
+            label="mission_event_mark_paid",
+        )
+        return True
+    except Exception:
+        logger.error(
+            "mission_event_mark_paid failed for '%s'", mission_id, exc_info=True
+        )
+        return False
 
 
 # ---------------------------------------------------------------------------

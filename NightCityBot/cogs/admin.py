@@ -357,9 +357,10 @@ class Admin(commands.Cog):
             (
                 "🎯 Missions",
                 "\n".join([
-                    "Also on the Fixer panel → **Missions** → Check / Record.",
-                    "`!mission_check @user [@user2 …]` – show last mission date and total count for each user (accepts mentions, IDs, or usernames).",
+                    "Also on the Fixer panel → **Missions** → Check / Record / **Create**.",
+                    "`!mission_check @user [@user2 …]` – show last mission date and total count for each user.",
                     "`!mission_record @user [@user2 …] [date=YYYY-MM-DD]` – record a mission; date defaults to today.",
+                    "**Create Mission** (panel button) – schedules a Discord 'Actors Needed: …' event, then at the next midnight US-Eastern after the start time auto-pays each attendee (to bank) via UnbelievaBoat and logs the mission. The Fixer who created the mission is never paid.",
                 ]),
             ),
         ]

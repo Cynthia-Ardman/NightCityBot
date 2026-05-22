@@ -61,6 +61,7 @@ A Discord bot for NCRP (Cyberpunk-themed RP server) managing economy, roleplay u
 - **Google Drive Backups**: Automated and manual database backups for data integrity and recovery.
 - **Gun Restriction System**: Implements `basic`, `controlled`, and `restricted` categories for firearms, with associated approval workflows.
 - **Mission Tracking**: Fixer-only roster tracking how recently and how often each player has been on missions, backed by a `mission_log` Postgres table, with a one-shot Google-Sheet importer for legacy data.
+- **Mission Creation & Auto-Payout**: Fixer panel button (`Missions → Create Mission`) opens a Modal (name / start UTC / duration / pay per player / location) plus a UserSelect for up to 25 attendees. Publishes a Discord scheduled event titled "Actors Needed: …" (with optional banner from `attached_assets/mission_banner.png`) and stores a row in `mission_event`. A `tasks.loop(minutes=5)` in `MissionsCog` checks for due missions and, at the next midnight US Eastern after the start time, auto-pays each attendee to bank via UnbelievaBoat and writes a `mission_log` entry. The Fixer who created the mission is never paid.
 
 ## User preferences
 

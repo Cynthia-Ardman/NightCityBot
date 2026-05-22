@@ -256,3 +256,159 @@ class TestMissionRecordCommand:
         )
         msg = ctx.reply.await_args.args[0]
         assert "parse" in msg.lower()
+
+
+class TestComputePayoutTs:
+    """compute_payout_ts → next 00:00 America/New_York strictly after start_utc."""
+
+    def test_late_evening_utc_rolls_to_next_et_midnight(self):
+        from NightCityBot.cogs.missions import compute_payout_ts
+
+        # 8pm UTC on May 22, 2026 = 4pm ET (EDT) May 22 → next midnight ET = May 23 04:00 UTC.
+        start = datetime(2026, 5, 22, 20, 0, tzinfo=timezone.utc)
+        out = compute_payout_ts(start)
+        assert out == datetime(2026, 5, 23, 4, 0, tzinfo=timezone.utc)
+
+    def test_winter_est_rollover(self):
+        from NightCityBot.cogs.missions import compute_payout_ts
+
+        # Jan 15, 2026 18:00 UTC = 13:00 EST (UTC-5) → next ET midnight = Jan 16 05:00 UTC.
+        start = datetime(2026, 1, 15, 18, 0, tzinfo=timezone.utc)
+        out = compute_payout_ts(start)
+        assert out == datetime(2026, 1, 16, 5, 0, tzinfo=timezone.utc)
+
+    def test_naive_datetime_treated_as_utc(self):
+        from NightCityBot.cogs.missions import compute_payout_ts
+
+        naive = datetime(2026, 5, 22, 20, 0)  # no tzinfo
+        aware = datetime(2026, 5, 22, 20, 0, tzinfo=timezone.utc)
+        assert compute_payout_ts(naive) == compute_payout_ts(aware)
+
+    def test_after_midnight_et_same_calendar_day(self):
+        from NightCityBot.cogs.missions import compute_payout_ts
+
+        # 02:00 UTC May 23 = 22:00 ET May 22 → next ET midnight is May 23 (same calendar UTC day +2hrs)
+        start = datetime(2026, 5, 23, 2, 0, tzinfo=timezone.utc)
+        out = compute_payout_ts(start)
+        assert out == datetime(2026, 5, 23, 4, 0, tzinfo=timezone.utc)
+
+
+class TestMissionStartParser:
+    def test_parses_space_separated(self):
+        from NightCityBot.cogs.fixer_hub import _parse_mission_start
+
+        assert _parse_mission_start("2026-05-23 20:00") == datetime(2026, 5, 23, 20, 0, tzinfo=timezone.utc)
+
+    def test_parses_t_separated(self):
+        from NightCityBot.cogs.fixer_hub import _parse_mission_start
+
+        assert _parse_mission_start("2026-05-23T20:00") == datetime(2026, 5, 23, 20, 0, tzinfo=timezone.utc)
+
+    def test_rejects_garbage(self):
+        from NightCityBot.cogs.fixer_hub import _parse_mission_start
+
+        assert _parse_mission_start("nope") is None
+        assert _parse_mission_start("2026/05/23 20:00") is None
+        assert _parse_mission_start("") is None
+
+    def test_rejects_invalid_calendar(self):
+        from NightCityBot.cogs.fixer_hub import _parse_mission_start
+
+        assert _parse_mission_start("2026-02-30 12:00") is None
+        assert _parse_mission_start("2026-05-23 25:00") is None
+
+
+class TestParseIntAmount:
+    def test_plain_integer(self):
+        from NightCityBot.cogs.fixer_hub import _parse_int_amount
+
+        assert _parse_int_amount("5000") == 5000
+
+    def test_strips_commas_and_currency(self):
+        from NightCityBot.cogs.fixer_hub import _parse_int_amount
+
+        assert _parse_int_amount("¥5,000") == 5000
+        assert _parse_int_amount("$1,234") == 1234
+
+    def test_rejects_empty_or_garbage(self):
+        from NightCityBot.cogs.fixer_hub import _parse_int_amount
+
+        assert _parse_int_amount("") is None
+        assert _parse_int_amount("   ") is None
+        assert _parse_int_amount("abc") is None
+
+
+class TestMissionPayoutLoop:
+    """End-to-end-ish test for _process_mission_payout."""
+
+    def _build_cog(self, ub_returns=True):
+        bot = MagicMock()
+        bot.get_guild.return_value = None  # skip channel post for simplicity
+        async def _fetch(uid):
+            u = MagicMock()
+            u.display_name = f"User{uid}"
+            u.name = f"User{uid}"
+            return u
+        bot.fetch_user.side_effect = _fetch
+        ub = MagicMock()
+        async def _update(uid, amount, reason=""):
+            return ub_returns
+        ub.update_balance.side_effect = _update
+        cog = MissionsCog(bot=bot, unbelievaboat=ub)
+        return cog, ub
+
+    def test_processes_payout_and_marks_paid(self):
+        cog, ub = self._build_cog(ub_returns=True)
+        row = {
+            "mission_id": "m1",
+            "mission_name": "Test Op",
+            "pay_per_player": 5000,
+            "attendee_ids": ["111", "222"],
+            "guild_id": "9",
+            "channel_id": "8",
+            "start_ts": datetime(2026, 5, 22, 20, 0, tzinfo=timezone.utc),
+        }
+        marked = []
+        logged = []
+
+        async def fake_record(uid, uname, mdate):
+            logged.append((uid, uname, mdate))
+            return {"username": uname, "mission_count": 3}
+
+        async def fake_mark(mid):
+            marked.append(mid)
+            return True
+
+        with patch("NightCityBot.cogs.missions.mission_log_record", side_effect=fake_record), \
+             patch("NightCityBot.cogs.missions.mission_event_mark_paid", side_effect=fake_mark):
+            asyncio.run(cog._process_mission_payout(row))
+
+        assert ub.update_balance.call_count == 2
+        # Each call should have bank=5000, cash=0.
+        for call in ub.update_balance.call_args_list:
+            args, kwargs = call
+            assert args[1] == {"cash": 0, "bank": 5000}
+        assert marked == ["m1"]
+        assert [uid for uid, _u, _d in logged] == ["111", "222"]
+        assert all(d == date(2026, 5, 22) for _u, _n, d in logged)
+
+    def test_skips_ub_when_pay_zero(self):
+        cog, ub = self._build_cog(ub_returns=True)
+        row = {
+            "mission_id": "m2",
+            "mission_name": "Freebie",
+            "pay_per_player": 0,
+            "attendee_ids": ["111"],
+            "guild_id": "9",
+            "channel_id": None,
+            "start_ts": datetime(2026, 5, 22, 20, 0, tzinfo=timezone.utc),
+        }
+        async def fake_record(uid, uname, mdate):
+            return {"username": uname, "mission_count": 1}
+        async def fake_mark(mid):
+            return True
+        with patch("NightCityBot.cogs.missions.mission_log_record", side_effect=fake_record), \
+             patch("NightCityBot.cogs.missions.mission_event_mark_paid", side_effect=fake_mark):
+            asyncio.run(cog._process_mission_payout(row))
+
+        ub.update_balance.assert_not_called()
