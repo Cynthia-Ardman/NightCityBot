@@ -182,8 +182,9 @@ class FixerTopView(SafeView):
                 "**✅ Record Mission** — Log today's mission for one or more "
                 "players (use `!mission_record … date=YYYY-MM-DD` for a "
                 "custom date).\n"
-                "**🆕 Create Mission** — Short modal for name / pay / location, "
-                "then dropdowns for date, start hour, duration, and timezone "
+                "**🆕 Create Mission** — Short modal for name / pay / "
+                "location / optional description (shown on the Discord "
+                "event card), then dropdowns for date, start hour, duration, and timezone "
                 "(defaults to your last-used). Schedules a Discord 'Actors "
                 "Needed: …' event, credits each attendee's gig log "
                 "immediately, and auto-pays everyone at the next midnight "
@@ -981,6 +982,7 @@ class CreateMissionScheduleView(SafeView):
         location: str,
         default_tz: str,
         origin_channel_id: Optional[int],
+        mission_description: str = "",
     ):
         super().__init__(timeout=600)
         self.cog = cog
@@ -988,6 +990,7 @@ class CreateMissionScheduleView(SafeView):
         self.mission_name = mission_name
         self.pay_per_player = pay_per_player
         self.location = location
+        self.mission_description = (mission_description or "").strip()
         self.origin_channel_id = origin_channel_id
 
         self.tz_name: str = default_tz if default_tz in MISSION_TZ_LABELS else MISSION_DEFAULT_TZ
@@ -1130,14 +1133,22 @@ class CreateMissionScheduleView(SafeView):
             end_utc=end_utc,
             pay_per_player=self.pay_per_player,
             location=self.location,
+            mission_description=self.mission_description,
             origin_channel_id=self.origin_channel_id,
         )
         payout_utc = compute_payout_ts(start_utc)
         tz_label = MISSION_TZ_LABELS.get(self.tz_name, self.tz_name)
+        desc_preview = ""
+        if self.mission_description:
+            snippet = self.mission_description[:300]
+            if len(self.mission_description) > 300:
+                snippet += "…"
+            desc_preview = f"**Description:** {snippet}\n"
         embed = discord.Embed(
             title=f"🆕 New Mission — {self.mission_name}",
             description=(
                 f"**Location:** {self.location}\n"
+                f"{desc_preview}"
                 f"**Start ({tz_label}):** {local_dt.strftime('%a %b %d, %Y · %I:%M %p')}\n"
                 f"**Start (your local time):** <t:{int(start_utc.timestamp())}:F> "
                 f"(<t:{int(start_utc.timestamp())}:R>)\n"
@@ -1523,12 +1534,19 @@ def _build_mission_description(row: dict) -> str:
     attendees = list(row.get("attendee_ids") or [])
     creator_id = row.get("creator_id") or ""
     location = row.get("location") or "?"
-    return (
-        f"📍 **Location:** {location}\n"
-        f"💰 **Pay:** ¥{pay:,} per attendee (auto-paid the morning after).\n"
-        f"🎬 **Fixer:** <@{creator_id}>\n"
-        f"🎯 **Attendees:** {len(attendees)}"
-    )
+    user_desc = (row.get("mission_description") or "").strip()
+    parts: list[str] = []
+    if user_desc:
+        # Fixer's own description first so it leads the event card.
+        parts.append(user_desc)
+        parts.append("")  # blank line separator
+    parts.extend([
+        f"📍 **Location:** {location}",
+        f"💰 **Pay:** ¥{pay:,} per attendee (auto-paid the morning after).",
+        f"🎬 **Fixer:** <@{creator_id}>",
+        f"🎯 **Attendees:** {len(attendees)}",
+    ])
+    return "\n".join(parts)
 
 
 class EditMissionAttendeesView(SafeView):
@@ -1848,6 +1866,13 @@ class CreateMissionModal(discord.ui.Modal, title="Create Mission"):
         max_length=200,
         required=True,
     )
+    description = discord.ui.TextInput(
+        label="Description (optional)",
+        placeholder="Brief brief: hook, vibe, gear notes, OOC details… Shown on the Discord event card.",
+        style=discord.TextStyle.paragraph,
+        max_length=800,
+        required=False,
+    )
 
     def __init__(self, cog: "FixerHubCog", ctx, default_tz: str = MISSION_DEFAULT_TZ):
         super().__init__()
@@ -1872,6 +1897,7 @@ class CreateMissionModal(discord.ui.Modal, title="Create Mission"):
         if not name_text:
             await respond_ephemeral(interaction, "Mission name is required.")
             return
+        description_text = str(self.description.value or "").strip()
 
         schedule_view = CreateMissionScheduleView(
             cog=self.cog,
@@ -1879,6 +1905,7 @@ class CreateMissionModal(discord.ui.Modal, title="Create Mission"):
             mission_name=name_text,
             pay_per_player=pay,
             location=location_text,
+            mission_description=description_text,
             default_tz=self.default_tz,
             origin_channel_id=interaction.channel_id,
         )
@@ -1910,6 +1937,7 @@ class CreateMissionAttendeesView(SafeView):
         pay_per_player: int,
         location: str,
         origin_channel_id: Optional[int],
+        mission_description: str = "",
     ):
         super().__init__(timeout=600)
         self.cog = cog
@@ -1919,6 +1947,7 @@ class CreateMissionAttendeesView(SafeView):
         self.end_utc = end_utc
         self.pay_per_player = pay_per_player
         self.location = location
+        self.mission_description = (mission_description or "").strip()
         self.origin_channel_id = origin_channel_id
         self.selected: list[discord.abc.User] = []
         self.custom_image_bytes: Optional[bytes] = None
@@ -2052,14 +2081,20 @@ class CreateMissionAttendeesView(SafeView):
         # Build the scheduled event.
         event_title = f"Actors Needed: {self.mission_name}"
         image_bytes: Optional[bytes] = self.custom_image_bytes or _pick_mission_banner_bytes()
+        # Compose the event description: fixer's optional brief on top,
+        # then the auto-generated location/pay/fixer/attendees block. We
+        # build a temporary row dict and reuse _build_mission_description
+        # so the create-time text matches what Edit Mission later rewrites.
+        event_description = _build_mission_description({
+            "pay_per_player": self.pay_per_player,
+            "attendee_ids": attendees,
+            "creator_id": creator_id,
+            "location": self.location,
+            "mission_description": self.mission_description,
+        })[:1000]
         kwargs: dict = dict(
             name=event_title[:100],
-            description=(
-                f"📍 **Location:** {self.location}\n"
-                f"💰 **Pay:** ¥{self.pay_per_player:,} per attendee (auto-paid the morning after).\n"
-                f"🎬 **Fixer:** <@{creator_id}>\n"
-                f"🎯 **Attendees:** {len(attendees)}"
-            )[:1000],
+            description=event_description,
             start_time=self.start_utc,
             end_time=self.end_utc,
             entity_type=discord.EntityType.external,
@@ -2100,6 +2135,7 @@ class CreateMissionAttendeesView(SafeView):
             end_ts=self.end_utc,
             payout_ts=payout_utc,
             attendee_ids=attendees,
+            mission_description=self.mission_description,
         )
 
         # Record an entry in each attendee's gig log immediately on creation

@@ -684,6 +684,10 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         ALTER TABLE mission_event
             ADD COLUMN IF NOT EXISTS canceled_at TIMESTAMPTZ
         """,
+        """
+        ALTER TABLE mission_event
+            ADD COLUMN IF NOT EXISTS mission_description TEXT NOT NULL DEFAULT ''
+        """,
         # ── Actor attendance (per-act ledger for Actor Pay) ──
         """
         CREATE TABLE IF NOT EXISTS actor_attendance (
@@ -4490,6 +4494,7 @@ async def mission_event_create(
     end_ts: datetime,
     payout_ts: datetime,
     attendee_ids: list[str],
+    mission_description: str = "",
 ) -> bool:
     """Insert a new mission event row. Returns True on success."""
     try:
@@ -4501,9 +4506,10 @@ async def mission_event_create(
                     mission_id, guild_id, channel_id, event_id,
                     mission_name, location, creator_id, creator_username,
                     pay_per_player,
-                    start_ts, end_ts, payout_ts, attendee_ids
+                    start_ts, end_ts, payout_ts, attendee_ids,
+                    mission_description
                 ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::TEXT[]
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::TEXT[], $14
                 )
                 """,
                 str(mission_id),
@@ -4519,6 +4525,7 @@ async def mission_event_create(
                 end_ts,
                 payout_ts,
                 [str(x) for x in attendee_ids],
+                str(mission_description or "")[:2000],
             ),
             label="mission_event_create",
         )
@@ -4684,7 +4691,8 @@ async def mission_event_get(mission_id: str) -> Optional[dict]:
                        mission_name, location, creator_id, creator_username,
                        pay_per_player,
                        start_ts, end_ts, payout_ts, attendee_ids,
-                       paid, paid_at, canceled, canceled_at, created_at
+                       paid, paid_at, canceled, canceled_at, created_at,
+                       mission_description
                   FROM mission_event
                  WHERE mission_id = $1
                 """,
@@ -4713,6 +4721,7 @@ async def mission_event_update(mission_id: str, **fields) -> bool:
         "end_ts": "TIMESTAMPTZ",
         "payout_ts": "TIMESTAMPTZ",
         "attendee_ids": "TEXT[]",
+        "mission_description": "TEXT",
     }
     sets: list[str] = []
     values: list = []
