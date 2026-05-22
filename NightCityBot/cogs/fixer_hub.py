@@ -949,6 +949,8 @@ class CreateMissionAttendeesView(SafeView):
         self.location = location
         self.origin_channel_id = origin_channel_id
         self.selected: list[discord.abc.User] = []
+        self.custom_image_bytes: Optional[bytes] = None
+        self.custom_image_name: Optional[str] = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.ctx.author.id:
@@ -970,6 +972,88 @@ class CreateMissionAttendeesView(SafeView):
             interaction,
             f"Selected {len(self.selected)} attendee(s): {names[:1500]}\n"
             "Press **Confirm & Create** to publish the event.",
+        )
+
+    @discord.ui.button(label="Attach Banner", style=discord.ButtonStyle.secondary, emoji="📎", row=1)
+    async def attach_banner(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        await send_ephemeral(
+            interaction,
+            "📎 Paste / upload your banner image **in this channel** within "
+            "the next 60 seconds. PNG / JPEG / WebP / GIF, ≤ 8 MiB. Send "
+            "anything else (or wait it out) to keep the default banner.",
+        )
+
+        bot = interaction.client
+        channel_id = interaction.channel_id
+        author_id = interaction.user.id
+
+        def _check(m: discord.Message) -> bool:
+            return (
+                m.author.id == author_id
+                and m.channel.id == channel_id
+                and bool(m.attachments)
+            )
+
+        try:
+            msg = await bot.wait_for("message", check=_check, timeout=60)
+        except Exception:
+            await send_ephemeral(
+                interaction,
+                "⏱️ No image received — keeping the default banner.",
+            )
+            return
+
+        att = msg.attachments[0]
+        ctype = (att.content_type or "").lower()
+        is_image = ctype.startswith("image/") or any(
+            att.filename.lower().endswith(ext)
+            for ext in (".png", ".jpg", ".jpeg", ".webp", ".gif")
+        )
+        if not is_image:
+            await send_ephemeral(
+                interaction,
+                f"❌ `{att.filename}` doesn't look like an image — keeping the default banner.",
+            )
+            return
+        if att.size and att.size > 8 * 1024 * 1024:
+            await send_ephemeral(
+                interaction,
+                f"❌ `{att.filename}` is {att.size / (1024*1024):.1f} MiB "
+                "(>8 MiB Discord cap) — keeping the default banner.",
+            )
+            return
+
+        try:
+            raw = await att.read()
+        except Exception:
+            logger.exception("Failed to read attached mission banner")
+            await send_ephemeral(
+                interaction,
+                "❌ Failed to download that image — keeping the default banner.",
+            )
+            return
+        if len(raw) > 8 * 1024 * 1024:
+            await send_ephemeral(
+                interaction,
+                "❌ Image is over 8 MiB after download — keeping the default banner.",
+            )
+            return
+
+        self.custom_image_bytes = raw
+        self.custom_image_name = att.filename
+        # Reflect on the button so the fixer knows it stuck.
+        button.label = "Banner Attached ✓"
+        button.style = discord.ButtonStyle.success
+        try:
+            if interaction.message is not None:
+                await interaction.message.edit(view=self)
+        except Exception:
+            pass
+        await send_ephemeral(
+            interaction,
+            f"✅ Using your custom banner `{att.filename}` "
+            f"({len(raw) / 1024:.0f} KiB) for this mission.",
         )
 
     @discord.ui.button(label="Confirm & Create", style=discord.ButtonStyle.success, emoji="✅", row=1)
@@ -995,7 +1079,7 @@ class CreateMissionAttendeesView(SafeView):
 
         # Build the scheduled event.
         event_title = f"Actors Needed: {self.mission_name}"
-        image_bytes: Optional[bytes] = _pick_mission_banner_bytes()
+        image_bytes: Optional[bytes] = self.custom_image_bytes or _pick_mission_banner_bytes()
         kwargs: dict = dict(
             name=event_title[:100],
             description=(

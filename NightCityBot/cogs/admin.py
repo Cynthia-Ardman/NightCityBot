@@ -360,7 +360,7 @@ class Admin(commands.Cog):
                     "Fixer panel → **Missions** for everything below.",
                     "`!mission_check @user [@user2 …]` – show mission count, last date, and recent mission titles + the fixer who created each one.",
                     "`!mission_record @user [@user2 …] [date=YYYY-MM-DD]` – record a mission; date defaults to today.",
-                    "**Create Mission** (panel button) – schedules a Discord 'Actors Needed: …' event, records the mission in each selected player's gig log immediately, and at the next midnight US-Eastern after the start time auto-pays each attendee (to bank) via UnbelievaBoat. The fixer who created the mission is never paid.",
+                    "**Create Mission** (panel button) – schedules a Discord 'Actors Needed: …' event, records the mission in each selected player's gig log immediately, and at the next midnight US-Eastern after the start time auto-pays each attendee (to bank) via UnbelievaBoat. The fixer who created the mission is never paid. Tap **📎 Attach Banner** on the attendees screen to upload a custom event cover (paste/upload in chat within 60 s, ≤ 8 MiB) — otherwise a random default banner is used.",
                     "**Actor Pay** (panel button) – select actor(s), pick a recorded mission, enter a per-actor amount; pays each via UnbelievaBoat (to bank) and writes an `actor_attendance` ledger row tagged with the fixer and mission.",
                     "**Check Actor** (panel button) – show how many times someone has acted, the dates, and which missions + fixer they were acting for.",
                 ]),
