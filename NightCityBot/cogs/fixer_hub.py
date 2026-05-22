@@ -4321,6 +4321,31 @@ class FixerHubCog(commands.Cog, name="FixerHub"):
             ),
             inline=False,
         )
+        embed.add_field(
+            name="🎯 Missions",
+            value=(
+                "Track and run player missions:\n"
+                "• **🔎 Check Missions** — show a player's mission count, "
+                "last date, recent titles + the fixer who ran each\n"
+                "• **✅ Record Mission** — log today's mission for one or more "
+                "players (`!mission_record … date=YYYY-MM-DD` for a custom date)\n"
+                "• **🆕 Create Mission** — modal (name / pay / location / "
+                "optional description) → date / time / duration / timezone "
+                "dropdowns. Schedules a Discord *Actors Needed* event, "
+                "credits attendees on sign-up, auto-pays each one (to bank) "
+                "the midnight ET after start. Fixer is never paid. "
+                "**📎 Attach Banner** for a custom cover.\n"
+                "• **🎭 Actor Pay** — pick actor(s) + a recent mission, "
+                "enter per-actor pay; pays via UnbelievaBoat\n"
+                "• **🔎 Check Actor** — show acting count, dates, and which "
+                "missions + fixer someone acted for\n"
+                "• **✏️ Edit Mission** — change an active mission's "
+                "date/time, attendees, or pay, or cancel it (reverses "
+                "gig-log credits by default, title-matched so same-day "
+                "duplicates stay safe)"
+            ),
+            inline=False,
+        )
         return embed
 
     @commands.hybrid_command(name="fixer")
