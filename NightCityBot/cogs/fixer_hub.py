@@ -29,6 +29,10 @@ from NightCityBot.utils.db import (
     mission_log_get,
     mission_log_record,
     mission_event_create,
+    mission_event_list_recent,
+    mission_event_get_for_user,
+    actor_attendance_record,
+    actor_attendance_get_by_user,
 )
 from NightCityBot.cogs.missions import (
     _format_check_line,
@@ -382,6 +386,33 @@ class MissionsSubView(SafeView):
     async def create_mission(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(CreateMissionModal(self.cog, self.ctx))
 
+    @discord.ui.button(label="Actor Pay", style=discord.ButtonStyle.primary, emoji="🎭", row=1)
+    async def actor_pay(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        recent = await mission_event_list_recent(25)
+        if not recent:
+            await send_ephemeral(
+                interaction,
+                "No missions on record yet. Create one first with **Create Mission**.",
+            )
+            return
+        view = ActorPayPickerView(self.cog, self.ctx, recent)
+        await send_ephemeral(
+            interaction,
+            "Pick the actor(s), select the mission they acted in, then click **Continue** to enter pay:",
+            view=view,
+        )
+
+    @discord.ui.button(label="Check Actor", style=discord.ButtonStyle.secondary, emoji="🔎", row=1)
+    async def check_actor(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        view = CheckActorPickerView(self.cog, self.ctx)
+        await send_ephemeral(
+            interaction,
+            "Pick up to 25 users to view their actor history:",
+            view=view,
+        )
+
 
 class MissionCheckPickerView(SafeView):
     def __init__(self, cog: "FixerHubCog", ctx):
@@ -412,8 +443,9 @@ class MissionCheckPickerView(SafeView):
         lines: list[str] = []
         for u in users:
             row = await mission_log_get(str(u.id))
+            events = await mission_event_get_for_user(str(u.id), limit=25)
             display = getattr(u, "display_name", None) or getattr(u, "name", str(u.id))
-            lines.append(_format_check_line(display, row, today))
+            lines.append(_format_check_line(display, row, today, events))
         embed = discord.Embed(
             title="🎯 Mission History",
             description="\n".join(lines)[:4096],
@@ -468,6 +500,260 @@ class MissionRecordPickerView(SafeView):
             "\n\n_For a custom date, use_ `!mission_record @user date=YYYY-MM-DD`."
         )
         await send_ephemeral(interaction, body[:1900])
+
+
+def _short(text: str, n: int) -> str:
+    text = str(text or "")
+    return text if len(text) <= n else text[: n - 1] + "…"
+
+
+class ActorPayAmountModal(discord.ui.Modal, title="Actor Pay"):
+    amount = discord.ui.TextInput(
+        label="Pay per actor (¥, bank)",
+        placeholder="e.g. 2500",
+        required=True,
+        max_length=12,
+    )
+
+    def __init__(
+        self,
+        cog: "FixerHubCog",
+        ctx,
+        actor_ids: list[str],
+        actor_names: dict[str, str],
+        mission_id: str,
+        mission_name: str,
+    ):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.ctx = ctx
+        self.actor_ids = actor_ids
+        self.actor_names = actor_names
+        self.mission_id = mission_id
+        self.mission_name = mission_name
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        from NightCityBot.cogs.missions import _parse_int_amount
+
+        await interaction.response.defer(ephemeral=True)
+        pay = _parse_int_amount(str(self.amount.value or ""))
+        if pay is None or pay <= 0:
+            await send_ephemeral(interaction, "Pay must be a positive integer (e.g. `2500`).")
+            return
+
+        ub = getattr(self.cog.bot, "unbelievaboat", None)
+        if ub is None:
+            await send_ephemeral(interaction, "UnbelievaBoat client not configured — cannot pay.")
+            return
+
+        fixer_id = str(interaction.user.id)
+        fixer_username = (
+            getattr(interaction.user, "display_name", None)
+            or getattr(interaction.user, "name", fixer_id)
+        )
+        paid: list[str] = []
+        failed: list[str] = []
+        reason = f"NCRP Actor Pay: {self.mission_name}"
+        for uid in self.actor_ids:
+            display = self.actor_names.get(uid, uid)
+            try:
+                ok = await ub.update_balance(
+                    int(uid), {"cash": 0, "bank": pay}, reason=reason
+                )
+            except Exception:
+                logger.error(
+                    "Actor pay UB call failed for user %s mission %s",
+                    uid, self.mission_id, exc_info=True,
+                )
+                ok = False
+            if not ok:
+                failed.append(f"• **{display}** — UB payout failed")
+                continue
+            rec = await actor_attendance_record(
+                user_id=str(uid),
+                username=str(display)[:128],
+                mission_id=str(self.mission_id) if self.mission_id else None,
+                mission_name=str(self.mission_name),
+                fixer_id=fixer_id,
+                fixer_username=str(fixer_username),
+                pay_amount=int(pay),
+            )
+            if rec is None:
+                failed.append(
+                    f"• **{display}** — paid ¥{pay:,} but ledger write failed"
+                )
+            else:
+                paid.append(f"• **{display}** — +¥{pay:,} bank")
+
+        embed = discord.Embed(
+            title=f"🎭 Actor Pay — {_short(self.mission_name, 60)}",
+            color=discord.Color.gold(),
+        )
+        if paid:
+            embed.add_field(
+                name=f"Paid ({len(paid)})",
+                value="\n".join(paid)[:1024],
+                inline=False,
+            )
+        if failed:
+            embed.add_field(
+                name=f"Failed ({len(failed)})",
+                value="\n".join(failed)[:1024],
+                inline=False,
+            )
+        if not paid and not failed:
+            embed.description = "No actors selected — nothing to pay."
+        await send_ephemeral(interaction, embed=embed)
+
+
+class ActorPayPickerView(SafeView):
+    """Two-step picker: select actors + mission, then Continue → modal for pay."""
+
+    def __init__(self, cog: "FixerHubCog", ctx, recent_missions: list[dict]):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.ctx = ctx
+        self.selected_actor_ids: list[str] = []
+        self.selected_actor_names: dict[str, str] = {}
+        self.selected_mission_id: Optional[str] = None
+        self.selected_mission_name: Optional[str] = None
+
+        options: list[discord.SelectOption] = []
+        for m in recent_missions[:25]:
+            mid = str(m.get("mission_id") or "")
+            mname = str(m.get("mission_name") or "Mission")
+            start_ts = m.get("start_ts")
+            try:
+                desc = (
+                    f"{start_ts.strftime('%Y-%m-%d')} • by "
+                    f"{_short(m.get('creator_username') or '', 40) or 'unknown'}"
+                )
+            except Exception:
+                desc = _short(m.get("creator_username") or "", 80)
+            options.append(
+                discord.SelectOption(
+                    label=_short(mname, 100),
+                    value=mid,
+                    description=_short(desc, 100) or None,
+                )
+            )
+        # Cache for label resolution when the user picks.
+        self._mission_name_by_id = {
+            str(m.get("mission_id") or ""): str(m.get("mission_name") or "Mission")
+            for m in recent_missions
+        }
+        self.mission_select.options = options or [
+            discord.SelectOption(label="(no missions)", value="", default=True)
+        ]
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.select(
+        cls=discord.ui.UserSelect,
+        placeholder="Actor(s) to pay…",
+        min_values=1,
+        max_values=25,
+        row=0,
+    )
+    async def actor_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        self.selected_actor_ids = [str(u.id) for u in select.values]
+        self.selected_actor_names = {
+            str(u.id): (getattr(u, "display_name", None) or getattr(u, "name", str(u.id)))
+            for u in select.values
+        }
+        await interaction.response.defer()
+
+    @discord.ui.select(
+        placeholder="Mission they acted in…",
+        min_values=1,
+        max_values=1,
+        row=1,
+    )
+    async def mission_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        val = select.values[0] if select.values else ""
+        self.selected_mission_id = val or None
+        self.selected_mission_name = self._mission_name_by_id.get(val) or "Mission"
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Continue →", style=discord.ButtonStyle.success, emoji="✅", row=2)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.selected_actor_ids:
+            await respond_ephemeral(interaction, "Pick at least one actor first.")
+            return
+        if not self.selected_mission_id:
+            await respond_ephemeral(interaction, "Pick a mission first.")
+            return
+        await interaction.response.send_modal(
+            ActorPayAmountModal(
+                self.cog, self.ctx,
+                actor_ids=list(self.selected_actor_ids),
+                actor_names=dict(self.selected_actor_names),
+                mission_id=str(self.selected_mission_id),
+                mission_name=str(self.selected_mission_name or "Mission"),
+            )
+        )
+
+
+class CheckActorPickerView(SafeView):
+    def __init__(self, cog: "FixerHubCog", ctx):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await respond_ephemeral(interaction, "This menu isn't for you.")
+            return False
+        return True
+
+    @discord.ui.select(
+        cls=discord.ui.UserSelect,
+        placeholder="Pick user(s) to check…",
+        min_values=1,
+        max_values=25,
+        row=0,
+    )
+    async def user_select(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        await interaction.response.defer(ephemeral=True)
+        users = list(select.values)
+        if not users:
+            await send_ephemeral(interaction, "No users selected.")
+            return
+        sections: list[str] = []
+        for u in users:
+            uid = str(u.id)
+            display = getattr(u, "display_name", None) or getattr(u, "name", uid)
+            rows = await actor_attendance_get_by_user(uid, limit=50)
+            if not rows:
+                sections.append(f"**{display}** — no actor record.")
+                continue
+            count = len(rows)
+            dates = sorted({r["acted_at"].date().isoformat() for r in rows if r.get("acted_at")})
+            mission_lines = []
+            for r in rows[:15]:
+                d = r.get("acted_at")
+                d_str = d.date().isoformat() if hasattr(d, "date") else str(d or "")
+                mname = _short(r.get("mission_name") or "Mission", 60)
+                fname = _short(r.get("fixer_username") or "", 30) or "unknown"
+                pay = int(r.get("pay_amount") or 0)
+                mission_lines.append(f"  • {d_str} — *{mname}* (fixer: {fname}, ¥{pay:,})")
+            more = "" if count <= 15 else f"\n  …and {count - 15} more."
+            sections.append(
+                f"**{display}** — acted **{count}** time(s)\n"
+                f"  Dates: {', '.join(dates[:10])}{' …' if len(dates) > 10 else ''}\n"
+                f"  Recent acts:\n" + "\n".join(mission_lines) + more
+            )
+        embed = discord.Embed(
+            title="🎭 Actor History",
+            description="\n\n".join(sections)[:4096],
+            color=discord.Color.purple(),
+        )
+        embed.set_footer(text=f"{len(users)} user(s) checked")
+        await send_ephemeral(interaction, embed=embed)
 
 
 MISSION_EVENT_IMAGE_CANDIDATES = [
@@ -738,6 +1024,10 @@ class CreateMissionAttendeesView(SafeView):
             )
             return
 
+        creator_username = (
+            getattr(interaction.user, "display_name", None)
+            or getattr(interaction.user, "name", str(creator_id))
+        )
         mission_id = str(uuid.uuid4())
         payout_utc = compute_payout_ts(self.start_utc)
         ok = await mission_event_create(
@@ -748,12 +1038,49 @@ class CreateMissionAttendeesView(SafeView):
             mission_name=self.mission_name,
             location=self.location,
             creator_id=creator_id,
+            creator_username=str(creator_username),
             pay_per_player=self.pay_per_player,
             start_ts=self.start_utc,
             end_ts=self.end_utc,
             payout_ts=payout_utc,
             attendee_ids=attendees,
         )
+
+        # Record an entry in each attendee's gig log immediately on creation
+        # so the mission counts toward their record at sign-up time. Track
+        # failures so the Fixer can see them and re-record manually.
+        log_failures: list[str] = []
+        if ok:
+            attendee_date = self.start_utc.date()
+            for uid in attendees:
+                display_name = uid
+                try:
+                    member = guild.get_member(int(uid)) if guild else None
+                    if member is None:
+                        member = await self.cog.bot.fetch_user(int(uid))
+                    display_name = (
+                        getattr(member, "display_name", None)
+                        or getattr(member, "name", uid)
+                    )
+                except Exception:
+                    pass
+                try:
+                    result = await mission_log_record(
+                        str(uid), str(display_name)[:128], attendee_date
+                    )
+                except Exception:
+                    logger.error(
+                        "Failed to record mission_log on creation for user %s mission %s",
+                        uid, mission_id, exc_info=True,
+                    )
+                    result = None
+                if result is None:
+                    log_failures.append(f"<@{uid}>")
+                    logger.error(
+                        "mission_log_record returned None for user %s mission %s "
+                        "— attendee will be undercounted until re-recorded.",
+                        uid, mission_id,
+                    )
         if not ok:
             await send_ephemeral(
                 interaction,
@@ -795,8 +1122,19 @@ class CreateMissionAttendeesView(SafeView):
                 f"**Auto-payout:** <t:{int(payout_utc.timestamp())}:F>\n"
                 f"**Attendees ({len(attendees)}):** {attendee_mentions[:900]}"
             ),
-            color=discord.Color.green(),
+            color=discord.Color.green() if not log_failures else discord.Color.orange(),
         )
+        if log_failures:
+            ok_embed.add_field(
+                name=f"⚠️ Gig-log write failed ({len(log_failures)})",
+                value=(
+                    "These attendees were added to the mission but their gig "
+                    "log entry failed to save. Use `!mission_record` to "
+                    "credit them manually:\n"
+                    + " ".join(log_failures)[:1000]
+                ),
+                inline=False,
+            )
         await send_ephemeral(interaction, embed=ok_embed)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="✖", row=1)

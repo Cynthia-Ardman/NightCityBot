@@ -39,6 +39,7 @@ EXPECTED_TABLES = [
     "balance_history",
     "mission_log",
     "mission_event",
+    "actor_attendance",
 ]
 
 

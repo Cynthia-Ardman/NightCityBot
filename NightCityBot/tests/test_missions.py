@@ -318,6 +318,62 @@ class TestMissionStartParser:
         assert _parse_mission_start("2026-05-23 25:00") is None
 
 
+class TestFormatCheckLineEvents:
+    def test_no_row_no_events(self):
+        from NightCityBot.cogs.missions import _format_check_line
+
+        out = _format_check_line("alice", None, date(2026, 5, 22))
+        assert "no mission record" in out
+
+    def test_row_with_no_events_is_legacy_format(self):
+        from NightCityBot.cogs.missions import _format_check_line
+
+        row = {"username": "Alice", "mission_count": 3, "mission_dates": [date(2026, 5, 20)]}
+        out = _format_check_line("alice", row, date(2026, 5, 22))
+        assert "3 mission(s)" in out
+        assert "2 days ago" in out
+        # no enrichment section
+        assert "by **" not in out
+
+    def test_row_plus_events_enriched(self):
+        from NightCityBot.cogs.missions import _format_check_line
+
+        row = {"username": "Alice", "mission_count": 2, "mission_dates": [date(2026, 5, 20)]}
+        events = [
+            {
+                "mission_name": "Heist Alpha",
+                "creator_username": "FixerBob",
+                "creator_id": "999",
+                "start_ts": datetime(2026, 5, 18, 20, 0, tzinfo=timezone.utc),
+            },
+            {
+                "mission_name": "Recon Bravo",
+                "creator_username": "",  # forces creator_id fallback
+                "creator_id": "1000",
+                "start_ts": datetime(2026, 5, 10, 20, 0, tzinfo=timezone.utc),
+            },
+        ]
+        out = _format_check_line("alice", row, date(2026, 5, 22), events)
+        assert "Heist Alpha" in out
+        assert "FixerBob" in out
+        assert "Recon Bravo" in out
+        assert "<@1000>" in out  # fallback creator
+        assert "2026-05-18" in out
+
+    def test_events_only_no_row(self):
+        from NightCityBot.cogs.missions import _format_check_line
+
+        events = [{
+            "mission_name": "Solo Job",
+            "creator_username": "FixerZ",
+            "creator_id": "1",
+            "start_ts": datetime(2026, 5, 18, 20, 0, tzinfo=timezone.utc),
+        }]
+        out = _format_check_line("ghost", None, date(2026, 5, 22), events)
+        assert "Solo Job" in out
+        assert "FixerZ" in out
+
+
 class TestPickMissionBanner:
     def test_returns_none_when_no_files(self, tmp_path, monkeypatch):
         from NightCityBot.cogs import fixer_hub
@@ -407,18 +463,12 @@ class TestMissionPayoutLoop:
             "start_ts": datetime(2026, 5, 22, 20, 0, tzinfo=timezone.utc),
         }
         marked = []
-        logged = []
-
-        async def fake_record(uid, uname, mdate):
-            logged.append((uid, uname, mdate))
-            return {"username": uname, "mission_count": 3}
 
         async def fake_mark(mid):
             marked.append(mid)
             return True
 
-        with patch("NightCityBot.cogs.missions.mission_log_record", side_effect=fake_record), \
-             patch("NightCityBot.cogs.missions.mission_event_mark_paid", side_effect=fake_mark):
+        with patch("NightCityBot.cogs.missions.mission_event_mark_paid", side_effect=fake_mark):
             asyncio.run(cog._process_mission_payout(row))
 
         assert ub.update_balance.call_count == 2
@@ -427,8 +477,6 @@ class TestMissionPayoutLoop:
             args, kwargs = call
             assert args[1] == {"cash": 0, "bank": 5000}
         assert marked == ["m1"]
-        assert [uid for uid, _u, _d in logged] == ["111", "222"]
-        assert all(d == date(2026, 5, 22) for _u, _n, d in logged)
 
     def test_skips_ub_when_pay_zero(self):
         cog, ub = self._build_cog(ub_returns=True)
@@ -441,12 +489,9 @@ class TestMissionPayoutLoop:
             "channel_id": None,
             "start_ts": datetime(2026, 5, 22, 20, 0, tzinfo=timezone.utc),
         }
-        async def fake_record(uid, uname, mdate):
-            return {"username": uname, "mission_count": 1}
         async def fake_mark(mid):
             return True
-        with patch("NightCityBot.cogs.missions.mission_log_record", side_effect=fake_record), \
-             patch("NightCityBot.cogs.missions.mission_event_mark_paid", side_effect=fake_mark):
+        with patch("NightCityBot.cogs.missions.mission_event_mark_paid", side_effect=fake_mark):
             asyncio.run(cog._process_mission_payout(row))
 
         ub.update_balance.assert_not_called()

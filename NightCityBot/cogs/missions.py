@@ -31,6 +31,7 @@ from openpyxl import load_workbook
 from NightCityBot.utils.db import (
     mission_log_get,
     mission_log_record,
+    mission_event_get_for_user,
     mission_event_list_due,
     mission_event_mark_paid,
 )
@@ -202,27 +203,67 @@ async def _resolve_target(ctx: commands.Context, token: str) -> tuple[str, str, 
     return (token, token, None)
 
 
-def _format_check_line(token: str, row: Optional[dict], today: date) -> str:
-    if not row:
+def _format_check_line(
+    token: str,
+    row: Optional[dict],
+    today: date,
+    events: Optional[list[dict]] = None,
+) -> str:
+    """Format a single mission_check line.
+
+    If ``events`` is provided, append a short list of mission titles +
+    fixer usernames pulled from the ``mission_event`` table so check
+    output shows *what* missions a player has been on, not just *how
+    many*.
+    """
+    events = events or []
+    if not row and not events:
         return f"• **{token}** — no mission record."
-    name = row.get("username") or token
-    count = int(row.get("mission_count") or 0)
-    dates = list(row.get("mission_dates") or [])
-    if not dates:
-        return f"• **{name}** — {count} mission(s), but no dates on file."
-    most_recent = max(dates)
-    delta = (today - most_recent).days
-    if delta < 0:
-        when = f"future date {most_recent.isoformat()}"
-    elif delta == 0:
-        when = "today"
-    elif delta == 1:
-        when = "1 day ago"
+    name = (row.get("username") if row else None) or token
+    count = int((row.get("mission_count") if row else 0) or 0)
+    dates = list((row.get("mission_dates") if row else None) or [])
+
+    if dates:
+        most_recent = max(dates)
+        delta = (today - most_recent).days
+        if delta < 0:
+            when = f"future date {most_recent.isoformat()}"
+        elif delta == 0:
+            when = "today"
+        elif delta == 1:
+            when = "1 day ago"
+        else:
+            when = f"{delta} days ago"
+        head = (
+            f"• **{name}** — {count} mission(s); last on "
+            f"**{most_recent.isoformat()}** ({when})."
+        )
+    elif count:
+        head = f"• **{name}** — {count} mission(s), but no dates on file."
     else:
-        when = f"{delta} days ago"
-    return (
-        f"• **{name}** — {count} mission(s); last on **{most_recent.isoformat()}** ({when})."
-    )
+        head = f"• **{name}** — recent mission entries:"
+
+    if not events:
+        return head
+
+    sub_lines: list[str] = []
+    for e in events[:5]:
+        mname = str(e.get("mission_name") or "Mission")
+        if len(mname) > 60:
+            mname = mname[:59] + "…"
+        creator = str(e.get("creator_username") or "")
+        if not creator:
+            creator = f"<@{e.get('creator_id')}>" if e.get("creator_id") else "unknown"
+        start_ts = e.get("start_ts")
+        try:
+            d_str = start_ts.date().isoformat()
+        except Exception:
+            d_str = ""
+        sub_lines.append(
+            f"   – *{mname}* (by **{creator}**" + (f", {d_str}" if d_str else "") + ")"
+        )
+    more = "" if len(events) <= 5 else f"\n   …and {len(events) - 5} more."
+    return head + "\n" + "\n".join(sub_lines) + more
 
 
 class MissionsCog(commands.Cog):
@@ -288,17 +329,12 @@ class MissionsCog(commands.Cog):
                     logger.error("UB payout failed for %s on mission %s", uid, mission_id, exc_info=True)
                     ub_ok = False
 
-            log_result = await mission_log_record(str(uid), str(display)[:128], mission_date)
-
-            if ub_ok and log_result is not None:
-                paid_lines.append(f"• **{display}** — +¥{pay:,} bank (total {int(log_result.get('mission_count') or 0)} mission(s))")
+            # mission_log was already recorded at creation time, so the
+            # payout path only credits UB and reports results.
+            if ub_ok:
+                paid_lines.append(f"• **{display}** — +¥{pay:,} bank")
             else:
-                bits = []
-                if not ub_ok:
-                    bits.append("UB payout failed")
-                if log_result is None:
-                    bits.append("mission log update failed")
-                failed_lines.append(f"• **{display}** — {', '.join(bits) or 'unknown failure'}")
+                failed_lines.append(f"• **{display}** — UB payout failed")
 
         # Mark paid even on partial failures so we don't double-pay.
         # Failures are surfaced in the summary message and the log.
@@ -350,8 +386,9 @@ class MissionsCog(commands.Cog):
             if not uid:
                 continue
             row = await mission_log_get(uid)
+            events = await mission_event_get_for_user(uid, limit=25)
             display_token = uname or tok
-            lines.append(_format_check_line(display_token, row, today))
+            lines.append(_format_check_line(display_token, row, today, events))
         if not lines:
             await ctx.reply("No valid targets given.", mention_author=False)
             return

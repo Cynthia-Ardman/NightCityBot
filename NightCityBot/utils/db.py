@@ -671,6 +671,29 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         CREATE INDEX IF NOT EXISTS idx_mission_event_due
             ON mission_event (paid, payout_ts)
         """,
+        # Lazy ALTERs so older deployments pick up new columns automatically.
+        """
+        ALTER TABLE mission_event
+            ADD COLUMN IF NOT EXISTS creator_username TEXT NOT NULL DEFAULT ''
+        """,
+        # ── Actor attendance (per-act ledger for Actor Pay) ──
+        """
+        CREATE TABLE IF NOT EXISTS actor_attendance (
+            id              BIGSERIAL PRIMARY KEY,
+            user_id         TEXT NOT NULL,
+            username        TEXT NOT NULL DEFAULT '',
+            mission_id      TEXT,
+            mission_name    TEXT NOT NULL DEFAULT '',
+            fixer_id        TEXT NOT NULL DEFAULT '',
+            fixer_username  TEXT NOT NULL DEFAULT '',
+            pay_amount      BIGINT NOT NULL DEFAULT 0,
+            acted_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_actor_attendance_user
+            ON actor_attendance (user_id, acted_at DESC)
+        """,
     ]
 
     async with pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT) as conn:
@@ -4401,6 +4424,7 @@ async def mission_event_create(
     mission_name: str,
     location: str,
     creator_id: str,
+    creator_username: str = "",
     pay_per_player: int,
     start_ts: datetime,
     end_ts: datetime,
@@ -4415,10 +4439,11 @@ async def mission_event_create(
                 """
                 INSERT INTO mission_event (
                     mission_id, guild_id, channel_id, event_id,
-                    mission_name, location, creator_id, pay_per_player,
+                    mission_name, location, creator_id, creator_username,
+                    pay_per_player,
                     start_ts, end_ts, payout_ts, attendee_ids
                 ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::TEXT[]
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::TEXT[]
                 )
                 """,
                 str(mission_id),
@@ -4428,6 +4453,7 @@ async def mission_event_create(
                 str(mission_name)[:256],
                 str(location or "")[:512],
                 str(creator_id),
+                str(creator_username or "")[:128],
                 int(pay_per_player),
                 start_ts,
                 end_ts,
@@ -4450,7 +4476,8 @@ async def mission_event_list_due(now_ts: datetime) -> list[dict]:
             lambda: pool.fetch(
                 """
                 SELECT mission_id, guild_id, channel_id, event_id,
-                       mission_name, location, creator_id, pay_per_player,
+                       mission_name, location, creator_id, creator_username,
+                       pay_per_player,
                        start_ts, end_ts, payout_ts, attendee_ids
                   FROM mission_event
                  WHERE paid = FALSE AND payout_ts <= $1
@@ -4463,6 +4490,128 @@ async def mission_event_list_due(now_ts: datetime) -> list[dict]:
         return [dict(r) for r in (rows or [])]
     except Exception:
         logger.error("mission_event_list_due failed", exc_info=True)
+        return []
+
+
+async def mission_event_list_recent(limit: int = 25) -> list[dict]:
+    """Return the most recent mission events (any status) for picker UIs."""
+    try:
+        pool = await get_pool()
+        rows = await _with_retry(
+            lambda: pool.fetch(
+                """
+                SELECT mission_id, mission_name, creator_id, creator_username,
+                       start_ts, paid
+                  FROM mission_event
+                 ORDER BY start_ts DESC
+                 LIMIT $1
+                """,
+                int(limit),
+            ),
+            label="mission_event_list_recent",
+        )
+        return [dict(r) for r in (rows or [])]
+    except Exception:
+        logger.error("mission_event_list_recent failed", exc_info=True)
+        return []
+
+
+async def mission_event_get_for_user(user_id: str, limit: int = 50) -> list[dict]:
+    """Return mission events where ``user_id`` was an attendee, newest first."""
+    try:
+        pool = await get_pool()
+        rows = await _with_retry(
+            lambda: pool.fetch(
+                """
+                SELECT mission_id, mission_name, creator_id, creator_username,
+                       start_ts
+                  FROM mission_event
+                 WHERE $1 = ANY(attendee_ids)
+                 ORDER BY start_ts DESC
+                 LIMIT $2
+                """,
+                str(user_id),
+                int(limit),
+            ),
+            label="mission_event_get_for_user",
+        )
+        return [dict(r) for r in (rows or [])]
+    except Exception:
+        logger.error(
+            "mission_event_get_for_user failed for '%s'", user_id, exc_info=True
+        )
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Actor attendance (per-act ledger for Fixer "Actor Pay" flow)
+# ---------------------------------------------------------------------------
+
+async def actor_attendance_record(
+    *,
+    user_id: str,
+    username: str,
+    mission_id: Optional[str],
+    mission_name: str,
+    fixer_id: str,
+    fixer_username: str,
+    pay_amount: int,
+) -> Optional[dict]:
+    """Insert an actor-attendance row. Returns the inserted row or None."""
+    try:
+        pool = await get_pool()
+        row = await _with_retry(
+            lambda: pool.fetchrow(
+                """
+                INSERT INTO actor_attendance (
+                    user_id, username, mission_id, mission_name,
+                    fixer_id, fixer_username, pay_amount
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                RETURNING id, user_id, username, mission_id, mission_name,
+                          fixer_id, fixer_username, pay_amount, acted_at
+                """,
+                str(user_id),
+                str(username or "")[:128],
+                str(mission_id) if mission_id else None,
+                str(mission_name or "")[:256],
+                str(fixer_id or ""),
+                str(fixer_username or "")[:128],
+                int(pay_amount),
+            ),
+            label="actor_attendance_record",
+        )
+        return dict(row) if row else None
+    except Exception:
+        logger.error(
+            "actor_attendance_record failed for user '%s'", user_id, exc_info=True
+        )
+        return None
+
+
+async def actor_attendance_get_by_user(user_id: str, limit: int = 100) -> list[dict]:
+    """Return the actor-attendance history for ``user_id``, newest first."""
+    try:
+        pool = await get_pool()
+        rows = await _with_retry(
+            lambda: pool.fetch(
+                """
+                SELECT id, user_id, username, mission_id, mission_name,
+                       fixer_id, fixer_username, pay_amount, acted_at
+                  FROM actor_attendance
+                 WHERE user_id = $1
+                 ORDER BY acted_at DESC
+                 LIMIT $2
+                """,
+                str(user_id),
+                int(limit),
+            ),
+            label="actor_attendance_get_by_user",
+        )
+        return [dict(r) for r in (rows or [])]
+    except Exception:
+        logger.error(
+            "actor_attendance_get_by_user failed for '%s'", user_id, exc_info=True
+        )
         return []
 
 
