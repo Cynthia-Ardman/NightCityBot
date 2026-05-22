@@ -11,16 +11,14 @@ Commands:
   !mission_record <users...> [date=YYYY-MM-DD | MM/DD/YYYY]
       Record a mission for each user. Date defaults to today (UTC).
 
-  !mission_import_sheet <google_sheets_url>
-      One-time bulk import from the existing roster sheet
-      (col A: discord id, B: username, C: count, D: comma-separated
-      slash-formatted dates).
+``parse_mission_sheet`` is retained as a module-level helper for any
+future one-shot roster imports, but no Discord command exposes it now —
+the original roster sheet was imported directly via a dev script.
 """
 from __future__ import annotations
 
 import logging
 import re
-import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -31,11 +29,9 @@ from openpyxl import load_workbook
 
 from NightCityBot.utils.db import (
     mission_log_get,
-    mission_log_import_rows,
     mission_log_record,
 )
 from NightCityBot.utils.permissions import is_fixer
-from NightCityBot.services.cyberware_shop_data import download_sheet
 
 logger = logging.getLogger(__name__)
 
@@ -281,36 +277,6 @@ class MissionsCog(commands.Cog):
         if failed:
             body += "\nFailed: " + ", ".join(f"`{t}`" for t in failed)
         await ctx.reply(body, mention_author=False)
-
-    @commands.command(name="mission_import_sheet")
-    @is_fixer()
-    async def mission_import_sheet(self, ctx: commands.Context, sheet_url: str):
-        """One-shot bulk import the roster from a Google Sheet."""
-        async with ctx.typing():
-            try:
-                with tempfile.TemporaryDirectory() as td:
-                    xlsx_path = Path(td) / "mission_roster.xlsx"
-                    await download_sheet(sheet_url, xlsx_path)
-                    rows = parse_mission_sheet(xlsx_path)
-            except Exception as exc:
-                logger.exception("mission_import_sheet failed")
-                await ctx.reply(f"Import failed: `{type(exc).__name__}: {exc}`",
-                                mention_author=False)
-                return
-            if not rows:
-                await ctx.reply(
-                    "No usable rows found in that sheet. Expecting column A = "
-                    "Discord ID, B = username, C = count, D = comma-separated dates.",
-                    mention_author=False,
-                )
-                return
-            written = await mission_log_import_rows(rows)
-        await ctx.reply(
-            f"Imported **{written}** roster entries from the sheet "
-            f"(overwriting any existing rows).",
-            mention_author=False,
-        )
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MissionsCog(bot))

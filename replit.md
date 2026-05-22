@@ -26,7 +26,7 @@ A Discord bot for NCRP (Cyberpunk-themed RP server) managing economy, roleplay u
 - `NightCityBot/bot.py`: Main bot entry point and Flask keep-alive server.
 - `config.py`: Global configuration and secrets.
 - `NightCityBot/cogs/`: Modular command groups (economy, stores, admin, player, missions, etc.).
-- `NightCityBot/cogs/missions.py`: Fixer-only mission tracking (`!mission_check`, `!mission_record`, `!mission_import_sheet`).
+- `NightCityBot/cogs/missions.py`: Fixer-only mission tracking (`!mission_check`, `!mission_record`).
 - `NightCityBot/services/`: External API wrappers and complex business logic.
 - `NightCityBot/utils/`: General utilities, helpers, permissions, startup checks.
 - `NightCityBot/tests/`: Pytest test suite.
