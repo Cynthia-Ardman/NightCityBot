@@ -1667,12 +1667,15 @@ class EditMissionAttendeesView(SafeView):
         credited = 0
         reversed_ = 0
         log_warnings: list[str] = []
+        mission_title = str(row.get("mission_name") or "")
         if mission_date is not None:
             if self.credit_adds and added:
                 for u in added:
                     display = getattr(u, "display_name", None) or getattr(u, "name", str(u.id))
                     try:
-                        res = await mission_log_record(str(u.id), str(display)[:128], mission_date)
+                        res = await mission_log_record(
+                            str(u.id), str(display)[:128], mission_date, mission_title
+                        )
                         if res is not None:
                             credited += 1
                         else:
@@ -1686,7 +1689,11 @@ class EditMissionAttendeesView(SafeView):
             if self.reverse_removed and removed_ids:
                 for uid in removed_ids:
                     try:
-                        res = await mission_log_remove_date(str(uid), mission_date)
+                        # Match this mission's title first so we don't yank a
+                        # credit belonging to a different same-day mission.
+                        res = await mission_log_remove_date(
+                            str(uid), mission_date, mission_title
+                        )
                         if res is not None:
                             reversed_ += 1
                         # If no entry existed for that date, silently skip —
@@ -1740,7 +1747,11 @@ class ConfirmCancelMissionView(SafeView):
     def __init__(self, panel: "EditMissionPanelView"):
         super().__init__(timeout=120)
         self.panel = panel
-        self.reverse_credits: bool = False
+        # Default ON: a canceled mission shouldn't keep counting toward
+        # attendees' gig logs. Fixer can toggle OFF if they want to keep
+        # the credits (rare — e.g. canceling for an OOC reason after the
+        # session actually played).
+        self.reverse_credits: bool = True
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.panel.ctx.author.id:
@@ -1749,8 +1760,8 @@ class ConfirmCancelMissionView(SafeView):
         return True
 
     @discord.ui.button(
-        label="Reverse Gig-Log Credits: OFF",
-        style=discord.ButtonStyle.secondary,
+        label="Reverse Gig-Log Credits: ON",
+        style=discord.ButtonStyle.success,
         emoji="↩️",
         row=0,
     )
@@ -1807,13 +1818,18 @@ class ConfirmCancelMissionView(SafeView):
         if self.reverse_credits:
             start_ts = row.get("start_ts")
             mission_date = start_ts.date() if isinstance(start_ts, datetime) else None
+            mission_title = str(row.get("mission_name") or "")
             attendees = list(row.get("attendee_ids") or [])
             reversed_ = 0
             failures: list[str] = []
             if mission_date is not None:
                 for uid in attendees:
                     try:
-                        res = await mission_log_remove_date(str(uid), mission_date)
+                        # Match this mission's title so a player with two
+                        # missions on the same date only loses the right one.
+                        res = await mission_log_remove_date(
+                            str(uid), mission_date, mission_title
+                        )
                         if res is not None:
                             reversed_ += 1
                     except Exception:
@@ -2158,7 +2174,10 @@ class CreateMissionAttendeesView(SafeView):
                     pass
                 try:
                     result = await mission_log_record(
-                        str(uid), str(display_name)[:128], attendee_date
+                        str(uid),
+                        str(display_name)[:128],
+                        attendee_date,
+                        self.mission_name,
                     )
                 except Exception:
                     logger.error(

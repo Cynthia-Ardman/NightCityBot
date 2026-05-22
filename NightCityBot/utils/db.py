@@ -688,6 +688,28 @@ async def _ensure_schema(pool: asyncpg.Pool) -> None:
         ALTER TABLE mission_event
             ADD COLUMN IF NOT EXISTS mission_description TEXT NOT NULL DEFAULT ''
         """,
+        # mission_log: parallel TEXT[] of titles, aligned with mission_dates,
+        # so we can disambiguate removal when a player has multiple missions
+        # on the same calendar date (e.g. cancel one of two same-day events).
+        """
+        ALTER TABLE mission_log
+            ADD COLUMN IF NOT EXISTS mission_titles TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]
+        """,
+        # One-shot backfill: pad legacy rows whose mission_titles is shorter
+        # than mission_dates with empty strings so the two arrays stay in
+        # lock-step from here on. Safe to re-run (no-op once aligned).
+        """
+        UPDATE mission_log
+           SET mission_titles = mission_titles || array_fill(
+                   ''::TEXT,
+                   ARRAY[
+                       COALESCE(array_length(mission_dates, 1), 0)
+                     - COALESCE(array_length(mission_titles, 1), 0)
+                   ]
+               )
+         WHERE COALESCE(array_length(mission_titles, 1), 0)
+             < COALESCE(array_length(mission_dates, 1), 0)
+        """,
         # ── Actor attendance (per-act ledger for Actor Pay) ──
         """
         CREATE TABLE IF NOT EXISTS actor_attendance (
@@ -4332,7 +4354,8 @@ async def mission_log_get(user_id: str) -> Optional[dict]:
         row = await _with_retry(
             lambda: pool.fetchrow(
                 """
-                SELECT user_id, username, mission_count, mission_dates, updated_at
+                SELECT user_id, username, mission_count, mission_dates,
+                       mission_titles, updated_at
                 FROM mission_log WHERE user_id = $1
                 """,
                 str(user_id),
@@ -4349,31 +4372,55 @@ async def mission_log_record(
     user_id: str,
     username: str,
     mission_date: date,
+    mission_title: str = "",
 ) -> Optional[dict]:
     """Upsert a mission for a user.
 
-    On insert: mission_count = 1, mission_dates = [mission_date].
-    On update: mission_count += 1, mission_date appended to mission_dates;
-    username is refreshed to the latest value passed in.
-    Returns the resulting row as a dict, or None on failure.
+    On insert: mission_count = 1, mission_dates = [mission_date],
+    mission_titles = [mission_title].
+    On update: mission_count += 1, the new (date, title) pair is appended
+    to mission_dates / mission_titles. If a legacy row's mission_titles
+    is shorter than mission_dates (rows written before the column
+    existed), it is padded with empty strings so the arrays stay aligned
+    after the append. Username is refreshed to the latest value passed
+    in. Returns the resulting row as a dict, or None on failure.
     """
     try:
         pool = await get_pool()
         row = await _with_retry(
             lambda: pool.fetchrow(
                 """
-                INSERT INTO mission_log (user_id, username, mission_count, mission_dates, updated_at)
-                VALUES ($1, $2, 1, ARRAY[$3::DATE], NOW())
+                INSERT INTO mission_log (
+                    user_id, username, mission_count,
+                    mission_dates, mission_titles, updated_at
+                )
+                VALUES ($1, $2, 1, ARRAY[$3::DATE], ARRAY[$4::TEXT], NOW())
                 ON CONFLICT (user_id) DO UPDATE
                   SET username      = EXCLUDED.username,
                       mission_count = mission_log.mission_count + 1,
                       mission_dates = mission_log.mission_dates || EXCLUDED.mission_dates,
+                      mission_titles = (
+                          mission_log.mission_titles
+                          || array_fill(
+                              ''::TEXT,
+                              ARRAY[
+                                  GREATEST(
+                                      COALESCE(array_length(mission_log.mission_dates, 1), 0)
+                                    - COALESCE(array_length(mission_log.mission_titles, 1), 0),
+                                      0
+                                  )
+                              ]
+                          )
+                          || EXCLUDED.mission_titles
+                      ),
                       updated_at    = NOW()
-                RETURNING user_id, username, mission_count, mission_dates, updated_at
+                RETURNING user_id, username, mission_count,
+                          mission_dates, mission_titles, updated_at
                 """,
                 str(user_id),
                 str(username or "")[:128],
                 mission_date,
+                str(mission_title or "")[:256],
             ),
             label="mission_log_record",
         )
@@ -4386,28 +4433,48 @@ async def mission_log_record(
 
 
 async def mission_log_remove_date(
-    user_id: str, mission_date: date
+    user_id: str, mission_date: date, mission_title: Optional[str] = None
 ) -> Optional[dict]:
-    """Decrement a user's mission_log count and remove ONE occurrence of
-    ``mission_date`` from their dates array.
+    """Decrement a user's mission_log count and remove ONE matching credit
+    from their dates/titles arrays.
+
+    If ``mission_title`` is provided and non-empty, prefer removing the
+    earliest entry where BOTH the date AND the title match. If no exact
+    (date, title) match exists, fall back to removing the earliest entry
+    matching the date alone — this covers legacy rows that were recorded
+    before titles were tracked, and manual ``!mission_record`` entries
+    with no title.
 
     Used when a mission is canceled or a player is removed from a mission's
     attendee list, to undo the credit that was written at creation time.
+    A player who has two missions on the same date will keep one entry.
 
     If the user has no log row, or no entry for that date, returns ``None``
     and makes no changes. Otherwise returns the updated row.
     """
     try:
         pool = await get_pool()
+        title_filter = (mission_title or "").strip()
         row = await _with_retry(
             lambda: pool.fetchrow(
                 """
                 WITH idx AS (
-                    SELECT MIN(g.i) AS pos
-                      FROM mission_log m,
-                           generate_subscripts(m.mission_dates, 1) AS g(i)
-                     WHERE m.user_id = $1
-                       AND m.mission_dates[g.i] = $2::DATE
+                    SELECT COALESCE(
+                        -- Prefer earliest position matching both date AND title.
+                        (SELECT MIN(g.i)
+                           FROM mission_log m,
+                                generate_subscripts(m.mission_dates, 1) AS g(i)
+                          WHERE m.user_id = $1
+                            AND m.mission_dates[g.i] = $2::DATE
+                            AND $3::TEXT <> ''
+                            AND COALESCE(m.mission_titles[g.i], '') = $3::TEXT),
+                        -- Fallback: earliest position matching the date alone.
+                        (SELECT MIN(g.i)
+                           FROM mission_log m,
+                                generate_subscripts(m.mission_dates, 1) AS g(i)
+                          WHERE m.user_id = $1
+                            AND m.mission_dates[g.i] = $2::DATE)
+                    ) AS pos
                 )
                 UPDATE mission_log m
                    SET mission_count = GREATEST(m.mission_count - 1, 0),
@@ -4417,14 +4484,22 @@ async def mission_log_remove_date(
                                (SELECT pos + 1 FROM idx)
                              : COALESCE(array_length(m.mission_dates, 1), 0)
                            ],
+                       mission_titles =
+                           m.mission_titles[1:(SELECT pos - 1 FROM idx)]
+                        || m.mission_titles[
+                               (SELECT pos + 1 FROM idx)
+                             : COALESCE(array_length(m.mission_titles, 1), 0)
+                           ],
                        updated_at = NOW()
                   FROM idx
                  WHERE m.user_id = $1
                    AND idx.pos IS NOT NULL
-                RETURNING m.user_id, m.username, m.mission_count, m.mission_dates, m.updated_at
+                RETURNING m.user_id, m.username, m.mission_count,
+                          m.mission_dates, m.mission_titles, m.updated_at
                 """,
                 str(user_id),
                 mission_date,
+                title_filter,
             ),
             label="mission_log_remove_date",
         )
