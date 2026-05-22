@@ -174,11 +174,25 @@ class FixerTopView(SafeView):
         embed = discord.Embed(
             title="🎯 Fixer Panel — Missions",
             description=(
-                "**Check Missions** — See how recently and how often selected "
-                "players have been on missions.\n"
-                "**Record Mission** — Log today's mission for one or more "
+                "**🔎 Check Missions** — Mission count, last date, and recent "
+                "mission titles + the fixer who created each one.\n"
+                "**✅ Record Mission** — Log today's mission for one or more "
                 "players (use `!mission_record … date=YYYY-MM-DD` for a "
-                "custom date)."
+                "custom date).\n"
+                "**🆕 Create Mission** — Schedule a Discord 'Actors Needed: …' "
+                "event, credit each attendee's gig log immediately, and "
+                "auto-pay everyone at the next midnight US-Eastern after the "
+                "start time. The fixer who created the mission is never paid. "
+                "Tap **📎 Attach Banner** on the attendees screen for a "
+                "custom cover image.\n"
+                "**🎭 Actor Pay** — Pick actor(s) and a recorded mission, "
+                "then enter a per-actor amount paid via UnbelievaBoat.\n"
+                "**🔎 Check Actor** — How many times someone has acted, the "
+                "dates, and which missions + fixer they acted for.\n"
+                "**✏️ Edit Mission** — Only lists **active** missions (not "
+                "yet paid, not canceled). Change date/time, attendees, or "
+                "payout — or cancel the mission entirely. Attendee edits and "
+                "cancellations have optional gig-log credit toggles."
             ),
             color=discord.Color.gold(),
         )
