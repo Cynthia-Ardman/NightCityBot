@@ -4729,10 +4729,16 @@ async def mission_event_update(mission_id: str, **fields) -> bool:
     if not sets:
         return False
     values.append(str(mission_id))
+    # Defense in depth: never mutate a paid or canceled row, even if a
+    # stale UI sneaks through. All legitimate callers only ever target
+    # active missions (reconcile guards on canceled before calling, and
+    # the Edit panel disables every action when paid/canceled), so this
+    # only fires for race-window mutations from sub-views that were
+    # opened before the row was locked.
     sql = (
         "UPDATE mission_event SET "
         + ", ".join(sets)
-        + f" WHERE mission_id = ${len(values)}"
+        + f" WHERE mission_id = ${len(values)} AND paid = FALSE AND canceled = FALSE"
     )
     try:
         pool = await get_pool()
