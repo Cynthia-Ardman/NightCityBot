@@ -191,7 +191,12 @@ class FixerTopView(SafeView):
         if member is None:
             await respond_ephemeral(interaction, "Could not verify your role.")
             return False
-        if not (any(r.id == config.FIXER_ROLE_ID for r in member.roles) or member.guild_permissions.administrator):
+        allowed_role_ids = {
+            int(config.FIXER_ROLE_ID),
+            int(getattr(config, "TRIAL_FIXER_ROLE_ID", 0) or 0),
+        }
+        allowed_role_ids.discard(0)
+        if not (any(r.id in allowed_role_ids for r in member.roles) or member.guild_permissions.administrator):
             await respond_ephemeral(interaction, "This panel is for Fixers only.")
             await log_panel_failure(interaction.client, "NIGHTCITYBOT_LOG_CHANNEL_ID", "Fixer Panel", interaction.user, "Missing fixer role")
             return False

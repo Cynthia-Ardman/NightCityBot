@@ -5,9 +5,15 @@ import config
 
 def is_fixer():
     async def predicate(ctx):
+        allowed_role_ids = {
+            int(config.FIXER_ROLE_ID),
+            int(getattr(config, "TRIAL_FIXER_ROLE_ID", 0) or 0),
+        }
+        allowed_role_ids.discard(0)
+
         # in-guild messages
         if isinstance(ctx.author, discord.Member):
-            if any(r.id == config.FIXER_ROLE_ID for r in ctx.author.roles):
+            if any(r.id in allowed_role_ids for r in ctx.author.roles):
                 return True
             raise commands.CheckFailure("Fixer role required")
 
@@ -23,7 +29,7 @@ def is_fixer():
             except discord.NotFound:
                 raise commands.CheckFailure("Fixer role required")
 
-        if any(r.id == config.FIXER_ROLE_ID for r in member.roles):
+        if any(r.id in allowed_role_ids for r in member.roles):
             return True
         raise commands.CheckFailure("Fixer role required")
 
