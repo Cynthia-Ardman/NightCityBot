@@ -501,19 +501,20 @@ class MissionsSubView(SafeView):
     @discord.ui.button(label="Actor Pay", style=discord.ButtonStyle.primary, emoji="🎭", row=1)
     async def actor_pay(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        recent = await mission_event_list_recent(25)
-        if not recent:
-            await send_ephemeral(
-                interaction,
-                "No missions on record yet. Create one first with **Create Mission**.",
-            )
-            return
+        recent = await mission_event_list_recent(25) or []
         view = ActorPayPickerView(self.cog, self.ctx, recent)
-        await send_ephemeral(
-            interaction,
-            "Pick the actor(s), select the mission they acted in, then click **Continue** to enter pay:",
-            view=view,
+        prompt = (
+            "Pick the actor(s), select the mission they acted in (or tap "
+            "**✏️ Type Mission Name** to enter one manually), then click "
+            "**Continue** to enter pay:"
         )
+        if not recent:
+            prompt = (
+                "No missions on record yet — tap **✏️ Type Mission Name** "
+                "to enter one manually, pick the actor(s), then **Continue** "
+                "to enter pay."
+            )
+        await send_ephemeral(interaction, prompt, view=view)
 
     @discord.ui.button(label="Check Actor", style=discord.ButtonStyle.secondary, emoji="🔎", row=1)
     async def check_actor(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -774,6 +775,31 @@ class ActorPayAmountModal(discord.ui.Modal, title="Actor Pay"):
         )
 
 
+class ActorPayTypedMissionModal(discord.ui.Modal, title="Type Mission Name"):
+    mission_name = discord.ui.TextInput(
+        label="Mission name",
+        placeholder="e.g. Heist at Konpeki Plaza",
+        required=True,
+        max_length=100,
+    )
+
+    def __init__(self, picker: "ActorPayPickerView"):
+        super().__init__(timeout=300)
+        self.picker = picker
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        name = str(self.mission_name.value or "").strip()
+        if not name:
+            await respond_ephemeral(interaction, "Mission name can't be empty.")
+            return
+        self.picker.selected_mission_id = None
+        self.picker.selected_mission_name = name
+        await respond_ephemeral(
+            interaction,
+            f"✅ Mission set to **{_short(name, 80)}**. Tap **Continue →** to enter the pay amount.",
+        )
+
+
 class ActorPayPickerView(SafeView):
     """Two-step picker: select actors + mission, then Continue → modal for pay."""
 
@@ -852,18 +878,25 @@ class ActorPayPickerView(SafeView):
         if not self.selected_actor_ids:
             await respond_ephemeral(interaction, "Pick at least one actor first.")
             return
-        if not self.selected_mission_id:
-            await respond_ephemeral(interaction, "Pick a mission first.")
+        if not self.selected_mission_id and not self.selected_mission_name:
+            await respond_ephemeral(
+                interaction,
+                "Pick a mission from the dropdown — or tap **✏️ Type Mission Name** to enter one manually.",
+            )
             return
         await interaction.response.send_modal(
             ActorPayAmountModal(
                 self.cog, self.ctx,
                 actor_ids=list(self.selected_actor_ids),
                 actor_names=dict(self.selected_actor_names),
-                mission_id=str(self.selected_mission_id),
+                mission_id=str(self.selected_mission_id) if self.selected_mission_id else "",
                 mission_name=str(self.selected_mission_name or "Mission"),
             )
         )
+
+    @discord.ui.button(label="Type Mission Name", style=discord.ButtonStyle.secondary, emoji="✏️", row=2)
+    async def type_mission(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ActorPayTypedMissionModal(self))
 
 
 class CheckActorPickerView(SafeView):
