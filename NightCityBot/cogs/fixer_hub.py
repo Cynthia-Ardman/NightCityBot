@@ -683,8 +683,6 @@ class ActorPayAmountModal(discord.ui.Modal, title="Actor Pay"):
         self.mission_name = mission_name
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        from NightCityBot.cogs.missions import _parse_int_amount
-
         await interaction.response.defer(ephemeral=True)
         pay = _parse_int_amount(str(self.amount.value or ""))
         if pay is None or pay <= 0:
