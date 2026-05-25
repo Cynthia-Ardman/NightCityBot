@@ -1104,12 +1104,14 @@ async def set_fixer_tz_pref(user_id: int | str, tz_name: str) -> bool:
 
 
 def _format_time_option_label(hour: int) -> str:
-    """Render a 24h hour as a 12-hour AM/PM label, e.g. 20 → '8:00 PM'."""
+    """Render a 24h hour as a label that pairs 12h and 24h to make AM/PM
+    confusion impossible — e.g. 20 → '8:00 PM (20:00)', 7 → '7:00 AM (07:00)'.
+    """
     suffix = "AM" if hour < 12 else "PM"
     h12 = hour % 12
     if h12 == 0:
         h12 = 12
-    return f"{h12}:00 {suffix}"
+    return f"{h12}:00 {suffix} ({hour:02d}:00)"
 
 
 def _build_date_options(tz: ZoneInfo, count: int = 14) -> list[discord.SelectOption]:

@@ -645,12 +645,12 @@ class TestCreateMissionScheduleHelpers:
     def test_time_label_formatting(self):
         from NightCityBot.cogs.fixer_hub import _format_time_option_label
 
-        assert _format_time_option_label(0) == "12:00 AM"
-        assert _format_time_option_label(11) == "11:00 AM"
-        assert _format_time_option_label(12) == "12:00 PM"
-        assert _format_time_option_label(13) == "1:00 PM"
-        assert _format_time_option_label(20) == "8:00 PM"
-        assert _format_time_option_label(23) == "11:00 PM"
+        assert _format_time_option_label(0) == "12:00 AM (00:00)"
+        assert _format_time_option_label(11) == "11:00 AM (11:00)"
+        assert _format_time_option_label(12) == "12:00 PM (12:00)"
+        assert _format_time_option_label(13) == "1:00 PM (13:00)"
+        assert _format_time_option_label(20) == "8:00 PM (20:00)"
+        assert _format_time_option_label(23) == "11:00 PM (23:00)"
 
     def test_build_date_options_count_and_labels(self):
         from zoneinfo import ZoneInfo
