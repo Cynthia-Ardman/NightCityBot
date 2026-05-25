@@ -618,6 +618,7 @@ class MissionsCog(commands.Cog):
 
         paid_lines: list[str] = []
         failed_lines: list[str] = []
+        paid_uids: list[str] = []
 
         for uid in attendees:
             display = uid
@@ -643,6 +644,7 @@ class MissionsCog(commands.Cog):
             # payout path only credits UB and reports results.
             if ub_ok:
                 paid_lines.append(f"• **{display}** — +¥{pay:,} bank")
+                paid_uids.append(str(uid))
             else:
                 failed_lines.append(f"• **{display}** — UB payout failed")
 
@@ -682,6 +684,50 @@ class MissionsCog(commands.Cog):
 
         creator_id = row.get("creator_id")
         creator_username = row.get("creator_username") or (str(creator_id) if creator_id else None)
+
+        # Post a single per-mission summary to #player-gig-record so players
+        # have a public ledger of who got paid what for which gig.
+        if paid_uids:
+            try:
+                import config as _cfg
+                gig_ch_id = getattr(_cfg, "PLAYER_GIG_RECORD_CHANNEL_ID", 0)
+                if gig_ch_id:
+                    gig_ch = self.bot.get_channel(int(gig_ch_id))
+                    if gig_ch is None:
+                        try:
+                            gig_ch = await self.bot.fetch_channel(int(gig_ch_id))
+                        except Exception:
+                            gig_ch = None
+                    if gig_ch is not None:
+                        date_str = (
+                            mission_date.isoformat()
+                            if mission_date else "_(unknown)_"
+                        )
+                        fixer_part = (
+                            f"<@{creator_id}>" if creator_id
+                            else (str(creator_username) if creator_username else "_(unknown)_")
+                        )
+                        player_lines = "\n".join(
+                            f"• <@{uid}> — **¥{pay:,}** (bank)" for uid in paid_uids
+                        )
+                        msg = (
+                            f"💰 **Gig Payout** — _{mission_name}_\n"
+                            f"📅 **Date:** {date_str}\n"
+                            f"🎬 **Fixer:** {fixer_part}\n"
+                            f"{player_lines}"
+                        )
+                        await gig_ch.send(
+                            msg,
+                            allowed_mentions=discord.AllowedMentions(
+                                users=True, roles=False, everyone=False
+                            ),
+                        )
+            except Exception:
+                logger.error(
+                    "Failed to post gig-record summary for mission %s",
+                    mission_id, exc_info=True,
+                )
+
         await _post_mission_audit(
             self.bot,
             action="Mission Auto-Payout",
