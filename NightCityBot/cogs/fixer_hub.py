@@ -1322,7 +1322,7 @@ class CreateMissionScheduleView(SafeView):
             mission_description=self.mission_description,
             origin_channel_id=self.origin_channel_id,
         )
-        payout_utc = compute_payout_ts(start_utc)
+        payout_utc = compute_payout_ts(end_utc)
         tz_label = MISSION_TZ_LABELS.get(self.tz_name, self.tz_name)
         desc_preview = ""
         if self.mission_description:
@@ -1644,7 +1644,7 @@ class EditMissionDateTimeModal(discord.ui.Modal, title="Edit Mission Date/Time")
             await send_ephemeral(interaction, "Duration must be between 0.25 and 24 hours.")
             return
         new_end = new_start + timedelta(hours=hours)
-        new_payout = compute_payout_ts(new_start)
+        new_payout = compute_payout_ts(new_end)
 
         ok, err = await _edit_discord_event(
             self.panel.cog.bot, self.panel.row,
@@ -2403,7 +2403,7 @@ class CreateMissionAttendeesView(SafeView):
             or getattr(interaction.user, "name", str(creator_id))
         )
         mission_id = str(uuid.uuid4())
-        payout_utc = compute_payout_ts(self.start_utc)
+        payout_utc = compute_payout_ts(self.end_utc)
         ok = await mission_event_create(
             mission_id=mission_id,
             guild_id=str(guild.id),

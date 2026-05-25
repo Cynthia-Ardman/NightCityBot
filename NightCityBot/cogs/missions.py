@@ -87,17 +87,21 @@ def _dt_close(a: Optional[datetime], b: Optional[datetime], tol_seconds: int = 3
 PAYOUT_TZ = ZoneInfo("America/New_York")
 
 
-def compute_payout_ts(start_utc: datetime) -> datetime:
+def compute_payout_ts(after_utc: datetime) -> datetime:
     """Return the UTC timestamp of the next 00:00 America/New_York strictly
-    after ``start_utc``.
+    after ``after_utc``.
 
-    Example: start = 2026-05-22 20:00 UTC (16:00 ET on May 22) →
+    Callers should pass the mission's **end** time so payout never fires
+    before the mission has finished (a mission spanning midnight ET would
+    otherwise be paid mid-session).
+
+    Example: end = 2026-05-22 20:00 UTC (16:00 ET on May 22) →
     payout = 2026-05-23 00:00 ET = 2026-05-23 04:00 UTC.
     """
-    if start_utc.tzinfo is None:
-        start_utc = start_utc.replace(tzinfo=timezone.utc)
-    start_et = start_utc.astimezone(PAYOUT_TZ)
-    next_day_et = (start_et + timedelta(days=1)).date()
+    if after_utc.tzinfo is None:
+        after_utc = after_utc.replace(tzinfo=timezone.utc)
+    after_et = after_utc.astimezone(PAYOUT_TZ)
+    next_day_et = (after_et + timedelta(days=1)).date()
     midnight_et = datetime(
         next_day_et.year, next_day_et.month, next_day_et.day,
         0, 0, 0, tzinfo=PAYOUT_TZ,
@@ -487,16 +491,20 @@ class MissionsCog(commands.Cog):
                 await mission_event_cancel(mission_id)
                 return None
             updates["start_ts"] = ev_start
-            new_payout = compute_payout_ts(ev_start)
-            updates["payout_ts"] = new_payout
             if ev_end is not None:
                 updates["end_ts"] = ev_end
+                payout_basis = ev_end
             else:
                 # Keep duration roughly consistent if Discord didn't return end.
                 old_start = row.get("start_ts")
                 old_end = row.get("end_ts")
                 if isinstance(old_start, datetime) and isinstance(old_end, datetime):
-                    updates["end_ts"] = ev_start + (old_end - old_start)
+                    inferred_end = ev_start + (old_end - old_start)
+                    updates["end_ts"] = inferred_end
+                    payout_basis = inferred_end
+                else:
+                    payout_basis = ev_start
+            updates["payout_ts"] = compute_payout_ts(payout_basis)
         elif ev_end is not None and not _dt_close(ev_end, row.get("end_ts")):
             updates["end_ts"] = ev_end
 
