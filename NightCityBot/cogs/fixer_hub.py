@@ -700,6 +700,7 @@ class ActorPayAmountModal(discord.ui.Modal, title="Actor Pay"):
             or getattr(interaction.user, "name", fixer_id)
         )
         paid: list[str] = []
+        paid_uids: list[str] = []
         failed: list[str] = []
         reason = f"NCRP Actor Pay: {self.mission_name}"
         for uid in self.actor_ids:
@@ -732,6 +733,38 @@ class ActorPayAmountModal(discord.ui.Modal, title="Actor Pay"):
                 )
             else:
                 paid.append(f"• **{display}** — +¥{pay:,} bank")
+                paid_uids.append(str(uid))
+
+        if paid_uids:
+            try:
+                spend_ch = self.cog.bot.get_channel(config.NPC_SPENDING_CHANNEL_ID)
+                if spend_ch is None:
+                    try:
+                        spend_ch = await self.cog.bot.fetch_channel(
+                            config.NPC_SPENDING_CHANNEL_ID
+                        )
+                    except Exception:
+                        spend_ch = None
+                if spend_ch is not None:
+                    mentions = "\n".join(
+                        f"• <@{uid}> — **¥{pay:,}** (bank)" for uid in paid_uids
+                    )
+                    msg = (
+                        f"🎭 **Actor Pay** — _{_short(self.mission_name, 80)}_\n"
+                        f"{mentions}\n"
+                        f"_Paid by {interaction.user.mention}_"
+                    )
+                    await spend_ch.send(
+                        msg,
+                        allowed_mentions=discord.AllowedMentions(
+                            users=True, roles=False, everyone=False
+                        ),
+                    )
+            except Exception:
+                logger.error(
+                    "Failed to post actor-pay notice to NPC_SPENDING_CHANNEL_ID",
+                    exc_info=True,
+                )
 
         embed = discord.Embed(
             title=f"🎭 Actor Pay — {_short(self.mission_name, 60)}",
