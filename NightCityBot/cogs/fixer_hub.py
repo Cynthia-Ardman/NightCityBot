@@ -1041,6 +1041,24 @@ def _parse_mission_start(text: str) -> Optional[datetime]:
         return None
 
 
+def _parse_mission_start_in_tz(text: str, tz: ZoneInfo) -> Optional[datetime]:
+    """Parse `YYYY-MM-DD HH:MM` as local time in *tz* and return UTC."""
+    if not text:
+        return None
+    m = MISSION_DATETIME_RE.match(text.strip())
+    if not m:
+        return None
+    try:
+        local = datetime(
+            int(m.group(1)), int(m.group(2)), int(m.group(3)),
+            int(m.group(4)), int(m.group(5)), 0,
+            tzinfo=tz,
+        )
+        return local.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
 def _parse_int_amount(text: str) -> Optional[int]:
     if text is None:
         return None
@@ -1525,7 +1543,8 @@ class EditMissionPanelView(SafeView):
 
     @discord.ui.button(label="Edit Date/Time", style=discord.ButtonStyle.primary, emoji="📅", row=0)
     async def edit_datetime(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(EditMissionDateTimeModal(self))
+        tz_name = await get_fixer_tz_pref(interaction.user.id)
+        await interaction.response.send_modal(EditMissionDateTimeModal(self, tz_name))
 
     @discord.ui.button(label="Edit Attendees", style=discord.ButtonStyle.primary, emoji="👥", row=0)
     async def edit_attendees(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1603,7 +1622,7 @@ async def _edit_discord_event(
 
 class EditMissionDateTimeModal(discord.ui.Modal, title="Edit Mission Date/Time"):
     start_time = discord.ui.TextInput(
-        label="New start (UTC) — YYYY-MM-DD HH:MM",
+        label="New start — YYYY-MM-DD HH:MM",
         placeholder="2026-05-23 20:00",
         max_length=20,
         required=True,
@@ -1615,25 +1634,38 @@ class EditMissionDateTimeModal(discord.ui.Modal, title="Edit Mission Date/Time")
         required=True,
     )
 
-    def __init__(self, panel: "EditMissionPanelView"):
+    def __init__(self, panel: "EditMissionPanelView", tz_name: str = MISSION_DEFAULT_TZ):
         super().__init__(timeout=300)
         self.panel = panel
-        # Pre-fill with current values for convenience.
+        if tz_name not in MISSION_TZ_LABELS:
+            tz_name = MISSION_DEFAULT_TZ
+        self.tz_name = tz_name
+        try:
+            self.tz = ZoneInfo(tz_name)
+        except Exception:
+            self.tz = ZoneInfo("UTC")
+            self.tz_name = "UTC"
+        tz_label = MISSION_TZ_LABELS.get(self.tz_name, self.tz_name)
+        # Discord caps modal labels at 45 chars — keep this short.
+        self.start_time.label = f"New start ({tz_label}) YYYY-MM-DD HH:MM"[:45]
+        # Pre-fill with current values for convenience, rendered in fixer's tz.
         cur_start = panel.row.get("start_ts")
         cur_end = panel.row.get("end_ts")
         if isinstance(cur_start, datetime):
-            self.start_time.default = cur_start.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
+            local = cur_start if cur_start.tzinfo else cur_start.replace(tzinfo=timezone.utc)
+            self.start_time.default = local.astimezone(self.tz).strftime("%Y-%m-%d %H:%M")
         if isinstance(cur_start, datetime) and isinstance(cur_end, datetime):
             hours = max(1, round((cur_end - cur_start).total_seconds() / 3600))
             self.duration_hours.default = str(hours)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
-        new_start = _parse_mission_start(str(self.start_time.value or ""))
+        new_start = _parse_mission_start_in_tz(str(self.start_time.value or ""), self.tz)
         if new_start is None:
+            tz_label = MISSION_TZ_LABELS.get(self.tz_name, self.tz_name)
             await send_ephemeral(
                 interaction,
-                "Start must be `YYYY-MM-DD HH:MM` in UTC (e.g. `2026-05-23 20:00`).",
+                f"Start must be `YYYY-MM-DD HH:MM` in {tz_label} (e.g. `2026-05-23 20:00`).",
             )
             return
         try:

@@ -507,6 +507,8 @@ class MissionsCog(commands.Cog):
             updates["payout_ts"] = compute_payout_ts(payout_basis)
         elif ev_end is not None and not _dt_close(ev_end, row.get("end_ts")):
             updates["end_ts"] = ev_end
+            # Payout is keyed off end time, so recompute when only the end moves.
+            updates["payout_ts"] = compute_payout_ts(ev_end)
 
         if updates:
             ok = await mission_event_update(mission_id, **updates)
@@ -653,6 +655,20 @@ class MissionsCog(commands.Cog):
             if ub_ok:
                 paid_lines.append(f"• **{display}** — +¥{pay:,} bank")
                 paid_uids.append(str(uid))
+                # DM the player so they know they were paid and for what.
+                if user is not None and pay > 0:
+                    try:
+                        await user.send(
+                            f"💰 **You've been paid for a mission!**\n"
+                            f"• **Mission:** _{mission_name}_\n"
+                            f"• **Payout:** **¥{pay:,}** deposited to your bank"
+                        )
+                    except Exception:
+                        # DMs disabled / blocked — non-fatal, payout still stands.
+                        logger.info(
+                            "Could not DM payout notice to %s for mission %s",
+                            uid, mission_id,
+                        )
             else:
                 failed_lines.append(f"• **{display}** — UB payout failed")
 
