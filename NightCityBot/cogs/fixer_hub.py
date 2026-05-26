@@ -1796,10 +1796,14 @@ def _build_mission_description(row: dict) -> str:
         parts.append("")  # blank line separator
     parts.extend([
         f"📍 **Location:** {location}",
-        f"💰 **Pay:** ¥{pay:,} per attendee (auto-paid the morning after).",
+        f"💰 **Pay:** ¥{pay:,} per attendee.",
         f"🎬 **Fixer:** <@{creator_id}>",
-        f"🎯 **Attendees:** {len(attendees)}",
     ])
+    if attendees:
+        mentions = ", ".join(f"<@{uid}>" for uid in attendees)
+        parts.append(f"🎯 **Attendees ({len(attendees)}):** {mentions}")
+    else:
+        parts.append("🎯 **Attendees:** _(none yet)_")
     return "\n".join(parts)
 
 
