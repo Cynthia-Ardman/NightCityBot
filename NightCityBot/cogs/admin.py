@@ -233,19 +233,28 @@ class Admin(commands.Cog):
     async def helpme(self, ctx):
         """Display help for regular users."""
         embed = discord.Embed(
-            title="📘 NCRP Bot — Player Help",
+            title="📘 NCRP — Player Help",
             description=(
-                "Basic commands for RP, rent, and daily life in Night City.\n\n"
-                "**Other help commands:**\n"
-                "`!helpplayer` — player hub panel guide\n"
-                "`!helpguns` — gun store guide\n"
-                "`!helpcyberware` — ripperdoc guide\n"
-                "`!helpfixer` — fixer & admin tools\n"
-                "`!helpadmin` — server administration"
+                "Almost everything now lives on the **Night City RP portal**:\n"
+                "**https://nightcityroleplay.com** — log in with Discord.\n\n"
+                "The bot only handles a few Discord-native things (listed below)."
             ),
             color=discord.Color.teal(),
         )
-
+        embed.add_field(
+            name="🌐 On the website",
+            value=(
+                "• **Characters** — create & edit sheets, stats, installed cyberware\n"
+                "• **Ledger** — full eddies transaction history\n"
+                "• **Dashboard** — weekly attendance payout, Open Shop, bills preview, VRChat instances\n"
+                "• **Missions** — browse & apply as a PC or sign up as an NPC actor\n"
+                "• **My Requests / My Offers** — proposals for housing, guns, cyberware & commerce\n"
+                "• **Directory** — player stores, ripperdoc clinics, calendar, lore\n"
+                "• **Catalogs** — Guns, Cyberware, Property\n"
+                "• **Leave of Absence & Settings** — LOA toggle and Discord ping prefs"
+            ),
+            inline=False,
+        )
         embed.add_field(
             name="🎲 Dice Rolls",
             value=(
@@ -255,52 +264,12 @@ class Admin(commands.Cog):
             ),
             inline=False,
         )
-
-        embed.add_field(
-            name="💰 Rent & Cost of Living",
-            value=(
-                "Everyone pays a **$500/month** baseline fee for survival.\n\n"
-                "`!open_shop` — Sundays only. Log a business opening for a cash payout.\n"
-                "`!attend` — Sundays only. Verified players earn $250.\n"
-                "`!due` — See what you'll owe on the 1st.\n"
-                "`!paydue` — Pay your monthly obligations early.\n"
-                "`!last_payment` — View your last automated payment.\n\n"
-                f"These are also available as buttons on the **Player Hub** panel in <#{config.PLAYER_HUB_CHANNEL_ID}>."
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🏖️ Leave of Absence",
-            value=(
-                "`!start_loa` – pause your fees while away.\n"
-                "`!end_loa` – resume costs when you return.\n\n"
-                "Also available from the Player Hub panel."
-            ),
-            inline=False,
-        )
-
         embed.add_field(
             name="🚑 Medical",
-            value=(
-                "`!call_trauma` – ping the Trauma Team channel.\n"
-                "`!paycyberware` – pay your cyberware meds manually."
-            ),
+            value="`!call_trauma` – ping the Trauma Team channel for emergency RP.",
             inline=False,
         )
-
-        embed.add_field(
-            name="📦 Inventories & Trading",
-            value=(
-                f"Head to <#{config.PLAYER_HUB_CHANNEL_ID}> for the **Player Hub** — "
-                "view inventory, sell to players, give items, manage characters & businesses.\n\n"
-                f"**🔫 Gun store** — own a shop? Use the panel in <#{config.GUN_HUB_CHANNEL_ID}>.\n"
-                f"**💉 Ripperdoc** — licensed doc? Use the panel in <#{config.RIPPERDOC_HUB_CHANNEL_ID}>."
-            ),
-            inline=False,
-        )
-
-        embed.set_footer(text="Use !roll, pay your rent, stay alive. | !helpplayer • !helpguns • !helpcyberware • !helpfixer")
+        embed.set_footer(text="Play at nightcityroleplay.com | !helpfixer • !helpadmin")
         await ctx.send(embed=embed)
 
     @commands.command(name="helpfixer")
@@ -309,72 +278,47 @@ class Admin(commands.Cog):
 
         fields = [
             (
-                "🏪 Interactive Hubs",
+                "🌐 Fixer tools are on the website",
                 "\n".join([
-                    f"<#{config.FIXER_HUB_CHANNEL_ID}> – **Fixer panel**: player inventory, items, LOA & store management.",
-                    f"<#{config.RIPPERDOC_HUB_CHANNEL_ID}> – ripperdoc hub: buy, sell, install, view stock, checkup patients.",
+                    "**https://nightcityroleplay.com** → **Fixer Hub** (log in with Discord).",
+                    "",
+                    "• **Player Lookup** — a player's characters, wallets, drafts & rejected proposals",
+                    "• **Mission Log** — create, draft & propose missions (payout handled on approval)",
+                    "• **Event Management** — schedule sessions, socials & events",
+                    "• **Mission Reports** — participation & payout summaries",
+                    "• **Pay Actors** — pay NPC actors for scenes",
+                    "• **Character Archive** — every character sheet's full history",
+                    "• **Item Trace** — find who owns any gear/cyberware",
+                    "• **Cyberware Violations** — slot-cap / cyberpsychosis report",
+                    "• **Off-Map Properties** — off-catalog homes & business leases",
+                    "• **CyberPsycho** — manage high-threat cyberpsycho status",
+                    "• **Breach Control** — build & send Breach Protocol puzzles",
+                    "• **Review Queue** — vote on sheets, edits, misc requests & lore",
                 ]),
             ),
             (
-                "✉️ Messaging",
+                "✉️ Discord-only messaging",
                 "\n".join([
                     "`!dm @user <text>` – anonymous DM with attachments.",
                     "`!post <channel|thread> <message>` – send a message in another channel.",
                 ]),
             ),
             (
-                "📑 RP & Characters",
+                "📑 Discord-only RP tools",
                 "\n".join([
                     "`!start_rp @users...` – create a locked RP channel.",
                     "`!end_rp` – archive the current RP channel.",
-                    "`!search_characters <keyword>` – search character sheets.",
-                    "`!retire` / `!unretire <thread_id>` – retire or unretire a character.",
-                    "`!move_npcs` – move NPC sheets to the NPC category.",
-                    "`!backup_sheets` – back up all character sheets.",
-                ]),
-            ),
-            (
-                "💵 Economy & Rent",
-                "\n".join([
-                    "`!event_start` – allow `!attend` / `!open_shop` outside Sunday.",
-                    "`!due [@user]` – breakdown of what a user owes.",
-                    "`!collect_rent [@user] [-v] [-force]` – run the rent cycle.",
-                    "`!simulate_rent [@user] [-v]` – dry-run the rent cycle without charging.",
-                ]),
-            ),
-            (
-                "💉 Cyberware",
-                "\n".join([
-                    "`!checkup @user` – remove the checkup role after an exam (also on ripperdoc panel).",
-                    "`!weeks_without_checkup @user` – weeks since last checkup.",
-                    "`!give_checkup_role` – assign the checkup role to all cyberware users.",
-                    "`!checkup_report` – list checkup/meds status for all cyberware users.",
-                    "`!cyberware_status` – current week status for all cyberware users.",
-                    "`!collect_cyberware` – collect cyberware medication fees.",
-                    "`!manual_cyberware_log` – manually log a cyberware transaction.",
-                ]),
-            ),
-            (
-                "🎯 Missions",
-                "\n".join([
-                    "Fixer panel → **Missions** for everything below.",
-                    "`!mission_check @user [@user2 …]` – show mission count, last date, and recent mission titles + the fixer who created each one.",
-                    "`!mission_record @user [@user2 …] [date=YYYY-MM-DD]` – record a mission; date defaults to today.",
-                    "**Create Mission** (panel button) – schedules a Discord 'Actors Needed: …' event, records the mission in each selected player's gig log immediately, and at the next midnight US-Eastern after the start time auto-pays each attendee (to bank) via UnbelievaBoat. The fixer who created the mission is never paid. First a short modal asks name / pay / location / **optional description** (the description is shown on the Discord event card above the auto-generated fixer/pay/attendees block), then a dropdown screen lets you pick date, start hour, duration, and timezone (US Eastern / Central / Mountain / Pacific / UTC — defaults to your last-used). The Discord event auto-renders the start time in each viewer's local timezone. Tap **📎 Attach Banner** on the attendees screen to upload a custom event cover (paste/upload in chat within 60 s, ≤ 8 MiB) — otherwise a random default banner is used.",
-                    "**Actor Pay** (panel button) – select actor(s), pick a recorded mission, enter a per-actor amount; pays each via UnbelievaBoat (to bank) and writes an `actor_attendance` ledger row tagged with the fixer and mission.",
-                    "**Check Actor** (panel button) – show how many times someone has acted, the dates, and which missions + fixer they were acting for.",
-                    "**Edit Mission** (panel button) – the dropdown only lists **active** missions (not yet paid, not canceled). Pick one, then change date/time, attendees, or payout (Discord event + DB stay in sync), or cancel it entirely (deletes the Discord event and skips auto-payout). Edit Attendees has a `Credit Added` toggle (ON by default — newly-added attendees get a gig-log credit) and a `Reverse Removed` toggle (OFF by default — removed attendees lose one gig-log credit for the mission, matched by title so same-day duplicates are safe). Cancel Mission has a `Reverse Gig-Log Credits` toggle (**ON by default** — removes one gig-log credit per attendee, again matched by mission title; toggle OFF to keep the credits). A 🔄 Refresh button re-reads the row and re-locks the panel if the mission was just paid or canceled by the background loop.",
-                    "**Auto-reconcile**: at payout time the bot re-checks the Discord event. If it was deleted/canceled/renamed away from `Actors Needed:`, the mission is marked canceled and no payout fires. If it was rescheduled, the DB updates and payout is deferred to the new date.",
+                    "`!roll [XdY+Z]` – roll dice (DM rolls are logged to a private thread).",
                 ]),
             ),
         ]
 
         embeds = []
         current = discord.Embed(
-            title="🛠️ NCRP Bot — Fixer Help",
+            title="🛠️ NCRP — Fixer Help",
             description=(
-                "Most day-to-day work is done through the interactive hubs.\n"
-                "Commands below are for things the hubs don't cover."
+                "Fixer work now happens on the website. The commands below are the "
+                "few Discord-native tools the site can't replace."
             ),
             color=discord.Color.purple(),
         )
@@ -383,15 +327,15 @@ class Admin(commands.Cog):
             for i, chunk in enumerate(chunks):
                 field_name = name if i == 0 else "\u200b"
                 if _embed_len(current) + len(field_name) + len(chunk) > 5800:
-                    current.set_footer(text="Fixer tools by MedusaCascade | v1.2")
+                    current.set_footer(text="Fixer tools | nightcityroleplay.com")
                     embeds.append(current)
                     current = discord.Embed(
-                        title="🛠️ NCRP Bot — Fixer Help (cont.)",
+                        title="🛠️ NCRP — Fixer Help (cont.)",
                         color=discord.Color.purple(),
                     )
                 current.add_field(name=field_name, value=chunk, inline=False)
 
-        current.set_footer(text="Fixer tools by MedusaCascade | v1.2")
+        current.set_footer(text="Fixer tools | nightcityroleplay.com")
         embeds.append(current)
 
         for e in embeds:
@@ -403,70 +347,54 @@ class Admin(commands.Cog):
 
         fields = [
             (
-                "🏪 Interactive Hubs",
+                "🌐 Admin tools are on the website",
                 "\n".join([
-                    f"<#{config.ADMIN_HUB_CHANNEL_ID}> – admin panel: add/remove items, reassign, history lookup.",
-                    f"<#{config.GUN_HUB_CHANNEL_ID}> – gun store hub: buy, sell, view stock, manage approved buyers.",
-                    f"<#{config.RIPPERDOC_HUB_CHANNEL_ID}> – ripperdoc hub: buy, sell, install, view stock, checkup patients.",
+                    "**https://nightcityroleplay.com/admin** (log in with Discord).",
+                    "",
+                    "• **User Management** — assign roles, hydrate from Discord, reset status",
+                    "• **Wallet / Economy** — adjust any wallet, sink eddies, retry sync",
+                    "• **Cron Jobs** — trigger/monitor rent, cyberware meds, interest, etc.",
+                    "• **Feature Flags & Live Mode** — toggle systems and kill switches",
+                    "• **Maintenance** — site lock / Live-vs-Test mode",
+                    "• **Unified Audit Log** — searchable history of every portal action",
+                    "• **VRChat Poller** — monitor & reconnect instance tracking",
+                    "• **Review Queue** — approve/reject sheets, edits, lore & guidebook",
                 ]),
             ),
             (
-                "⚙️ System Control",
+                "⚙️ Bot process control",
                 "\n".join([
-                    "`!enable_system <name>` / `!disable_system <name>` – toggle subsystems on/off.",
-                    "`!system_status` – show current enable/disable flags.",
-                    "`!reload_config` – reload config from DB without restarting.",
+                    "`!system_status` – show bot subsystem enable/disable flags.",
+                    "`!enable_system <name>` / `!disable_system <name>` – toggle a bot subsystem.",
+                    "`!reload_config` – reload bot config from DB without restarting.",
+                    "`!db_health` – bot database ping, pool stats, failure count.",
                     "`!shutdown_bot` – clean shutdown with audit log.",
-                    "`!db_health` – database ping, pool stats, failure count.",
                 ]),
             ),
             (
-                "💵 Rent & Payment",
+                "💾 Bot database backups",
                 "\n".join([
-                    "`!collect_rent [@user] [-v] [-force]` – run the monthly rent cycle.",
-                    "`!collect_housing @user` / `!collect_business @user` / `!collect_trauma @user` – collect individual fee types.",
-                    "`!simulate_rent [@user] [-v]` / `!simulate_all` – dry-run rent without charging.",
-                    "`!trigger_auto_rent` – run full rent cycle immediately, bypassing the monthly guard.",
-                    "`!mark_paid @user [note]` – manually mark a member as paid.",
-                    "`!list_deficits` – list members who can't cover upcoming charges.",
-                    "`!backup_balances` / `!restore_balances <file>` – snapshot and restore all balances.",
-                    "`!backup_balance @user` / `!restore_balance @user [file]` – snapshot and restore a single balance.",
-                ]),
-            ),
-            (
-                "🔫 Gun Shop / 💉 Cyberware",
-                "\n".join([
-                    "Gun shop and cyberware admin actions are handled through",
-                    "the interactive hubs: `!gunstore`, `!ripperdoc`, `!fixer`, and `!admin`.",
-                    "`!item_history <item_id>` – full ownership/transaction history of an item.",
-                ]),
-            ),
-            (
-                "💾 Backups",
-                "\n".join([
-                    "`!backup_now` – trigger an immediate database backup.",
+                    "`!backup_now` – trigger an immediate bot-DB backup.",
                     "`!backup_status` – show last backup time and status.",
-                    "`!restore_db <file>` – restore the database from a backup file.",
-                    "`!backup_sheets` – back up all character sheets.",
+                    "`!restore_db <file>` – restore the bot DB from a backup file.",
                 ]),
             ),
             (
-                "🛠️ Other Admin Tools",
+                "🧵 Discord utilities",
                 "\n".join([
-                    "`!backfill_logs [limit]` – rebuild attendance/business logs from message history.",
+                    "`!search_tickets <query>` – search RP tickets by name, user, ID, or text.",
                     "`!reindex_tickets [limit]` – rebuild the ticket search index.",
-                    "`!search_tickets <query>` – search tickets by name, user, ID, or text.",
-                    "`!export_threads [category]` – export threads to a file.",
+                    "`!export_threads [category]` – export Discord threads to a file.",
                 ]),
             ),
         ]
 
         embeds = []
         current = discord.Embed(
-            title="🛠️ NCRP Bot — Admin Help",
+            title="🛠️ NCRP — Admin Help",
             description=(
-                "Most day-to-day management is done through the interactive hubs.\n"
-                "Commands below are for things the hubs don't cover."
+                "Game & economy administration now lives on the website. The commands "
+                "below only cover the bot process itself and Discord-native utilities."
             ),
             color=discord.Color.dark_gold(),
         )
@@ -475,15 +403,15 @@ class Admin(commands.Cog):
             for i, chunk in enumerate(chunks):
                 field_name = name if i == 0 else "\u200b"
                 if _embed_len(current) + len(field_name) + len(chunk) > 5800:
-                    current.set_footer(text="Admin tools by MedusaCascade | v1.2")
+                    current.set_footer(text="Admin tools | nightcityroleplay.com")
                     embeds.append(current)
                     current = discord.Embed(
-                        title="🛠️ NCRP Bot — Admin Help (cont.)",
+                        title="🛠️ NCRP — Admin Help (cont.)",
                         color=discord.Color.dark_gold(),
                     )
                 current.add_field(name=field_name, value=chunk, inline=False)
 
-        current.set_footer(text="Admin tools by MedusaCascade | v1.2")
+        current.set_footer(text="Admin tools | nightcityroleplay.com")
         embeds.append(current)
 
         for e in embeds:
